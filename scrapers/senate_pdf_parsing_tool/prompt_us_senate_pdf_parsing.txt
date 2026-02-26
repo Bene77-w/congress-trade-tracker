@@ -1,0 +1,6 @@
+Dein Ziel: programmiere ein robustes python Programm parse_us_senate_committee_pdf.py um aus XXXpdf Informationen zu parsen. Erstelle daraufhin eine CSV Datei us_senate_member&(sub)committees.csv in der du die Daten speicherst.
+
+-lese die Strukturanalyse zu XXXpdf in XXX um ein ein funktonierendes parsing Programm zu schreiben
+-lese XXX um die gewünschte Zielstruktur und alle nötigen Daten für das CSV zu verstehen
+
+Denke Schritt für Schritt und erstelle zunächst einen sinnvollen Ausführungsplan und bitte um meine Absegnung zu dem plan bevor du beginnst zu coden
