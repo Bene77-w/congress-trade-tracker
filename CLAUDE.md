@@ -8,6 +8,7 @@ Python + Streamlit App die US-Kongress-Mitglieder Stock-Trades trackt, analysier
 2. **Immer erst Implementierungsplan zeigen**, dann auf "OK" warten bevor Code geschrieben wird
 3. **transaction_date verwenden**, nicht disclosure_date (45-Tage Meldefrist)
 4. **Neue Dateien dokumentieren**: Bei Erstellung oder Verwendung neuer projektrelevanter Dateien (Daten, Config, Scripts) → in `organisation/DATA_STRUCTURE.md` aufnehmen (Struktur, Spalten, Zweck, Beispiele)
+5. **Sytemanweisung**: Du bist ein erfahrener Software Entwickler. Du estellst vor jeder code Code-Änderung einen Implementierungsplan, bevor du diesen strikt umsetzt. Um einen individuell passenden Plan zu erstellen frägst du den User nach konkreten Anweisungen und frägst bei wichtigen Planungsfragen deine Entschiedung vom User approven. Du teilst jeden Gedankengang und Entscheidungsweg mit mir. Falls Rückfragen oder Probleme auftreten, teile mir diese mit. 
 
 ---
 
@@ -16,12 +17,12 @@ Python + Streamlit App die US-Kongress-Mitglieder Stock-Trades trackt, analysier
 | Modul | Status | Beschreibung |
 |-------|--------|--------------|
 | 1 | FERTIG | Projektstruktur |
-| 2 | FERTIG | House Trades Scraping (ZIP + PDF-Parsing, 122 Tests) |
-| 3 | FERTIG | Senate Trades Scraping (Playwright + DataTables API) |
+| 2 | FERTIG | House Trades Scraping (ZIP + PDF-Parsing, 126 Tests, subholding-Fix Feb 2026) + House PDF Extractor (OCR, alle Formulartypen A/B/C getestet Feb 2026) |
+| 3 | FERTIG | Senate Trades Scraping (Playwright + DataTables API). senate_pdf_extractor liest gescannte PDFs fehlerhaft (Vision API), aber irrelevant - einziger Senator mit Paper-PTRs investiert nur in Fonds |
 | 4 | FERTIG | Ausschuss-Sektor-Mapping (CommitteeMapper + CommitteeFilter implementiert) |
 | 5 | ÜBERSPRUNGEN | Kursdaten (Yahoo Finance) - vorerst übersprungen |
-| 6 | ÜBERSPRUNGEN | Abstimmungsdaten - vorerst übersprungen |
-| 7 | OFFEN | Filter-Logik (Filter 1, 2, 3, 6, 7) |
+| 6 | Offen| Abstimmungsdaten - vorerst übersprungen |
+| 7 | OFFEN | Filter-Logik (Filter 1, 2, 4, 6, 7) + Filter 3 als Auto-Flag |
 | 8 | OFFEN | Scoring-System |
 | 9 | OFFEN | Streamlit Dashboard |
 | 10 | OFFEN | Email-Benachrichtigungen |
@@ -53,6 +54,7 @@ Python + Streamlit App die US-Kongress-Mitglieder Stock-Trades trackt, analysier
 - `data/raw/subcommittee_sector_industry_mapping.csv` - Subcommittee→Sektor/Industry (861 Zeilen, normalisiert) **[CSV, empfohlen]**
 - `data/raw/subcommittee_sector_industry_mapping_v3.xlsx` - Originaldatei (6 Sheets: Industry_Mapping, Region_Mapping, etc.)
 - `data/processed/trades_master.csv` - Alle Trades mit Committee-Spalte
+- `data/raw/former_members.csv` - Ehemalige Politiker (name, party, state, chamber)
 - `data/processed/unmatched_names.csv` - Namen ohne Match
 
 ### Datenstrukturen (xlsx & CSV)
@@ -98,16 +100,27 @@ python scripts/import_trades.py
 python scripts/convert_xlsx_to_csv.py
 ```
 
+```bash
+# 3. (Optional) Hand-Delivered PDFs via OCR extrahieren:
+python scrapers/house_pdf_extractor.py           # Alle fehler-PDFs (empty_text)
+python scrapers/house_pdf_extractor.py --dry-run  # Trockenlauf
+```
+
 **Hinweis:** Member-Listen (CSVs) werden direkt aus PDF extrahiert und liegen bereits in `data/raw/`. Bei neuen Wahlen: Neue PDFs extrahieren und CSVs ersetzen.
+
+**Leadership-Fix (07.03.2026):** `house_member&(sub)committees.csv` enthaelt 437 Members (432 aus Committee-Seiten + 5 Leadership ohne Committees). Leadership-Members (Speaker, Majority/Minority Leader, Whip, Speaker Emerita) werden via Alphabetical-List-Kreuzreferenz in `parse_house_committee_pdf.py` erkannt und mit `ExOfficio=true` eingetragen → 1.5x Scoring-Multiplikator.
 
 ---
 
-## Letzte Ergebnisse (24.01.2026)
+## Letzte Ergebnisse (07.03.2026)
 
-- Total Trades: 108.982
-- Erfolgreich gematcht: 89.561 (82%)
-- Nicht gefunden: 19.421 (18%) - meist ehemalige Politiker
-- Eindeutige unmatched Namen: 122
+- Total Trades: 9.591
+- Erfolgreich gematcht: 9.591 (100%)
+- Nicht gefunden: 0 (0%)
+- Eindeutige unmatched Namen: 0
+- Datenquelle: Eigene Scraper (Quiver-Daten entfernt)
+- House Members: 437 (inkl. 5 Leadership ex officio)
+- Fuzzy-Threshold: 85%
 
 ---
 
@@ -131,14 +144,16 @@ python scripts/convert_xlsx_to_csv.py
 
 ## Naechster Schritt
 
-**Modul 7: Filter-Logik (Filter 1, 2, 6, 7)**
-- Filter 5 (Contrarian) und Filter 6 (Timing vor Abstimmung) vorerst übersprungen
-- Implementierung der verbleibenden Filter:
-  - Filter 1: Volumen (config bereits in settings.py)
-  - Filter 2: Schwarm-Verhalten (config bereits in settings.py)
-  - Filter 3: Committee (✅ bereits implementiert)
-  - Filter 6: Long↔Short Wechsel (config bereits in settings.py)
-  - Filter 7: Position vergrößert (config bereits in settings.py)
+**Modul 7: Filter-Logik (Filter 1, 2, 4, 6, 7)**
+- Filter 5 (Contrarian) vorerst übersprungen
+- Filter 3 (Committee): kein Scoring-Gewicht – trifft ein Trade den Committee-Filter, gilt er **automatisch als verdächtig** (unabhängig vom Gesamt-Score)
+- Filter 4 (Timing vor Abstimmung): jetzt aktiv – API verfügbar
+- Neue Gewichtungen (Scoring-Filter):
+  - Filter 1: Volumen (7.5%)
+  - Filter 2: Schwarm-Verhalten (35%)
+  - Filter 4: Timing vor Abstimmung (35%)
+  - Filter 6: Long↔Short Wechsel (7.5%)
+  - Filter 7: Position vergrößert (15%)
 
 ---
 

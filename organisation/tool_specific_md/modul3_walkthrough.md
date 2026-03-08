@@ -35,7 +35,7 @@ run()
 ## CLI-Aufruf
 
 ```powershell
-cd "C:\Users\benedikt\OneDrive\BMB Tradingprogramm\congress_tracker"
+cd "C:\Users\benedikt\OneDrive\bmb_trdprg\congress_tracker"
 
 # Standard (seit Session-Start 01/03/2025):
 .\venv\Scripts\python.exe scrapers\senate_scraper.py --from-date 01/03/2025

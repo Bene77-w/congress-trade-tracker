@@ -1,6 +1,6 @@
 """
 Congress Trade Tracker - Trade Import Pipeline
-Importiert Quiver-Daten, erkennt Duplikate, reichert mit Committee-Daten an
+Importiert Scraped Trades, erkennt Duplikate, reichert mit Committee-Daten an
 """
 
 import os
@@ -17,6 +17,7 @@ sys.path.insert(0, BASE_DIR)
 
 from config import settings
 from utils.name_matcher import NameMatcher
+from filters.vote_timing_filter import VoteTimingFilter, VOTE_TIMING_COLUMNS
 
 logger = logging.getLogger(__name__)
 
@@ -145,7 +146,7 @@ class TradeImporter:
         Erkennt neue Trades durch Duplikat-Check.
 
         Args:
-            input_df: Neue Quiver-Daten
+            input_df: Neue Scraped-Daten
             master_df: Bestehende Master-Daten
 
         Returns:
@@ -280,7 +281,7 @@ class TradeImporter:
             # Besten Fuzzy-Match finden (auch unter Threshold)
             best = self.matcher.get_best_fuzzy_match(name, info['chamber'])
             unmatched_data.append({
-                'quiver_name': name,
+                'trade_name': name,
                 'count': info['count'],
                 'chamber': info['chamber'],
                 'best_match': best['best_match'],
@@ -292,6 +293,62 @@ class TradeImporter:
             unmatched_df = unmatched_df.sort_values('count', ascending=False)
 
         return df, unmatched_df
+
+    def enrich_with_vote_timing(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Reichert Trades mit Vote-Timing-Daten an (Filter 4).
+
+        Args:
+            df: DataFrame mit Trades (nach Committee-Enrichment)
+
+        Returns:
+            DataFrame mit Vote_Timing_* Spalten
+        """
+        vote_filter = VoteTimingFilter()
+        votes_df = vote_filter.load_votes()
+
+        if votes_df.empty:
+            logger.info("Keine Vote-Daten, ueberspringe Vote-Timing")
+            print("      [SKIP] Keine congress_votes.csv vorhanden")
+            print("      Tipp: python scripts/fetch_congress_votes.py ausfuehren")
+            # Defaults setzen
+            for col in VOTE_TIMING_COLUMNS:
+                if col not in df.columns:
+                    df[col] = False if col == 'Vote_Timing_Hit' else (0 if 'Score' in col or 'Days' in col else '')
+            return df
+
+        result = vote_filter.apply(df, votes_df)
+
+        hits = result['Vote_Timing_Hit'].sum()
+        print(f"      {hits} Trades mit Vote-Timing-Hit")
+
+        return result
+
+    def _backfill_vote_timing(self, master_df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Backfill: Wendet Vote-Timing auf bestehende Master-Daten an,
+        die noch keine Vote_Timing_* Spalten haben.
+
+        Args:
+            master_df: Bestehende Master-Daten
+
+        Returns:
+            Master-DataFrame mit Vote-Timing-Spalten (oder unveraendert)
+        """
+        if master_df.empty:
+            return master_df
+
+        # Pruefen ob Backfill noetig
+        if 'Vote_Timing_Hit' in master_df.columns:
+            logger.info("Vote-Timing Spalten bereits vorhanden, kein Backfill noetig")
+            return master_df
+
+        print("\n      [BACKFILL] Vote-Timing auf bestehende Trades anwenden...")
+        result = self.enrich_with_vote_timing(master_df)
+        hits = result['Vote_Timing_Hit'].sum()
+        print(f"      [BACKFILL] {hits}/{len(result)} bestehende Trades mit Hit")
+
+        return result
 
     def save_results(
         self,
@@ -343,36 +400,47 @@ class TradeImporter:
         print("=" * 60)
 
         # 1. Scraped Trades laden
-        print("\n[1/4] Lade Scraped Trades...")
+        print("\n[1/5] Lade Scraped Trades...")
         input_df = self.load_trade_data()
         print(f"      Gesamt: {len(input_df)} Trades geladen")
 
         # 2. Master-Daten laden
-        print("\n[2/4] Lade bestehende Master-Daten...")
+        print("\n[2/5] Lade bestehende Master-Daten...")
         master_df = self.load_master_data()
         if not master_df.empty:
             print(f"      {len(master_df)} bestehende Trades")
         else:
             print("      Keine bestehenden Daten (erster Import)")
 
+        # 2a. Backfill: Vote-Timing auf bestehende Master-Daten (einmalig)
+        master_df = self._backfill_vote_timing(master_df)
+
         # 3. Neue Trades erkennen
-        print("\n[3/4] Erkenne neue Trades...")
+        print("\n[3/5] Erkenne neue Trades...")
         new_trades = self.detect_new_trades(input_df, master_df)
         print(f"      {self.stats['new_trades']} neue Trades")
         print(f"      {self.stats['duplicates']} Duplikate uebersprungen")
 
         if new_trades.empty:
+            # Auch bei 0 neuen Trades: Backfill speichern falls Master geaendert
+            if 'Vote_Timing_Hit' in master_df.columns and not master_df.empty:
+                self._ensure_directories()
+                master_df.to_csv(MASTER_CSV_PATH, index=False, encoding='utf-8')
             print("\n[OK] Keine neuen Trades zu verarbeiten.")
             return self.stats
 
         # 4. Mit Committee-Daten anreichern
-        print("\n[4/4] Reichere mit Committee-Daten an...")
+        print("\n[4/5] Reichere mit Committee-Daten an...")
         enriched_df, unmatched_df = self.enrich_with_committees(new_trades)
         print(f"      {self.stats['matched']} erfolgreich gematcht")
         print(f"      {self.stats['unmatched']} nicht gefunden")
 
-        # 5. Ergebnisse speichern
-        print("\n[5/5] Speichere Ergebnisse...")
+        # 5. Vote-Timing anreichern (Filter 4)
+        print("\n[5/5] Vote-Timing Filter...")
+        enriched_df = self.enrich_with_vote_timing(enriched_df)
+
+        # 6. Ergebnisse speichern
+        print("\n[6/6] Speichere Ergebnisse...")
         self.save_results(enriched_df, master_df, unmatched_df)
 
         # Zusammenfassung

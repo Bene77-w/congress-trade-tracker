@@ -48,6 +48,8 @@ def _make_scraper(output_path=None):
     scraper._http.headers = {}
     scraper._project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     scraper._output_path = output_path or os.path.join(tempfile.gettempdir(), "test_house_trades.csv")
+    scraper._fehler_path = os.path.join(tempfile.gettempdir(), "test_house_scraper_fehler.csv")
+    scraper._fehler = []
     scraper._stats = {
         "filings_found": 0,
         "filings_skipped_delta": 0,

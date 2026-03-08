@@ -1,7 +1,7 @@
 # Modul 4: PDF-Extraktion House Committees
 
 ## Input
-- `C:\Users\benedikt\OneDrive\BMB Tradingprogramm\Zwischenlager\house_info_all.pdf`
+- `C:\Users\benedikt\OneDrive\bmb_trdprg\Zwischenlager\house_info_all.pdf`
 - `data/raw/important/us_house_committees.xlsx`
 
 ## Output (alle in `data/raw/important/`)

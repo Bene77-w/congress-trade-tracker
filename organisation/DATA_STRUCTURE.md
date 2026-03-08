@@ -4,24 +4,29 @@ Vollständige Übersicht aller relevanten Dateien, ihrer Struktur und Verwendung
 
 ---
 
-## 1. Trade-Daten (Quiver)
+## 1. Trade-Daten (Scraped)
 
-### `data/raw/congress_trading_data_quiver.xlsx`
-**Quelle**: Quiver Quantitative API
-**Format**: Excel (.xlsx)
-**Größe**: ~9.3 MB
-**Update**: Wöchentlich (manuell)
+### `data/raw/house_trades.csv`
+**Quelle**: `scrapers/house_scraper.py` (ZIP + PDF-Parsing von disclosures-clerk.house.gov)
+**Format**: CSV
+**Update**: Bei jedem Scraper-Lauf
 
 **Spalten**:
-- `Name` - Politiker-Name (z.B. "Nancy Pelosi")
-- `Ticker` - Stock Symbol (z.B. "AAPL")
-- `Chamber` - "House" oder "Senate"
-- `Traded` - Transaktionsdatum (YYYY-MM-DD)
-- `Transaction` - "Purchase" oder "Sale"
-- `Trade_Size_USD` - Handelsgröße in USD
-- (weitere Spalten je nach Quiver-Format)
+```csv
+name,ticker,asset_name,asset_type,transaction_type,amount,transaction_date,owner,subholding,comment,disclosure_date,ptr_link,csv_upload_time
+```
 
-**Verwendung**: Hauptdatenquelle für alle Trades. Wird von `scripts/import_trades.py` importiert.
+### `data/raw/senate_trades.csv`
+**Quelle**: `scrapers/senate_scraper.py` (Playwright + DataTables API von efdsearch.senate.gov)
+**Format**: CSV
+**Update**: Bei jedem Scraper-Lauf
+
+**Spalten**:
+```csv
+name,ticker,asset_name,asset_type,transaction_type,amount,transaction_date,owner,comment,disclosure_date,ptr_link,csv_upload_time
+```
+
+**Verwendung**: Hauptdatenquellen für alle Trades. Werden von `scripts/import_trades.py` importiert.
 
 ---
 
@@ -214,41 +219,76 @@ Credit Services,14.38%
 
 ---
 
-## 5. Processed Data (Output)
+## 5. House PDF Extractor (Hand-Delivered PTRs)
+
+### `data/raw/house_scraper_fehler.csv`
+**Quelle**: Output von `scrapers/house_scraper.py` (automatisch erzeugt)
+**Format**: CSV
+**Update**: Bei jedem House Scraper Lauf
+
+**Spalten**:
+```csv
+doc_id, year, disclosure_date, name, ptr_link, reason
+```
+
+**Wichtige Werte für `reason`**:
+- `empty_text` — PDF hat keinen Textlayer (gescanntes Papierformular) → Input für House PDF Extractor
+- `download_error` — HTTP-Fehler beim PDF-Download (wird vom Extractor übersprungen)
+
+**Verwendung**: Input-CSV für `scrapers/house_pdf_extractor.py`
+
+---
+
+### `data/debug/mccaul_verification/` *(Verifikations-Artefakte)*
+**Quelle**: Manuell erzeugt für QA-Zwecke
+**Inhalt**:
+- `page_01_rotated.png` bis `page_09.png` — Seitenbilder (mit Rotation korrigiert, 200 DPI)
+- `trades_extracted.csv` — Extrahierte Trades für manuellen Abgleich
+
+**Verwendung**: Manueller Vergleich extrahierter Trades gegen Originalseiten (QA)
+
+---
+
+## 6. Processed Data (Output)
 
 ### `data/processed/trades_master.csv`
 **Quelle**: Output von `scripts/import_trades.py`
 **Format**: CSV
-**Größe**: Variable (aktuell ~108,982 Trades)
+**Größe**: Variable (aktuell ~9,591 Trades, nur eigene Scraped-Daten)
 **Update**: Bei jedem Import (kumulativ)
 
-**Spalten** (nach Modul 4):
+**Spalten** (nach Pipeline-Umbau Maerz 2026):
 ```csv
-# Original Quiver Daten
-Name, Ticker, Chamber, Traded, Transaction, Trade_Size_USD, ...
+# Original Scraped Trade-Daten
+name, ticker, asset_name, asset_type, transaction_type, amount,
+transaction_date, owner, subholding, comment, disclosure_date, ptr_link, csv_upload_time,
+chamber,                # House/Senate (von import_trades.py gesetzt)
 
-# Anreicherung durch Name Matching (Modul 3)
+# Anreicherung durch Name Matching
 Member_Party,           # D oder R
 Member_State,           # CA, TX, etc.
-Member_Committees,      # Abgekürzte Liste
+Member_Committees,      # Committee-String
 Member_ExOfficio,       # true/false
 Member_Chamber,         # House/Senate
 MatchScore,             # 0-100 (Fuzzy Match Score)
 MatchSource,            # exact, fuzzy, alias, none
 
-# Anreicherung durch Committee Filter (Modul 4) ⭐ NEU
-Member_Committees_Full, # Vollständiger Committee-String
+# Anreicherung durch Committee Filter (Modul 4)
+Member_Committees_Full, # Vollstaendiger Committee-String
 Relevant_Sectors,       # JSON: [{sector, industry, rank, confidence, committee, subcommittee}, ...]
 Relevance_Score,        # 0-100 (Committee-Sektor Relevanz)
 Confidence_Level,       # Hoch/Mittel/Niedrig
 
+# Anreicherung durch Vote Timing Filter (Modul 6)
+Vote_Timing_Hit,        # True/False — Trade im Zeitfenster einer relevanten Abstimmung
+Vote_Date,              # YYYY-MM-DD — Datum der naechsten relevanten Abstimmung
+Vote_Bill_Title,        # Titel des Bills (z.B. "National Defense Authorization Act")
+Vote_Policy_Area,       # CRS Policy Area (z.B. "Armed Forces and National Security")
+Vote_Timing_Score,      # 0 oder VOTE_TIMING_SCORE (25) — Bonus-Score
+Days_To_Vote,           # Abstand Trade→Vote in Tagen (negativ = Trade VOR Abstimmung)
+
 # Metadata
 ImportDate              # YYYY-MM-DD HH:MM:SS
-```
-
-**Beispiel** (Modul 4):
-```csv
-AAPL,"Tim Scott",Senate,2026-01-15,Purchase,...,D,SC,"Finance, Banking",true,Senate,100,exact,"Committee on Finance|:Subcommittee on Taxation|;Committee on Banking|:Subcommittee on Securities|","[{""sector"":""Technology"",""industry"":""Software—Application"",""rank"":1,""confidence"":""Hoch""}]",100,Hoch,2026-01-20 10:30:00
 ```
 
 **Verwendung**: Hauptdatenbank für Analyse, Filter und Scoring
@@ -273,13 +313,13 @@ AAPL,"Tim Scott",Senate,2026-01-15,Purchase,...,D,SC,"Finance, Banking",true,Sen
 
 **Spalten**:
 ```csv
-quiver_name, count, chamber, best_match, best_match_score
+trade_name, count, chamber, best_match, best_match_score
 ```
 
 **Beispiel**:
 ```csv
-"J. Powell",15,senate,"Jerome Powell",75
-"Nancy P",8,house,"Nancy Pelosi",85
+Marjorie Taylor Greene,286,house,Al Green,72
+Nancy Pelosi,30,house,Nancy Mace,63
 ```
 
 **Verwendung**:
@@ -296,14 +336,16 @@ quiver_name, count, chamber, best_match, best_match_score
 
 **Spalten**:
 ```csv
-quiver_name, correct_name, chamber
+trade_name, correct_name, chamber
 ```
 
 **Beispiel**:
 ```csv
-"N. Pelosi","Nancy Pelosi",house
-"J. Biden Jr","Joseph Biden",senate
+Rob Bresnahan,"Robert P. Bresnahan,Jr.",house
+Thomas H Tuberville,"Tuberville, Tommy",senate
 ```
+
+**Hinweis**: `correct_name` muss exakt dem Namen in der jeweiligen Member-CSV entsprechen (House: "First Last", Senate: "Last, First M.")
 
 **Verwendung**: Name-Matching in `utils/name_matcher.py`
 Überschreibt Fuzzy-Matching für bekannte Varianten.
@@ -332,18 +374,18 @@ Chamber, Committee, Subcommittee, Region, Konfidenz
 ## Data Flow Übersicht
 
 ```
-1. IMPORT
-   congress_trading_data_quiver.xlsx
-   ↓
-   scripts/import_trades.py
+1. SCRAPING
+   house_scraper.py → house_trades.csv
+   senate_scraper.py → senate_trades.csv
    ↓
 
-2. NAME MATCHING
+2. IMPORT + NAME MATCHING
+   scripts/import_trades.py
    + house_member&(sub)committees.csv
-   + us_senate_member&(sub)committees.csv
+   + senate_member&(sub)committees.csv
    + name_aliases.csv
    ↓
-   utils/name_matcher.py
+   utils/name_matcher.py (Senate-Normalisierung + Fuzzy 85%)
    ↓
    [Name, Party, State, Committees, Chamber]
 
@@ -354,7 +396,16 @@ Chamber, Committee, Subcommittee, Region, Konfidenz
    ↓
    [Relevant_Sectors, Relevance_Score, Confidence_Level]
 
-4. OUTPUT
+4. VOTE TIMING FILTER (MODUL 6)
+   + congress_bills_cache.csv (via fetch_congress_votes.py)
+   + congress_votes.csv (gecachte Floor-Votes)
+   ↓
+   config/vote_sector_mapping.py → filters/vote_timing_filter.py
+   ↓
+   [Vote_Timing_Hit, Vote_Date, Vote_Bill_Title, Vote_Policy_Area,
+    Vote_Timing_Score, Days_To_Vote]
+
+5. OUTPUT
    ↓
    trades_master.csv (kumulativ)
    trades_new.csv (neue Trades)
@@ -410,7 +461,7 @@ Erzeugt:
 
 | Datei | Update | Quelle |
 |-------|--------|--------|
-| congress_trading_data_quiver.xlsx | Wöchentlich | Quiver API (manuell) |
+| house_trades.csv / senate_trades.csv | Bei Scraper-Lauf | house_scraper.py / senate_scraper.py |
 | house/senate committees.csv | Alle 2 Jahre | PDF-Extraktion (Wahlen) |
 | subcommittee_sector_mapping.xlsx | Bei Bedarf | Manuell (neue Committees) |
 | trades_master.csv | Bei jedem Import | Automatisch |
@@ -467,22 +518,130 @@ Erzeugt:
 
 ---
 
+---
+
+## 8. Vote Timing Daten (Modul 6)
+
+### `data/raw/congress_bills_cache.csv` ⭐
+**Quelle**: `scripts/fetch_congress_votes.py` (Congress.gov API v3)
+**Format**: CSV
+**Update**: Einmalig (~4h erster Lauf), danach Delta (nur neue Bills)
+
+**Spalten**:
+```csv
+congress, bill_type, bill_number, bill_title, policy_area,
+mapped_sectors, origin_chamber, introduced_date, update_date, fetched_at
+```
+
+**Wichtige Felder**:
+- `congress` — Kongress-Nummer (119 = 2025-2027)
+- `bill_type` — hr, s, hjres, sjres, hconres, sconres, hres, sres
+- `policy_area` — CRS Policy Area (z.B. "Armed Forces and National Security")
+- `mapped_sectors` — kommaseparierte YF-Sektoren (leer wenn unmapped)
+- `fetched_at` — Zeitstempel des API-Calls
+
+**Zweck**: Lokaler Cache aller Bills eines Kongresses. Vermeidet wiederholte API-Calls.
+Enthält Policy Area fuer jedes Bill (nur abrufbar via Bill-Detail-Endpoint, nicht in der Bill-Liste).
+
+**Generierung**:
+```bash
+python scripts/fetch_congress_votes.py          # Delta (neue Bills)
+python scripts/fetch_congress_votes.py --full   # Alles neu
+```
+
+---
+
+### `data/raw/congress_votes.csv`
+**Quelle**: `scripts/fetch_congress_votes.py` (Phase 2, aus Bill-Actions)
+**Format**: CSV
+**Update**: Bei jedem Fetcher-Lauf (Delta)
+
+**Spalten**:
+```csv
+congress, bill_type, bill_number, bill_title, policy_area,
+mapped_sectors, vote_date, action_text, chamber, bill_url
+```
+
+**Wichtige Felder**:
+- `mapped_sectors` — kommaseparierte YF-Sektoren (aus `config/vote_sector_mapping.py`)
+- `vote_date` — Abstimmungsdatum (YYYY-MM-DD)
+- `action_text` — Beschreibung der Action (z.B. "On passage Agreed to by the Yeas...")
+- `chamber` — "House" (vorerst nur House; Senate-XML-Parser kommt spaeter)
+
+**Zweck**: Gecachte Floor-Votes fuer Filter 4 (Vote Timing).
+Nur Bills mit `mapped_sectors` werden in Phase 2 verarbeitet (~38% aller Bills mit Policy Area).
+
+**Beispiel**:
+```csv
+119,hr,144,"Tennessee Valley Authority Salary Transparency Act",Government Operations and Politics,,2025-01-15,"On motion to suspend the rules and pass the bill Agreed to",House,...
+119,hr,187,"Public Lands...","Public Lands and Natural Resources","Energy,Basic Materials",2025-01-15,"On passage...",House,...
+```
+
+---
+
+### `config/vote_sector_mapping.py`
+**Quelle**: Manuell erstellt (basierend auf `organisation/modul6_mapping.md`)
+**Format**: Python-Modul
+
+**Inhalt**:
+- `POLICY_AREA_TO_SECTORS` — 12 sichere Mappings: Policy Area → [YF-Sektoren]
+- `AGENT_REQUIRED_POLICY_AREAS` — 3 kontextabhaengige Areas (fuer spaetere AI-Agent-Integration)
+- `SYSTEMIC_POLICY_AREAS` — 6 systemische Areas (Steuer, Aussenpolitik, etc.)
+- `IRRELEVANT_POLICY_AREAS` — 10 wirtschaftlich irrelevante Areas
+
+**Hilfsfunktionen**:
+- `get_relevant_sectors(policy_area)` → Liste von Sektoren
+- `is_sector_relevant(policy_area, trade_sector)` → bool
+- `get_unmapped_policy_areas()` → Liste fuer AI-Agent
+- `get_mapping_coverage()` → Statistiken (aktuell ~38.7% der bekannten Areas)
+
+**Abdeckung**: 12/31 bekannte Policy Areas = 38.7% fest gemappt.
+Erweiterung durch AI-Agent geplant (analysiert bill_title + summary fuer unmapped Areas).
+
+---
+
+### `filters/vote_timing_filter.py`
+**Klasse**: `VoteTimingFilter`
+
+**Methoden**:
+- `load_votes()` → laedt congress_votes.csv
+- `apply(trades_df, votes_df)` → reichert DataFrame mit Vote_Timing_* Spalten an
+
+**Matching-Logik**:
+1. Trade-Sektoren aus `Relevant_Sectors` (JSON aus Modul 4) extrahieren
+2. Votes mit uebereinstimmendem `mapped_sectors` finden
+3. Zeitfenster: `trade_date ZWISCHEN (vote_date - AFTER) UND (vote_date + BEFORE)`
+4. Bei mehreren Treffern: naechstgelegenen Vote waehlen (abs(days_diff) minimal)
+
+**Parameter** (aus settings.py):
+- `VOTE_TIMING_WINDOW_BEFORE = 30` — max Tage VOR der Abstimmung
+- `VOTE_TIMING_WINDOW_AFTER = 5` — max Tage NACH der Abstimmung (Toleranz)
+- `VOTE_TIMING_SCORE = 25` — Bonus-Score bei Treffer
+
+---
+
 ## Zukünftige Erweiterungen
 
+### AI-Agent fuer Vote-Sektor-Mapping
+**Zweck**: `AGENT_REQUIRED_POLICY_AREAS` klassifizieren (Commerce, Crime, Gov. Operations)
+**Input**: bill_title + bill_summary + trade_sector
+**Output**: {relevant: bool, confidence: 0-1, sectors: [...], reason: str}
+**Vorbereitung**: `get_unmapped_policy_areas()` in vote_sector_mapping.py bereit
+
+### Senate-Vote-Parsing
+**Zweck**: Senate-Votes aus XML-Roll-Call-Dateien parsen
+**Quelle**: clerk.senate.gov XML-Dateien (separater Endpoint)
+**Vorbereitung**: `chamber='Senate'` in congress_votes.csv-Schema vorgesehen
+
 ### Modul 5: Ticker → Sector Lookup
-**Benötigt**:
+**Benoetigt**:
 - yfinance Integration ODER
 - Pre-built ticker→sector mapping CSV
 - Erweiterung von `CommitteeFilter.filter_by_ticker_sector()`
 
-**Ziel**: Filter `Relevant_Sectors` auf tatsächlichen Ticker-Sector → Boost bei Exact Match
-
-### Backfill Script
-**Zweck**: Bestehende trades_master.csv mit neuen Modul-4-Spalten anreichern
-**Script**: `scripts/backfill_committee_relevance.py` (noch zu erstellen)
-**Laufzeit**: ~5-10 Min für 108k Trades
+**Ziel**: Filter `Relevant_Sectors` auf tatsaechlichen Ticker-Sector → Boost bei Exact Match
 
 ---
 
 Erstellt: 2026-02-20
-Letzte Aktualisierung: 2026-02-20 (Modul 4 Implementation)
+Letzte Aktualisierung: 2026-03-08 (Modul 6: Vote Timing hinzugefuegt)

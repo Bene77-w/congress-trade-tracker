@@ -4,7 +4,7 @@ aus den Seiten 1-3, 20-21, 40-47 des Senate-PDFs."""
 import pdfplumber
 import json
 
-PDF_PATH = r"c:\Users\benedikt\OneDrive\BMB Tradingprogramm\Zwischenlager\us_senate_pdf_parsing_tool\us_senat_(sub)committees_all_pdf.pdf"
+PDF_PATH = r"c:\Users\benedikt\OneDrive\bmb_trdprg\Zwischenlager\us_senate_pdf_parsing_tool\us_senat_(sub)committees_all_pdf.pdf"
 
 # Seiten (0-indexed): 0-2, 19-20, 39-46
 PAGES = list(range(0, 3)) + list(range(19, 21)) + list(range(39, 47))

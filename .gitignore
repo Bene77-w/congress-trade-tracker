@@ -7,3 +7,32 @@ data/processed/
 data/raw/congress_trading_data_quiver.xlsx
 logs/
 archive/
+
+# git add . — markiert alle Dateien (außer .gitignore-Einträge) als "bereit zum Speichern" (Staging)
+# git commit — speichert einen Snapshot des aktuellen Zustands dauerhaft in der lokalen Git-Datenbank
+#bsp: git commit -m "Initial commit: Congress Trade Tracker (Module 1-4)"
+# Du kannst mit git status vorher prüfen, was committet wird, und mit git log danach den Commit sehen.
+
+# push an existing repository from the command line
+#git remote add origin https://github.com/Bene77-w/congress-trade-tracker.git
+#git branch -M main
+#git push -u origin main
+#Was passiert:
+#  - remote add origin — sagt Git: "der Name origin zeigt auf diese GitHub-URL"
+#  - branch -M main — benennt den lokalen Branch in main um (GitHub-Standard)
+#  - push -u origin main — lädt alle lokalen Commits zu GitHub hoch; -u merkt sich die Verbindung, sodass du danach
+#  einfach nur git push tippen musst
+#
+#  GitHub fragt nach deinen Zugangsdaten (Username + Personal Access Token, kein Passwort).
+
+
+# Danach: Normaler Workflow
+#
+# git add .
+#  git commit -m "Modul 7: Filter-Logik implementiert"
+#  git push
+#
+#  Oder nur einzelne Dateien:
+#  git add filters/committee_filter.py config/settings.py
+#  git commit -m "Add volume filter"
+#  git pus

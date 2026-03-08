@@ -745,8 +745,8 @@ class TestRunDeltaLogic:
 
 class TestEdgeCases:
     def test_csv_columns_constant(self):
-        """CSV_COLUMNS hat die erwarteten 11 Spalten."""
-        assert len(CSV_COLUMNS) == 11
+        """CSV_COLUMNS hat die erwarteten 12 Spalten."""
+        assert len(CSV_COLUMNS) == 12
         assert "name" in CSV_COLUMNS
         assert "ticker" in CSV_COLUMNS
         assert "ptr_link" in CSV_COLUMNS

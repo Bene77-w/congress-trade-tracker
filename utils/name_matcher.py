@@ -1,9 +1,10 @@
 """
 Congress Trade Tracker - Name Matching System
-Fuzzy-Matching von Quiver-Namen zu Congress-Mitgliedern
+Fuzzy-Matching von Trade-Namen zu Congress-Mitgliedern
 """
 
 import os
+import re
 import sys
 import logging
 from typing import Optional
@@ -18,10 +19,13 @@ from config import settings
 
 logger = logging.getLogger(__name__)
 
+# Suffixe die bei Senate-Namen am Ende stehen koennen
+_NAME_SUFFIXES = {'jr.', 'sr.', 'ii', 'iii', 'iv', 'jr', 'sr'}
+
 
 class NameMatcher:
     """
-    Matcht Namen aus Quiver-Daten zu Congress-Mitgliedern.
+    Matcht Namen aus Trade-Daten zu Congress-Mitgliedern.
 
     Matching-Reihenfolge:
     1. Alias-Lookup (manuelle Korrekturen)
@@ -51,24 +55,83 @@ class NameMatcher:
 
         # Neue CSV-Dateien (nach PDF-Extraktion)
         house_file = getattr(settings, 'HOUSE_COMMITTEES_FILE', 'house_member&(sub)committees.csv')
-        senate_file = getattr(settings, 'SENATE_COMMITTEES_FILE', 'us_senate_member&(sub)committees.csv')
+        senate_file = getattr(settings, 'SENATE_COMMITTEES_FILE', 'senate_member&(sub)committees.csv')
 
         self.house_path = house_members_path or os.path.join(BASE_DIR, raw_path, house_file)
         self.senate_path = senate_members_path or os.path.join(BASE_DIR, raw_path, senate_file)
         self.aliases_path = aliases_path or os.path.join(BASE_DIR, config_path, 'name_aliases.csv')
 
+        # Former Members Pfad
+        former_file = getattr(settings, 'FORMER_MEMBERS_FILE', 'former_members.csv')
+        self.former_path = os.path.join(BASE_DIR, raw_path, former_file)
+
         # Lookup-Dictionaries
         self.house_lookup = {}  # name_lower -> {name, committees, ...}
         self.senate_lookup = {}
-        self.aliases = {}  # quiver_name_lower -> {correct_name, chamber}
+        self.former_lookup = {}  # ehemalige Mitglieder
+        self.aliases = {}  # trade_name_lower -> {correct_name, chamber}
 
         # Daten laden
         self._load_data()
+
+    @staticmethod
+    def _normalize_senate_name(name: str) -> str:
+        """
+        Konvertiert Senate-Namensformat zu Trade-Format.
+
+        "Last, First M." -> "First M. Last"
+        "McConnell, A. Mitchell, Jr." -> "A. Mitchell McConnell Jr."
+
+        Suffix-Handling: Jr., Sr., II, III, IV werden erkannt und ans Ende gestellt.
+        """
+        if ',' not in name:
+            return name.strip()
+
+        parts = [p.strip() for p in name.split(',')]
+
+        if len(parts) < 2:
+            return name.strip()
+
+        last_name = parts[0]
+        first_name = parts[1]
+
+        # Pruefen ob weitere Teile Suffixe sind (Jr., Sr., II, III, IV)
+        suffixes = []
+        extra_parts = []
+        for part in parts[2:]:
+            if part.strip().lower().rstrip('.') in _NAME_SUFFIXES or part.strip().lower() in _NAME_SUFFIXES:
+                suffixes.append(part.strip())
+            else:
+                extra_parts.append(part.strip())
+
+        # Zusammenbauen: "First [Extra] Last [Suffix]"
+        result_parts = [first_name]
+        result_parts.extend(extra_parts)
+        result_parts.append(last_name)
+        result_parts.extend(suffixes)
+
+        return ' '.join(result_parts)
+
+    @staticmethod
+    def _clean_trade_name(name: str) -> str:
+        """
+        Bereinigt Trade-Namen von Artefakten.
+
+        - Trailing commas: "Jerry Moran," -> "Jerry Moran"
+        - Extra whitespace
+        """
+        if not name:
+            return name
+        name = name.strip().rstrip(',').strip()
+        # Mehrfache Leerzeichen zusammenfassen
+        name = re.sub(r'\s+', ' ', name)
+        return name
 
     def _load_data(self):
         """Laedt alle Referenzdaten."""
         self._load_house_members()
         self._load_senate_members()
+        self._load_former_members()
         self._load_aliases()
 
     def _load_house_members(self):
@@ -84,19 +147,26 @@ class NameMatcher:
             name = str(row.get('Name', '')).strip()
             if name:
                 name_lower = name.lower()
-                self.house_lookup[name_lower] = {
+                member_data = {
                     'name': name,
-                    'party': row.get('Party', ''),
-                    'state': row.get('State', ''),
-                    'committees': row.get('Committees', ''),
-                    'ex_officio': row.get('ExOfficio', ''),
+                    'party': str(row.get('Party', '')),
+                    'state': str(row.get('State', '')),
+                    'committees': str(row.get('Committees', '')),
+                    'ex_officio': str(row.get('ExOfficio', '')),
                     'chamber': 'House'
                 }
+                self.house_lookup[name_lower] = member_data
 
         logger.info(f"House Members geladen: {len(self.house_lookup)}")
 
     def _load_senate_members(self):
-        """Laedt Senate Members CSV."""
+        """
+        Laedt Senate Members CSV.
+
+        Senate-CSV hat "Last, First M." Format. Wir speichern zwei Keys:
+        - Original: "banks, jim" (fuer direkten Match gegen CSV-Format)
+        - Normalisiert: "jim banks" (fuer Match gegen Trade-Daten)
+        """
         if not os.path.exists(self.senate_path):
             logger.warning(f"Senate Members nicht gefunden: {self.senate_path}")
             return
@@ -107,32 +177,63 @@ class NameMatcher:
         for _, row in df.iterrows():
             name = str(row.get('Name', '')).strip()
             if name:
-                name_lower = name.lower()
-                self.senate_lookup[name_lower] = {
+                member_data = {
                     'name': name,
-                    'party': row.get('Party', ''),
-                    'state': row.get('State', ''),
-                    'committees': row.get('Committees', ''),
-                    'ex_officio': row.get('ExOfficio', ''),
+                    'party': str(row.get('Party', '')),
+                    'state': str(row.get('State', '')),
+                    'committees': str(row.get('Committees', '')),
+                    'ex_officio': str(row.get('ExOfficio', '')),
                     'chamber': 'Senate'
                 }
 
-        logger.info(f"Senate Members geladen: {len(self.senate_lookup)}")
+                # Key 1: Original ("banks, jim")
+                original_lower = name.lower()
+                self.senate_lookup[original_lower] = member_data
+
+                # Key 2: Normalisiert ("jim banks")
+                normalized = self._normalize_senate_name(name)
+                normalized_lower = normalized.lower()
+                if normalized_lower != original_lower:
+                    self.senate_lookup[normalized_lower] = member_data
+
+        logger.info(f"Senate Members geladen: {len(self.senate_lookup)} Keys (inkl. normalisierte)")
+
+    def _load_former_members(self):
+        """Laedt Former Members CSV (ehemalige Politiker)."""
+        if not os.path.exists(self.former_path):
+            logger.info(f"Former Members nicht vorhanden: {self.former_path}")
+            return
+
+        df = pd.read_csv(self.former_path)
+        for _, row in df.iterrows():
+            name = str(row.get('name', '')).strip()
+            if name:
+                member_data = {
+                    'name': name,
+                    'party': str(row.get('party', '')),
+                    'state': str(row.get('state', '')),
+                    'committees': '',
+                    'ex_officio': 'false',
+                    'chamber': str(row.get('chamber', ''))
+                }
+                self.former_lookup[name.lower()] = member_data
+
+        logger.info(f"Former Members geladen: {len(self.former_lookup)}")
 
     def _load_aliases(self):
-        """Laedt Name-Aliases CSV."""
+        """Laedt Name-Aliases CSV (trade_name -> correct_name)."""
         if not os.path.exists(self.aliases_path):
             logger.info(f"Aliases-Datei nicht vorhanden (wird bei Bedarf erstellt): {self.aliases_path}")
             return
 
         df = pd.read_csv(self.aliases_path)
         for _, row in df.iterrows():
-            quiver_name = str(row.get('quiver_name', '')).strip()
+            trade_name = str(row.get('trade_name', '')).strip()
             correct_name = str(row.get('correct_name', '')).strip()
             chamber = str(row.get('chamber', '')).strip().lower()
 
-            if quiver_name and correct_name:
-                self.aliases[quiver_name.lower()] = {
+            if trade_name and correct_name:
+                self.aliases[trade_name.lower()] = {
                     'correct_name': correct_name,
                     'chamber': chamber
                 }
@@ -140,22 +241,24 @@ class NameMatcher:
         logger.info(f"Aliases geladen: {len(self.aliases)}")
 
     def _get_lookup_for_chamber(self, chamber: str) -> dict:
-        """Gibt das passende Lookup-Dict fuer die Chamber zurueck."""
+        """
+        Gibt das passende Lookup-Dict fuer die Chamber zurueck.
+        Former Members werden als Fallback mit einbezogen.
+        """
         chamber_lower = str(chamber).lower().strip()
         if chamber_lower == 'house':
-            return self.house_lookup
+            return {**self.former_lookup, **self.house_lookup}
         elif chamber_lower == 'senate':
-            return self.senate_lookup
+            return {**self.former_lookup, **self.senate_lookup}
         else:
-            # Falls Chamber unbekannt, beide durchsuchen
-            return {**self.house_lookup, **self.senate_lookup}
+            return {**self.former_lookup, **self.house_lookup, **self.senate_lookup}
 
-    def match(self, quiver_name: str, chamber: str = '') -> dict:
+    def match(self, trade_name: str, chamber: str = '') -> dict:
         """
-        Matcht einen Quiver-Namen zu einem Congress-Mitglied.
+        Matcht einen Trade-Namen zu einem Congress-Mitglied.
 
         Args:
-            quiver_name: Name aus der Quiver-CSV
+            trade_name: Name aus der Trade-CSV
             chamber: 'house' oder 'senate'
 
         Returns:
@@ -166,16 +269,16 @@ class NameMatcher:
             - score: Match-Score (100 = exakt, <100 = fuzzy)
             - source: 'alias', 'exact', 'fuzzy', oder 'none'
         """
-        if not quiver_name or pd.isna(quiver_name):
-            return self._no_match(quiver_name)
+        if not trade_name or pd.isna(trade_name):
+            return self._no_match(trade_name)
 
-        quiver_name = str(quiver_name).strip()
-        quiver_lower = quiver_name.lower()
+        trade_name = self._clean_trade_name(str(trade_name))
+        trade_lower = trade_name.lower()
         lookup = self._get_lookup_for_chamber(chamber)
 
         # 1. Alias-Lookup (manuelle Korrekturen)
-        if quiver_lower in self.aliases:
-            alias_info = self.aliases[quiver_lower]
+        if trade_lower in self.aliases:
+            alias_info = self.aliases[trade_lower]
             correct_name = alias_info['correct_name']
             correct_lower = correct_name.lower()
 
@@ -195,8 +298,8 @@ class NameMatcher:
                 }
 
         # 2. Exakter Match
-        if quiver_lower in lookup:
-            member = lookup[quiver_lower]
+        if trade_lower in lookup:
+            member = lookup[trade_lower]
             return {
                 'matched': True,
                 'matched_name': member['name'],
@@ -216,7 +319,7 @@ class NameMatcher:
 
             # Besten Match finden
             result = process.extractOne(
-                quiver_lower,
+                trade_lower,
                 all_names,
                 scorer=fuzz.WRatio,
                 score_cutoff=self.threshold
@@ -238,9 +341,9 @@ class NameMatcher:
                 }
 
         # Kein Match gefunden
-        return self._no_match(quiver_name)
+        return self._no_match(trade_name)
 
-    def _no_match(self, quiver_name: str) -> dict:
+    def _no_match(self, trade_name: str) -> dict:
         """Gibt ein No-Match-Resultat zurueck."""
         return {
             'matched': False,
@@ -254,15 +357,15 @@ class NameMatcher:
             'source': 'none'
         }
 
-    def get_best_fuzzy_match(self, quiver_name: str, chamber: str = '') -> dict:
+    def get_best_fuzzy_match(self, trade_name: str, chamber: str = '') -> dict:
         """
         Findet den besten Fuzzy-Match (auch unter Threshold).
         Nuetzlich fuer unmatched_names.csv.
         """
-        if not quiver_name or pd.isna(quiver_name):
+        if not trade_name or pd.isna(trade_name):
             return {'best_match': '', 'score': 0}
 
-        quiver_lower = str(quiver_name).lower().strip()
+        trade_lower = self._clean_trade_name(str(trade_name)).lower()
         lookup = self._get_lookup_for_chamber(chamber)
 
         if not lookup:
@@ -270,7 +373,7 @@ class NameMatcher:
 
         all_names = list(lookup.keys())
         result = process.extractOne(
-            quiver_lower,
+            trade_lower,
             all_names,
             scorer=fuzz.WRatio
         )
@@ -290,6 +393,7 @@ class NameMatcher:
         return {
             'house_members': len(self.house_lookup),
             'senate_members': len(self.senate_lookup),
+            'former_members': len(self.former_lookup),
             'aliases': len(self.aliases),
             'fuzzy_threshold': self.threshold
         }
@@ -318,6 +422,8 @@ def test_matcher():
         ("Rick Larsen", "house"),
         ("Tim Scott", "senate"),
         ("John Boozman", "senate"),
+        ("John Fetterman", "senate"),
+        ("Jerry Moran,", "senate"),       # trailing comma
         ("UNBEKANNTER NAME", "house"),
     ]
 

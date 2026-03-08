@@ -80,6 +80,9 @@ AMOUNT_RANGES = {
     "J": "Over $50,000,000",
 }
 
+# Dedup-Spalten: alle ausser disclosure_date (inkl. asset_name!)
+DEDUP_SUBSET = [c for c in CSV_COLUMNS if c != "disclosure_date"]
+
 EXTRACTION_SYSTEM_PROMPT = """You are a precise data extractor for US Senate Periodic Transaction Report (PTR) forms.
 These forms show financial transactions by US Senators and must be extracted with perfect accuracy.
 Always respond with valid JSON only. No explanations, no markdown fences."""
@@ -112,6 +115,11 @@ Also:
 - SKIP the printed "Example:" rows at the top of PTR pages (sample form instructions like
   "IBM Corp. (stock) NYSE") — these appear BEFORE the numbered rows and are NOT real trades
 - Skip completely empty rows
+- row_index: Assign each transaction a sequential 1-based row number from its physical
+  position on the form. If an OCR artifact causes you to read the same form row twice,
+  return it only ONCE. If a filer genuinely filled in multiple rows that look identical
+  (same asset, same date, same amount on different lines), return ALL of them — each
+  with its distinct row_index.
 - Normalize dates to MM/DD/YYYY
 - Transaction_type title case: "Purchase", "Sale", or "Exchange"
 - Extract footnotes; put referenced footnote text in "comment"
@@ -121,6 +129,7 @@ Return JSON:
   "is_ptr_page": true/false,
   "transactions": [
     {
+      "row_index": 1,
       "is_direct": true/false,
       "owner": "(S)" or "(SP)" or "(DC)" or "(J)" or "",
       "asset_name": "Fund or Company Name",
@@ -238,17 +247,30 @@ class SenatePdfExtractor:
 
             browser.close()
 
-        df = pd.DataFrame(all_trades, columns=CSV_COLUMNS)
+        df = pd.DataFrame(all_trades)
         if not df.empty:
             before = len(df)
-            df.drop_duplicates(
-                subset=["name", "ticker", "transaction_date", "transaction_type",
-                        "amount", "ptr_link", "owner"],
-                keep="first",
-                inplace=True,
-            )
+            # Intra-Batch-Dedup: nur echte OCR-Duplikate entfernen (gleicher Inhalt
+            # UND gleiche Seite + Zeile = dieselbe Formularzeile 2x gelesen).
+            # Legitime Mehrfachtrades mit identischem Inhalt auf VERSCHIEDENEN Zeilen
+            # bleiben erhalten, weil ihre _row_index unterschiedlich ist.
+            _intra_dedup = DEDUP_SUBSET + ["_page_num", "_row_index"]
+            df[_intra_dedup] = df[_intra_dedup].fillna("")
+            dupes = df[df.duplicated(subset=_intra_dedup, keep=False)]
+            if not dupes.empty:
+                logger.info(f"  OCR-Duplikate ({len(dupes)} Zeilen entfernt):")
+                for _, row in dupes.iterrows():
+                    logger.info(
+                        f"    DUPE | {row['name']} | {row['asset_name']} | "
+                        f"{row['transaction_type']} | {row['amount']} | "
+                        f"{row['transaction_date']} | Seite {row['_page_num']} "
+                        f"Zeile {row['_row_index']}"
+                    )
+            df.drop_duplicates(subset=_intra_dedup, keep="first", inplace=True)
+            df.drop(columns=["_page_num", "_row_index"], inplace=True)
+            df = df[CSV_COLUMNS]
             logger.info(
-                f"=== Gesamt: {len(df)} Trades ({before - len(df)} Duplikate entfernt) ==="
+                f"=== Gesamt: {len(df)} Trades ({before - len(df)} OCR-Duplikate entfernt) ==="
             )
 
         if not dry_run and not df.empty:
@@ -271,16 +293,29 @@ class SenatePdfExtractor:
 
         if os.path.isfile(self._output_path):
             existing = pd.read_csv(self._output_path)
-            combined = pd.concat([existing, df], ignore_index=True)
-            combined.drop_duplicates(
-                subset=["name", "ticker", "transaction_date", "transaction_type",
-                        "amount", "ptr_link", "owner"],
-                keep="last",
-                inplace=True,
+            for col in DEDUP_SUBSET:
+                if col not in existing.columns:
+                    existing[col] = ""
+            # Anti-Join: nur Zeilen anfügen, die noch nicht in der CSV sind.
+            # Kein drop_duplicates auf combined — intra-Batch-Dedup wurde bereits
+            # in run() erledigt, legitime Mehrfachtrades würden sonst entfernt.
+            existing_keys = set(
+                existing[DEDUP_SUBSET].fillna("").apply(tuple, axis=1)
             )
+            new_mask = ~df[DEDUP_SUBSET].fillna("").apply(tuple, axis=1).isin(
+                existing_keys
+            )
+            new_rows = df[new_mask]
+            if new_rows.empty:
+                logger.info(
+                    f"Keine neuen Trades (alle bereits in {self._output_path})."
+                )
+                return self._output_path
+            combined = pd.concat([existing, new_rows], ignore_index=True)
             combined.to_csv(self._output_path, index=False)
             logger.info(
-                f"Daten angehaengt >> {self._output_path} ({len(combined)} Zeilen gesamt)"
+                f"Daten angehaengt >> {self._output_path} "
+                f"({len(new_rows)} neue Zeilen, {len(combined)} gesamt)"
             )
         else:
             df.to_csv(self._output_path, index=False)
@@ -446,7 +481,7 @@ class SenatePdfExtractor:
                 )
                 raw_text = response.content[0].text.strip()
                 return self._parse_api_response(
-                    raw_text, senator_name, disclosure_date, ptr_link
+                    raw_text, senator_name, disclosure_date, ptr_link, page_num
                 )
 
             except Exception as e:
@@ -466,6 +501,7 @@ class SenatePdfExtractor:
         senator_name: str,
         disclosure_date: str,
         ptr_link: str,
+        page_num: int = 1,
     ) -> list[dict]:
         """Parst die JSON-Antwort der Vision API und normalisiert auf CSV_COLUMNS."""
         cleaned = re.sub(r"^```(?:json)?\s*", "", raw_text, flags=re.MULTILINE)
@@ -484,7 +520,7 @@ class SenatePdfExtractor:
         transactions: list = data.get("transactions", [])
         trades: list[dict] = []
 
-        for tx in transactions:
+        for idx, tx in enumerate(transactions):
             if not isinstance(tx, dict):
                 continue
 
@@ -525,6 +561,8 @@ class SenatePdfExtractor:
                     "comment": comment,
                     "disclosure_date": disclosure_date,
                     "ptr_link": ptr_link,
+                    "_page_num": page_num,
+                    "_row_index": int(tx.get("row_index", idx + 1)),
                 }
             )
 

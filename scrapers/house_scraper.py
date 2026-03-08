@@ -52,10 +52,14 @@ CSV_COLUMNS = [
     "comment",
     "disclosure_date",
     "ptr_link",
+    "csv_upload_time",
 ]
 
 # Dedup-Spalten: alle ausser disclosure_date (analog zu senate_scraper.py)
-DEDUP_SUBSET = [c for c in CSV_COLUMNS if c != "disclosure_date"]
+DEDUP_SUBSET = [c for c in CSV_COLUMNS if c not in ("disclosure_date", "csv_upload_time")]
+
+# Spalten fuer house_pdf_skipped.csv
+SKIPPED_PDF_COLUMNS = ["doc_id", "year", "disclosure_date", "name", "ptr_link", "reason", "csv_upload_time"]
 
 # Owner-Code Mapping
 OWNER_CODES = {
@@ -122,6 +126,10 @@ class HouseScraper:
         self._output_path = os.path.join(
             self._project_root, settings.DATA_RAW_PATH, "house_trades.csv"
         )
+        self._fehler_path = os.path.join(
+            self._project_root, settings.DATA_RAW_PATH, "house_scraper_fehler.csv"
+        )
+        self._fehler: list[dict] = []
         self._stats = {
             "filings_found": 0,
             "filings_skipped_delta": 0,
@@ -182,6 +190,7 @@ class HouseScraper:
                 except Exception:
                     logger.warning(f"  PDF-Download fehlgeschlagen: DocID={doc_id}")
                     self._stats["pdfs_failed"] += 1
+                    self._record_fehler(doc_id, year, filing, "download_error")
                     continue
 
                 try:
@@ -189,6 +198,11 @@ class HouseScraper:
                 except Exception:
                     logger.warning(f"  PDF-Parsing fehlgeschlagen: DocID={doc_id}")
                     self._stats["pdfs_failed"] += 1
+                    self._record_fehler(doc_id, year, filing, "parse_error")
+                    continue
+
+                if not parsed["raw_text"].strip():
+                    self._record_fehler(doc_id, year, filing, "empty_text")
                     continue
 
                 filing_date = str(filing.get("FilingDate", ""))
@@ -238,6 +252,10 @@ class HouseScraper:
 
         os.makedirs(os.path.dirname(self._output_path), exist_ok=True)
 
+        # Neue Zeilen mit aktuellem Upload-Zeitstempel versehen
+        upload_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        df["csv_upload_time"] = upload_time
+
         file_exists = os.path.isfile(self._output_path)
         if file_exists:
             existing = pd.read_csv(self._output_path)
@@ -261,6 +279,38 @@ class HouseScraper:
 
         return self._output_path
 
+    def save_fehler(self) -> str:
+        """
+        Speichert fehlgeschlagene PDFs in data/raw/house_scraper_fehler.csv.
+        Haengt neue Eintraege an und dedupliziert nach doc_id.
+
+        Returns:
+            Pfad zur gespeicherten Datei.
+        """
+        if not self._fehler:
+            logger.info("Keine Fehler in dieser Session.")
+            return self._fehler_path
+
+        df_new = pd.DataFrame(self._fehler, columns=SKIPPED_PDF_COLUMNS)
+        df_new["csv_upload_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        os.makedirs(os.path.dirname(self._fehler_path), exist_ok=True)
+
+        if os.path.isfile(self._fehler_path):
+            existing = pd.read_csv(self._fehler_path)
+            for col in SKIPPED_PDF_COLUMNS:
+                if col not in existing.columns:
+                    existing[col] = ""
+            combined = pd.concat([existing, df_new], ignore_index=True)
+            combined.drop_duplicates(subset=["doc_id"], keep="last", inplace=True)
+            combined.to_csv(self._fehler_path, index=False)
+        else:
+            df_new.to_csv(self._fehler_path, index=False)
+
+        logger.info(
+            f"Fehler gespeichert -> {self._fehler_path} ({len(df_new)} neu)"
+        )
+        return self._fehler_path
+
     def get_summary(self, df: Optional[pd.DataFrame] = None) -> str:
         """Gibt eine lesbare Zusammenfassung der Scraping-Ergebnisse zurueck."""
         if df is None:
@@ -274,6 +324,7 @@ class HouseScraper:
             f"  Delta uebersprungen:   {self._stats['filings_skipped_delta']}",
             f"  PDFs heruntergeladen:  {self._stats['pdfs_downloaded']}",
             f"  PDFs fehlgeschlagen:   {self._stats['pdfs_failed']}",
+            f"  PDFs uebersprungen:    {len(self._fehler)}",
             f"  Trades geparst:        {self._stats['trades_parsed']}",
             f"  Trades im DataFrame:   {len(df)}",
         ]
@@ -763,6 +814,7 @@ class HouseScraper:
                 "comment": "",
                 "disclosure_date": disclosure_date,
                 "ptr_link": pdf_url,
+                "csv_upload_time": "",
             }
             rows.append(row)
 
@@ -771,6 +823,23 @@ class HouseScraper:
     # ------------------------------------------------------------------
     # Hilfsmethoden
     # ------------------------------------------------------------------
+
+    def _record_fehler(
+        self, doc_id: str, year: int, filing: pd.Series, reason: str
+    ) -> None:
+        """Erfasst ein fehlgeschlagenes PDF fuer spaeteres Speichern via save_fehler()."""
+        name = self._build_member_name(
+            str(filing.get("First", "")), str(filing.get("Last", ""))
+        )
+        self._fehler.append({
+            "doc_id": doc_id,
+            "year": year,
+            "disclosure_date": str(filing.get("FilingDate", "")),
+            "name": name,
+            "ptr_link": PDF_URL_TEMPLATE.format(year=year, doc_id=doc_id),
+            "reason": reason,
+            "csv_upload_time": "",
+        })
 
     def _request_with_retry(self, url: str) -> requests.Response:
         """HTTP-GET mit Retry-Logik."""
@@ -930,18 +999,20 @@ def main():
     df = scraper.run(years=years, delta=delta)
     print(scraper.get_summary(df))
 
-    if not df.empty:
-        if args.dry_run:
-            print("\n[DRY-RUN] Daten werden nicht gespeichert.")
-            print("\nErste 10 Zeilen:")
-            print(df.head(10).to_string(index=False))
-        else:
+    if not args.dry_run:
+        if not df.empty:
             path = scraper.save(df)
             print(f"\nGespeichert unter: {path}")
             print("\nErste 10 Zeilen:")
             print(df.head(10).to_string(index=False))
+        else:
+            print("\nKeine Trades gefunden.")
+        scraper.save_fehler()
     else:
-        print("\nKeine Trades gefunden.")
+        print("\n[DRY-RUN] Daten werden nicht gespeichert.")
+        if not df.empty:
+            print("\nErste 10 Zeilen:")
+            print(df.head(10).to_string(index=False))
 
 
 if __name__ == "__main__":

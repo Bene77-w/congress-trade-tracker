@@ -75,7 +75,7 @@ DocIDs verraten den Filing-Typ (2024-Daten):
 ## CLI-Aufruf
 
 ```powershell
-cd "C:\Users\benedikt\OneDrive\BMB Tradingprogramm\congress_tracker"
+cd "C:\Users\benedikt\OneDrive\bmb_trdprg\congress_tracker"
 
 # Standard (aktuelles + vorheriges Jahr, Delta-Modus):
 .\venv\Scripts\python.exe scrapers\house_scraper.py
@@ -284,3 +284,67 @@ $50,000
 # Vollständiger Neu-Import (kein Delta):
 .\venv\Scripts\python.exe scrapers\house_scraper.py --year 2024 --no-delta --dry-run
 ```
+
+---
+
+## Companion: House PDF Extractor (`scrapers/house_pdf_extractor.py`)
+
+Companion-Tool für PDFs die der House Scraper nicht parsen kann (`reason="empty_text"` in `house_scraper_fehler.csv`). Das sind gescannte Papierformulare ("HAND DELIVERED") ohne Textlayer — OCR via Anthropic Vision API.
+
+### Architektur
+
+```
+run()
+ ├── Liest house_scraper_fehler.csv (filtert reason="empty_text")
+ └── _process_pdf(doc_id, year, ...) × N
+      ├── _download_pdf()         # HTTP-Download (gleiche URL wie House Scraper)
+      ├── _pdf_to_images()        # pdfplumber → PIL Images (200 DPI)
+      │    └── rotate(90°)        # Portrait-Seiten (width < height) = rotierte Landscape-Forms
+      └── _extract_from_image()  # Anthropic Vision API → JSON
+           └── _parse_api_response()  # Normalisierung → CSV_COLUMNS
+
+save(df)   # Append + Dedup in house_trades.csv (identisches Schema wie HouseScraper)
+```
+
+### Unterstützte Formulartypen (getestet Feb 2026)
+
+| Typ | Beschreibung | Getestete DocID | Ergebnis |
+|-----|-------------|-----------------|----------|
+| A | Rotated Handwritten (90° gedreht, handschriftlich, 1 Trade/Seite) | 8220764 (Adrian Smith) | ✅ 1 Trade |
+| A+Note | Typ A mit Filer Notes (Trade-Details in Fußnote) | 8220747 (Gus Bilirakis) | ✅ 1 Trade |
+| B | Landscape Table (maschinengetippt, viele Trades/Seite) | 8221228 (McCaul, 9 Seiten) | ✅ ~202 Trades |
+| B | Landscape "Nothing to report" | 8221310 (Rogers) | ✅ 0 Trades |
+| C | Hybrid (90° gedreht + maschinengetippt) | 9115670 (Fleischmann) | ✅ 12 Trades |
+
+### Deduplication
+
+Verwendet **denselben `DEDUP_SUBSET`** wie der House Scraper (Import aus `house_scraper.py`):
+- Alle 11 Spalten außer `disclosure_date`
+- Zwei-Stufen-Dedup: `run()` → `keep="first"` (innerhalb einer Session), `save()` → `keep="last"` (Cross-Session Append)
+- Vor dem `drop_duplicates()` werden alle duplizierten Zeilen mit Name/Asset/Typ/Betrag/Datum geloggt (INFO-Level)
+
+### Subholding-Header-Filter (Fix Feb 2026)
+
+Seiten mit komplexen Subholding-Strukturen (z.B. McCaul Seite 9: "LINDA MAYS MCCAUL PARTNERS II LP") können fälschlich als Trade erkannt werden. Filter in `_parse_api_response()`:
+
+```python
+# Kein Datum + kein Amount-Code = kein echter Trade (nur Subholding-Header)
+if not tx_date and not amount_code:
+    continue
+```
+
+### Amount-Buchstaben → Dollar-Ranges
+
+Papierformulare verwenden Checkboxen A-K statt Betragsfelder:
+```
+A=$1,001-$15,000  B=$15,001-$50,000  C=$50,001-$100,000  D=$100,001-$250,000
+E=$250,001-$500,000  F=$500,001-$1M  G=$1M-$5M  H=$5M-$25M  I=$25M-$50M
+J=Über $50M  K=Spouse/DC über $1M
+```
+
+### Bekannte Eigenheiten
+
+- **Nicht-deterministisch**: Vision API (haiku) gibt bei mehreren Läufen leicht unterschiedliche Ergebnisse zurück (±5 Trades bei McCaul). Dedup fängt OCR-Doppellesungen ab.
+- **Kein Ticker, kein Asset Type**: Papierformulare verlangen explizit "full name, not ticker symbol". Beide Felder bleiben leer.
+- **Rotation**: `page.width < page.height` → 90° gegen Uhrzeigersinn (Portrait-PDFs sind rotierte Landscape-Formulare)
+- **Datumsformat**: McCaul verwendet manchmal `MM-DD-YY` statt `MM/DD/YY` → wird in `_normalize_date()` abgefangen

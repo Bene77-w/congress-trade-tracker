@@ -1,0 +1,11 @@
+{
+  "completed_steps": [
+    "votes_house",
+    "votes_senate",
+    "bills_list"
+  ],
+  "requests_total": 57,
+  "last_step": "bills_list",
+  "last_update": "2026-03-08T12:13:49.018389+00:00",
+  "bills_fetched": 12135
+}

@@ -39,6 +39,9 @@ USER_AGENTS = [
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
 ]
 
+# Spalten für senate_scraper_fehler.csv
+FEHLER_COLUMNS = ["name", "disclosure_date", "ptr_link", "reason"]
+
 # CSV-Spalten (Reihenfolge für die Ausgabedatei)
 CSV_COLUMNS = [
     "name",
@@ -52,6 +55,7 @@ CSV_COLUMNS = [
     "comment",
     "disclosure_date",
     "ptr_link",
+    "csv_upload_time",
 ]
 
 
@@ -70,12 +74,16 @@ class SenateScraper:
         self.headless = headless
         self.trades: list[dict] = []
         self.pdf_skipped: list[dict] = []
+        self._fehler: list[dict] = []
         self._visited_urls: set[str] = set()  # verhindert doppeltes Scrapen gleicher PTR-URLs
         self._project_root = os.path.dirname(
             os.path.dirname(os.path.abspath(__file__))
         )
         self._output_path = os.path.join(
             self._project_root, settings.DATA_RAW_PATH, "senate_trades.csv"
+        )
+        self._fehler_path = os.path.join(
+            self._project_root, settings.DATA_RAW_PATH, "senate_scraper_fehler.csv"
         )
 
     # ------------------------------------------------------------------
@@ -123,12 +131,18 @@ class SenateScraper:
 
         df = pd.DataFrame(all_trades, columns=CSV_COLUMNS)
         before = len(df)
+        dedup_subset = [c for c in CSV_COLUMNS if c not in ("disclosure_date", "csv_upload_time")]
         if not df.empty:
-            df.drop_duplicates(
-                subset=[c for c in CSV_COLUMNS if c != "disclosure_date"],
-                keep="first",
-                inplace=True,
-            )
+            dup_mask = df.duplicated(subset=dedup_subset, keep="first")
+            if dup_mask.any():
+                logger.info(f"=== {dup_mask.sum()} Duplikate gefunden (werden entfernt) ===")
+                for _, row in df[dup_mask].iterrows():
+                    logger.info(
+                        f"  DEDUP: {row['name']} | {row['asset_name']} | "
+                        f"{row['transaction_type']} | {row['amount']} | "
+                        f"{row['transaction_date']} | ptr={row['ptr_link']}"
+                    )
+            df.drop_duplicates(subset=dedup_subset, keep="first", inplace=True)
         after = len(df)
         logger.info(
             f"=== Gesamt: {after} unique Trades aus {before} total "
@@ -195,13 +209,17 @@ class SenateScraper:
 
         os.makedirs(os.path.dirname(self._output_path), exist_ok=True)
 
+        # Neue Zeilen mit aktuellem Upload-Zeitstempel versehen
+        upload_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        df["csv_upload_time"] = upload_time
+
         file_exists = os.path.isfile(self._output_path)
         if file_exists:
             existing = pd.read_csv(self._output_path)
             combined = pd.concat([existing, df], ignore_index=True)
             # NaN → "" normalisieren (CSV-Roundtrip wandelt leere Strings in NaN um,
             # was den Dedup-Vergleich bricht: NaN != "" → false negative)
-            dedup_subset = [c for c in CSV_COLUMNS if c != "disclosure_date"]
+            dedup_subset = [c for c in CSV_COLUMNS if c not in ("disclosure_date", "csv_upload_time")]
             combined[dedup_subset] = combined[dedup_subset].fillna("")
             # Duplikate entfernen (alle relevanten Felder müssen übereinstimmen)
             combined.drop_duplicates(
@@ -245,7 +263,8 @@ class SenateScraper:
         df_new["ptr_link"] = df_new["href"].apply(
             lambda h: h if h.startswith("http") else f"https://efdsearch.senate.gov{h}"
         )
-        df_new = df_new[["name", "disclosure_date", "ptr_link"]]
+        df_new["csv_upload_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        df_new = df_new[["name", "disclosure_date", "ptr_link", "csv_upload_time"]]
 
         os.makedirs(os.path.dirname(pdf_path), exist_ok=True)
 
@@ -265,6 +284,42 @@ class SenateScraper:
             )
 
         return pdf_path
+
+    def save_fehler(self) -> str:
+        """
+        Speichert echte Scraping-Fehler in data/raw/senate_scraper_fehler.csv.
+        Hängt neue Einträge an (Append-Modus), dedupliziert auf ptr_link.
+
+        Erfasste Fehlertypen:
+            empty_href        – Report ohne href in der API-Antwort
+            unknown_link_type – href weder /view/paper/ noch /view/ptr/
+            extract_error     – Exception beim Parsen des HTML-Reports
+
+        Returns:
+            Pfad zur gespeicherten Datei.
+        """
+        if not self._fehler:
+            logger.info("Keine Fehler in dieser Session.")
+            return self._fehler_path
+
+        df_new = pd.DataFrame(self._fehler, columns=FEHLER_COLUMNS)
+        os.makedirs(os.path.dirname(self._fehler_path), exist_ok=True)
+
+        if os.path.isfile(self._fehler_path):
+            existing = pd.read_csv(self._fehler_path)
+            for col in FEHLER_COLUMNS:
+                if col not in existing.columns:
+                    existing[col] = ""
+            combined = pd.concat([existing, df_new], ignore_index=True)
+            combined.drop_duplicates(subset=["ptr_link"], keep="last", inplace=True)
+            combined.to_csv(self._fehler_path, index=False)
+        else:
+            df_new.to_csv(self._fehler_path, index=False)
+
+        logger.info(
+            f"Fehler gespeichert → {self._fehler_path} ({len(df_new)} neu)"
+        )
+        return self._fehler_path
 
     # ------------------------------------------------------------------
     # Interne Methoden
@@ -307,6 +362,7 @@ class SenateScraper:
 
             if not href:
                 logger.warning(f"  Leerer href für {senator_name} – übersprungen")
+                self._record_fehler(senator_name, disclosure_date, "", "empty_href")
                 continue
 
             # PDF-Reports erkennen und überspringen
@@ -319,15 +375,16 @@ class SenateScraper:
                 logger.info(f"  PDF_SKIPPED: {senator_name}")
                 continue
 
-            # Nur elektronische PTRs verarbeiten
-            if "/search/view/ptr/" not in href:
-                logger.debug(f"  Unbekannter Link-Typ übersprungen: {href}")
-                continue
-
             full_url = (
                 href if href.startswith("http")
                 else f"https://efdsearch.senate.gov{href}"
             )
+
+            # Nur elektronische PTRs verarbeiten
+            if "/search/view/ptr/" not in href:
+                logger.debug(f"  Unbekannter Link-Typ übersprungen: {href}")
+                self._record_fehler(senator_name, disclosure_date, full_url, "unknown_link_type")
+                continue
 
             # URL bereits verarbeitet? Überspringen (verhindert Duplikate bei Multi-Run).
             if full_url in self._visited_urls:
@@ -342,6 +399,7 @@ class SenateScraper:
                 logger.exception(
                     f"  Fehler beim Verarbeiten des Reports von {senator_name}: {full_url}"
                 )
+                self._record_fehler(senator_name, disclosure_date, full_url, "extract_error")
 
             time.sleep(settings.SCRAPER_RATE_LIMIT_SECONDS)
 
@@ -520,6 +578,7 @@ class SenateScraper:
                         "comment": comment_val,
                         "disclosure_date": clean_text(disclosure_date),
                         "ptr_link": ptr_url,
+                        "csv_upload_time": "",
                     }
                     self.trades.append(trade)
 
@@ -537,6 +596,17 @@ class SenateScraper:
                     time.sleep(settings.SCRAPER_RETRY_DELAY_SECONDS)
                 else:
                     raise
+
+    def _record_fehler(
+        self, name: str, disclosure_date: str, ptr_link: str, reason: str
+    ) -> None:
+        """Erfasst einen Scraping-Fehler für späteres Speichern via save_fehler()."""
+        self._fehler.append({
+            "name": name,
+            "disclosure_date": disclosure_date,
+            "ptr_link": ptr_link,
+            "reason": reason,
+        })
 
     # ------------------------------------------------------------------
     # Sortierung
@@ -630,6 +700,7 @@ class SenateScraper:
             "=" * 60,
             f"  Trades gefunden:       {len(df)}",
             f"  PDFs übersprungen:     {len(self.pdf_skipped)}",
+            f"  Fehler (Scraping):     {len(self._fehler)}",
         ]
 
         if not df.empty:
@@ -711,6 +782,7 @@ def test_scraper(days: int = 7, num_runs: Optional[int] = None, dry_run: bool = 
             pdf_path = scraper.save_pdf_skipped()
             if scraper.pdf_skipped:
                 print(f"\nPDF-Liste gespeichert: {pdf_path} ({len(scraper.pdf_skipped)} Einträge)")
+            scraper.save_fehler()
     else:
         print("\nKeine Trades im Zeitraum gefunden.")
 
@@ -765,6 +837,7 @@ if __name__ == "__main__":
                 pdf_path = scraper.save_pdf_skipped()
                 if scraper.pdf_skipped:
                     print(f"PDF-Liste gespeichert: {pdf_path} ({len(scraper.pdf_skipped)} Einträge)")
+                scraper.save_fehler()
     else:
         test_scraper(days=args.days, num_runs=args.runs, dry_run=args.dry_run)
 

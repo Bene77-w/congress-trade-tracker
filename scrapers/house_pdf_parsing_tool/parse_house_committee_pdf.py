@@ -11,7 +11,12 @@ from collections import OrderedDict
 
 PDF_PATH = "/mnt/user-data/uploads/house_info_all.pdf"  # Default, via --pdf ueberschreibbar
 AGRICULTURE_PAGES = [4, 5, 6]
+ALPHA_LIST_PAGES = list(range(59, 80))  # Pages 60-80 (0-indexed)
 LEFT_COL_THRESHOLD = 330
+ALPHA_NAME_X0 = 129.6  # x0 where names start in Alphabetical List
+ALPHA_NAME_X0_TOL = 5   # tolerance for x0 matching
+ALPHA_FONT_SIZE = 9.0
+ALPHA_COMMITTEE_X0 = 315  # x0 threshold for committee info
 LINE_MERGE_THRESHOLD = 1.5  # Words within 1.5pt y-distance = same line
 
 VALID_STATES = {
@@ -237,6 +242,96 @@ def parse_member(words, column):
     return {'name': name, 'party': party, 'state': state, 'role': role}
 
 
+def parse_alphabetical_list(pdf_path):
+    """
+    Parse the Alphabetical List (pages 60-80) to get ALL House members.
+    Returns dict: {name: {'party': str, 'state': str}}
+    Used as cross-reference to find members without committee assignments.
+    """
+    pdf = pdfplumber.open(pdf_path)
+    all_members = {}
+
+    for pi in ALPHA_LIST_PAGES:
+        if pi >= len(pdf.pages):
+            break
+        words = pdf.pages[pi].extract_words(extra_attrs=['fontname', 'size'])
+        words.sort(key=lambda w: (w['top'], w['x0']))
+
+        # Find name-start words: x0 ~129.6, size 9.0, at left edge
+        name_starts = []
+        for w in words:
+            if (abs(w['x0'] - ALPHA_NAME_X0) < ALPHA_NAME_X0_TOL
+                    and abs(w['size'] - ALPHA_FONT_SIZE) < 0.5):
+                name_starts.append(w)
+
+        for ns in name_starts:
+            # Collect all words on the same line (left side only, x0 < ALPHA_COMMITTEE_X0)
+            same_line = [w for w in words
+                         if abs(w['top'] - ns['top']) < 2
+                         and w['x0'] < ALPHA_COMMITTEE_X0]
+            same_line.sort(key=lambda w: w['x0'])
+
+            if not same_line:
+                continue
+
+            # Determine party from font of first word
+            first_font = same_line[0]['fontname']
+            if 'Italic' in first_font:
+                party = 'D'
+            elif 'Bold' in first_font:
+                party = 'Delegate'
+            else:
+                party = 'R'
+
+            line_text = ' '.join(w['text'] for w in same_line)
+
+            # Extract state from "STATE..." pattern (2-letter code followed by dots)
+            state_match = re.search(r'\b([A-Z]{2})\.{2,}', line_text)
+            if not state_match:
+                # Also try state at end without dots (rare)
+                state_match = re.search(r'\b([A-Z]{2})\s*$', line_text)
+            if not state_match or state_match.group(1) not in VALID_STATES:
+                continue
+
+            state = state_match.group(1)
+
+            # Extract name: everything before the district number
+            # Format: "Lastname, Firstname, 11th STATE..."
+            # or: "Lastname, Firstname,4th STATE..."
+            name_part = line_text[:state_match.start()]
+            # Remove district (ordinal number like "11th", "3d", "2d", "At Large,")
+            name_part = re.sub(r',?\s*(?:At Large,?\s*|\d+(?:st|nd|rd|th|d)\s*)$', '', name_part)
+            name_part = name_part.strip().rstrip(',')
+
+            if not name_part or len(name_part) < 3:
+                continue
+
+            # Convert "Last, First[,Suffix]" to "First Last[, Suffix]"
+            # Handle suffixes: Jr., Sr., III, II, IV
+            parts = name_part.split(',', 1)
+            if len(parts) == 2:
+                last = parts[0].strip()
+                rest = parts[1].strip()
+                # Check if rest contains a suffix separated by comma: "Rudy,III"
+                suffix_match = re.search(r',\s*(Jr\.?|Sr\.?|III|II|IV)\s*$', rest)
+                suffix = ''
+                if suffix_match:
+                    suffix = suffix_match.group(1)
+                    rest = rest[:suffix_match.start()].strip()
+                first = rest
+                name = f"{first} {last}"
+                if suffix:
+                    name += f", {suffix}"
+                name = fix_name(name)
+            else:
+                name = fix_name(name_part)
+
+            all_members[name] = {'party': party, 'state': state}
+
+    pdf.close()
+    return all_members
+
+
 def parse_agriculture(pdf_path):
     words = extract_words(pdf_path, AGRICULTURE_PAGES)
     raw_lines = group_words_into_lines(words)
@@ -357,7 +452,41 @@ def parse_agriculture(pdf_path):
                         cd['subcommittees'][sub] = 'Ex Officio'
                         members[ex]['ex_officio'] = True
                         print(f"    -> {ex} added to '{sub}'")
-    
+
+    # Cross-reference: add members from Alphabetical List who have no committees
+    alpha_members = parse_alphabetical_list(pdf_path)
+
+    # Build normalized lookup for existing members to handle suffix, unicode, and
+    # concatenation differences (e.g. "AndréCarson" vs "André Carson")
+    def normalize_for_match(name):
+        import unicodedata
+        n = unicodedata.normalize('NFKD', name)
+        # Strip combining marks (accents) for comparison
+        n = ''.join(c for c in n if not unicodedata.combining(c))
+        n = re.sub(r',?\s*(Jr\.?|Sr\.?|III|II|IV)\s*$', '', n)
+        # Insert space before uppercase after lowercase (fix concatenated names)
+        n = re.sub(r'([a-z])([A-Z])', r'\1 \2', n)
+        return re.sub(r'\s+', ' ', n).strip()
+
+    existing_normalized = {}
+    for mname in members:
+        existing_normalized[normalize_for_match(mname)] = mname
+
+    added = 0
+    for aname, adata in alpha_members.items():
+        norm = normalize_for_match(aname)
+        if aname not in members and norm not in existing_normalized:
+            # Leadership without committees → ex officio (scored like chairmen)
+            members[aname] = {
+                'party': adata['party'],
+                'state': adata['state'],
+                'committees': OrderedDict(),
+                'ex_officio': True,
+            }
+            added += 1
+            print(f"  [ALPHA/EX-OFFICIO] {aname}, {adata['state']} ({adata['party']}) - leadership, no committees")
+    print(f"\n  [ALPHA] Added {added} leadership members (ex officio, no committees)")
+
     return members
 
 

@@ -120,7 +120,7 @@ class TestParseApiResponse(unittest.TestCase):
         self.assertEqual(r["ticker"], "AAPL")
         self.assertEqual(r["asset_name"], "Apple Inc")
         self.assertEqual(r["transaction_type"], "Purchase")
-        self.assertEqual(r["amount"], "$15,001 – $50,000")
+        self.assertEqual(r["amount"], "$15,001 - $50,000")
         self.assertEqual(r["transaction_date"], "01/15/2026")
         self.assertEqual(r["owner"], "(S)")
         self.assertEqual(r["disclosure_date"], "02/01/2026")
@@ -322,11 +322,13 @@ class TestRun(unittest.TestCase):
         trade = {
             "name": "JOHN DOE", "ticker": "AAPL", "asset_name": "Apple Inc",
             "asset_type": "STOCK", "transaction_type": "Purchase",
-            "amount": "$15,001 – $50,000", "transaction_date": "01/15/2026",
+            "amount": "$15,001 - $50,000", "transaction_date": "01/15/2026",
             "owner": "(S)", "comment": "", "disclosure_date": "02/01/2026",
             "ptr_link": f"https://efdsearch.senate.gov/search/view/paper/{self._UUID1}/",
+            # Temp-Felder wie _parse_api_response sie setzt (gleiche Seite+Zeile = OCR-Dupe)
+            "_page_num": 1, "_row_index": 1,
         }
-        mock_process.return_value = [trade, trade]  # Duplikat
+        mock_process.return_value = [trade, trade]  # OCR-Duplikat (gleiche Seite+Zeile)
 
         df_input = pd.DataFrame([{
             "name": "JOHN DOE", "disclosure_date": "02/01/2026",

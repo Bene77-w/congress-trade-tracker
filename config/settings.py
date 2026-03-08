@@ -64,11 +64,15 @@ COMMITTEE_ROLE_WEIGHTS = {
 COMMITTEE_RELEVANCE_THRESHOLD = 30
 
 # =============================================================================
-# FILTER 4: TIMING VOR ABSTIMMUNG (rückwirkend)
-# Trade X Tage vor relevanter Abstimmung
+# FILTER 4: VOTE TIMING (Congress.gov API)
+# Trade kurz vor/nach relevanter Abstimmung
 # =============================================================================
-TIMING_DAYS_MIN = 60  # Mindestens X Tage vor Abstimmung
-TIMING_DAYS_MAX = 90  # Maximal X Tage vor Abstimmung
+CONGRESS_API_KEY = os.getenv('CONGRESS_API_KEY', '')
+VOTE_TIMING_WINDOW_BEFORE = 30     # Trade max X Tage VOR Abstimmung
+VOTE_TIMING_WINDOW_AFTER  = 5      # Trade max X Tage NACH Abstimmung
+VOTE_TIMING_SCORE         = 25     # Bonus-Score bei Treffer (0-100)
+VOTE_MIN_POLICY_CONFIDENCE = 0.7   # Min-Konfidenz fuer Sektor-Match
+VOTE_CONGRESS_NUMBER      = 119    # Ab welchem Kongress Daten laden (119th = 2025-2027)
 
 # =============================================================================
 # FILTER 5: CONTRARIAN
@@ -93,17 +97,18 @@ POSITION_INCREASE_MIN_BUYS = 2  # Mindestanzahl Käufe
 
 # =============================================================================
 # GEWICHTUNGEN (Summe = 100%)
-# Filter 4 (Timing) und Filter 5 (Contrarian) ÜBERSPRUNGEN
-# Gewichtung umverteilt auf Filter 2 & 3 (je +5%)
+# Filter 3 (Committee) = Auto-Flag (kein Gewicht)
+# Filter 5 (Contrarian) übersprungen
 # =============================================================================
 WEIGHTS = {
-    'volume': 0.15,           # 15% - Handelsvolumen
-    'swarm': 0.30,            # 30% - Schwarm-Verhalten (erhöht von 25%)
-    'committee': 0.30,        # 30% - Relevanter Ausschuss (erhöht von 25%)
-    'long_short': 0.15,       # 15% - Long/Short Wechsel
-    'position_increase': 0.10  # 10% - Position vergrößert
+    'volume': 0.075,           # 7.5% - Handelsvolumen
+    'swarm': 0.35,             # 35% - Schwarm-Verhalten
+    'timing': 0.35,            # 35% - Timing vor Abstimmung
+    'long_short': 0.075,       # 7.5% - Long/Short Wechsel
+    'position_increase': 0.15  # 15% - Position vergrößert
 }
-# Filter 4 (timing) und Filter 5 (contrarian) nicht mehr in WEIGHTS enthalten
+# Filter 3 (Committee) = Auto-Flag: kein Scoring-Gewicht, Trade automatisch verdächtig
+# Filter 5 (Contrarian) übersprungen
 
 # =============================================================================
 # SCORE-SCHWELLEN
@@ -137,10 +142,6 @@ EMAIL_RECIPIENT = os.getenv('EMAIL_RECIPIENT', '')
 # =============================================================================
 # SCRAPER-EINSTELLUNGEN
 # =============================================================================
-# Quiver Quantitative API (für Congress-Trades)
-QUIVER_API_KEY = os.getenv('QUIVER_API_KEY', '')
-QUIVER_API_BASE_URL = 'https://api.quiverquant.com/beta'
-
 # Rate Limiting und Retry-Logik
 SCRAPER_RATE_LIMIT_SECONDS = 1.0    # Pause zwischen API-Calls
 SCRAPER_RETRY_ATTEMPTS = 3          # Wiederholungsversuche bei Fehler
@@ -172,7 +173,7 @@ SCRAPER_USER_AGENT = 'CongressTracker/1.0 (Python)'
 # IMPORT-EINSTELLUNGEN
 # =============================================================================
 # Fuzzy-Matching Schwellenwert (0-100)
-FUZZY_MATCH_THRESHOLD = 80
+FUZZY_MATCH_THRESHOLD = 85
 
 # Spalten fuer Duplikat-Erkennung
 DUPLICATE_CHECK_COLUMNS = [
@@ -204,7 +205,7 @@ CONGRESS_SESSION = "119th"  # 2025-2027
 
 # Committee-Dateien (CSV nach PDF-Extraktion)
 HOUSE_COMMITTEES_FILE = 'house_member&(sub)committees.csv'
-SENATE_COMMITTEES_FILE = 'us_senate_member&(sub)committees.csv'
+SENATE_COMMITTEES_FILE = 'senate_member&(sub)committees.csv'
 
 # Trade-Daten (Scraper-Ausgaben)
 HOUSE_TRADES_FILE = 'house_trades.csv'

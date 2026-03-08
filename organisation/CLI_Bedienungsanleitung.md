@@ -3,7 +3,7 @@
 Alle Befehle werden aus dem Projektverzeichnis `congress_tracker/` ausgeführt, mit aktiviertem venv:
 
 ```bash
-cd "C:\Users\benedikt\OneDrive\BMB Tradingprogramm\congress_tracker"
+cd "C:\Users\benedikt\OneDrive\bmb_trdprg\congress_tracker"
 venv\Scripts\activate
 ```
 
@@ -100,25 +100,21 @@ python scrapers/senate_pdf_extractor.py --headless False
 
 ---
 
-## 3. Import Pipeline (Quiver-Daten)
+## 3. Import Pipeline
 
 **Datei:** `scripts/import_trades.py`
-**Zweck:** Importiert Quiver-Trades, matcht Member-Namen, reichert mit Committee-Daten an
-**Voraussetzung:** Quiver-Datei muss vorher abgelegt werden
+**Zweck:** Liest house_trades.csv + senate_trades.csv, matcht Member-Namen (4-Tier: Alias → Exakt → Former → Fuzzy), reichert mit Committee-Daten an
 
 ```bash
-# Schritt 1: Neue Quiver-CSV ablegen (eine von beiden):
-#   data/uploads/quiver_latest.csv      ← bevorzugt
-#   data/raw/congress_trading_data_quiver.xlsx
-
-# Schritt 2: Import ausführen
+# Standard: verarbeitet nur neue Trades (Duplikat-Check gegen trades_master.csv)
 python scripts/import_trades.py
 ```
 
-**Output:** `data/processed/trades_master.csv`, `data/processed/unmatched_names.csv`
+**Output:** `data/processed/trades_master.csv`, `data/processed/trades_new.csv`, `data/processed/unmatched_names.csv`
 
-> **Hinweis:** Das Script hat kein `--help`. Es liest automatisch die Quiver-Datei
-> aus den oben genannten Pfaden und gibt eine Fehlermeldung wenn keine gefunden wird.
+> **Full Rebuild:** Um alle Trades neu anzureichern (z.B. nach Änderung an Member-CSVs
+> oder former_members.csv), `data/processed/trades_master.csv` löschen und Pipeline
+> erneut ausführen. Die Pipeline erkennt den fehlenden Master und behandelt alle Trades als neu.
 
 ---
 
@@ -281,7 +277,98 @@ pytest tests/test_house_scraper.py -v
 
 ---
 
-## 9. Tests ausführen
+## 9. House PDF Extractor
+
+**Datei:** `scrapers/house_pdf_extractor.py`
+**Zweck:** OCR für Hand-Delivered House PTR PDFs via Claude Vision API (gescannte Papierformulare ohne Textlayer)
+**Voraussetzung:** `ANTHROPIC_API_KEY` als Umgebungsvariable gesetzt
+
+```bash
+# Alle fehler-PDFs aus house_scraper_fehler.csv (reason="empty_text") verarbeiten:
+python scrapers/house_pdf_extractor.py
+
+# Einzelne DocID testen:
+python scrapers/house_pdf_extractor.py --doc-id 8221228 --year 2025
+
+# Trockenlauf (extrahieren ohne speichern):
+python scrapers/house_pdf_extractor.py --doc-id 8221228 --year 2025 --dry-run
+
+# Anderes Modell (Standard: claude-haiku-4-5):
+python scrapers/house_pdf_extractor.py --model claude-sonnet-4-6
+
+# Eigene Input-CSV (statt house_scraper_fehler.csv):
+python scrapers/house_pdf_extractor.py --input-csv data/raw/meine_fehler.csv
+```
+
+**Output:** `data/raw/house_trades.csv` (Append + Dedup, identisches Schema)
+
+**Unterstützte Formulartypen:**
+
+| Typ | Beschreibung | Beispiel |
+|-----|-------------|---------|
+| A | Rotated Handwritten (90° gedreht, handschriftlich, 1 Trade/Seite) | Adrian Smith, Gus Bilirakis |
+| B | Landscape Table (maschinengetippt, viele Trades/Seite) | Michael McCaul, Harold Rogers |
+| C | Hybrid (90° gedreht + maschinengetippt, mehrere Trades/Seite) | Chuck Fleischmann |
+
+**Testläufe (alle mit --dry-run):**
+```bash
+# Typ A – Rotated Handwritten:
+python scrapers/house_pdf_extractor.py --doc-id 8220764 --year 2025 --dry-run
+
+# Typ B – Landscape "Nothing to report":
+python scrapers/house_pdf_extractor.py --doc-id 8221310 --year 2025 --dry-run
+
+# Typ B – Landscape viele Trades (McCaul, 9 Seiten, ~200 Trades):
+python scrapers/house_pdf_extractor.py --doc-id 8221228 --year 2025 --dry-run
+
+# Typ C – Hybrid:
+python scrapers/house_pdf_extractor.py --doc-id 9115670 --year 2025 --dry-run
+```
+
+---
+
+## 10. Congress Vote Fetcher
+
+**Datei:** `scripts/fetch_congress_votes.py`
+**Zweck:** Lädt Bill-Daten und Floor-Votes aus der Congress.gov API (zwei Phasen)
+**Voraussetzung:** `CONGRESS_API_KEY` in `.env` gesetzt (api.data.gov)
+
+```bash
+# Standard: Delta-Modus (Phase 1 + Phase 2, nur neue Bills)
+python scripts/fetch_congress_votes.py
+
+# Vollständiger Lauf: Cache komplett neu aufbauen (~4h, 14.000 Bills)
+python scripts/fetch_congress_votes.py --full
+
+# Nur Phase 2: Votes aus bestehendem Cache extrahieren (Cache muss existieren)
+python scripts/fetch_congress_votes.py --phase2-only
+
+# Statistiken anzeigen (Bills im Cache, gemappte Sektoren, Votes)
+python scripts/fetch_congress_votes.py --stats
+
+# Dry-run: nur zählen, nichts speichern
+python scripts/fetch_congress_votes.py --dry-run
+```
+
+**Output:**
+- `data/raw/congress_bills_cache.csv` – Bill-Metadaten mit policyArea (Phase 1)
+- `data/raw/congress_votes.csv` – House Floor-Votes mit Sektor-Mapping (Phase 2)
+
+**Empfohlene Reihenfolge beim ersten Mal:**
+1. `--stats` → prüfen ob bereits ein Cache vorhanden ist
+2. `--full` → einmalig alle Bills fetchen (~4h, Ctrl+C unterbricht sicher, Delta setzt fort)
+3. `--stats` → Ergebnisse prüfen
+4. Danach reicht `python scripts/fetch_congress_votes.py` (Delta, nur neue Bills)
+
+> **Hinweis:** Wenn `--stats` meldet "Kein Bill-Cache vorhanden", muss `--full` ausgeführt werden.
+> Verbindungsabbrüche (DNS/Connection Reset) sind unkritisch — Delta-Modus setzt beim nächsten Lauf fort.
+
+> **Hinweis:** Nur House-Votes (vorerst). Senate-Votes benötigen separaten XML-Parser.
+> API-Limit: 1 Request/Sekunde. Bei 429-Fehler automatischer Retry nach 60s.
+
+---
+
+## 11. Tests ausführen
 
 **Framework:** pytest
 **Testdateien:** `tests/`
@@ -318,10 +405,12 @@ pytest tests/
 |--------|--------|-------|
 | Senate Scraper | `python scrapers/senate_scraper.py` | Senate-Trades scrapen |
 | Senate PDF Extractor | `python scrapers/senate_pdf_extractor.py` | Paper-PTRs via OCR |
-| Import Pipeline | `python scripts/import_trades.py` | Quiver-Daten importieren |
+| Import Pipeline | `python scripts/import_trades.py` | Trades anreichern (Name-Match + Committees) |
 | XLSX → CSV | `python scripts/convert_xlsx_to_csv.py` | Mapping-CSVs aktualisieren |
 | Senate Diagnose | `python scripts/diagnose_scraper.py` | Scraper-Tests |
 | House Committee Parser | `python scrapers/house_pdf_parsing_tool/parse_house_committee_pdf.py --pdf ...` | House Committee PDF |
 | Senate Committee Parser | `python scrapers/senate_pdf_parsing_tool/parse_us_senate_committee_pdf.py --pdf ...` | Senate Committee PDF |
 | House Scraper | `python scrapers/house_scraper.py` | House PTR-Trades scrapen |
+| House PDF Extractor | `python scrapers/house_pdf_extractor.py` | Hand-Delivered PDFs via OCR |
+| Congress Vote Fetcher | `python scripts/fetch_congress_votes.py` | Bills + Floor-Votes aus Congress.gov API |
 | Tests | `pytest tests/ -v` | Alle Unit-Tests |

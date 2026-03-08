@@ -3,8 +3,8 @@ import pandas as pd
 import os
 
 files = [
-    r"c:\Users\benedikt\OneDrive\BMB Tradingprogramm\congress_tracker\data\raw\subcommittee_sector_industry_mapping_v3.xlsx",
-    r"c:\Users\benedikt\OneDrive\BMB Tradingprogramm\congress_tracker\data\raw\yf_secotors_with_industries.xlsx"
+    r"c:\Users\benedikt\OneDrive\bmb_trdprg\congress_tracker\data\raw\subcommittee_sector_industry_mapping_v3.xlsx",
+    r"c:\Users\benedikt\OneDrive\bmb_trdprg\congress_tracker\data\raw\yf_secotors_with_industries.xlsx"
 ]
 
 for file_path in files:

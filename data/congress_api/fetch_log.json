@@ -1,0 +1,23 @@
+{
+  "congress": 119,
+  "start": "2026-03-08T13:12:51.402016",
+  "elapsed_seconds": 57.643165,
+  "total_requests": 57,
+  "errors": [
+    {
+      "endpoint": "/vote/119/house",
+      "status": 404,
+      "time": "2026-03-08T12:12:55.292592+00:00"
+    },
+    {
+      "endpoint": "/vote/119/senate",
+      "status": 404,
+      "time": "2026-03-08T12:12:58.347837+00:00"
+    }
+  ],
+  "completed_steps": [
+    "votes_house",
+    "votes_senate",
+    "bills_list"
+  ]
+}
