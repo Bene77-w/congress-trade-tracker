@@ -2,13 +2,16 @@
 Congress Trade Tracker - Filter 4: Vote Timing
 
 Erkennt Trades die kurz vor/nach einer relevanten Kongress-Abstimmung
-stattfanden. Nutzt Policy Area → Sektor Mapping fuer thematischen Abgleich.
+stattfanden. Nutzt Legislative Subjects → YF-Sektor Mapping fuer
+thematischen Abgleich (granularer als Policy Area Mapping).
 
 Logik:
-1. Fuer jeden Trade: Sektoren aus Relevant_Sectors extrahieren
-2. Votes mit uebereinstimmendem mapped_sector finden
-3. Zeitfenster pruefen: trade_date ZWISCHEN (vote_date - BEFORE) und (vote_date + AFTER)
-4. Bei Treffer: naechstgelegenen Vote waehlen
+1. Fuer jeden Bill: legislative_subjects aus bill_subjects.json laden
+2. Jedes Subject gegen legislative_subject_mapping_complete.csv matchen
+3. Union aller gemappten Sektoren = Bill's Sektor-Footprint
+4. Fuer jeden Trade: Sektoren aus Relevant_Sectors extrahieren
+5. Sektor-Intersection pruefen + Zeitfenster
+6. Bei Treffer: naechstgelegenen Vote waehlen, Konfidenz gewichten
 """
 
 import os
@@ -27,8 +30,12 @@ from config import settings
 logger = logging.getLogger(__name__)
 
 # Pfade
-RAW_DIR = os.path.join(BASE_DIR, settings.DATA_RAW_PATH)
-VOTES_CSV_PATH = os.path.join(RAW_DIR, 'congress_votes.csv')
+CONGRESS_API_DIR = os.path.join(BASE_DIR, settings.DATA_CONGRESS_API_PATH)
+BILL_ACTIONS_PATH = os.path.join(CONGRESS_API_DIR, 'bill_actions.json')
+BILL_SUBJECTS_PATH = os.path.join(CONGRESS_API_DIR, settings.BILL_SUBJECTS_FILE)
+SUBJECT_MAPPING_PATH = os.path.join(
+    BASE_DIR, settings.DATA_MAPPINGS_PATH, settings.LEGISLATIVE_SUBJECT_MAPPING_FILE
+)
 
 # Neue Spalten die dieser Filter hinzufuegt
 VOTE_TIMING_COLUMNS = [
@@ -36,7 +43,7 @@ VOTE_TIMING_COLUMNS = [
     'Vote_Date',             # str: Datum der Abstimmung
     'Vote_Bill_Title',       # str: Bill-Titel
     'Vote_Policy_Area',      # str: Policy Area
-    'Vote_Timing_Score',     # int: 0 oder VOTE_TIMING_SCORE
+    'Vote_Timing_Score',     # int: 0 oder gewichteter Score
     'Days_To_Vote',          # int: Abstand (negativ = vor Abstimmung)
 ]
 
@@ -44,32 +51,191 @@ VOTE_TIMING_COLUMNS = [
 class VoteTimingFilter:
     """
     Filter 4: Vote Timing - erkennt Trades nahe an Abstimmungen.
+
+    Nutzt legislative_subject_mapping_complete.csv fuer Subject → Sektor Mapping
+    statt des groben Policy Area Mappings.
     """
 
     def __init__(self):
         self.window_before = settings.VOTE_TIMING_WINDOW_BEFORE
         self.window_after = settings.VOTE_TIMING_WINDOW_AFTER
         self.timing_score = settings.VOTE_TIMING_SCORE
+        self.konfidenz_multipliers = settings.VOTE_KONFIDENZ_MULTIPLIERS
+        self._subject_mapping = None
+
+    def _load_subject_mapping(self) -> dict:
+        """
+        Laedt legislative_subject_mapping_complete.csv in ein Dict.
+
+        Subjects koennen mehrere Sektoren haben (sector_rank 1, 2, 3).
+        Alle werden gesammelt, die hoechste Konfidenz pro Subject behalten.
+
+        Returns:
+            Dict {subject_name: {'sectors': set[str], 'konfidenz': str}}
+            Nur Eintraege mit nicht-leerem yf_sector.
+        """
+        if self._subject_mapping is not None:
+            return self._subject_mapping
+
+        if not os.path.exists(SUBJECT_MAPPING_PATH):
+            logger.warning(f"Subject-Mapping nicht gefunden: {SUBJECT_MAPPING_PATH}")
+            self._subject_mapping = {}
+            return self._subject_mapping
+
+        df = pd.read_csv(SUBJECT_MAPPING_PATH, encoding='utf-8')
+        mapping = {}
+        konfidenz_order = {'Hoch': 3, 'Mittel': 2, 'Niedrig': 1}
+
+        for _, row in df.iterrows():
+            sector = row.get('yf_sector', '')
+            if pd.isna(sector) or not str(sector).strip():
+                continue
+
+            subject = str(row.get('legislative_subject', '')).strip()
+            if not subject:
+                continue
+
+            konfidenz = str(row.get('konfidenz', 'Niedrig')).strip()
+
+            if subject not in mapping:
+                mapping[subject] = {'sectors': set(), 'konfidenz': konfidenz}
+
+            mapping[subject]['sectors'].add(str(sector).strip())
+            # Hoechste Konfidenz behalten
+            if konfidenz_order.get(konfidenz, 0) > konfidenz_order.get(mapping[subject]['konfidenz'], 0):
+                mapping[subject]['konfidenz'] = konfidenz
+
+        self._subject_mapping = mapping
+        total_sectors = sum(len(e['sectors']) for e in mapping.values())
+        logger.info(f"Subject-Mapping geladen: {len(mapping)} Subjects, {total_sectors} Sektor-Zuordnungen")
+        return self._subject_mapping
+
+    def _map_subjects_to_sectors(self, legislative_subjects: list) -> tuple[set, str]:
+        """
+        Mappt eine Liste von legislative_subjects auf YF-Sektoren.
+
+        Args:
+            legislative_subjects: Liste von Subject-Strings aus bill_subjects.json
+
+        Returns:
+            Tuple (set von Sektor-Namen, hoechste Konfidenz als String)
+        """
+        mapping = self._load_subject_mapping()
+        sectors = set()
+        best_konfidenz = 'Niedrig'
+        konfidenz_order = {'Hoch': 3, 'Mittel': 2, 'Niedrig': 1}
+
+        for subject in legislative_subjects:
+            entry = mapping.get(subject)
+            if entry:
+                sectors.update(entry['sectors'])
+                if konfidenz_order.get(entry['konfidenz'], 0) > konfidenz_order.get(best_konfidenz, 0):
+                    best_konfidenz = entry['konfidenz']
+
+        return sectors, best_konfidenz
 
     def load_votes(self) -> pd.DataFrame:
         """
-        Laedt congress_votes.csv.
+        Laedt Roll-Call-Votes aus bill_actions.json und verknuepft mit
+        legislative_subjects aus bill_subjects.json.
+
+        Fuer jeden Bill mit Roll-Call-Vote:
+        1. legislative_subjects laden (aus bill_subjects.json, Join via bill_id)
+        2. Subjects → Sektoren mappen (via legislative_subject_mapping_complete.csv)
+        3. Bills ohne gemappte Subjects werden uebersprungen
 
         Returns:
-            DataFrame mit Vote-Daten, oder leerer DataFrame
+            DataFrame mit [vote_date, mapped_sectors, bill_title, policy_area, chamber, konfidenz]
         """
-        if not os.path.exists(VOTES_CSV_PATH):
+        if not os.path.exists(BILL_ACTIONS_PATH):
             logger.warning(
-                f"congress_votes.csv nicht gefunden: {VOTES_CSV_PATH}\n"
-                "Bitte zuerst 'python scripts/fetch_congress_votes.py' ausfuehren."
+                f"bill_actions.json nicht gefunden: {BILL_ACTIONS_PATH}\n"
+                "Bitte zuerst 'python scrapers/fetch_congress_data.py' ausfuehren."
             )
             return pd.DataFrame()
 
-        df = pd.read_csv(VOTES_CSV_PATH)
-        df['vote_date'] = pd.to_datetime(df['vote_date'], errors='coerce')
+        if not os.path.exists(BILL_SUBJECTS_PATH):
+            logger.warning(
+                f"bill_subjects.json nicht gefunden: {BILL_SUBJECTS_PATH}\n"
+                "Bitte zuerst 'python scrapers/fetch_congress_data.py' ausfuehren."
+            )
+            return pd.DataFrame()
+
+        # Mapping laden
+        self._load_subject_mapping()
+
+        # bill_subjects.json → Dict {bill_id: [subjects]}
+        with open(BILL_SUBJECTS_PATH, encoding='utf-8') as f:
+            subjects_list = json.load(f)
+
+        subjects_by_bill = {}
+        for bill in subjects_list:
+            bill_id = bill.get('bill_id', '')
+            subjects = bill.get('legislative_subjects', [])
+            if bill_id and subjects:
+                subjects_by_bill[bill_id] = subjects
+
+        logger.info(f"Bill-Subjects geladen: {len(subjects_by_bill)} Bills mit Subjects")
+
+        # bill_actions.json → Roll-Call-Votes extrahieren
+        with open(BILL_ACTIONS_PATH, encoding='utf-8') as f:
+            bills = json.load(f)
+
+        rows = []
+        seen = set()  # Dedup: (bill_id, chamber, vote_date_str)
+        bills_mapped = 0
+        bills_skipped = 0
+
+        for bill in bills:
+            bill_id = bill.get('bill_id', '')
+            bill_title = bill.get('title', '')
+            policy_area = bill.get('policy_area', '')
+
+            # Legislative Subjects fuer diesen Bill holen
+            subjects = subjects_by_bill.get(bill_id, [])
+            if not subjects:
+                continue
+
+            # Subjects → Sektoren mappen
+            sectors, konfidenz = self._map_subjects_to_sectors(subjects)
+            if not sectors:
+                bills_skipped += 1
+                continue
+
+            bills_mapped += 1
+            mapped_sectors_str = ','.join(sorted(sectors))
+
+            for action in bill.get('actions', []):
+                for rc in action.get('roll_call', []):
+                    chamber = rc.get('chamber', '')
+                    date_str = rc.get('date', '')
+                    dedup_key = (bill_id, chamber, date_str)
+                    if dedup_key in seen:
+                        continue
+                    seen.add(dedup_key)
+
+                    rows.append({
+                        'vote_date': date_str,
+                        'mapped_sectors': mapped_sectors_str,
+                        'bill_title': bill_title,
+                        'policy_area': policy_area,
+                        'chamber': chamber,
+                        'konfidenz': konfidenz,
+                    })
+
+        if not rows:
+            logger.info("Keine gemappten Roll-Call-Votes gefunden")
+            return pd.DataFrame()
+
+        df = pd.DataFrame(rows)
+        df['vote_date'] = pd.to_datetime(df['vote_date'], utc=True, errors='coerce')
+        df['vote_date'] = df['vote_date'].dt.tz_localize(None)  # timezone-naive fuer Vergleiche
         df = df.dropna(subset=['vote_date'])
 
-        logger.info(f"Votes geladen: {len(df)}")
+        logger.info(
+            f"Votes geladen: {len(df)} Roll-Calls mit Subject-Mapping "
+            f"({bills_mapped} Bills gemappt, {bills_skipped} ohne Mapping)"
+        )
         return df
 
     def _extract_trade_sectors(self, relevant_sectors_str: str) -> set[str]:
@@ -93,7 +259,7 @@ class VoteTimingFilter:
 
     def _parse_mapped_sectors(self, mapped_sectors_str: str) -> set[str]:
         """
-        Parst das kommaseparierte mapped_sectors Feld aus congress_votes.csv.
+        Parst das kommaseparierte mapped_sectors Feld.
 
         Args:
             mapped_sectors_str: z.B. "Industrials,Technology"
@@ -163,6 +329,10 @@ class VoteTimingFilter:
         total = len(df)
 
         for idx, trade in df.iterrows():
+            # Filter 0: Nicht-Aktien ueberspringen
+            if bool(trade.get('asset_class_excluded', False)):
+                continue
+
             trade_date = trade['transaction_date']
             if pd.isna(trade_date):
                 continue
@@ -191,6 +361,7 @@ class VoteTimingFilter:
             # Sektor-Match pruefen
             best_vote = None
             best_days = float('inf')
+            best_konfidenz = 'Niedrig'
 
             for _, vote in in_window.iterrows():
                 vote_sectors = vote['_sectors_set']
@@ -203,17 +374,22 @@ class VoteTimingFilter:
                 if abs(days_diff) < abs(best_days):
                     best_days = days_diff
                     best_vote = vote
+                    best_konfidenz = vote.get('konfidenz', 'Niedrig')
 
             if best_vote is not None:
+                # Konfidenz-gewichteter Score
+                multiplier = self.konfidenz_multipliers.get(best_konfidenz, 0.4)
+                weighted_score = int(self.timing_score * multiplier)
+
                 df.at[idx, 'Vote_Timing_Hit'] = True
                 df.at[idx, 'Vote_Date'] = best_vote['vote_date'].strftime('%Y-%m-%d')
                 df.at[idx, 'Vote_Bill_Title'] = str(best_vote.get('bill_title', ''))
                 df.at[idx, 'Vote_Policy_Area'] = str(best_vote.get('policy_area', ''))
-                df.at[idx, 'Vote_Timing_Score'] = self.timing_score
+                df.at[idx, 'Vote_Timing_Score'] = weighted_score
                 df.at[idx, 'Days_To_Vote'] = best_days
                 hits += 1
 
-        # Aufräumen: temporaere Spalte entfernen
+        # Aufraeumen: temporaere Spalte entfernen
         if '_sectors_set' in votes_mapped.columns:
             votes_mapped.drop(columns=['_sectors_set'], inplace=True)
 

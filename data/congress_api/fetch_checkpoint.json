@@ -2,10 +2,21 @@
   "completed_steps": [
     "votes_house",
     "votes_senate",
-    "bills_list"
+    "bills_list",
+    "bill_details",
+    "bill_actions",
+    "bill_committees",
+    "bill_summaries",
+    "bill_subjects"
   ],
-  "requests_total": 57,
-  "last_step": "bills_list",
-  "last_update": "2026-03-08T12:13:49.018389+00:00",
-  "bills_fetched": 12135
+  "requests_total": 1135,
+  "last_step": "full_run_complete",
+  "last_update": "2026-03-21T20:44:09.837394+00:00",
+  "bills_fetched": 12135,
+  "details_fetched": 12100,
+  "actions_fetched": 12100,
+  "committees_fetched": 12000,
+  "summaries_fetched": 12100,
+  "subjects_fetched": 12000,
+  "last_full_run": "2026-03-21T20:44:09.837378+00:00"
 }

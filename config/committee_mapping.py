@@ -26,7 +26,7 @@ class CommitteeMapper:
         """
         if mapping_path is None:
             filename = getattr(settings, 'COMMITTEE_MAPPING_FILE', 'subcommittee_sector_industry_mapping.csv')
-            mapping_path = os.path.join(BASE_DIR, settings.DATA_RAW_PATH, filename)
+            mapping_path = os.path.join(BASE_DIR, settings.DATA_MAPPINGS_PATH, filename)
 
         self.mapping_path = mapping_path
         self.mapping: Dict[Tuple[str, str, str], List[Dict[str, Any]]] = {}
@@ -67,7 +67,7 @@ class CommitteeMapper:
         if not os.path.exists(self.mapping_path):
             raise FileNotFoundError(
                 f"Committee mapping not found: {self.mapping_path}\n"
-                f"Please ensure subcommittee_sector_industry_mapping.csv exists in data/raw/"
+                f"Please ensure subcommittee_sector_industry_mapping.csv exists in data/mappings/"
             )
 
         logger.info(f"Loading committee-sector mapping from {self.mapping_path}")

@@ -3,8 +3,9 @@
 Alle Befehle werden aus dem Projektverzeichnis `congress_tracker/` ausgeführt, mit aktiviertem venv:
 
 ```bash
-cd "C:\Users\benedikt\OneDrive\bmb_trdprg\congress_tracker"
-venv\Scripts\activate
+cd <Projektverzeichnis>        # z.B. /media/bene/.../congress_tracker  oder  C:\...\congress_tracker
+source venv/bin/activate        # Linux/Mac
+# oder: venv\Scripts\activate  # Windows
 ```
 
 ---
@@ -106,11 +107,31 @@ python scrapers/senate_pdf_extractor.py --headless False
 **Zweck:** Liest house_trades.csv + senate_trades.csv, matcht Member-Namen (4-Tier: Alias → Exakt → Former → Fuzzy), reichert mit Committee-Daten an
 
 ```bash
-# Standard: verarbeitet nur neue Trades (Duplikat-Check gegen trades_master.csv)
+# Standard: vollständige Pipeline (alle 7 Stages sequenziell)
 python scripts/import_trades.py
+
+# Delta-Modus: nur neue Trades seit letztem Lauf anreichern und anhängen
+python scripts/import_trades.py --delta
 ```
 
 **Output:** `data/processed/trades_master.csv`, `data/processed/trades_new.csv`, `data/processed/unmatched_names.csv`
+
+### Einzelne Pipeline-Stages (Debug / Repair)
+
+Nur **ein** `--stage_*` Flag gleichzeitig erlaubt. Kombination mit `--delta` möglich.
+
+```bash
+python scripts/import_trades.py --stage_rename        # Stage 1: CSV laden + Spalten umbenennen
+python scripts/import_trades.py --stage_date          # Stage 2: Datum normalisieren
+python scripts/import_trades.py --stage_committees    # Stage 3: Committee-Enrichment
+python scripts/import_trades.py --stage_tickertype    # Stage 4: ticker_type ableiten
+python scripts/import_trades.py --stage_tickerindustry  # Stage 5: yfinance Sector/Industry Lookup
+python scripts/import_trades.py --stage_votetiming    # Stage 6: Vote-Timing Filter
+python scripts/import_trades.py --stage_save          # Stage 7: In trades_master.csv speichern
+
+# Kombination mit Delta:
+python scripts/import_trades.py --delta --stage_rename
+```
 
 > **Full Rebuild:** Um alle Trades neu anzureichern (z.B. nach Änderung an Member-CSVs
 > oder former_members.csv), `data/processed/trades_master.csv` löschen und Pipeline
@@ -327,44 +348,51 @@ python scrapers/house_pdf_extractor.py --doc-id 9115670 --year 2025 --dry-run
 
 ---
 
-## 10. Congress Vote Fetcher
+## 10. Congress Data Fetcher
 
-**Datei:** `scripts/fetch_congress_votes.py`
-**Zweck:** Lädt Bill-Daten und Floor-Votes aus der Congress.gov API (zwei Phasen)
+**Datei:** `scrapers/fetch_congress_data.py`
+**Zweck:** Lädt alle Bill-Daten aus der Congress.gov API (6 Datentypen pro Bill)
 **Voraussetzung:** `CONGRESS_API_KEY` in `.env` gesetzt (api.data.gov)
 
 ```bash
-# Standard: Delta-Modus (Phase 1 + Phase 2, nur neue Bills)
-python scripts/fetch_congress_votes.py
+# Erstlauf: alle 6 Schritte (~7-8h, einmalig pro Kongress)
+python scrapers/fetch_congress_data.py
 
-# Vollständiger Lauf: Cache komplett neu aufbauen (~4h, 14.000 Bills)
-python scripts/fetch_congress_votes.py --full
+# Delta-Update: nur neue/geänderte Bills seit letztem Lauf (~5-30 Min, wöchentlich)
+python scrapers/fetch_congress_data.py --update
 
-# Nur Phase 2: Votes aus bestehendem Cache extrahieren (Cache muss existieren)
-python scripts/fetch_congress_votes.py --phase2-only
+# Erstlauf wiederholen (ignoriert Checkpoint, startet von vorne)
+python scrapers/fetch_congress_data.py --force
 
-# Statistiken anzeigen (Bills im Cache, gemappte Sektoren, Votes)
-python scripts/fetch_congress_votes.py --stats
-
-# Dry-run: nur zählen, nichts speichern
-python scripts/fetch_congress_votes.py --dry-run
+# Anderen Kongress fetchen
+python scrapers/fetch_congress_data.py --congress 118
 ```
 
-**Output:**
-- `data/raw/congress_bills_cache.csv` – Bill-Metadaten mit policyArea (Phase 1)
-- `data/raw/congress_votes.csv` – House Floor-Votes mit Sektor-Mapping (Phase 2)
+**Output** (`data/congress_api/`):
+| Datei | Inhalt | Schritt |
+|-------|--------|---------|
+| `bills_list.json` | Alle Bills (IDs, Typen) | 1 (~30 Min) |
+| `bill_details.json` | policyArea, title, sponsors | 2 (~1.5-2h) |
+| `bill_actions.json` | Actions inkl. Floor Votes + Roll Calls | 3 (~1-2h) |
+| `bill_committees.json` | Committee-Zuweisungen | 4 (~1h) |
+| `bill_summaries.json` | CRS Summaries (Texte) | 5 (~1.5h) |
+| `bill_subjects.json` | Legislative Subjects (Rider-Erkennung) | 6 (~2.5h) |
+| `fetch_checkpoint.json` | Resume-State + Delta-Timestamps | — |
 
-**Empfohlene Reihenfolge beim ersten Mal:**
-1. `--stats` → prüfen ob bereits ein Cache vorhanden ist
-2. `--full` → einmalig alle Bills fetchen (~4h, Ctrl+C unterbricht sicher, Delta setzt fort)
-3. `--stats` → Ergebnisse prüfen
-4. Danach reicht `python scripts/fetch_congress_votes.py` (Delta, nur neue Bills)
+**Empfohlener Workflow:**
+```bash
+# Einmalig (Erstlauf):
+python scrapers/fetch_congress_data.py          # ~7-8h, Ctrl+C unterbricht sicher
 
-> **Hinweis:** Wenn `--stats` meldet "Kein Bill-Cache vorhanden", muss `--full` ausgeführt werden.
-> Verbindungsabbrüche (DNS/Connection Reset) sind unkritisch — Delta-Modus setzt beim nächsten Lauf fort.
+# Wöchentlich (Delta):
+python scrapers/fetch_congress_data.py --update  # fetcht nur geänderte Bills
+python scripts/import_trades.py                  # Vote-Timing Backfill anwenden
+```
 
-> **Hinweis:** Nur House-Votes (vorerst). Senate-Votes benötigen separaten XML-Parser.
-> API-Limit: 1 Request/Sekunde. Bei 429-Fehler automatischer Retry nach 60s.
+> **Checkpoint-System:** Bei Abbruch (Ctrl+C oder Verbindungsfehler) einfach neu starten —
+> das Script setzt beim letzten abgeschlossenen Schritt fort.
+> `--update` nutzt `fromDateTime` der Congress.gov API — nur wirklich geänderte Bills werden gefetcht.
+> API-Limit: 5.000 Req/h (mit Key) → 0.75s Pause → ~4.800 Bills/h.
 
 ---
 
@@ -399,6 +427,56 @@ pytest tests/
 
 ---
 
+## 12. Git – Projektstand committen
+
+**Voraussetzung:** Git ist bereits auf dem Rechner eingerichtet und das Repository ist unter `congress_tracker/` vorhanden.
+
+### Aktuellen Stand sichern (add + commit)
+
+```bash
+# 1. Überblick: Was hat sich geändert?
+git status
+
+# 2. Alle geänderten Dateien zum nächsten Commit vormerken
+git add .
+
+# Oder gezielt einzelne Dateien/Ordner auswählen:
+git add scripts/import_trades.py
+git add data/processed/trades_master.csv
+git add organisation/
+
+# 3. Commit erstellen mit aussagekräftiger Nachricht
+git commit -m "Kurze Beschreibung was geändert wurde"
+
+# Beispiele für gute Commit-Nachrichten:
+git commit -m "Filter 3 Committee-Filter implementiert"
+git commit -m "Senate Scraper: Delta-Modus hinzugefügt"
+git commit -m "trades_master.csv aktualisiert (9.591 Trades, 100% Match)"
+```
+
+### Commit-History anzeigen
+
+```bash
+# Letzte Commits anzeigen
+git log --oneline -10
+```
+
+### Änderungen vor dem Commit prüfen
+
+```bash
+# Was wurde geändert (zeilenweise Diff)?
+git diff
+
+# Was ist bereits vorgemerkt (staged)?
+git diff --staged
+```
+
+> **Hinweis:** `git add .` nimmt **alle** geänderten Dateien auf. Große Datendateien
+> (z.B. `trades_master.csv`) können Commits langsam machen — bei Bedarf in `.gitignore`
+> eintragen.
+
+---
+
 ## Schnellreferenz
 
 | Script | Befehl | Zweck |
@@ -412,5 +490,6 @@ pytest tests/
 | Senate Committee Parser | `python scrapers/senate_pdf_parsing_tool/parse_us_senate_committee_pdf.py --pdf ...` | Senate Committee PDF |
 | House Scraper | `python scrapers/house_scraper.py` | House PTR-Trades scrapen |
 | House PDF Extractor | `python scrapers/house_pdf_extractor.py` | Hand-Delivered PDFs via OCR |
-| Congress Vote Fetcher | `python scripts/fetch_congress_votes.py` | Bills + Floor-Votes aus Congress.gov API |
+| Congress Data Fetcher | `python scrapers/fetch_congress_data.py` | Erstlauf: alle 6 Datentypen (~7-8h) |
+| Congress Data Fetcher (Update) | `python scrapers/fetch_congress_data.py --update` | Delta: nur geänderte Bills (~5-30 Min) |
 | Tests | `pytest tests/ -v` | Alle Unit-Tests |

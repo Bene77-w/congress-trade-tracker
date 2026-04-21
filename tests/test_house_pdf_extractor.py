@@ -75,6 +75,7 @@ def extractor(tmp_path):
     e._project_root = str(tmp_path)
     e._output_path = str(tmp_path / "house_trades.csv")
     e._fehler_path = str(tmp_path / "house_scraper_fehler.csv")
+    e._done_path = str(tmp_path / "house_pdf_extractor_done.csv")
     e._http = MagicMock()
     e._anthropic = None
     return e

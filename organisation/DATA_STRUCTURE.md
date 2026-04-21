@@ -126,7 +126,7 @@ Chamber,Committee,Subcommittee,Sector,Industry,Sector_Rank,Konfidenz
 ```csv
 House,Agriculture,"Commodity Markets, Digital Assets, And Rural Development",Financial Services,Capital Markets,1,Hoch
 House,Agriculture,"Commodity Markets, Digital Assets, And Rural Development",Financial Services,Financial Data & Stock Exchanges,1,Hoch
-House,Agriculture,"Commodity Markets, Digital Assets, And Rural Development",Technology,Software—Application,2,Hoch
+House,Agriculture,"Commodity Markets, Digital Assets, And Rural Development",Technology,Software - Application,2,Hoch
 ```
 
 **Sector_Rank** (wichtig für Scoring):
@@ -208,14 +208,106 @@ Credit Services,14.38%
 
 ---
 
-### `data/raw/yf_sectors_with_industries.csv` ⭐
-**Quelle**: Automatisch generiert aus xlsx
-**Format**: CSV (flache Struktur)
-**Größe**: 4.6 KB
-**Zeilen**: 177 (176 + Header)
-**Generierung**: `python scripts/convert_xlsx_to_csv.py`
+### `data/raw/yf_sectors_with_industries.csv` (veraltet)
+**Status**: Datei existiert nicht mehr. Ersetzt durch JSON-Version.
 
-**Verwendung**: **EMPFOHLEN** für Code (einfacher zu parsen)
+### `data/mappings/yf_sectors_with_industries.json` ⭐
+**Quelle**: Yahoo Finance (validiert via `yf.Sector()` API)
+**Format**: JSON (hierarchisch: Sector → Industries)
+**Inhalt**: 11 Sektoren, 145 Industries
+**Control-Datei**: Alle Industry-Namen im Projekt muessen mit dieser Datei uebereinstimmen.
+
+**Struktur**:
+```json
+{"sectors": [
+  {"sector": "Technology", "industries": ["Semiconductors", "Software - Infrastructure", ...]},
+  {"sector": "Financial Services", "industries": ["Banks - Diversified", ...]}
+]}
+```
+
+### `data/mappings/yf_sectors_with_industries.xlsx`
+**Quelle**: Automatisch generiert aus JSON
+**Format**: Excel (flache Struktur: Sector, Industry)
+**Zeilen**: 145
+
+### `data/mappings/ticker_industry_cache.json`
+**Quelle**: Automatisch von `scripts/import_trades.py` (yfinance API)
+**Format**: JSON (Ticker → {sector, industry})
+**Update**: Bei jedem Import (nur neue Ticker werden abgefragt)
+
+**Struktur**:
+```json
+{
+  "AAPL": {"sector": "Technology", "industry": "Consumer Electronics", "quoteType": "EQUITY"},
+  "SPY": {"sector": "", "industry": "", "quoteType": "ETF"},
+  "VFIAX": {"sector": "", "industry": "", "quoteType": "MUTUALFUND"}
+}
+```
+
+**Hinweis**: Enthaelt positive Eintraege — Ticker mit Sector/Industry (inkl. ETFs, Fonds). Null-Eintraege sind in `ticker_0_cache.json` separiert.
+
+**Verwendung**: Cache fuer Ticker-Industry Lookup (Sektor/Industrie) in der Import-Pipeline. Erstlauf ~42 Min (5000+ Ticker), danach nur neue Ticker. Wird NICHT mehr fuer ticker_type verwendet (siehe `data/cache/ticker_type_cache.db`).
+
+### `data/mappings/ticker_0_cache.json`
+**Quelle**: Automatisch von `scripts/import_trades.py` (yfinance API + Pre-Filter)
+**Format**: JSON (sortierte Liste von Ticker-Strings)
+**Update**: Bei jedem Import
+
+**Struktur**:
+```json
+[
+  "07/01/28",
+  "AABA",
+  "BACWSA",
+  "SPY"
+]
+```
+
+**Hinweis**: Enthaelt Ticker fuer die yfinance kein Sector/Industry liefert (ETFs, delistete Aktien, Fonds) PLUS Ticker die vom Pre-Filter als Non-Standard erkannt wurden (Warrants, CUSIPs, Bonds, Auslandsnotierungen etc.) und gar nicht erst bei yfinance abgefragt werden. Pre-Filter-Patterns konfigurierbar in `config/settings.py` (`TICKER_FILTER_PATTERNS`).
+
+**Verwendung**: Verhindert wiederholte yfinance-API-Calls fuer bekannt unresolvbare Ticker (Sektor/Industrie). Wird NICHT fuer ticker_type verwendet.
+
+### `data/cache/ticker_type_cache.db`
+**Quelle**: Automatisch von `scripts/import_trades.py` via `utils/openfigi_client.py` (OpenFIGI API)
+**Format**: SQLite-Datenbank
+**Update**: Bei jedem Import (nur Cache-Misses werden bei der API abgefragt)
+
+**Schema**:
+```sql
+CREATE TABLE ticker_types (
+    ticker TEXT PRIMARY KEY,        -- Ticker-Symbol (z.B. "SPY", "AAPL")
+    security_type TEXT NOT NULL,    -- Interner Typ: "Stock", "ETF", "Mutual Fund" etc.
+    openfigi_raw_type TEXT,         -- OpenFIGI securityType (z.B. "ETP", "Common Stock")
+    openfigi_raw_type2 TEXT,        -- OpenFIGI securityType2
+    openfigi_market_sector TEXT,    -- OpenFIGI marketSector (z.B. "Equity", "Corp")
+    source TEXT NOT NULL,           -- Herkunft: "openfigi", "regex", "whitelist", "fallback", "error"
+    checked_date TEXT NOT NULL,     -- ISO-Datum des letzten Lookups
+    figi TEXT                       -- FIGI-Nummer (Bloomberg-Kennung)
+);
+```
+
+**TTL**: Normale Eintraege 90 Tage, "Unknown" 7 Tage. Bei Offline: alle Cache-Eintraege gueltig.
+
+**Verwendung**: Primaere Quelle fuer `ticker_type`-Spalte in `trades_master.csv`. Ersetzt die fruehere yfinance-basierte quoteType-Klassifikation.
+
+### `data/mappings/Vorzugsaktien_mapping.csv`
+**Quelle**: Manuell gepflegt
+**Format**: CSV
+**Update**: Bei Bedarf (neue Preferred-Ticker in Daten entdeckt)
+
+**Spalten**:
+```csv
+stammaktien_ticker, vorzugsaktien_ticker, Company
+```
+
+**Beispiel**:
+```csv
+KMI,EP$C,EL PASO CORPORATION
+USB,USB$N,US BANCORP DEL
+T,T$A,AT&T INC.
+```
+
+**Verwendung**: Mapping von Vorzugsaktien-Tickern (z.B. `EP$C`) auf Stammaktien-Ticker (z.B. `KMI`), damit der yfinance-Lookup den korrekten Sector/Industry findet. Wird in `enrich_with_ticker_industry()` geladen.
 
 ---
 
@@ -237,6 +329,47 @@ doc_id, year, disclosure_date, name, ptr_link, reason
 
 **Verwendung**: Input-CSV für `scrapers/house_pdf_extractor.py`
 
+### `logs/house_pdf_extractor_done.csv`
+**Quelle**: Automatisch von `scrapers/house_pdf_extractor.py` erzeugt
+**Format**: CSV
+**Update**: Nach jedem Extractor-Lauf (auch bei 0 Trades)
+
+**Spalten**:
+```csv
+doc_id, processed_at
+```
+
+**Verwendung**: Delta-Check — bereits verarbeitete DocIDs werden beim naechsten Lauf uebersprungen. `--no-delta` ignoriert diese Datei.
+
+### `data/raw/senate_pdf_extractor_done.csv`
+**Quelle**: Automatisch von `scrapers/senate_pdf_extractor.py` erzeugt
+**Format**: CSV
+**Update**: Nach jedem Extractor-Lauf (auch bei 0 Trades)
+
+**Spalten**:
+```csv
+ptr_link, processed_at
+```
+
+**Verwendung**: Delta-Check — bereits verarbeitete ptr_links werden beim naechsten Lauf uebersprungen. `--no-delta` ignoriert diese Datei.
+
+### `logs/ocr_uncertain.csv`
+**Quelle**: `scrapers/house_pdf_extractor_v2.py` (readable=false) + `scripts/import_trades.py` (Datum-Validierung)
+**Format**: CSV
+**Update**: Nach jedem Extractor-Lauf / Import-Lauf (kumulativ)
+
+**Spalten**:
+```csv
+name, ticker, asset_name, asset_type, transaction_type, amount, transaction_date,
+owner, subholding, comment, disclosure_date, ptr_link, csv_upload_time,
+source, rejection_reason
+```
+
+**source**: `"extractor"` (Vision API als unleserlich markiert) oder `"import"` (Datum-Validierung fehlgeschlagen)
+**rejection_reason**: `"low_confidence"` | `"date_too_old"` | `"date_in_future"` | `"missing_date"`
+
+**Verwendung**: Manuelle Pruefung von Trades die nicht automatisch verarbeitet werden konnten. Trades in dieser Datei sind NICHT in house_trades.csv bzw. trades_master.csv enthalten.
+
 ---
 
 ### `data/debug/mccaul_verification/` *(Verifikations-Artefakte)*
@@ -249,6 +382,55 @@ doc_id, year, disclosure_date, name, ptr_link, reason
 
 ---
 
+## 5b. House PDF Extractor v2 (Grid-basiert)
+
+### `scrapers/house_pdf_extractor_v2.py`
+**Quelle**: Eigenentwicklung (OpenCV + Anthropic Vision API)
+**Zweck**: Verbesserte OCR für gescannte House-PTR-PDFs — löst Merge-, Truncation- und Amount-NaN-Probleme von v1
+**Input**: `data/raw/house_scraper_fehler.csv` (reason="empty_text")
+**Output**: Ergänzt `data/raw/house_trades.csv`
+
+**Architektur (3-stufig):**
+1. **OpenCV Grid-Detection** — Morphologische Linienerkennung (horizontal/vertical Kernels) auf Raw-Graustufenbild → Zeilen- und Spalten-Bounding-Boxes
+2. **Pixel-Density Amount-Detection** — Zählt dunkle Pixel pro Zelle in den letzten 11 Spalten (A-K Checkboxen). Zelle mit meisten Pixeln = markierte Checkbox. Kein OCR/LLM nötig.
+3. **Vision API pro 5-Zeilen-Batch** — Nur für Text-Felder (Owner, Asset, Tx Type, Dates). Vereinfachter Prompt ohne Amount-Extraktion.
+
+**Fallback**: Wenn Grid nicht erkannt wird (< 3 H-Lines oder < 3 V-Lines) → ganzes Seitenbild an Vision API (wie v1). Wird im Terminal geloggt.
+
+**Unterstützte Formulartypen:**
+| Typ | Beschreibung | Beispiel |
+|-----|-------------|---------|
+| A | Rotiert, handschriftlich, 1 Trade/Seite | Bilirakis, Wagner |
+| B | Landscape Tabelle, getippt, ~25 Trades/Seite, manchmal 90° gedreht | McCaul |
+| C | Hybrid rotiert getippt, ~7 Trades/Seite | Fleischmann |
+| D | Broker Statement, rotiert, ~15-20 Trades/Seite | Khanna |
+
+**Konfiguration** (in `config/settings.py`):
+- `PDF_EXTRACTOR_DPI = 300` — Render-Auflösung
+- `PDF_EXTRACTOR_AMOUNT_PIXEL_THRESHOLD = 50` — Min. dunkle Pixel für Checkbox-Erkennung
+- `PDF_EXTRACTOR_USE_GRID_DETECTION = True` — Grid-Modus an/aus
+- `PDF_EXTRACTOR_ROW_BATCH_SIZE = 5` — Zeilen pro Vision-API-Call
+
+**CLI** (gleiche Optionen wie v1):
+```bash
+python scrapers/house_pdf_extractor_v2.py                              # Alle fehler-PDFs
+python scrapers/house_pdf_extractor_v2.py --doc-id 8221228 --year 2025 # Einzelne PDF
+python scrapers/house_pdf_extractor_v2.py --dry-run                    # Nicht speichern
+python scrapers/house_pdf_extractor_v2.py --model claude-sonnet-4-6    # Anderes Modell
+```
+
+**Dependencies**: `opencv-python-headless`, `numpy`, `pdfplumber`, `Pillow`
+
+**Fehlerraten-Vergleich v1 vs v2:**
+| Metrik | v1 (Vision API) | v2 (Grid + Pixel) |
+|--------|----------------|-------------------|
+| Amount NaN (Typ D) | 37.8% | ~0.5% |
+| Amount NaN (Typ B) | 12.2% | ~0% |
+| Merged Names | 65 | 0 |
+| Truncated Names | 23 | 0 |
+
+---
+
 ## 6. Processed Data (Output)
 
 ### `data/processed/trades_master.csv`
@@ -257,18 +439,30 @@ doc_id, year, disclosure_date, name, ptr_link, reason
 **Größe**: Variable (aktuell ~9,591 Trades, nur eigene Scraped-Daten)
 **Update**: Bei jedem Import (kumulativ)
 
-**Spalten** (nach Pipeline-Umbau Maerz 2026):
+**Spalten** (26 Spalten, Stand Maerz 2026):
 ```csv
-# Original Scraped Trade-Daten
-name, ticker, asset_name, asset_type, transaction_type, amount,
-transaction_date, owner, subholding, comment, disclosure_date, ptr_link, csv_upload_time,
+# Original Scraped Trade-Daten (Reihenfolge wie in CSV)
+name,                   # Politiker-Name
+ticker,                 # Stock Symbol (leer bei Bonds etc.)
+ticker_type,            # Asset-Typ (abgeleitet aus Ticker, NICHT aus Quiver-Daten)
+asset_name,             # Name des Assets
+asset_type,             # ST/OP/GS/OT/CS/DC/EF/MF/Corporate Bond etc.
+transaction_type,       # Purchase/Sale (Full)/Sale (Partial)/Exchange
+amount,                 # Dollar-Range ("$1,001 - $15,000" etc.)
+transaction_date,       # Transaktionsdatum
+owner,                  # Self/Spouse/Joint/Child
+comment,                # Freitext (Bond-Metadaten etc.)
+disclosure_date,        # Meldedatum (bis 45 Tage spaeter)
+ptr_link,               # URL zum Original-PTR
+csv_upload_time,        # Zeitstempel des Scraper-Laufs
 chamber,                # House/Senate (von import_trades.py gesetzt)
+subholding,             # Depot/Trust-Name (nur House, aus "S O:" Zeilen)
 
 # Anreicherung durch Name Matching
 Member_Party,           # D oder R
 Member_State,           # CA, TX, etc.
 Member_Committees,      # Committee-String
-Member_ExOfficio,       # true/false
+Member_ExOfficio,       # True/False
 Member_Chamber,         # House/Senate
 MatchScore,             # 0-100 (Fuzzy Match Score)
 MatchSource,            # exact, fuzzy, alias, none
@@ -279,19 +473,49 @@ Relevant_Sectors,       # JSON: [{sector, industry, rank, confidence, committee,
 Relevance_Score,        # 0-100 (Committee-Sektor Relevanz)
 Confidence_Level,       # Hoch/Mittel/Niedrig
 
-# Anreicherung durch Vote Timing Filter (Modul 6)
-Vote_Timing_Hit,        # True/False — Trade im Zeitfenster einer relevanten Abstimmung
-Vote_Date,              # YYYY-MM-DD — Datum der naechsten relevanten Abstimmung
-Vote_Bill_Title,        # Titel des Bills (z.B. "National Defense Authorization Act")
-Vote_Policy_Area,       # CRS Policy Area (z.B. "Armed Forces and National Security")
-Vote_Timing_Score,      # 0 oder VOTE_TIMING_SCORE (25) — Bonus-Score
-Days_To_Vote,           # Abstand Trade→Vote in Tagen (negativ = Trade VOR Abstimmung)
+# Anreicherung durch Filter 0 (Asset-Klasse)
+asset_class_excluded,   # True = Nicht-Aktie (ETF/Option/Bond/Crypto/...) -> wird von Scoring ignoriert
+
+# Anreicherung durch Ticker-Industry Lookup (yfinance)
+Ticker_Sector,          # YF Sector (z.B. "Technology") — leer bei ETFs/Bonds/unbekannten Tickern
+Ticker_Industry,        # YF Industry (z.B. "Consumer Electronics") — leer bei ETFs/Bonds/unbekannten Tickern
 
 # Metadata
 ImportDate              # YYYY-MM-DD HH:MM:SS
 ```
 
-**Verwendung**: Hauptdatenbank für Analyse, Filter und Scoring
+**Hinweis**: `subholding` steht nach `chamber` (nicht nach `owner`), weil Senate-Trades kein `subholding` haben — pandas fuegt die Spalte beim Concat ans Ende an.
+
+**ticker_type Werte** (abgeleitet via OpenFIGI API + Regex Pre-Filter):
+
+| Wert | Quelle | Beschreibung | Beispiel-Ticker |
+|------|--------|-------------|-----------------|
+| Stock | OpenFIGI (Common Stock, REIT, ADR) | Normale Aktie | AAPL, MSFT, BRK-B |
+| ETF | OpenFIGI (ETP) | Exchange-Traded Fund/Product | SPY, QQQ, GLD |
+| Mutual Fund | OpenFIGI (Open-End Fund) oder Regex | Investmentfonds | VFIAX, SYMBOL: AEPGX |
+| Closed-End Fund | OpenFIGI (Closed-End Fund) | Geschlossener Fonds | UTF, EOS |
+| Preferred Stock | OpenFIGI (Preferred Stock) | Vorzugsaktie | O-PA, ATH-PE |
+| Warrant | Regex oder OpenFIGI | Optionsschein | KMB-W, GE-W, BACWSA |
+| Rights | OpenFIGI (Right) | Bezugsrecht | TTM-R |
+| SPAC Unit | OpenFIGI (Unit) | SPAC-Unit | BLOC-U |
+| Bond/CUSIP | Regex | Anleihe/CUSIP-Nummer | 912796U49, 37045XEF9 |
+| Bond | OpenFIGI (marketSector: Corp/Govt/Muni) | Anleihe (API-erkannt) | |
+| Bond (Maturity) | Regex | Anleihe mit Faelligkeitsdatum | DUE 12/01/27 |
+| T-Bill | Regex | Geldmarkt-Instrument | 8.WEEK, MATURE |
+| Crypto | Regex | Kryptowaehrung | CRYPTO:BTC, BITCOIN |
+| Foreign Stock | Regex | Auslandsnotierung | 1AMT.MI, NYSE: COV |
+| Index | Regex | Index-Ticker | ^MWE, ^RGP |
+| Option | Regex | Option | SPY160219P00180000 |
+| SEDOL | Regex | UK-Wertpapierkennung | B1WSP14 |
+| Other | Regex | Sonstiges (Junk, Test, Freitext) | 44, BELGIUM |
+| Unknown | Fallback/Error | Kein Ergebnis von OpenFIGI | |
+| Stock (Delisted) | Regression-Schutz (refresh_ticker_types) | Legacy-Label fuer akquirierte/delisted Aktien, die OpenFIGI heute nicht mehr kennt | CELG, ALXN, TWTR, ATVI |
+| Depositary Receipt | OpenFIGI | ADR fuer auslaendische Aktien (expliziter als "Stock") | BABA, TSM, ASML |
+| Partnership Shares | OpenFIGI | MLP-Anteile | EPD, MMP, ET |
+
+**Filter 0 (Asset-Klasse, `asset_class_excluded`)**: Setzt `True` fuer alle `ticker_type`-Werte **ausser** `Stock`, `Stock (Delisted)`, `Depositary Receipt`, `Partnership Shares` (siehe `config/settings.py::FILTER_0_KEEP_TYPES`). Ausgefilterte Trades bleiben in der Datei, werden aber vom VoteTimingFilter und nachgelagerten Scoring-Modulen uebersprungen.
+
+**Verwendung**: Hauptdatenbank fuer Analyse, Filter und Scoring
 
 ---
 
@@ -325,6 +549,65 @@ Nancy Pelosi,30,house,Nancy Mace,63
 **Verwendung**:
 - Review von nicht-gematchten Namen
 - Kandidaten für `data/config/name_aliases.csv`
+
+---
+
+### `data/processed/unmatched_preferred.csv`
+**Quelle**: Output von `scripts/import_trades.py` (Ticker-Industry Lookup)
+**Format**: CSV
+**Update**: Bei jedem Import (nur wenn unmatched Preferred-Ticker existieren)
+
+**Spalten**:
+```csv
+ticker, count, names, asset_names
+```
+
+**Beispiel**:
+```csv
+XYZ$A,3,"John Doe, Jane Smith","COMPANY INC."
+```
+
+**Verwendung**:
+- Review von Preferred-Tickern ohne Mapping in `Vorzugsaktien_mapping.csv`
+- Kandidaten fuer neue Eintraege in der Mapping-Datei
+
+---
+
+### `data/processed/delisted_trades.csv`
+**Quelle**: Output von `scripts/import_trades.py` (Ticker-Industry Lookup)
+**Format**: CSV
+**Update**: Bei jedem Import
+
+**Spalten**:
+```csv
+ticker, name, asset_name, transaction_date, chamber
+```
+
+**Verwendung**:
+- Uebersicht aller Trades mit delisteten/unbekannten Tickern (kein Sector/Industry bei yfinance)
+- Terminal-Report zeigt Verteilung nach Jahr
+
+---
+
+### `archive/trades_master_backup/trades_master_{YYYYMMDD-HHMMSS}.csv`
+**Quelle**: Automatisch erstellt von `scripts/import_trades.py` (`_backup_master()`)
+**Format**: CSV (identisch zu trades_master.csv)
+**Update**: Vor jedem destruktiven Schreiben auf trades_master.csv (normal stage mode ohne --dry_run)
+
+**Verwendung**:
+- Wiederherstellung des letzten Zustands bei fehlgeschlagener Stage
+- Kein automatisches Löschen — manuell aufräumen bei Bedarf
+- Pfad konfigurierbar via `settings.ARCHIVE_BACKUP_PATH`
+
+### `data/processed/trades_stage.csv`
+**Quelle**: Zwischenpuffer von `scripts/import_trades.py`
+**Format**: CSV (selbe Struktur wie trades_master.csv)
+**Update**: Bei `--dry_run`, `--delta --stage_*`, oder `--stage_X --dry_run`
+
+**Verwendung**:
+- Output-Ziel für alle nicht-destruktiven Stage-Läufe
+- Input für `--stage_save` (committet Stage → Master)
+- Wird nach erfolgreichem `--stage_save` automatisch gelöscht
 
 ---
 
@@ -379,7 +662,7 @@ Chamber, Committee, Subcommittee, Region, Konfidenz
    senate_scraper.py → senate_trades.csv
    ↓
 
-2. IMPORT + NAME MATCHING
+2. IMPORT + NAME MATCHING (--stage_committees / enrich_member_data)
    scripts/import_trades.py
    + house_member&(sub)committees.csv
    + senate_member&(sub)committees.csv
@@ -387,28 +670,30 @@ Chamber, Committee, Subcommittee, Region, Konfidenz
    ↓
    utils/name_matcher.py (Senate-Normalisierung + Fuzzy 85%)
    ↓
-   [Name, Party, State, Committees, Chamber]
+   [Member_Party, Member_State, Member_Committees, Member_ExOfficio,
+    Member_Chamber, Member_Committees_Full]
+   (MatchScore/MatchSource kommen in Stage 4)
 
-3. COMMITTEE FILTER (MODUL 4)
-   + subcommittee_sector_industry_mapping.csv
+3. TICKER-TYPE + TICKER-INDUSTRY
+   + OpenFIGI API (ticker_type)
+   + yfinance (Ticker_Sector, Ticker_Industry)
    ↓
-   config/committee_mapping.py → filters/committee_filter.py
-   ↓
-   [Relevant_Sectors, Relevance_Score, Confidence_Level]
+   [ticker_type, Ticker_Sector, Ticker_Industry]
 
-4. VOTE TIMING FILTER (MODUL 6)
-   + congress_bills_cache.csv (via fetch_congress_votes.py)
-   + congress_votes.csv (gecachte Floor-Votes)
+4. FILTER-LOGIK (--stage_filter / _apply_filter_logic)
+   + subcommittee_sector_industry_mapping.csv (CommitteeFilter)
+   + bill_actions.json + bill_subjects.json (VoteTimingFilter)
    ↓
-   config/vote_sector_mapping.py → filters/vote_timing_filter.py
-   ↓
-   [Vote_Timing_Hit, Vote_Date, Vote_Bill_Title, Vote_Policy_Area,
-    Vote_Timing_Score, Days_To_Vote]
+   _apply_match_scores → [MatchScore, MatchSource]
+   _apply_committee_relevance → [Relevant_Sectors, Relevance_Score, Confidence_Level]
+   AssetClassFilter → [asset_class_excluded]
+   VoteTimingFilter → [Vote_Timing_Hit, Vote_Date, Vote_Bill_Title,
+                        Vote_Policy_Area, Vote_Timing_Score, Days_To_Vote]
 
 5. OUTPUT
    ↓
-   trades_master.csv (kumulativ)
-   trades_new.csv (neue Trades)
+   trades_master.csv (Backup in archive/trades_master_backup/ vor jedem destruktiven Schreiben)
+   trades_stage.csv (Zwischenpuffer bei --dry_run / --delta --stage_*)
    unmatched_names.csv (nicht gematchte Namen)
 ```
 
@@ -520,62 +805,80 @@ Erzeugt:
 
 ---
 
-## 8. Vote Timing Daten (Modul 6)
+## 8. Congress API Daten (Modul 6)
 
-### `data/raw/congress_bills_cache.csv` ⭐
-**Quelle**: `scripts/fetch_congress_votes.py` (Congress.gov API v3)
-**Format**: CSV
-**Update**: Einmalig (~4h erster Lauf), danach Delta (nur neue Bills)
+**Quelle**: `scrapers/fetch_congress_data.py` (Congress.gov API v3)
+**Pfad**: `data/congress_api/`
+**Update**: Erstlauf (~7-8h), danach wöchentlich `--update` (~5-30 Min)
 
-**Spalten**:
-```csv
-congress, bill_type, bill_number, bill_title, policy_area,
-mapped_sectors, origin_chamber, introduced_date, update_date, fetched_at
-```
-
-**Wichtige Felder**:
-- `congress` — Kongress-Nummer (119 = 2025-2027)
-- `bill_type` — hr, s, hjres, sjres, hconres, sconres, hres, sres
-- `policy_area` — CRS Policy Area (z.B. "Armed Forces and National Security")
-- `mapped_sectors` — kommaseparierte YF-Sektoren (leer wenn unmapped)
-- `fetched_at` — Zeitstempel des API-Calls
-
-**Zweck**: Lokaler Cache aller Bills eines Kongresses. Vermeidet wiederholte API-Calls.
-Enthält Policy Area fuer jedes Bill (nur abrufbar via Bill-Detail-Endpoint, nicht in der Bill-Liste).
-
-**Generierung**:
 ```bash
-python scripts/fetch_congress_votes.py          # Delta (neue Bills)
-python scripts/fetch_congress_votes.py --full   # Alles neu
+python scrapers/fetch_congress_data.py           # Erstlauf (alle 6 Schritte)
+python scrapers/fetch_congress_data.py --update  # Delta (nur geänderte Bills)
+python scrapers/fetch_congress_data.py --force   # Erstlauf erzwingen
 ```
 
 ---
 
-### `data/raw/congress_votes.csv`
-**Quelle**: `scripts/fetch_congress_votes.py` (Phase 2, aus Bill-Actions)
-**Format**: CSV
-**Update**: Bei jedem Fetcher-Lauf (Delta)
+### `data/congress_api/bills_list.json`
+**Schritt 1** (~30 Min) — Übersicht aller Bills des Kongresses
+**Felder**: `congress, number, type, bill_type, title, originChamber, updateDate, latestAction`
 
-**Spalten**:
-```csv
-congress, bill_type, bill_number, bill_title, policy_area,
-mapped_sectors, vote_date, action_text, chamber, bill_url
+---
+
+### `data/congress_api/bill_details.json`
+**Schritt 2** (~1.5-2h) — Details pro Bill inkl. policyArea
+**Felder**: `bill_id, bill_type, number, title, short_title, policy_area, introduced_date, latest_action, sponsors, cosponsors_count`
+
+**Hinweis**: `policy_area` ist nur über den Bill-Detail-Endpoint verfügbar, nicht in der paginierten Bill-Liste.
+
+---
+
+### `data/congress_api/bill_actions.json`
+**Schritt 3** (~1-2h) — Alle Actions pro Bill inkl. Floor Votes
+**Felder pro Action**: `date, text, type, action_code, source_system, committee, roll_call`
+
+**Wichtig**: `roll_call` enthält `[{chamber, congress, date, rollNumber, url}]` für namentliche Abstimmungen (Vote-Timing-Filter nutzt `type="Floor"` + vorhandenes `roll_call`).
+
+---
+
+### `data/congress_api/bill_committees.json`
+**Schritt 4** (~1h) — Committee-Zuweisungen pro Bill
+**Felder**: `bill_id, policy_area, committees: [{name, chamber, system_code, subcommittees}]`
+
+---
+
+### `data/congress_api/bill_summaries.json`
+**Schritt 5** (~1.5h) — CRS Summaries pro Bill (für AI-Agent geplant)
+**Felder**: `bill_id, policy_area, summaries: [{action_date, text, version_code}], has_summary`
+
+---
+
+### `data/congress_api/bill_subjects.json` ⭐
+**Schritt 6** (~2.5h) — Legislative Subjects pro Bill (**löst Rider-Problem**)
+**Felder**: `bill_id, policy_area, legislative_subjects: [str], subject_count`
+
+**Zweck**: Omnibus-Bills (z.B. HR 1) haben eine einzelne `policy_area` aber decken viele Themen ab.
+Legislative Subjects listen alle Themen explizit auf und erfassen auch Rider.
+
+**Beispiel HR 1**:
+```json
+{
+  "bill_id": "hr-119-1",
+  "policy_area": "Economics and Public Finance",
+  "legislative_subjects": ["Energy policy", "Oil and gas", "Medicaid",
+                            "Immigration enforcement", "Defense spending", ...],
+  "subject_count": 238
+}
 ```
 
-**Wichtige Felder**:
-- `mapped_sectors` — kommaseparierte YF-Sektoren (aus `config/vote_sector_mapping.py`)
-- `vote_date` — Abstimmungsdatum (YYYY-MM-DD)
-- `action_text` — Beschreibung der Action (z.B. "On passage Agreed to by the Yeas...")
-- `chamber` — "House" (vorerst nur House; Senate-XML-Parser kommt spaeter)
+---
 
-**Zweck**: Gecachte Floor-Votes fuer Filter 4 (Vote Timing).
-Nur Bills mit `mapped_sectors` werden in Phase 2 verarbeitet (~38% aller Bills mit Policy Area).
-
-**Beispiel**:
-```csv
-119,hr,144,"Tennessee Valley Authority Salary Transparency Act",Government Operations and Politics,,2025-01-15,"On motion to suspend the rules and pass the bill Agreed to",House,...
-119,hr,187,"Public Lands...","Public Lands and Natural Resources","Energy,Basic Materials",2025-01-15,"On passage...",House,...
-```
+### `data/congress_api/fetch_checkpoint.json`
+**Felder**:
+- `completed_steps` — abgeschlossene Schritte (für Resume bei Abbruch)
+- `last_full_run` — Timestamp des letzten vollständigen Erstlaufs
+- `last_update_run` — Timestamp des letzten `--update` Laufs
+- `update_count` — Anzahl Delta-Updates seit Erstlauf
 
 ---
 
@@ -644,4 +947,4 @@ Erweiterung durch AI-Agent geplant (analysiert bill_title + summary fuer unmappe
 ---
 
 Erstellt: 2026-02-20
-Letzte Aktualisierung: 2026-03-08 (Modul 6: Vote Timing hinzugefuegt)
+Letzte Aktualisierung: 2026-03-13 (House PDF Extractor v2 hinzugefuegt)

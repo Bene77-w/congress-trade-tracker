@@ -4,9 +4,31 @@ Alle Parameter für Filter, Scoring und Benachrichtigungen
 """
 
 import os
+import sys
+from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Projektroot (absolut, plattformunabhängig)
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+# =============================================================================
+# FILTER 0: ASSET-KLASSE
+# Nicht-Aktien (ETFs, Options, Bonds, Crypto etc.) aus nachfolgenden
+# Filtern und Scoring ausschliessen. Der Filter setzt nur eine Flag-Spalte;
+# die Trades bleiben in trades_master.csv erhalten.
+# =============================================================================
+# ticker_type-Werte die als "handelbare Einzel-Aktie" gelten und weiter
+# verarbeitet werden. Alle uebrigen ticker_type-Werte werden ausgeschlossen
+# (asset_class_excluded=True).
+FILTER_0_KEEP_TYPES = {
+    'Stock',
+    'Stock (Delisted)',      # Legacy-Label fuer akquirierte/delisted Aktien
+    'Depositary Receipt',    # ADRs (BABA, TSM, ASML) - OpenFIGI-Label
+    'Partnership Shares',    # MLPs (EPD, MMP, ET) - OpenFIGI-Label
+    'Foreign Stock',         # Auslaendische Aktien ohne ADR-Struktur
+}
 
 # =============================================================================
 # FILTER 1: HANDELSVOLUMEN
@@ -31,8 +53,6 @@ SWARM_MIN_POLITICIANS = 3  # Mindestanzahl Politiker
 # FILTER 3: COMMITTEE-SECTOR MAPPING
 # Politiker handelt in Sektor, der zu seinen Ausschüssen gehört
 # =============================================================================
-COMMITTEE_MAPPING_FILE = 'subcommittee_sector_industry_mapping.csv'
-
 # Committee relevance scoring weights
 # Sector_Rank aus subcommittee_sector_industry_mapping.csv:
 # - Rank 1 = Primärer Sektor (höchste Relevanz)
@@ -61,7 +81,7 @@ COMMITTEE_ROLE_WEIGHTS = {
 }
 
 # Minimum relevance score to consider committee-relevant (0-100)
-COMMITTEE_RELEVANCE_THRESHOLD = 30
+COMMITTEE_RELEVANCE_THRESHOLD =  1 # wird nicht im code verwebdet, da Committee-Filter als Auto-Flag (kein Score) implementiert ist
 
 # =============================================================================
 # FILTER 4: VOTE TIMING (Congress.gov API)
@@ -73,6 +93,10 @@ VOTE_TIMING_WINDOW_AFTER  = 5      # Trade max X Tage NACH Abstimmung
 VOTE_TIMING_SCORE         = 25     # Bonus-Score bei Treffer (0-100)
 VOTE_MIN_POLICY_CONFIDENCE = 0.7   # Min-Konfidenz fuer Sektor-Match
 VOTE_CONGRESS_NUMBER      = 119    # Ab welchem Kongress Daten laden (119th = 2025-2027)
+LEGISLATIVE_SUBJECT_MAPPING_FILE = 'legislative_subject_mapping_complete.csv'
+BILL_SUBJECTS_FILE = 'bill_subjects.json'
+# Konfidenz-Multiplikatoren fuer Legislative Subject Mapping (analog Committee-Scoring)
+VOTE_KONFIDENZ_MULTIPLIERS = {'Hoch': 1.0, 'Mittel': 0.7, 'Niedrig': 0.4}
 
 # =============================================================================
 # FILTER 5: CONTRARIAN
@@ -153,13 +177,19 @@ SENATE_SCRAPE_RUN_PAUSE_SECONDS = 5   # Pause zwischen Runs (Sekunden)
 
 # PDF Extractor (Anthropic Vision)
 PDF_EXTRACTOR_MODEL = "claude-haiku-4-5-20251001"  # Haiku für Kosteneffizienz
-PDF_EXTRACTOR_PAGE_PAUSE_SECONDS = 0.5              # Pause zwischen Seiten-API-Calls
+PDF_EXTRACTOR_PAGE_PAUSE_SECONDS = 2.0              # Pause zwischen Seiten-API-Calls
+PDF_EXTRACTOR_DPI = 300                              # Bildaufloesung (v2: 300, v1: 200)
+PDF_EXTRACTOR_AMOUNT_PIXEL_THRESHOLD = 50            # Min. dunkle Pixel fuer "x"-Erkennung
+PDF_EXTRACTOR_USE_GRID_DETECTION = True              # img2table Grid-Erkennung aktivieren
+PDF_EXTRACTOR_ROW_BATCH_SIZE = 5                     # Zeilen pro Vision API Batch
 
 # PDF Extractor (Tesseract – lokales OCR, kostenlos)
-PDF_EXTRACTOR_TESSERACT_PATH = os.getenv(
-    'TESSERACT_PATH',
+_TESSERACT_DEFAULT = (
     r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+    if sys.platform == 'win32' else
+    '/usr/bin/tesseract'
 )
+PDF_EXTRACTOR_TESSERACT_PATH = os.getenv('TESSERACT_PATH', _TESSERACT_DEFAULT)
 PDF_EXTRACTOR_TESSERACT_PSM = 6       # Page Segmentation Mode: uniform text block
 PDF_EXTRACTOR_TESSERACT_CONF_MIN = 30 # Wörter mit Confidence < 30 werden ignoriert
 
@@ -175,11 +205,95 @@ SCRAPER_USER_AGENT = 'CongressTracker/1.0 (Python)'
 # Fuzzy-Matching Schwellenwert (0-100)
 FUZZY_MATCH_THRESHOLD = 85
 
-# Spalten fuer Duplikat-Erkennung
+# Spalten fuer Duplikat-Erkennung (angepasst an Quiver-Daten: kein asset_type, owner, ptr_link)
 DUPLICATE_CHECK_COLUMNS = [
-    'name', 'ticker', 'asset_name', 'asset_type', 'transaction_type',
-    'amount', 'transaction_date', 'owner', 'subholding', 'comment', 'ptr_link',
+    'name', 'ticker', 'asset_name', 'transaction_type',
+    'amount', 'transaction_date', 'subholding', 'comment',
 ]
+
+# Ticker-Industry Lookup (yfinance)
+TICKER_INDUSTRY_CACHE_FILE = 'ticker_industry_cache.json'   # in DATA_MAPPINGS_PATH (nur positive)
+TICKER_0_CACHE_FILE = 'ticker_0_cache.json'                  # in DATA_MAPPINGS_PATH (null-Eintraege)
+TICKER_LOOKUP_PAUSE_SECONDS = 0.5    # Pause zwischen yfinance-Calls (Rate-Limit-Schutz)
+TICKER_LOOKUP_RETRY_ATTEMPTS = 3     # Wiederholungsversuche bei Fehler
+TICKER_LOOKUP_RETRY_DELAY = 5.0      # Wartezeit (Sekunden) zwischen Retries, verdoppelt sich
+TICKER_LOOKUP_CONFIRM_THRESHOLD = 100 # Ab dieser Anzahl neuer Ticker: User-Bestaetigung
+TICKER_LOOKUP_CACHE_INTERVAL = 100    # Cache alle N Ticker zwischenspeichern
+TICKER_LOOKUP_NET_ERROR_PAUSE = 30    # Pause (Sek.) nach 3 Netzwerk-Fehlern in Folge
+TICKER_LOOKUP_NET_ERROR_ABORT = 5     # Abbruch nach N Netzwerk-Fehlern in Folge
+
+# Vorzugsaktien-Mapping (Preferred → Stammaktie)
+PREFERRED_TICKER_MAPPING_FILE = 'Vorzugsaktien_mapping.csv'
+
+# Ticker Pre-Filter: Non-Standard-Ticker werden VOR yfinance-Lookup erkannt
+# und direkt in ticker_0_cache.json gecacht (keine API-Abfrage).
+# Dict-Struktur: Kategorie-Label -> [Regex-Patterns]. First match wins.
+# Reihenfolge wichtig: spezifische Patterns vor Catch-All (Other).
+TICKER_WHITELIST = {'BRK-A', 'BRK-B', 'STZ-B', 'LEN-B', 'LGF-A', 'LGF-B'}
+TICKER_TYPE_PATTERNS = {
+    # Pre-Filter: Formate die OpenFIGI nicht erkennen kann.
+    # Reihenfolge wichtig: spezifische Patterns vor Catch-All (Other).
+    'Warrant': [
+        r'^[A-Z]+-W[DS]?[A-Z]*$',       # -W, -WD, -WSA, -WSB
+        r'^[A-Z]+-WS[-]?[A-Z]?$',       # C-WS-A, STI-WSB, GM-WSA
+        r'^BACWSA$',                     # Einziger Warrant ohne Bindestrich
+        r'^[A-Z]+w$',                    # lowercase w Suffix
+    ],
+    'Bond/CUSIP': [
+        r'^9\d{8}[A-Z0-9]*$',           # US Treasury CUSIPs (912...)
+        r'^\d{5}[A-Z0-9]{4,5}$',        # Andere CUSIPs (37045XEF9, 40056FN84)
+    ],
+    'SEDOL': [r'^B(?=[A-Z0-9]*\d)[A-Z0-9]{6}\d?$'],  # B + 6 alnum (mind. 1 Ziffer)
+    'Bond (Maturity)': [r'.*\d{2}/\d{2}/\d{2,4}'],
+    'T-Bill': [r'.*(WEEK|MONTH|MATUR)'],
+    'Mutual Fund': [r'^SYMBOL\s*:'],    # Quiver-spezifisches Prefix
+    'Foreign Stock': [
+        r'^(NYSE|NASDAQ)\s*:',           # "NYSE: COV", "NASDAQ:WLTW"
+        r'^[A-Z0-9]+\.(MI|SG|TI|DE|PA|IL|L)$',  # 1AMT.MI, FL4.SG
+    ],
+    'Crypto': [
+        r'^CRYPTO\s*:',                  # CRYPTO:BTC
+        r'^(BITCOIN|SOLANA|RIPPLE)$',    # Krypto-Eigennamen
+    ],
+    'Index': [r'^\^'],                   # ^MWE, ^RGP
+    'Option': [r'^[A-Z]{1,5}\d{6}[PC]\d{8}$'],  # SPY160219P00180000
+    'Other': [
+        r'^\d+$',                        # Reine Zahlen (44, 3305779)
+        r'.*[#_,%/+]',                   # Sonderzeichen
+        r'.* .*',                        # Leerzeichen im Ticker
+    ],
+}
+
+# Backward-kompatible Flat-List (fuer _classify_ticker in enrich_with_ticker_industry)
+TICKER_FILTER_PATTERNS = [p for patterns in TICKER_TYPE_PATTERNS.values() for p in patterns]
+
+# OpenFIGI securityType -> ticker_type Mapping (primaer, wird zuerst geprueft)
+# Wichtig: securityType "ETP" identifiziert ETFs korrekt, waehrend securityType2
+# fuer ETFs faelschlicherweise "Mutual Fund" zurueckgibt.
+OPENFIGI_SEC_TYPE_MAP = {
+    "ETP": "ETF",
+}
+
+# OpenFIGI securityType2 -> ticker_type Mapping (sekundaer, Fallback)
+OPENFIGI_TYPE_MAP = {
+    "Common Stock": "Stock",
+    "Open-End Fund": "Mutual Fund",
+    "Closed-End Fund": "Closed-End Fund",
+    "Preferred Stock": "Preferred Stock",
+    "Warrant": "Warrant",
+    "Right": "Rights",
+    "Unit": "SPAC Unit",
+    "REIT": "Stock",
+    "ADR": "Stock",
+}
+
+# OpenFIGI Konfiguration
+OPENFIGI_API_KEY = os.getenv('OPENFIGI_API_KEY', '')
+TICKER_TYPE_CACHE_TTL_DAYS = 90
+TICKER_TYPE_UNKNOWN_TTL_DAYS = 7
+TICKER_TYPE_CACHE_DB = 'ticker_type_cache.db'
+DATA_CACHE_PATH = 'data/cache'
+OPENFIGI_BATCH_ABORT_THRESHOLD = 3  # Abbruch nach N fehlgeschlagenen Batches in Folge
 
 # =============================================================================
 # ALLGEMEINE EINSTELLUNGEN
@@ -190,8 +304,9 @@ DISCLOSURE_DELAY_DAYS = 45
 # Daten-Pfade (relativ zum Projektverzeichnis)
 DATA_RAW_PATH = 'data/raw'
 DATA_PROCESSED_PATH = 'data/processed'
-DATA_CONFIG_PATH = 'data/config'
+DATA_MAPPINGS_PATH = 'data/mappings'
 DATA_UPLOADS_PATH = 'data/uploads'
+DATA_CONGRESS_API_PATH = 'data/congress_api'
 LOGS_PATH = 'logs'
 
 # Maximales Alter der Daten bevor neu geladen wird (in Stunden)
@@ -203,10 +318,16 @@ DATA_MAX_AGE_HOURS = 24
 # Aktuelle Kongress-Session
 CONGRESS_SESSION = "119th"  # 2025-2027
 
-# Committee-Dateien (CSV nach PDF-Extraktion)
+# Mapping-Dateien (data/mappings/)
 HOUSE_COMMITTEES_FILE = 'house_member&(sub)committees.csv'
 SENATE_COMMITTEES_FILE = 'senate_member&(sub)committees.csv'
+NAME_ALIASES_FILE = 'name_aliases.csv'
+COMMITTEE_MAPPING_FILE = 'subcommittee_sector_industry_mapping.csv'
 
-# Trade-Daten (Scraper-Ausgaben)
-HOUSE_TRADES_FILE = 'house_trades.csv'
-SENATE_TRADES_FILE = 'senate_trades.csv'
+# Trade-Daten
+QUIVER_TRADES_FILE = 'congress-trading-all.xlsx'  # Quiver-Daten (primaere Quelle, xlsx)
+HOUSE_TRADES_FILE = 'house_trades.csv'            # Eigene House-Scraper-Daten (Ergaenzung)
+SENATE_TRADES_FILE = 'senate_trades.csv'          # Eigene Senate-Scraper-Daten (Ergaenzung)
+
+# Backup-Verzeichnis fuer automatische Master-Backups vor destruktiven Aenderungen
+ARCHIVE_BACKUP_PATH = 'archive/trades_master_backup'

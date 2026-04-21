@@ -3,20 +3,31 @@ Congress.gov API Data Fetcher
 ==============================
 Fetcht alle Daten die für Filter 4A (Vote Timing) und 4B (Committee Activity) benötigt werden.
 
-Laufzeit: ~3-5 Stunden (abhängig von Rate Limit)
+Vote-Daten (Floor Votes) werden aus Bill Actions extrahiert — kein separater Vote-Endpoint nötig.
+
+Laufzeit: ~4-5 Stunden (abhängig von Rate Limit)
 Rate Limit: 5.000 Requests/Stunde (mit API Key)
 
 Verwendung:
-    1. API Key besorgen: https://api.congress.gov/sign-up/
-    2. Script starten:
-       python scripts/fetch_congress_data.py --api-key YOUR_KEY
-    3. Bei Abbruch: Script erneut starten — es setzt dort fort wo es aufgehört hat (Checkpoint-System)
+    Erstlauf (~7-8h, einmalig pro Kongress):
+        python scrapers/fetch_congress_data.py
+
+    Delta-Update (~5-30 Min, wöchentlich):
+        python scrapers/fetch_congress_data.py --update
+
+    Erstlauf wiederholen (ignoriert completed_steps):
+        python scrapers/fetch_congress_data.py --force
+
+    Bei Abbruch: Script erneut starten — setzt via Checkpoint-System fort.
 
 Output:
-    data/congress_api/votes_house.json       — Alle House Roll Call Votes
-    data/congress_api/votes_senate.json      — Alle Senate Roll Call Votes
-    data/congress_api/bills.json             — Alle Bills mit policyArea + committees
-    data/congress_api/bill_actions.json      — Actions pro Bill (referred, hearing, markup, reported)
+    data/congress_api/bills_list.json        — Alle Bills (IDs, Typen)
+    data/congress_api/bill_details.json      — policyArea, title, sponsors pro Bill
+    data/congress_api/bill_actions.json      — Actions pro Bill (inkl. Floor Votes!)
+    data/congress_api/bill_committees.json   — Committee-Zuweisungen pro Bill
+    data/congress_api/bill_summaries.json    — CRS Summaries pro Bill
+    data/congress_api/bill_subjects.json     — Legislative Subjects pro Bill (Rider-Erkennung)
+    data/congress_api/fetch_checkpoint.json  — Checkpoint für Resume + Delta-Update
     data/congress_api/fetch_log.json         — Fortschritt + Fehler-Log
 """
 
@@ -67,7 +78,7 @@ class CongressFetcher:
 
     def _load_checkpoint(self) -> dict:
         if CHECKPOINT_FILE.exists():
-            with open(CHECKPOINT_FILE, "r") as f:
+            with open(CHECKPOINT_FILE, "r", encoding="utf-8") as f:
                 cp = json.load(f)
                 print(f"[CHECKPOINT] Fortgesetzt: {cp.get('last_step', '?')} "
                       f"({cp.get('requests_total', 0)} bisherige Requests)")
@@ -172,6 +183,33 @@ class CongressFetcher:
         print()  # Newline nach \r
         return all_results
 
+    def _fetch_legislative_subjects(self, bill_type: str, number: str) -> list:
+        """Fetcht alle legislative_subjects eines Bills (paginiert).
+
+        Der Subjects-Endpoint verschachtelt die Daten unter subjects.legislativeSubjects,
+        daher kann _fetch_paginated (Top-Level-Key) nicht direkt verwendet werden.
+        """
+        endpoint = f"/bill/{CONGRESS}/{bill_type}/{number}/subjects"
+        all_subjects = []
+        offset = 0
+
+        for _ in range(10):  # Safety limit — kein Bill hat >2500 Subjects
+            data = self._fetch(endpoint, {"offset": offset, "limit": PAGE_LIMIT})
+            if not data:
+                break
+
+            items = data.get("subjects", {}).get("legislativeSubjects", [])
+            if not items:
+                break
+
+            all_subjects.extend(items)
+
+            if len(items) < PAGE_LIMIT:
+                break
+            offset += PAGE_LIMIT
+
+        return [s.get("name", "") for s in all_subjects if s.get("name", "")]
+
     def _save_json(self, filename: str, data: any):
         """Speichert Daten als JSON."""
         filepath = OUTPUT_DIR / filename
@@ -182,49 +220,7 @@ class CongressFetcher:
         print(f"  → Gespeichert: {filepath} ({size_mb:.1f} MB)")
 
     # =================================================================
-    # SCHRITT 1: VOTES
-    # =================================================================
-
-    def fetch_votes(self):
-        """Fetcht alle Roll Call Votes beider Kammern."""
-        for chamber in ["house", "senate"]:
-            step = f"votes_{chamber}"
-            if self._is_step_done(step):
-                print(f"[SKIP] {step} bereits abgeschlossen")
-                continue
-
-            print(f"\n{'='*60}")
-            print(f"SCHRITT 1: Votes ({chamber.upper()})")
-            print(f"{'='*60}")
-
-            votes = self._fetch_paginated(
-                f"/vote/{CONGRESS}/{chamber}",
-                result_key="votes"
-            )
-
-            # Relevante Felder extrahieren
-            processed = []
-            for v in votes:
-                vote_data = {
-                    "vote_number": v.get("number"),
-                    "date": v.get("date"),
-                    "question": v.get("question"),
-                    "result": v.get("result"),
-                    "chamber": chamber,
-                    "congress": CONGRESS,
-                    # Bill-Referenz (wenn vorhanden — nicht alle Votes sind zu Bills)
-                    "bill": v.get("bill"),
-                    "url": v.get("url"),
-                }
-                processed.append(vote_data)
-
-            self._save_json(f"votes_{chamber}.json", processed)
-            print(f"  {chamber.upper()}: {len(processed)} Votes gefetcht")
-
-            self._mark_step_done(step)
-
-    # =================================================================
-    # SCHRITT 2: BILLS (Übersicht)
+    # SCHRITT 1: BILLS (Übersicht)
     # =================================================================
 
     def fetch_bills(self):
@@ -235,7 +231,7 @@ class CongressFetcher:
             return
 
         print(f"\n{'='*60}")
-        print(f"SCHRITT 2: Bills (Übersicht)")
+        print(f"SCHRITT 1: Bills (Übersicht)")
         print(f"{'='*60}")
 
         all_bills = []
@@ -259,7 +255,7 @@ class CongressFetcher:
         self._mark_step_done(step)
 
     # =================================================================
-    # SCHRITT 3: BILL DETAILS (policyArea, committees, title)
+    # SCHRITT 2: BILL DETAILS (policyArea, committees, title)
     # =================================================================
 
     def fetch_bill_details(self):
@@ -270,7 +266,7 @@ class CongressFetcher:
             return
 
         print(f"\n{'='*60}")
-        print(f"SCHRITT 3: Bill Details (policyArea, committees)")
+        print(f"SCHRITT 2: Bill Details (policyArea, committees)")
         print(f"{'='*60}")
 
         # Bills-Liste laden
@@ -279,14 +275,14 @@ class CongressFetcher:
             print("[ERROR] bills_list.json nicht gefunden. Erst Schritt 2 ausführen.")
             return
 
-        with open(bills_file, "r") as f:
+        with open(bills_file, "r", encoding="utf-8") as f:
             bills = json.load(f)
 
         # Bereits gefetchte Details laden (für Resume)
         details_file = OUTPUT_DIR / "bill_details.json"
         existing_details = {}
         if details_file.exists():
-            with open(details_file, "r") as f:
+            with open(details_file, "r", encoding="utf-8") as f:
                 for d in json.load(f):
                     key = f"{d.get('bill_type', '')}-{d.get('number', '')}"
                     existing_details[key] = d
@@ -347,7 +343,7 @@ class CongressFetcher:
         self._mark_step_done(step)
 
     # =================================================================
-    # SCHRITT 4: BILL ACTIONS (referred, hearing, markup, reported)
+    # SCHRITT 3: BILL ACTIONS (referred, hearing, markup, reported)
     # =================================================================
 
     def fetch_bill_actions(self):
@@ -358,7 +354,7 @@ class CongressFetcher:
             return
 
         print(f"\n{'='*60}")
-        print(f"SCHRITT 4: Bill Actions")
+        print(f"SCHRITT 3: Bill Actions")
         print(f"{'='*60}")
 
         # Bill Details laden
@@ -367,14 +363,14 @@ class CongressFetcher:
             print("[ERROR] bill_details.json nicht gefunden. Erst Schritt 3 ausführen.")
             return
 
-        with open(details_file, "r") as f:
+        with open(details_file, "r", encoding="utf-8") as f:
             bills = json.load(f)
 
         # Bereits gefetchte Actions laden (für Resume)
         actions_file = OUTPUT_DIR / "bill_actions.json"
         existing_actions = {}
         if actions_file.exists():
-            with open(actions_file, "r") as f:
+            with open(actions_file, "r", encoding="utf-8") as f:
                 for a in json.load(f):
                     existing_actions[a.get("bill_id", "")] = a
 
@@ -439,7 +435,7 @@ class CongressFetcher:
         self._mark_step_done(step)
 
     # =================================================================
-    # SCHRITT 5: BILL COMMITTEES (welches Committee hat den Bill?)
+    # SCHRITT 4: BILL COMMITTEES (welches Committee hat den Bill?)
     # =================================================================
 
     def fetch_bill_committees(self):
@@ -450,7 +446,7 @@ class CongressFetcher:
             return
 
         print(f"\n{'='*60}")
-        print(f"SCHRITT 5: Bill Committee-Zuweisungen")
+        print(f"SCHRITT 4: Bill Committee-Zuweisungen")
         print(f"{'='*60}")
 
         details_file = OUTPUT_DIR / "bill_details.json"
@@ -458,14 +454,14 @@ class CongressFetcher:
             print("[ERROR] bill_details.json nicht gefunden.")
             return
 
-        with open(details_file, "r") as f:
+        with open(details_file, "r", encoding="utf-8") as f:
             bills = json.load(f)
 
         # Resume
         committees_file = OUTPUT_DIR / "bill_committees.json"
         existing = {}
         if committees_file.exists():
-            with open(committees_file, "r") as f:
+            with open(committees_file, "r", encoding="utf-8") as f:
                 for c in json.load(f):
                     existing[c.get("bill_id", "")] = c
 
@@ -527,6 +523,422 @@ class CongressFetcher:
         self._mark_step_done(step)
 
     # =================================================================
+    # SCHRITT 5: BILL SUMMARIES (CRS Zusammenfassungen)
+    # =================================================================
+
+    def fetch_bill_summaries(self):
+        """Fetcht CRS Summaries pro Bill (für Keyword-Fallback bei unsicheren Policy Areas)."""
+        step = "bill_summaries"
+        if self._is_step_done(step):
+            print(f"[SKIP] {step} bereits abgeschlossen")
+            return
+
+        print(f"\n{'='*60}")
+        print(f"SCHRITT 5: Bill Summaries (CRS)")
+        print(f"{'='*60}")
+
+        details_file = OUTPUT_DIR / "bill_details.json"
+        if not details_file.exists():
+            print("[ERROR] bill_details.json nicht gefunden. Erst Schritt 3 ausführen.")
+            return
+
+        with open(details_file, "r", encoding="utf-8") as f:
+            bills = json.load(f)
+
+        # Resume
+        summaries_file = OUTPUT_DIR / "bill_summaries.json"
+        existing = {}
+        if summaries_file.exists():
+            with open(summaries_file, "r", encoding="utf-8") as f:
+                for s in json.load(f):
+                    existing[s.get("bill_id", "")] = s
+
+        print(f"  {len(bills)} Bills total, {len(existing)} Summaries bereits gefetcht")
+
+        all_summaries = list(existing.values())
+        save_interval = 100
+
+        for i, bill in enumerate(bills):
+            bill_id = bill.get("bill_id", "")
+            bill_type = bill.get("bill_type", "")
+            number = bill.get("number", "")
+
+            if bill_id in existing:
+                continue
+
+            data = self._fetch(
+                f"/bill/{CONGRESS}/{bill_type}/{number}/summaries"
+            )
+
+            summaries = []
+            if data:
+                for s in data.get("summaries", []):
+                    summaries.append({
+                        "action_date": s.get("actionDate", ""),
+                        "action_desc": s.get("actionDesc", ""),
+                        "text": s.get("text", ""),
+                        "version_code": s.get("versionCode", ""),
+                        "update_date": s.get("updateDate", ""),
+                    })
+
+            entry = {
+                "bill_id": bill_id,
+                "bill_type": bill_type,
+                "number": number,
+                "title": bill.get("title", ""),
+                "policy_area": bill.get("policy_area", ""),
+                "summaries": summaries,
+                "has_summary": len(summaries) > 0,
+            }
+            all_summaries.append(entry)
+            existing[bill_id] = entry
+
+            if (i + 1) % save_interval == 0:
+                self._save_json("bill_summaries.json", all_summaries)
+                self._save_checkpoint(f"bill_summaries_{i+1}",
+                                      {"summaries_fetched": len(all_summaries)})
+                print(f"  Fortschritt: {i+1}/{len(bills)} "
+                      f"({sum(1 for s in all_summaries if s['has_summary'])} mit Summary, "
+                      f"Request #{self.request_count})")
+
+        self._save_json("bill_summaries.json", all_summaries)
+        with_summary = sum(1 for s in all_summaries if s["has_summary"])
+        print(f"\n  Total: {len(all_summaries)} Bills, {with_summary} mit Summary")
+
+        self._mark_step_done(step)
+
+    # =================================================================
+    # SCHRITT 6: BILL SUBJECTS (Legislative Subjects für Rider-Erkennung)
+    # =================================================================
+
+    def fetch_bill_subjects(self):
+        """Fetcht Legislative Subjects pro Bill (löst Rider-Problem bei Omnibus-Bills)."""
+        step = "bill_subjects"
+        if self._is_step_done(step):
+            print(f"[SKIP] {step} bereits abgeschlossen")
+            return
+
+        print(f"\n{'='*60}")
+        print(f"SCHRITT 6: Bill Subjects (Legislative Subjects)")
+        print(f"{'='*60}")
+
+        details_file = OUTPUT_DIR / "bill_details.json"
+        if not details_file.exists():
+            print("[ERROR] bill_details.json nicht gefunden.")
+            return
+
+        with open(details_file, "r", encoding="utf-8") as f:
+            bills = json.load(f)
+
+        # Resume
+        subjects_file = OUTPUT_DIR / "bill_subjects.json"
+        existing = {}
+        if subjects_file.exists():
+            with open(subjects_file, "r", encoding="utf-8") as f:
+                for s in json.load(f):
+                    existing[s.get("bill_id", "")] = s
+
+        print(f"  {len(bills)} Bills total, {len(existing)} Subjects bereits gefetcht")
+
+        all_subjects = list(existing.values())
+        save_interval = 200
+
+        for i, bill in enumerate(bills):
+            bill_id = bill.get("bill_id", "")
+            bill_type = bill.get("bill_type", "")
+            number = bill.get("number", "")
+
+            if bill_id in existing:
+                continue
+
+            legislative_subjects = self._fetch_legislative_subjects(bill_type, number)
+
+            entry = {
+                "bill_id": bill_id,
+                "bill_type": bill_type,
+                "number": number,
+                "title": bill.get("title", ""),
+                "policy_area": bill.get("policy_area", ""),
+                "legislative_subjects": legislative_subjects,
+                "subject_count": len(legislative_subjects),
+            }
+            all_subjects.append(entry)
+            existing[bill_id] = entry
+
+            if (i + 1) % save_interval == 0:
+                self._save_json("bill_subjects.json", all_subjects)
+                self._save_checkpoint(f"bill_subjects_{i+1}",
+                                      {"subjects_fetched": len(all_subjects)})
+                with_subjects = sum(1 for s in all_subjects if s["subject_count"] > 0)
+                print(f"  Fortschritt: {i+1}/{len(bills)} "
+                      f"({with_subjects} mit Subjects, "
+                      f"Request #{self.request_count})")
+
+        self._save_json("bill_subjects.json", all_subjects)
+        with_subjects = sum(1 for s in all_subjects if s["subject_count"] > 0)
+        print(f"\n  Total: {len(all_subjects)} Bills, {with_subjects} mit Subjects")
+
+        self._mark_step_done(step)
+
+    # =================================================================
+    # UPDATE HELPERS
+    # =================================================================
+
+    def _merge_into_json(self, filename: str, new_records: list,
+                         key: str = "bill_id") -> tuple:
+        """Merged neue Records in bestehende JSON-Datei (update oder insert).
+        Gibt (updated, added) zurück."""
+        filepath = OUTPUT_DIR / filename
+        existing = {}
+        if filepath.exists():
+            with open(filepath, "r", encoding="utf-8") as f:
+                for r in json.load(f):
+                    existing[r.get(key, "")] = r
+
+        updated = added = 0
+        for r in new_records:
+            k = r.get(key, "")
+            if not k:
+                continue
+            if k in existing:
+                updated += 1
+            else:
+                added += 1
+            existing[k] = r
+
+        self._save_json(filename, list(existing.values()))
+        return updated, added
+
+    def _fetch_single_bill_all_types(self, bill_type: str, number: str) -> dict:
+        """Fetcht alle 6 Datentypen für einen einzelnen Bill.
+        Wird von run_update() genutzt um Code-Duplizierung zu vermeiden."""
+        bill_id = f"{bill_type}-{CONGRESS}-{number}"
+
+        # Details
+        details_entry = None
+        data = self._fetch(f"/bill/{CONGRESS}/{bill_type}/{number}")
+        if data and "bill" in data:
+            b = data["bill"]
+            policy_area = b.get("policyArea", {}).get("name", "") if b.get("policyArea") else ""
+            details_entry = {
+                "bill_id": bill_id,
+                "bill_type": bill_type,
+                "number": number,
+                "title": b.get("title", ""),
+                "short_title": (b.get("shortTitle") or [{}])[0].get("title", "") if b.get("shortTitle") else "",
+                "policy_area": policy_area,
+                "introduced_date": b.get("introducedDate", ""),
+                "latest_action": b.get("latestAction", {}),
+                "sponsors": [
+                    {"name": s.get("fullName", ""), "party": s.get("party", ""), "state": s.get("state", "")}
+                    for s in (b.get("sponsors") or [])
+                ],
+                "cosponsors_count": b.get("cosponsors", {}).get("count", 0),
+                "committees_url": b.get("committees", {}).get("url", ""),
+            }
+        else:
+            policy_area = ""
+
+        # Actions
+        actions_raw = self._fetch_paginated(
+            f"/bill/{CONGRESS}/{bill_type}/{number}/actions",
+            result_key="actions", max_pages=5
+        )
+        actions_entry = {
+            "bill_id": bill_id, "bill_type": bill_type, "number": number,
+            "title": details_entry.get("title", "") if details_entry else "",
+            "policy_area": policy_area,
+            "actions": [
+                {
+                    "date": a.get("actionDate", ""),
+                    "text": a.get("text", ""),
+                    "type": a.get("type", ""),
+                    "action_code": a.get("actionCode", ""),
+                    "source_system": a.get("sourceSystem", {}).get("name", ""),
+                    "committee": a.get("committee", {}),
+                    "roll_call": a.get("recordedVotes", []),
+                }
+                for a in actions_raw
+            ],
+            "action_count": len(actions_raw),
+        }
+
+        # Committees
+        committees_data = self._fetch(f"/bill/{CONGRESS}/{bill_type}/{number}/committees")
+        committees_entry = {
+            "bill_id": bill_id, "bill_type": bill_type, "number": number,
+            "policy_area": policy_area,
+            "committees": [
+                {
+                    "name": c.get("name", ""),
+                    "chamber": c.get("chamber", ""),
+                    "system_code": c.get("systemCode", ""),
+                    "committee_type": c.get("type", ""),
+                    "subcommittees": [
+                        {"name": sc.get("name", ""), "system_code": sc.get("systemCode", "")}
+                        for sc in c.get("subcommittees", [])
+                    ],
+                }
+                for c in (committees_data.get("committees", []) if committees_data else [])
+            ],
+        }
+
+        # Summaries
+        summaries_data = self._fetch(f"/bill/{CONGRESS}/{bill_type}/{number}/summaries")
+        summaries_list = [
+            {
+                "action_date": s.get("actionDate", ""),
+                "action_desc": s.get("actionDesc", ""),
+                "text": s.get("text", ""),
+                "version_code": s.get("versionCode", ""),
+                "update_date": s.get("updateDate", ""),
+            }
+            for s in (summaries_data.get("summaries", []) if summaries_data else [])
+        ]
+        summaries_entry = {
+            "bill_id": bill_id, "bill_type": bill_type, "number": number,
+            "title": details_entry.get("title", "") if details_entry else "",
+            "policy_area": policy_area,
+            "summaries": summaries_list,
+            "has_summary": len(summaries_list) > 0,
+        }
+
+        # Subjects (paginiert — löst Pagination-Bug für Omnibus-Bills)
+        legislative_subjects = self._fetch_legislative_subjects(bill_type, number)
+        subjects_entry = {
+            "bill_id": bill_id, "bill_type": bill_type, "number": number,
+            "title": details_entry.get("title", "") if details_entry else "",
+            "policy_area": policy_area,
+            "legislative_subjects": legislative_subjects,
+            "subject_count": len(legislative_subjects),
+        }
+
+        return {
+            "bill_id": bill_id,
+            "details": details_entry,
+            "actions": actions_entry,
+            "committees": committees_entry,
+            "summaries": summaries_entry,
+            "subjects": subjects_entry,
+        }
+
+    def _flush_update(self, details: list, actions: list, committees: list,
+                      summaries: list, subjects: list):
+        """Merged alle gesammelten Update-Records in die JSON-Dateien."""
+        if details:
+            u, a = self._merge_into_json("bill_details.json", details)
+            print(f"  details:    {u} aktualisiert, {a} neu")
+        if actions:
+            u, a = self._merge_into_json("bill_actions.json", actions)
+            print(f"  actions:    {u} aktualisiert, {a} neu")
+        if committees:
+            u, a = self._merge_into_json("bill_committees.json", committees)
+            print(f"  committees: {u} aktualisiert, {a} neu")
+        if summaries:
+            u, a = self._merge_into_json("bill_summaries.json", summaries)
+            print(f"  summaries:  {u} aktualisiert, {a} neu")
+        if subjects:
+            u, a = self._merge_into_json("bill_subjects.json", subjects)
+            print(f"  subjects:   {u} aktualisiert, {a} neu")
+
+    # =================================================================
+    # DELTA UPDATE
+    # =================================================================
+
+    def run_update(self):
+        """Delta-Update: Fetcht nur Bills die seit dem letzten Lauf geändert wurden."""
+        from_dt = (self.checkpoint.get("last_update_run")
+                   or self.checkpoint.get("last_full_run"))
+        if not from_dt:
+            print("[ERROR] Kein abgeschlossener Erstlauf gefunden.")
+            print("  Erst ohne --update starten: python scrapers/fetch_congress_data.py")
+            sys.exit(1)
+
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        start = datetime.now()
+
+        print(f"Congress.gov API — Delta Update")
+        print(f"Congress: {CONGRESS}")
+        print(f"Geändert seit: {from_dt[:19]}")
+        print(f"{'='*60}")
+
+        # Geänderte Bills über fromDateTime fetchen
+        changed_bills = []
+        for bill_type in ["hr", "s", "hjres", "sjres"]:
+            print(f"  Typ {bill_type}...", end=" ")
+            bills = self._fetch_paginated(
+                f"/bill/{CONGRESS}/{bill_type}",
+                result_key="bills",
+                params={"fromDateTime": from_dt, "sort": "updateDate+asc"},
+            )
+            for b in bills:
+                b["bill_type"] = bill_type
+            changed_bills.extend(bills)
+            print(f"{len(bills)} geändert")
+
+        print(f"\n  {len(changed_bills)} Bills seit letztem Lauf geändert")
+
+        if not changed_bills:
+            print("  Alles aktuell — kein Update nötig.")
+            self.checkpoint["last_update_run"] = datetime.now(timezone.utc).isoformat()
+            self.checkpoint["update_count"] = self.checkpoint.get("update_count", 0) + 1
+            self._save_checkpoint("update_complete")
+            return
+
+        # Pro Bill alle 6 Typen neu fetchen
+        new_details, new_actions, new_committees = [], [], []
+        new_summaries, new_subjects = [], []
+        save_interval = 50
+
+        try:
+            for i, bill in enumerate(changed_bills):
+                bill_type = bill.get("bill_type", bill.get("type", "")).lower()
+                number = bill.get("number", "")
+
+                fetched = self._fetch_single_bill_all_types(bill_type, number)
+
+                if fetched.get("details"):
+                    new_details.append(fetched["details"])
+                if fetched.get("actions"):
+                    new_actions.append(fetched["actions"])
+                if fetched.get("committees"):
+                    new_committees.append(fetched["committees"])
+                if fetched.get("summaries"):
+                    new_summaries.append(fetched["summaries"])
+                if fetched.get("subjects"):
+                    new_subjects.append(fetched["subjects"])
+
+                print(f"  [{i+1}/{len(changed_bills)}] {fetched['bill_id']} "
+                      f"(Request #{self.request_count})", end="\r")
+
+                if (i + 1) % save_interval == 0:
+                    print()
+                    self._flush_update(new_details, new_actions, new_committees,
+                                       new_summaries, new_subjects)
+                    new_details = new_actions = new_committees = []
+                    new_summaries = new_subjects = []
+
+        except KeyboardInterrupt:
+            print(f"\n[ABBRUCH] Bisher verarbeitete Bills werden gespeichert...")
+
+        print()
+        self._flush_update(new_details, new_actions, new_committees,
+                           new_summaries, new_subjects)
+
+        # Checkpoint aktualisieren
+        self.checkpoint["last_update_run"] = datetime.now(timezone.utc).isoformat()
+        self.checkpoint["update_count"] = self.checkpoint.get("update_count", 0) + 1
+        self._save_checkpoint("update_complete")
+
+        elapsed = datetime.now() - start
+        print(f"\n{'='*60}")
+        print(f"UPDATE FERTIG")
+        print(f"Bills verarbeitet: {len(changed_bills)}")
+        print(f"Requests: {self.request_count}")
+        print(f"Dauer: {elapsed}")
+        print(f"{'='*60}")
+
+    # =================================================================
     # RUN
     # =================================================================
 
@@ -541,16 +953,26 @@ class CongressFetcher:
         print(f"Start: {start.strftime('%H:%M:%S')}")
         print(f"{'='*60}")
 
+        all_steps = ["bills_list", "bill_details", "bill_actions",
+                     "bill_committees", "bill_summaries", "bill_subjects"]
+
         try:
-            self.fetch_votes()           # ~15 Min
-            self.fetch_bills()           # ~30 Min
-            self.fetch_bill_details()    # ~1.5-2 Std
-            self.fetch_bill_actions()    # ~1-2 Std
-            self.fetch_bill_committees() # ~1 Std
+            self.fetch_bills()           # Schritt 1: ~30 Min
+            self.fetch_bill_details()    # Schritt 2: ~1.5-2 Std
+            self.fetch_bill_actions()    # Schritt 3: ~1-2 Std (enthält Vote-Daten!)
+            self.fetch_bill_committees() # Schritt 4: ~1 Std
+            self.fetch_bill_summaries()  # Schritt 5: ~1.5 Std
+            self.fetch_bill_subjects()   # Schritt 6: ~2.5 Std
         except KeyboardInterrupt:
             print(f"\n\n[ABBRUCH] Checkpoint gespeichert. Erneut starten zum Fortsetzen.")
             self._save_checkpoint("interrupted")
         finally:
+            # last_full_run nur setzen wenn alle Schritte abgeschlossen
+            completed = self.checkpoint.get("completed_steps", [])
+            if all(s in completed for s in all_steps):
+                self.checkpoint["last_full_run"] = datetime.now(timezone.utc).isoformat()
+                self._save_checkpoint("full_run_complete")
+
             elapsed = datetime.now() - start
             log = {
                 "congress": CONGRESS,
@@ -595,6 +1017,16 @@ def main():
         default=0.75,
         help="Pause zwischen Requests in Sekunden (default: 0.75)"
     )
+    parser.add_argument(
+        "--update",
+        action="store_true",
+        help="Delta-Update: nur neue/geänderte Bills seit letztem Lauf fetchen"
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Erstlauf erzwingen: ignoriert completed_steps und startet neu"
+    )
     args = parser.parse_args()
 
     # API Key: CLI-Argument > .env > Fehler
@@ -610,7 +1042,17 @@ def main():
     REQUEST_DELAY = args.delay
 
     fetcher = CongressFetcher(api_key=api_key)
-    fetcher.run()
+
+    if args.force:
+        fetcher.checkpoint["completed_steps"] = []
+        fetcher.checkpoint.pop("last_full_run", None)
+        fetcher._save_checkpoint("force_reset")
+        print("[FORCE] Checkpoint zurückgesetzt — Erstlauf wird wiederholt.")
+
+    if args.update:
+        fetcher.run_update()
+    else:
+        fetcher.run()
 
 
 if __name__ == "__main__":

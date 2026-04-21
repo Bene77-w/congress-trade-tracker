@@ -33,9 +33,10 @@ import pandas as pd
 # Pfade konfigurieren
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BASE_DIR)
+sys.path.insert(0, os.path.join(BASE_DIR, 'data', 'mappings'))
 
 from config import settings
-from config.vote_sector_mapping import get_relevant_sectors, POLICY_AREA_TO_SECTORS
+from vote_sector_mapping import get_relevant_sectors, POLICY_AREA_TO_SECTORS
 
 logger = logging.getLogger(__name__)
 

@@ -51,17 +51,18 @@ class NameMatcher:
 
         # Standard-Pfade aus Config (bei Neuwahlen in settings.py anpassen)
         raw_path = getattr(settings, 'DATA_RAW_PATH', 'data/raw')
-        config_path = getattr(settings, 'DATA_CONFIG_PATH', 'data/config')
+        mappings_path = getattr(settings, 'DATA_MAPPINGS_PATH', 'data/mappings')
 
-        # Neue CSV-Dateien (nach PDF-Extraktion)
+        # Mapping-Dateien (data/mappings/)
         house_file = getattr(settings, 'HOUSE_COMMITTEES_FILE', 'house_member&(sub)committees.csv')
         senate_file = getattr(settings, 'SENATE_COMMITTEES_FILE', 'senate_member&(sub)committees.csv')
+        aliases_file = getattr(settings, 'NAME_ALIASES_FILE', 'name_aliases.csv')
 
-        self.house_path = house_members_path or os.path.join(BASE_DIR, raw_path, house_file)
-        self.senate_path = senate_members_path or os.path.join(BASE_DIR, raw_path, senate_file)
-        self.aliases_path = aliases_path or os.path.join(BASE_DIR, config_path, 'name_aliases.csv')
+        self.house_path = house_members_path or os.path.join(BASE_DIR, mappings_path, house_file)
+        self.senate_path = senate_members_path or os.path.join(BASE_DIR, mappings_path, senate_file)
+        self.aliases_path = aliases_path or os.path.join(BASE_DIR, mappings_path, aliases_file)
 
-        # Former Members Pfad
+        # Former Members bleibt in data/raw/
         former_file = getattr(settings, 'FORMER_MEMBERS_FILE', 'former_members.csv')
         self.former_path = os.path.join(BASE_DIR, raw_path, former_file)
 

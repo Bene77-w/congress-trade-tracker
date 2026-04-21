@@ -1,0 +1,241 @@
+Chamber,Committee,Subcommittee,Region,Konfidenz
+House,Agriculture,"Commodity Markets, Digital Assets, And Rural Development",USA,Hoch
+House,Agriculture,"Commodity Markets, Digital Assets, And Rural Development",Global,Hoch
+House,Agriculture,"Conservation, Research, And Biotechnology",USA,Mittel
+House,Agriculture,Forestry And Horticulture,USA,Hoch
+House,Agriculture,"General Farm Commodities, Risk Management, And Credit",USA,Hoch
+House,Agriculture,"General Farm Commodities, Risk Management, And Credit",Global,Hoch
+House,Agriculture,"Livestock, Dairy, And Poultry",USA,Hoch
+House,Agriculture,Nutrition And Foreign Agriculture,USA,Hoch
+House,Agriculture,Nutrition And Foreign Agriculture,Global,Hoch
+House,Appropriations,"Agriculture, Rural Development, Food And Drug Administration, And Related Agencies",USA,Hoch
+House,Appropriations,"Commerce, Justice, Science, And Related Agencies",USA,Mittel
+House,Appropriations,Defense,USA,Hoch
+House,Appropriations,Defense,Global,Hoch
+House,Appropriations,Energy And Water Development And Related Agencies,USA,Hoch
+House,Appropriations,Financial Services And General Government,USA,Hoch
+House,Appropriations,Homeland Security,USA,Hoch
+House,Appropriations,"Interior, Environment, And Related Agencies",USA,Hoch
+House,Appropriations,"Labor, Health And Human Services, Education, And Related Agencies",USA,Hoch
+House,Appropriations,Legislative Branch,USA,Niedrig
+House,Appropriations,"Military Construction, Veterans Affairs, And Related Agencies",USA,Hoch
+House,Appropriations,"National Security, Department Of State, And Related Programs",USA,Mittel
+House,Appropriations,"National Security, Department Of State, And Related Programs",Global,Mittel
+House,Appropriations,"Transportation, Housing And Urban Development, And Related Agencies",USA,Hoch
+House,Armed Services,"Cyber, Information Technologies, And Innovation",USA,Hoch
+House,Armed Services,"Cyber, Information Technologies, And Innovation",Global,Hoch
+House,Armed Services,Intelligence And Special Operations,USA,Hoch
+House,Armed Services,Intelligence And Special Operations,Global,Hoch
+House,Armed Services,Military Personnel,USA,Hoch
+House,Armed Services,Readiness,USA,Hoch
+House,Armed Services,Seapower And Projection Forces,USA,Hoch
+House,Armed Services,Seapower And Projection Forces,Pacific,Hoch
+House,Armed Services,Seapower And Projection Forces,Global,Hoch
+House,Armed Services,Strategic Forces,USA,Hoch
+House,Armed Services,Strategic Forces,Global,Hoch
+House,Armed Services,Tactical Air And Land Forces,USA,Hoch
+House,Armed Services,Tactical Air And Land Forces,Global,Hoch
+House,Budget,,USA,Niedrig
+House,Education And Workforce,"Early Childhood, Elementary, And Secondary Education",USA,Mittel
+House,Education And Workforce,"Health, Employment, Labor, And Pensions",USA,Mittel
+House,Education And Workforce,Higher Education And Workforce Development,USA,Mittel
+House,Education And Workforce,Workforce Protections,USA,Mittel
+House,Energy And Commerce,"Commerce, Manufacturing, And Trade",USA,Hoch
+House,Energy And Commerce,"Commerce, Manufacturing, And Trade",Global,Hoch
+House,Energy And Commerce,Communications And Technology,USA,Hoch
+House,Energy And Commerce,Energy,USA,Hoch
+House,Energy And Commerce,Environment,USA,Mittel
+House,Energy And Commerce,Health,USA,Hoch
+House,Energy And Commerce,Oversight And Investigations,USA,Niedrig
+House,Ethics,,USA,Niedrig
+House,Financial Services,Capital Markets,USA,Hoch
+House,Financial Services,Capital Markets,Global,Hoch
+House,Financial Services,"Digital Assets, Financial Technology, And Artificial Intelligence",USA,Hoch
+House,Financial Services,"Digital Assets, Financial Technology, And Artificial Intelligence",Global,Hoch
+House,Financial Services,Financial Institutions,USA,Hoch
+House,Financial Services,Housing And Insurance,USA,Hoch
+House,Financial Services,"National Security, Illicit Finance, And International Financial Institutions",USA,Mittel
+House,Financial Services,"National Security, Illicit Finance, And International Financial Institutions",Global,Mittel
+House,Financial Services,Oversight And Investigations,USA,Niedrig
+House,Foreign Affairs,Africa,Africa,Hoch
+House,Foreign Affairs,East Asia And Pacific,East_Asia,Hoch
+House,Foreign Affairs,East Asia And Pacific,China,Hoch
+House,Foreign Affairs,East Asia And Pacific,Pacific,Mittel
+House,Foreign Affairs,Europe,Europe,Mittel
+House,Foreign Affairs,Middle East And North Africa,Middle_East,Mittel
+House,Foreign Affairs,Middle East And North Africa,North_Africa,Hoch
+House,Foreign Affairs,Oversight And Intelligence,Global,Niedrig
+House,Foreign Affairs,South And Central Asia,South_Asia,Niedrig
+House,Foreign Affairs,South And Central Asia,Central_Asia,Hoch
+House,Foreign Affairs,Western Hemisphere,Latin_America,Mittel
+House,Homeland Security,Border Security And Enforcement,USA,Mittel
+House,Homeland Security,Border Security And Enforcement,Latin_America,Mittel
+House,Homeland Security,Counterterrorism And Intelligence,USA,Mittel
+House,Homeland Security,Counterterrorism And Intelligence,Global,Mittel
+House,Homeland Security,Cybersecurity And Infrastructure Protection,USA,Hoch
+House,Homeland Security,Cybersecurity And Infrastructure Protection,Global,Hoch
+House,Homeland Security,Emergency Management And Technology,USA,Mittel
+House,Homeland Security,"Oversight, Investigations, And Accountability",USA,Niedrig
+House,Homeland Security,Transportation And Maritime Security,USA,Hoch
+House,Homeland Security,Transportation And Maritime Security,Global,Hoch
+House,House Administration,Elections,USA,Niedrig
+House,House Administration,Modernization And Innovation,USA,Niedrig
+House,Joint Committee On Printing,,USA,Niedrig
+House,Joint Committee On Taxation,,USA,Mittel
+House,Joint Committee On The Library,,USA,Niedrig
+House,Joint Economic Committee,,USA,Mittel
+House,Joint Economic Committee,,Global,Mittel
+House,Judiciary,"Courts, Intellectual Property, Artificial Intelligence, And The Internet",USA,Hoch
+House,Judiciary,"Courts, Intellectual Property, Artificial Intelligence, And The Internet",Global,Hoch
+House,Judiciary,Crime And Federal Government Surveillance,USA,Niedrig
+House,Judiciary,"Immigration Integrity, Security, And Enforcement",USA,Mittel
+House,Judiciary,"Immigration Integrity, Security, And Enforcement",Latin_America,Mittel
+House,Judiciary,Oversight,USA,Niedrig
+House,Judiciary,"Select Subcommittee To Investigate The Remaining Questions Surrounding January 6, 2021",USA,Niedrig
+House,Judiciary,"The Administrative State, Regulatory Reform, And Antitrust",USA,Mittel
+House,Judiciary,The Constitution And Limited Government,USA,Niedrig
+House,Natural Resources,Energy And Mineral Resources,USA,Hoch
+House,Natural Resources,Federal Lands,USA,Mittel
+House,Natural Resources,Indian And Insular Affairs,USA,Niedrig
+House,Natural Resources,Oversight And Investigations,USA,Niedrig
+House,Natural Resources,"Water, Wildlife And Fisheries",USA,Mittel
+House,Oversight And Government Reform,"Cybersecurity, Information Technology, And Government Innovation",USA,Hoch
+House,Oversight And Government Reform,Delivering On Government Efficiency,USA,Mittel
+House,Oversight And Government Reform,"Economic Growth, Energy Policy, And Regulatory Affairs",USA,Mittel
+House,Oversight And Government Reform,Federal Law Enforcement,USA,Niedrig
+House,Oversight And Government Reform,Government Operations,USA,Niedrig
+House,Oversight And Government Reform,Health Care And Financial Services,USA,Hoch
+House,Oversight And Government Reform,Military And Foreign Affairs,USA,Mittel
+House,Oversight And Government Reform,Military And Foreign Affairs,Global,Mittel
+House,Permanent Select Committee On Intelligence,,USA,Hoch
+House,Permanent Select Committee On Intelligence,,Global,Hoch
+House,Rules,Legislative And Budget Process,USA,Niedrig
+House,Rules,Rules And Organization Of The House,USA,Niedrig
+House,"Science, Space, And Technology",Energy,USA,Hoch
+House,"Science, Space, And Technology",Environment,USA,Mittel
+House,"Science, Space, And Technology",Investigations And Oversight,USA,Niedrig
+House,"Science, Space, And Technology",Research And Technology,USA,Hoch
+House,"Science, Space, And Technology",Space And Aeronautics,USA,Hoch
+House,"Science, Space, And Technology",Space And Aeronautics,Global,Hoch
+House,Select Committee On The Strategic Competition Between The United States And The Chinese Communist Party,,China,Hoch
+House,Select Committee On The Strategic Competition Between The United States And The Chinese Communist Party,,East_Asia,Hoch
+House,Small Business,Contracting And Infrastructure,USA,Mittel
+House,Small Business,"Economic Growth, Tax, And Capital Access",USA,Mittel
+House,Small Business,"Innovation, Entrepreneurship, And Workforce Development",USA,Mittel
+House,Small Business,"Oversight, Investigations, And Regulations",USA,Niedrig
+House,Small Business,"Rural Development, Energy, And Supply Chains",USA,Mittel
+House,Transportation And Infrastructure,Aviation,USA,Hoch
+House,Transportation And Infrastructure,Aviation,Global,Hoch
+House,Transportation And Infrastructure,Coast Guard And Maritime Transportation,USA,Hoch
+House,Transportation And Infrastructure,Coast Guard And Maritime Transportation,Global,Hoch
+House,Transportation And Infrastructure,"Economic Development, Public Buildings, And Emergency Management",USA,Mittel
+House,Transportation And Infrastructure,Highways And Transit,USA,Hoch
+House,Transportation And Infrastructure,"Railroads, Pipelines, And Hazardous Materials",USA,Hoch
+House,Transportation And Infrastructure,Water Resources And Environment,USA,Mittel
+House,Veterans' Affairs,Disability Assistance And Memorial Affairs,USA,Niedrig
+House,Veterans' Affairs,Economic Opportunity,USA,Mittel
+House,Veterans' Affairs,Health,USA,Hoch
+House,Veterans' Affairs,Oversight And Investigations,USA,Niedrig
+House,Veterans' Affairs,Technology Modernization,USA,Mittel
+House,Ways And Means,Health,USA,Hoch
+House,Ways And Means,Oversight,USA,Niedrig
+House,Ways And Means,Social Security,USA,Mittel
+House,Ways And Means,Work And Welfare,USA,Mittel
+Senate,"Agriculture, Nutrition, and Forestry","Subcommittee on Commodities, Derivatives, Risk Management, and Trade",USA,Hoch
+Senate,"Agriculture, Nutrition, and Forestry","Subcommittee on Commodities, Derivatives, Risk Management, and Trade",Global,Hoch
+Senate,"Agriculture, Nutrition, and Forestry","Subcommittee on Conservation, Forestry, Natural Resources, and Biotechnology",USA,Mittel
+Senate,"Agriculture, Nutrition, and Forestry","Subcommittee on Food and Nutrition, Specialty Crops, Organics, and Research",USA,Hoch
+Senate,"Agriculture, Nutrition, and Forestry","Subcommittee on Livestock, Dairy, Poultry, and Food Safety",USA,Hoch
+Senate,"Agriculture, Nutrition, and Forestry","Subcommittee on Rural Development, Energy, and Credit",USA,Mittel
+Senate,Appropriations,"Subcommittee on Agriculture, Rural Development, Food and Drug Administration, and Related Agencies",USA,Hoch
+Senate,Appropriations,"Subcommittee on Commerce, Justice, Science, and Related Agencies",USA,Mittel
+Senate,Appropriations,Subcommittee on Department of Defense,USA,Hoch
+Senate,Appropriations,Subcommittee on Department of Defense,Global,Hoch
+Senate,Appropriations,Subcommittee on Department of Homeland Security,USA,Hoch
+Senate,Appropriations,"Subcommittee on Department of Interior, Environment, and Related Agencies",USA,Mittel
+Senate,Appropriations,"Subcommittee on Departments of Labor, Health and Human Services, and Education, and Related Agencies",USA,Hoch
+Senate,Appropriations,Subcommittee on Energy and Water Development,USA,Hoch
+Senate,Appropriations,Subcommittee on Financial Services and General Government,USA,Mittel
+Senate,Appropriations,Subcommittee on Legislative Branch,USA,Niedrig
+Senate,Appropriations,"Subcommittee on Military Construction, Veterans Affairs, and Related Agencies",USA,Hoch
+Senate,Appropriations,"Subcommittee on State, Foreign Operations, and Related Programs",Global,Niedrig
+Senate,Appropriations,"Subcommittee on Transportation, Housing and Urban Development, and Related Agencies",USA,Hoch
+Senate,Armed Services,Subcommittee on Airland,USA,Hoch
+Senate,Armed Services,Subcommittee on Airland,Global,Hoch
+Senate,Armed Services,Subcommittee on Cybersecurity,USA,Hoch
+Senate,Armed Services,Subcommittee on Cybersecurity,Global,Hoch
+Senate,Armed Services,Subcommittee on Emerging Threats and Capabilities,USA,Hoch
+Senate,Armed Services,Subcommittee on Emerging Threats and Capabilities,Global,Hoch
+Senate,Armed Services,Subcommittee on Personnel,USA,Mittel
+Senate,Armed Services,Subcommittee on Readiness and Management Support,USA,Hoch
+Senate,Armed Services,Subcommittee on Seapower,USA,Hoch
+Senate,Armed Services,Subcommittee on Seapower,Pacific,Hoch
+Senate,Armed Services,Subcommittee on Seapower,Global,Hoch
+Senate,Armed Services,Subcommittee on Strategic Forces,USA,Hoch
+Senate,Armed Services,Subcommittee on Strategic Forces,Global,Hoch
+Senate,"Banking, Housing, and Urban Affairs",Subcommittee on Digital Assets,USA,Hoch
+Senate,"Banking, Housing, and Urban Affairs",Subcommittee on Digital Assets,Global,Hoch
+Senate,"Banking, Housing, and Urban Affairs",Subcommittee on Economic Policy,USA,Mittel
+Senate,"Banking, Housing, and Urban Affairs",Subcommittee on Financial Institutions and Consumer Protection,USA,Hoch
+Senate,"Banking, Housing, and Urban Affairs","Subcommittee on Housing, Transportation, and Community Development",USA,Hoch
+Senate,"Banking, Housing, and Urban Affairs",Subcommittee on National Security and International Trade and Finance,USA,Mittel
+Senate,"Banking, Housing, and Urban Affairs",Subcommittee on National Security and International Trade and Finance,Global,Mittel
+Senate,"Banking, Housing, and Urban Affairs","Subcommittee on Securities, Insurance, and Investment",USA,Hoch
+Senate,"Banking, Housing, and Urban Affairs","Subcommittee on Securities, Insurance, and Investment",Global,Hoch
+Senate,"Commerce, Science, and Transportation","Subcommittee on Aviation, Space, and Innovation",USA,Hoch
+Senate,"Commerce, Science, and Transportation","Subcommittee on Aviation, Space, and Innovation",Global,Hoch
+Senate,"Commerce, Science, and Transportation","Subcommittee on Coast Guard, Maritime, and Fisheries",USA,Hoch
+Senate,"Commerce, Science, and Transportation","Subcommittee on Coast Guard, Maritime, and Fisheries",Global,Hoch
+Senate,"Commerce, Science, and Transportation","Subcommittee on Consumer Protection, Technology, and Data Privacy",USA,Hoch
+Senate,"Commerce, Science, and Transportation","Subcommittee on Consumer Protection, Technology, and Data Privacy",Global,Hoch
+Senate,"Commerce, Science, and Transportation","Subcommittee on Science, Manufacturing, and Competitiveness",USA,Hoch
+Senate,"Commerce, Science, and Transportation","Subcommittee on Science, Manufacturing, and Competitiveness",Global,Hoch
+Senate,"Commerce, Science, and Transportation","Subcommittee on Surface Transportation, Freight, Pipelines, and Safety",USA,Hoch
+Senate,"Commerce, Science, and Transportation",Subcommittee on Telecommunications and Media,USA,Hoch
+Senate,Energy and Natural Resources,Subcommittee on Energy,USA,Hoch
+Senate,Energy and Natural Resources,Subcommittee on Energy,Global,Hoch
+Senate,Energy and Natural Resources,Subcommittee on National Parks,USA,Mittel
+Senate,Energy and Natural Resources,"Subcommittee on Public Lands, Forests, and Mining",USA,Hoch
+Senate,Energy and Natural Resources,Subcommittee on Water and Power,USA,Hoch
+Senate,Environment and Public Works,"Subcommittee on Chemical Safety, Waste Management, Environmental Justice, and Regulatory Oversight",USA,Hoch
+Senate,Environment and Public Works,"Subcommittee on Clean Air, Climate, and Nuclear Innovation and Safety",USA,Hoch
+Senate,Environment and Public Works,"Subcommittee on Clean Air, Climate, and Nuclear Innovation and Safety",Global,Hoch
+Senate,Environment and Public Works,"Subcommittee on Fisheries, Wildlife, and Water",USA,Mittel
+Senate,Environment and Public Works,Subcommittee on Transportation and Infrastructure,USA,Hoch
+Senate,Finance,"Subcommittee on Energy, Natural Resources, and Infrastructure",USA,Hoch
+Senate,Finance,Subcommittee on Fiscal Responsibility and Economic Growth,USA,Mittel
+Senate,Finance,Subcommittee on Health Care,USA,Hoch
+Senate,Finance,"Subcommittee on International Trade, Customs, and Global Competitiveness",USA,Mittel
+Senate,Finance,"Subcommittee on International Trade, Customs, and Global Competitiveness",Global,Mittel
+Senate,Finance,"Subcommittee on International Trade, Customs, and Global Competitiveness",China,Mittel
+Senate,Finance,"Subcommittee on International Trade, Customs, and Global Competitiveness",Europe,Mittel
+Senate,Finance,"Subcommittee on Social Security, Pensions, and Family Policy",USA,Mittel
+Senate,Finance,Subcommittee on Taxation and IRS Oversight,USA,Mittel
+Senate,Foreign Relations,Subcommittee on Africa and Global Health Policy,Africa,Niedrig
+Senate,Foreign Relations,"Subcommittee on East Asia, the Pacific, and International Cybersecurity Policy",East_Asia,Mittel
+Senate,Foreign Relations,"Subcommittee on East Asia, the Pacific, and International Cybersecurity Policy",China,Mittel
+Senate,Foreign Relations,"Subcommittee on East Asia, the Pacific, and International Cybersecurity Policy",Pacific,Mittel
+Senate,Foreign Relations,Subcommittee on Europe and Regional Security Cooperation,Europe,Hoch
+Senate,Foreign Relations,"Subcommittee on Multilateral International Development, Multilateral Institutions, and International Economic, Energy, and Environmental Policy",Global,Niedrig
+Senate,Foreign Relations,"Subcommittee on Near East, South Asia, Central Asia, and Counterterrorism",Middle_East,Mittel
+Senate,Foreign Relations,"Subcommittee on Near East, South Asia, Central Asia, and Counterterrorism",South_Asia,Mittel
+Senate,Foreign Relations,"Subcommittee on State Department and USAID Management, International Operations, and Bilateral International Development",Global,Niedrig
+Senate,Foreign Relations,"Subcommittee on Western Hemisphere, Transnational Crime, Civilian Security, Democracy, Human Rights, and Global Women's Issues",Latin_America,Mittel
+Senate,"Health, Education, Labor, and Pensions",Subcommittee on Education and the American Family,USA,Niedrig
+Senate,"Health, Education, Labor, and Pensions",Subcommittee on Employment and Workplace Safety,USA,Mittel
+Senate,"Health, Education, Labor, and Pensions",Subcommittee on Primary Health and Retirement Security,USA,Hoch
+Senate,Homeland Security and Governmental Affairs,Permanent Subcommittee on Investigations,USA,Mittel
+Senate,Homeland Security and Governmental Affairs,"Subcommittee on Border Management, Federal Workforce, and Regulatory Affairs",USA,Niedrig
+Senate,Homeland Security and Governmental Affairs,"Subcommittee on Border Management, Federal Workforce, and Regulatory Affairs",Latin_America,Niedrig
+Senate,Homeland Security and Governmental Affairs,"Subcommittee on Disaster Management, District of Columbia, and Census",USA,Niedrig
+Senate,Judiciary,"Subcommittee on Antitrust, Competition Policy, and Consumer Rights",USA,Hoch
+Senate,Judiciary,"Subcommittee on Antitrust, Competition Policy, and Consumer Rights",Global,Hoch
+Senate,Judiciary,Subcommittee on Border Security and Immigration,USA,Niedrig
+Senate,Judiciary,Subcommittee on Border Security and Immigration,Latin_America,Niedrig
+Senate,Judiciary,Subcommittee on Crime and Counterterrorism,USA,Niedrig
+Senate,Judiciary,"Subcommittee on Federal Courts, Oversight, Agency Action, and Federal Rights",USA,Mittel
+Senate,Judiciary,Subcommittee on Intellectual Property,USA,Hoch
+Senate,Judiciary,Subcommittee on Intellectual Property,Global,Hoch
+Senate,Judiciary,"Subcommittee on Privacy, Technology, and the Law",USA,Hoch
+Senate,Judiciary,"Subcommittee on Privacy, Technology, and the Law",Global,Hoch
+Senate,Judiciary,Subcommittee on the Constitution,USA,Niedrig

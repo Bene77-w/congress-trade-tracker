@@ -1,0 +1,1003 @@
+﻿legislative_subject,frequency,yf_sector,yf_industry,sector_rank,konfidenz,region,kommentar
+ASEAN countries,5,,,,,ASEAN,
+Abortion,59,,,,,,
+Academic performance and assessments,21,,,,,,
+Access Board,7,,,,,,
+Accidents,4,,,,,,
+Accounting and auditing,64,Financial Services,,1,Mittel,,"Betrifft Finanzbranche breit - Wirtschaftsprüfung, Bilanzierung, SEC-Regeln. Kein einzelner Industry-Match."
+Administrative Conference of the U.S.,4,,,,,,
+Administrative law and regulatory procedures,293,,,,,,
+Administrative remedies,83,,,,,,
+Adoption and foster care,20,,,,,,
+Adult day care,4,,,,,,
+Adult education and literacy,11,,,,,,
+Advanced technology and technological innovations,99,Technology,,1,Mittel,,"Breiter CRS-Tag für Technologieförderung/-regulierung. Betrifft Tech-Sektor als Ganzes, keine einzelne Industry."
+Advisory bodies,186,,,,,,
+Afghanistan,14,,,,,Afghanistan,
+Africa,19,,,,,Africa,
+African Development Foundation,8,,,,,Africa,
+Age discrimination,4,,,,,,
+Aging,27,,,,,,
+Agricultural conservation and pollution,14,Consumer Defensive,Farm Products,1,Mittel,,Regulierung landwirtschaftlicher Umweltpraktiken betrifft Farm Products am direktesten.
+Agricultural conservation and pollution,14,Industrials,Pollution & Treatment Controls,2,Mittel,,Umweltauflagen erzeugen Nachfrage nach Pollution-Control-Technologie.
+Agricultural education,13,,,,,,
+Agricultural equipment and machinery,6,Industrials,Farm & Heavy Construction Machinery,1,Hoch,,Direkter Match: CRS-Tag deckt exakt diese YF-Industry ab.
+Agricultural insurance,8,Financial Services,Insurance - Specialty,1,Mittel,,Ernteversicherung (Federal Crop Insurance) fällt unter Specialty Insurance.
+Agricultural marketing and promotion,12,Consumer Defensive,Farm Products,1,Mittel,,Marketing/Promotion landwirtschaftlicher Produkte betrifft direkt Farm Products.
+Agricultural practices and innovations,8,Consumer Defensive,Farm Products,1,Mittel,,Landwirtschaftliche Innovation betrifft direkt die Agrar-Produktion.
+"Agricultural prices, subsidies, credit",10,Consumer Defensive,Farm Products,1,Mittel,,Subventionen und Preispolitik wirken direkt auf Farm Products.
+Agricultural research,16,Consumer Defensive,Farm Products,1,Niedrig,,"Agrarforschung hat langfristigen Einfluss auf Farm Products, aber indirekt."
+Agricultural trade,17,Consumer Defensive,Farm Products,1,Mittel,,Handelsabkommen/-restriktionen für Agrarprodukte betreffen Farm Products direkt.
+Air quality,47,Industrials,Pollution & Treatment Controls,1,Mittel,,Luftqualitätsregulierung (Clean Air Act etc.) betrifft direkt Pollution & Treatment Controls.
+Alabama,17,,,,,Alabama (USA),
+Alaska,45,,,,,Alaska (USA),
+Alaska Natives and Hawaiians,34,,,,,,
+Albania,1,,,,,Albania,
+Alcoholic beverages,4,Consumer Defensive,Beverages - Brewers,1,Hoch,,Alkoholregulierung betrifft direkt Brauereien.
+Alcoholic beverages,4,Consumer Defensive,Beverages - Wineries & Distilleries,2,Hoch,,Ebenso Wineries & Distilleries.
+Allergies,3,,,,,,
+Alliances,16,,,,,,
+Alternative and renewable resources,49,Technology,Solar,1,Mittel,,Erneuerbare-Energien-Gesetzgebung betrifft Solar-Industrie direkt. Solar ist bei YF unter Technology.
+Alternative and renewable resources,49,Utilities,Utilities - Renewable,2,Mittel,,Renewable Utilities sind direkter Adressat.
+Alternative and renewable resources,49,Energy,,3,Mittel,,Erneuerbare als Alternative zu fossilen Brennstoffen betreffen den Energy-Sektor indirekt (Wettbewerb/Transition).
+"Alternative dispute resolution, mediation, arbitration",9,,,,,,
+Alternative treatments,6,,,,,,
+American Battle Monuments Commission,3,,,,,,
+American Samoa,11,,,,,American Samoa (USA),
+Animal and plant health,9,,,,,,
+Animal protection and human-animal relationships,30,,,,,,
+Antigua and Barbuda,1,,,,,Antigua and Barbuda,
+Appalachian Regional Commission,2,,,,,,
+Appropriations,57,,,,,,
+Aquaculture,6,Consumer Defensive,Farm Products,1,Mittel,,"Aquakultur (Fischzucht) ist Teil der Nahrungsmittelproduktion, fällt unter Farm Products."
+Aquatic ecology,18,,,,,,
+Arab-Israeli relations,6,,,,,Middle East,
+Archaeology and anthropology,1,,,,,,
+Architect of the Capitol,3,,,,,,
+Architecture,2,,,,,,
+Arctic and polar regions,4,,,,,Arctic,
+Area studies and international education,5,,,,,,
+Arizona,39,,,,,Arizona (USA),
+Arkansas,13,,,,,Arkansas (USA),
+Armed Forces Retirement Home,3,,,,,,
+Arms control and nonproliferation,14,,,,,,
+Army Corps of Engineers,2,,,,,,
+"Art, artists, authorship",12,,,,,,
+Asia,126,,,,,Asia,
+Assault and harassment offenses,36,,,,,,
+Astronomy,1,,,,,,
+Athletes,14,,,,,,
+Atlantic Coast (U.S.),2,,,,,Atlantic Coast (USA),
+Atlantic Ocean,4,,,,,Atlantic Ocean,
+Atmospheric science and weather,27,,,,,,
+Australia,8,,,,,Australia,
+Aviation and airports,62,Industrials,Airlines,1,Hoch,,"Luftfahrtregulierung (FAA, Flugsicherheit) betrifft Airlines direkt."
+Aviation and airports,62,Industrials,Airports & Air Services,2,Hoch,,Flughafeninfrastruktur/-regulierung.
+Aviation and airports,62,Industrials,Aerospace & Defense,3,Hoch,,Luftfahrtzertifizierung betrifft auch Flugzeughersteller.
+Bahamas,2,,,,,Bahamas,
+Bahrain,1,,,,,Bahrain,
+Bangladesh,3,,,,,Bangladesh,
+"Bank accounts, deposits, capital",53,Financial Services,Banks - Diversified,1,Hoch,,"Direkte Regulierung von Bankkonten, Einlagen, Kapitalanforderungen."
+"Bank accounts, deposits, capital",53,Financial Services,Banks - Regional,2,Hoch,,Betrifft auch Regional Banks.
+Banking and financial institutions regulation,66,Financial Services,Banks - Diversified,1,Hoch,,Bankenregulierung betrifft primär große Banken.
+Banking and financial institutions regulation,66,Financial Services,Banks - Regional,2,Hoch,,Auch Regional Banks sind reguliert.
+Banking and financial institutions regulation,66,Financial Services,Credit Services,3,Mittel,,Finanzinstituts-Regulierung erfasst auch Kreditunternehmen.
+Bankruptcy,6,Financial Services,,1,Mittel,,"Insolvenzrecht betrifft den Finanzsektor breit (Gläubiger, Kreditgeber), keine spezifische Industry."
+Belarus,2,,,,,Belarus,
+Bhutan,1,,,,,Bhutan,
+Biological and life sciences,7,Healthcare,Biotechnology,1,Mittel,,Life Sciences-Forschungsförderung betrifft direkt Biotech-Unternehmen.
+Biological and life sciences,7,Healthcare,Diagnostics & Research,2,Mittel,,Auch Diagnostik & Forschung profitiert.
+Birds,10,,,,,,
+Birth defects,1,,,,,,
+Blood and blood diseases,8,Healthcare,Biotechnology,1,Mittel,,"Bluterkrankungen (Hämophilie, Sichelzellanämie) sind Zielgebiet für Biotech-Therapien."
+Books and print media,5,Communication Services,Publishing,1,Hoch,,Direkte Regulierung/Förderung der Verlagsbranche.
+Border security and unlawful immigration,65,,,,,,
+Brazil,2,,,,,Brazil,
+"Broadcasting, cable, digital technologies",28,Communication Services,Broadcasting,1,Hoch,,FCC-Regulierung von Rundfunk und Kabel.
+"Broadcasting, cable, digital technologies",28,Communication Services,Telecom Services,2,Mittel,,Digital technologies überschneidet sich mit Telekommunikation.
+"Broadcasting, cable, digital technologies",28,Communication Services,Entertainment,3,Mittel,,Content-Regulierung betrifft auch Entertainment-Branche.
+Brunei,2,,,,,Brunei,
+Budget deficits and national debt,25,Financial Services,,1,Mittel,,Debt Ceiling und Defizitpolitik bewegen primär Bond Markets und Bankensektor.
+Budget process,31,,,,,,
+Building construction,36,Consumer Cyclical,Residential Construction,1,Mittel,,Bauvorschriften betreffen direkt Wohnungsbau.
+Building construction,36,Industrials,Building Products & Equipment,2,Mittel,,Auch Baumaterialien/-ausrüstung betroffen.
+Building construction,36,Industrials,Engineering & Construction,3,Mittel,,Engineering & Construction-Unternehmen.
+Burma,6,,,,,Burma,
+Business education,2,,,,,,
+Business ethics,9,,,,,,
+Business expenses,1,,,,,,
+Business investment and capital,28,Financial Services,Capital Markets,1,Mittel,,Investitionsförderung/-regulierung betrifft direkt Capital Markets.
+Business investment and capital,28,Financial Services,Asset Management,2,Niedrig,,Asset Manager als Vermittler von Business Investment.
+Business records,45,,,,,,
+Buy American requirements,7,Industrials,,1,Niedrig,,"Buy American betrifft primär Industrieunternehmen (Stahl, Fertigung), aber zu breit für eine Industry."
+California,72,,,,,California (USA),
+Cambodia,3,,,,,Cambodia,
+Canada,16,,,,,Canada,
+Cancer,25,Healthcare,Biotechnology,1,Hoch,,Krebsforschung/-therapie ist Kernbereich der Biotech-Industrie.
+Cancer,25,Healthcare,Drug Manufacturers - General,2,Hoch,,Große Pharmakonzerne mit Onkologie-Pipelines.
+Cancer,25,Healthcare,Drug Manufacturers - Specialty & Generic,3,Mittel,,Auch Spezialpharmaunternehmen betroffen.
+Capital gains tax,2,Financial Services,Capital Markets,1,Mittel,,Kapitalertragsteuer beeinflusst direkt Handelsvolumen und Kapitalmarktaktivität.
+Capital gains tax,2,Financial Services,Asset Management,2,Mittel,,Auch Asset Manager betroffen über Anlegerverhalten.
+Cardiovascular and respiratory health,37,Healthcare,Drug Manufacturers - General,1,Mittel,,Herz-Kreislauf-/Atemwegsmedikamente sind großes Segment der Pharmaindustrie.
+Cardiovascular and respiratory health,37,Healthcare,Medical Devices,2,Mittel,,"Herzschrittmacher, Stents, Beatmungsgeräte."
+Caribbean area,25,,,,,Caribbean,
+Cell biology and embryology,4,Healthcare,Biotechnology,1,Mittel,,"Zellbiologie/Embryologie ist Kernforschungsgebiet der Biotech-Industrie (Stammzellen, Gentherapie)."
+Cemeteries and funerals,16,,,,,,
+Census and government statistics,16,,,,,,
+Centers for Disease Control and Prevention (CDC),1,,,,,,
+Central America,1,,,,,Central America,
+Central Europe,1,,,,,Central Europe,
+Central Intelligence Agency (CIA),3,,,,,,
+Charitable contributions,6,,,,,,
+Chemical and biological weapons,5,,,,,,
+Chemistry,1,,,,,,
+Chesapeake Bay,1,,,,,Chesapeake Bay (USA),
+Child care and development,17,,,,,,
+Child health,54,Healthcare,,1,Niedrig,,"Kindergesundheitspolitik betrifft Healthcare breit, aber zu unspezifisch für eine Industry."
+Child safety and welfare,70,,,,,,
+China,95,,,,,China,
+Citizenship and naturalization,10,,,,,,
+Civics education,10,,,,,,
+Civil actions and liability,220,,,,,,
+Civil disturbances,1,,,,,,
+Climate change and greenhouse gases,43,Energy,,1,Mittel,,"Klimaschutzgesetzgebung betrifft den gesamten Energy-Sektor (Emissionsreduktion, Carbon Pricing)."
+Climate change and greenhouse gases,43,Utilities,,2,Mittel,,Utilities als große CO2-Emittenten direkt betroffen.
+Climate change and greenhouse gases,43,Technology,Solar,3,Mittel,,Klimapolitik fördert Solar als Clean-Tech-Alternative.
+Coal,18,Energy,Thermal Coal,1,Hoch,,Direkter 1:1-Match mit YF-Industry.
+Coast guard,7,,,,,,
+Collective security,8,,,,,,
+Colorado,33,,,,,Colorado (USA),
+Commemorative events and holidays,14,,,,,,
+Commission on Civil Rights,1,,,,,,
+Commodities markets,12,Financial Services,Financial Data & Stock Exchanges,1,Mittel,,"Commodity-Börsenregulierung (CME, ICE) fällt unter Financial Data & Stock Exchanges."
+Commodities markets,12,Financial Services,Capital Markets,2,Mittel,,Commodity Trading auch über Capital Markets abgewickelt.
+Commodity Credit Corporation,1,Consumer Defensive,Farm Products,1,Niedrig,,CCC ist Instrument der Agrarsubventionen; betrifft Farm Products.
+Commodity Futures Trading Commission,1,Financial Services,Financial Data & Stock Exchanges,1,Mittel,,CFTC reguliert Terminbörsen und Derivatemärkte.
+Community life and organization,44,,,,,,
+Commuting,19,,,,,,
+Competition and antitrust,18,,,,,,
+"Competitiveness, trade promotion, trade deficits",23,,,,,,
+Comprehensive health care,5,Healthcare,Healthcare Plans,1,Mittel,,Universelle Gesundheitsversorgung betrifft direkt Krankenversicherungen.
+Comprehensive health care,5,Healthcare,,2,Mittel,,Auch Krankenhäuser/Kliniken betroffen.
+Computer security and identity theft,91,Technology,Software - Infrastructure,1,Hoch,,"Cybersecurity-Gesetzgebung betrifft direkt Infrastruktur-Software (Firewalls, Endpoint Protection)."
+Computer security and identity theft,91,Technology,Information Technology Services,2,Mittel,,IT-Sicherheitsdienstleister.
+Computers and information technology,192,Technology,,1,Hoch,,"Direkter Bezug zum gesamten Technology-Sektor, zu breit für einzelne Industry."
+Conflicts and wars,35,Industrials,Aerospace & Defense,1,Hoch,,"Bewaffnete Konflikte treiben Verteidigungsausgaben. CRS-Tag ist primär außenpolitisch, aber Bezug zu Defense-Sektor vorhanden."
+Congressional Budget Office (CBO),5,,,,,,
+Congressional Research Service (CRS),2,,,,,,
+Congressional agencies,5,,,,,,
+Congressional committees,2,,,,,,
+Congressional districts and representation,5,,,,,,
+Congressional elections,8,,,,,,
+Congressional leadership,6,,,,,,
+Congressional officers and employees,10,,,,,,
+Congressional operations and organization,6,,,,,,
+Congressional oversight,882,,,,,,
+Congressional tributes,77,,,,,,
+Congressional-executive branch relations,29,,,,,,
+Connecticut,8,,,,,Connecticut (USA),
+Constitution and constitutional amendments,38,,,,,,
+Consumer Financial Protection Bureau,5,Financial Services,Credit Services,1,Mittel,,CFPB reguliert primär Verbraucherkredite und -finanzprodukte.
+Consumer Financial Protection Bureau,5,Financial Services,Banks - Diversified,2,Mittel,,Auch Banken unterliegen CFPB-Regulierung.
+Consumer Product Safety Commission,2,,,,,,
+Consumer affairs,76,,,,,,
+Consumer credit,7,Financial Services,Credit Services,1,Hoch,,Direkter Match: Verbraucherkredit-Regulierung.
+Contracts and agency,13,,,,,,
+Cooperative and condominium housing,3,Real Estate,,1,Mittel,,"Wohnungsbaugenossenschaften/Eigentumswohnungen betreffen Real Estate, aber keine spezifische REIT-Industry."
+Corporate finance and management,35,Financial Services,Capital Markets,1,Mittel,,Corporate Governance und Finanzregulierung betrifft Capital Markets direkt.
+Corporation for Public Broadcasting,2,,,,,,
+Correctional facilities and imprisonment,23,,,,,,
+Cosmetics and personal care,7,Consumer Defensive,Household & Personal Products,1,Hoch,,Direkter Match: Kosmetik/Körperpflege-Regulierung (FDA).
+Credit and credit markets,12,Financial Services,Credit Services,1,Hoch,,Direkter Match: Kreditmärkte.
+Credit and credit markets,12,Financial Services,Capital Markets,2,Mittel,,Kreditmärkte sind Teil der Capital Markets.
+Crime prevention,21,,,,,,
+Crime victims,43,,,,,,
+Crimes against animals and natural resources,8,,,,,,
+Crimes against children,28,,,,,,
+Crimes against property,18,,,,,,
+Crimes against women,6,,,,,,
+"Criminal investigation, prosecution, interrogation",75,,,,,,
+Criminal justice information and records,42,,,,,,
+Criminal procedure and sentencing,101,,,,,,
+Cuba,6,,,,,Cuba,
+Cultural exchanges and relations,2,,,,,,
+Currency,26,Financial Services,,1,Mittel,,"Währungspolitik betrifft den Finanzsektor breit (Fed, Wechselkurse, digitale Währungen)."
+Customs enforcement,19,,,,,,
+Cyprus,1,,,,,Cyprus,
+Dams and canals,22,Utilities,Utilities - Regulated Water,1,Mittel,,Staudämme/Kanäle betreffen Wasserversorgung und Wasserkraft.
+Dams and canals,22,Utilities,Utilities - Regulated Electric,2,Hoch,,Wasserkraftwerke an Staudämmen.
+Dams and canals,22,Industrials,Railroads,3,Mittel,,Binnenschifffahrt/Kanalinfrastruktur betrifft auch Schienenverkehr.
+Dams and canals,22,Industrials,Engineering & Construction,4,Mittel,,Staudamm-/Kanalbau betrifft Bauunternehmen.
+Debt collection,2,Financial Services,Credit Services,1,Mittel,,Inkassoregulierung (FDCPA) betrifft direkt Kredit-/Inkassounternehmen.
+Defense spending,1,Industrials,Aerospace & Defense,1,Hoch,,Verteidigungsausgaben fließen direkt in Aerospace & Defense-Unternehmen.
+Delaware,4,,,,,Delaware (USA),
+Delta Regional Authority,1,,,,,,
+Denmark,1,,,,,Denmark,
+Dental care,8,Healthcare,,1,Hoch,,"Zahnmedizin betrifft Healthcare breit, keine passende spezifische YF-Industry."
+Department of Agriculture,18,Consumer Defensive,Farm Products,1,Mittel,,"USDA-Gesetzgebung betrifft primär Agrarprodukte, aber als Department-Tag sehr breit."
+Department of Commerce,11,,,,,,
+Department of Defense,19,Industrials,Aerospace & Defense,1,Mittel,,DoD-Gesetzgebung betrifft Rüstungsindustrie direkt.
+Department of Education,6,,,,,,
+Department of Energy,19,Energy,,1,Mittel,,"DOE-Gesetzgebung betrifft Energiesektor breit (Öl, Gas, Erneuerbare, Atom)."
+Department of Energy,19,Utilities,,2,Mittel,,Auch Utilities über Energiepolitik betroffen.
+Department of Health and Human Services,40,Healthcare,,1,Hoch,,"HHS-Gesetzgebung betrifft Healthcare breit (FDA, CMS, NIH), aber als Department-Tag sehr breit."
+Department of Homeland Security,27,,,,,,
+Department of Housing and Urban Development,10,Real Estate,,1,Hoch,,"HUD-Gesetzgebung betrifft Immobilienmarkt, aber als Department-Tag sehr breit."
+Department of Justice,26,,,,,,
+Department of Labor,13,,,,,,
+Department of State,20,,,,,,
+Department of Transportation,16,Industrials,Airports & Air Services,1,Mittel,,DOT reguliert Flughaefen und Luftverkehr.
+Department of Transportation,16,Industrials,Trucking,2,Mittel,,DOT reguliert LKW-Sicherheit und Speditionsbranche.
+Department of Transportation,16,Industrials,Marine Shipping,3,Mittel,,DOT/MARAD reguliert Seeschifffahrt.
+Department of Veterans Affairs,42,,,,,,
+Department of the Interior,53,,,,,,
+Department of the Treasury,16,Financial Services,,1,Mittel,,"Treasury-Gesetzgebung betrifft Finanzmärkte breit (IRS, OCC, Sanctions)."
+Detention of persons,27,,,,,,
+Digestive and metabolic diseases,7,Healthcare,Drug Manufacturers - General,1,Mittel,,"Diabetes, GI-Erkrankungen sind großes Pharma-Segment (z.B. GLP-1-Medikamente)."
+Digital media,40,Communication Services,Internet Content & Information,1,Hoch,,Regulierung digitaler Medien/Plattformen betrifft direkt Internet Content.
+Digital media,40,Communication Services,Entertainment,2,Mittel,,Streaming und digitale Entertainment-Inhalte.
+"Diplomacy, foreign officials, Americans abroad",45,,,,,,
+Director of National Intelligence,2,,,,,,
+Disability and health-based discrimination,20,,,,,,
+Disability and paralysis,22,,,,,,
+Disability assistance,50,,,,,,
+Disaster relief and insurance,37,Financial Services,Insurance - Property & Casualty,1,Mittel,,"Katastrophenversicherung (NFIP, Flood Insurance) betrifft P&C-Versicherer direkt."
+District of Columbia,67,,,,,District of Columbia (USA),
+Domestic violence and child abuse,26,,,,,,
+"Drug safety, medical device, and laboratory regulation",32,Healthcare,Drug Manufacturers - General,1,Hoch,,FDA-Zulassungsregulierung betrifft direkt Pharmaunternehmen.
+"Drug safety, medical device, and laboratory regulation",32,Healthcare,Medical Devices,2,Hoch,,Auch Medical Devices unterliegen FDA-Regulierung.
+"Drug safety, medical device, and laboratory regulation",32,Healthcare,Diagnostics & Research,3,Mittel,,Laborregulierung betrifft Diagnostik-Unternehmen.
+Drug therapy,21,Healthcare,Drug Manufacturers - General,1,Hoch,,Arzneimitteltherapie betrifft direkt Pharmaunternehmen.
+Drug therapy,21,Healthcare,Drug Manufacturers - Specialty & Generic,2,Mittel,,Auch Generika-/Spezialpharmaunternehmen.
+Drug trafficking and controlled substances,46,,,,,,
+"Drug, alcohol, tobacco use",36,Consumer Defensive,Tobacco,1,Mittel,,Tabakregulierung/-besteuerung betrifft Tobacco-Industry direkt.
+Due process and equal protection,19,,,,,,
+Earth sciences,9,,,,,,
+Ecology,23,,,,,,
+Economic development,27,,,,,,
+Economic performance and conditions,23,,,,,,
+Education of the disadvantaged,23,,,,,,
+Education programs funding,98,,,,,,
+Educational facilities and institutions,21,,,,,,
+Educational guidance,18,,,,,,
+Educational technology and distance education,8,Technology,Software - Application,1,Mittel,,EdTech-Regulierung betrifft direkt Bildungssoftware-Unternehmen.
+Educational technology and distance education,8,Consumer Defensive,Education & Training Services,2,Mittel,,Online-Bildungsanbieter.
+Egypt,1,,,,,Egypt,
+Election Assistance Commission,3,,,,,,
+"Elections, voting, political campaign regulation",33,,,,,,
+Electric power generation and transmission,41,Utilities,Utilities - Regulated Electric,1,Hoch,,Direkter Match: Stromerzeugung und -übertragung.
+Electric power generation and transmission,41,Utilities,Utilities - Independent Power Producers,2,Hoch,,Auch unabhängige Stromerzeuger betroffen.
+Elementary and secondary education,85,,,,,,
+Emergency communications systems,43,Communication Services,Telecom Services,1,Mittel,,"911-Systeme, Emergency Alert Systems betreffen Telekom-Infrastruktur."
+Emergency medical services and trauma care,27,Healthcare,Medical Care Facilities,1,Mittel,,Notfallmedizin betrifft direkt Krankenhäuser/Kliniken.
+Emergency planning and evacuation,43,,,,,,
+Employee benefits and pensions,50,Financial Services,Asset Management,1,Mittel,,"Pensionsfondsregulierung (ERISA, 401k) betrifft Asset Manager direkt."
+Employee benefits and pensions,50,Financial Services,Insurance - Life,2,Mittel,,Betriebliche Altersvorsorge über Lebensversicherungen.
+Employee hiring,51,,,,,,
+Employee leave,13,,,,,,
+Employee performance,12,,,,,,
+Employment and training programs,139,,,,,,
+Employment discrimination and employee rights,39,,,,,,
+Employment taxes,4,,,,,,
+Endangered and threatened species,19,,,,,,
+Energy assistance for the poor and aged,1,,,,,,
+Energy efficiency and conservation,28,Utilities,,1,Mittel,,Energieeffizienz-Standards betreffen Utilities direkt.
+Energy efficiency and conservation,28,Consumer Cyclical,Residential Construction,2,Mittel,,Gebäude-Energiestandards betreffen Wohnungsbau.
+Energy prices,7,Energy,,1,Hoch,,Energiepreisregulierung betrifft Energy-Sektor direkt.
+Energy prices,7,Utilities,,2,Mittel,,Auch Utilities über Strompreise betroffen.
+Energy research,8,Energy,,1,Mittel,,"Energieforschung (Fusion, CCS, Batterien) betrifft Energy-Sektor."
+Energy revenues and royalties,5,Energy,Oil & Gas E&P,1,Mittel,,Royalties aus Öl-/Gas-Förderung auf Bundesland betreffen E&P-Unternehmen.
+"Energy storage, supplies, demand",29,Energy,,1,Mittel,,Energieversorgung/-speicherung betrifft Energy-Sektor breit.
+"Energy storage, supplies, demand",29,Utilities,,2,Mittel,,Netzspeicher/Demand Response betrifft Utilities.
+Environmental Protection Agency (EPA),22,Industrials,Pollution & Treatment Controls,1,Hoch,,"EPA-Regulierung betrifft Pollution Controls, aber als Behörden-Tag breit."
+"Environmental assessment, monitoring, research",110,Industrials,Pollution & Treatment Controls,1,Mittel,,Umweltmonitoring erzeugt Nachfrage nach Pollution-Control-Technologie.
+Environmental education,8,,,,,,
+Environmental health,20,,,,,,
+Environmental regulatory procedures,29,Industrials,Pollution & Treatment Controls,1,Hoch,,"Umweltregulierung betrifft Pollution Controls, aber sehr breiter Tag."
+Environmental technology,12,Industrials,Pollution & Treatment Controls,1,Mittel,,Umwelttechnologie = Pollution & Treatment Controls.
+Eritrea,1,,,,,Eritrea,
+Espionage and treason,3,,,,,,
+Europe,45,,,,,Europe,
+European Union,3,,,,,Europe,
+Evidence and witnesses,23,,,,,,
+Executive Office of the President,3,,,,,,
+Executive agency funding and structure,135,,,,,,
+Export-Import Bank of the United States,2,,,,,,
+Family planning and birth control,24,,,,,,
+Family relationships,57,,,,,,
+Family services,18,,,,,,
+Farmland,6,Consumer Defensive,Farm Products,2,Mittel,,Auch Agrarproduktion betroffen.
+Federal Bureau of Investigation (FBI),1,,,,,,
+Federal Communications Commission (FCC),7,Communication Services,Telecom Services,1,Mittel,,FCC reguliert Telekom-Branche direkt.
+Federal Communications Commission (FCC),7,Communication Services,Broadcasting,2,Mittel,,Auch Broadcasting unterliegt FCC-Regulierung.
+Federal Deposit Insurance Corporation (FDIC),6,Financial Services,Banks - Diversified,1,Hoch,,FDIC-Regulierung/Einlagensicherung betrifft Banken direkt.
+Federal Deposit Insurance Corporation (FDIC),6,Financial Services,Banks - Regional,2,Hoch,,Auch Regional Banks.
+Federal Emergency Management Agency (FEMA),3,,,,,,
+Federal Energy Regulatory Commission (FERC),3,Utilities,Utilities - Regulated Electric,1,Hoch,,FERC reguliert Interstate-Stromübertragung direkt.
+Federal Energy Regulatory Commission (FERC),3,Utilities,Utilities - Regulated Gas,2,Hoch,,Auch Gas-Pipelines werden von FERC reguliert.
+Federal Energy Regulatory Commission (FERC),3,Energy,Oil & Gas Midstream,3,Mittel,,Midstream-Pipelines unterliegen FERC-Genehmigung.
+Federal Housing Finance Agency,1,Financial Services,Mortgage Finance,1,Hoch,,"FHFA beaufsichtigt Fannie Mae, Freddie Mac direkt."
+Federal Housing Finance Agency,1,Real Estate,,2,Mittel,,Hypothekenmarkt-Regulierung beeinflusst Immobilienmarkt.
+Federal Labor Relations Authority,1,,,,,,
+Federal Maritime Commission,1,Industrials,Marine Shipping,1,Mittel,,FMC reguliert Seeschifffahrt direkt.
+Federal Reserve System,9,Financial Services,Banks - Diversified,1,Hoch,,Fed-Gesetzgebung betrifft Bankensystem direkt.
+Federal Reserve System,9,Financial Services,Banks - Regional,2,Hoch,,Auch Regional Banks.
+Federal Reserve System,9,Financial Services,Capital Markets,3,Mittel,,Geldpolitik beeinflusst Capital Markets.
+Federal Trade Commission (FTC),16,,,,,,
+Federal appellate courts,6,,,,,,
+Federal district courts,25,,,,,,
+Federal officials,70,,,,,,
+Federal preemption,32,,,,,,
+Federal-Indian relations,72,,,,,,
+Federally chartered organizations,1,,,,,,
+Fiji,4,,,,,Fiji,
+Financial crises and stabilization,11,Financial Services,,1,Mittel,,Finanzstabilitätsgesetzgebung (Dodd-Frank etc.) betrifft Finanzsektor breit.
+Financial literacy,3,,,,,,
+Financial services and investments,72,Financial Services,,1,Hoch,,Direkter Match: Regulierung von Finanzdienstleistungen und Investments.
+Finland,1,,,,,Finland,
+Firearms and explosives,70,,,,,,
+Fires,78,,,,,,
+First Amendment rights,9,,,,,,
+First responders and emergency personnel,53,,,,,,
+Fishes,24,,,,,,
+Floods and storm protection,17,,,,,,
+Florida,17,,,,,Florida (USA),
+Food and Drug Administration (FDA),5,Healthcare,Drug Manufacturers - General,1,Mittel,,FDA-Behörden-Tag; Arzneimittelzulassung betrifft Pharma direkt.
+Food and Drug Administration (FDA),5,Healthcare,Medical Devices,2,Mittel,,Auch Medizinprodukte-Zulassung.
+Food and Drug Administration (FDA),5,Consumer Defensive,Packaged Foods,3,Mittel,,FDA reguliert auch Lebensmittelsicherheit.
+Food assistance and relief,16,,,,,,
+Food industry and services,9,Consumer Defensive,Packaged Foods,1,Mittel,,Lebensmittelindustrie-Regulierung betrifft Packaged Foods.
+Food industry and services,9,Consumer Defensive,Food Distribution,2,Mittel,,Auch Lebensmitteldistribution.
+Food industry and services,9,Consumer Cyclical,Restaurants,3,Mittel,,Food services umfasst auch Gastronomie.
+"Food supply, safety, and labeling",16,Consumer Defensive,Packaged Foods,1,Hoch,,Lebensmittelsicherheit/-kennzeichnung betrifft Packaged Foods direkt.
+"Food supply, safety, and labeling",16,Consumer Defensive,Food Distribution,2,Mittel,,Supply Chain / Distribution.
+"Food supply, safety, and labeling",16,Consumer Defensive,Grocery Stores,3,Hoch,,Auch Einzelhandel über Kennzeichnungspflichten.
+Foreign aid and international relief,30,,,,,,
+Foreign and international banking,15,Financial Services,Banks - Diversified,1,Hoch,,Regulierung internationaler Bankaktivitäten betrifft große Banken direkt.
+Foreign and international corporations,14,,,,,,
+Foreign labor,3,,,,,,
+Foreign language and bilingual programs,8,,,,,,
+Foreign loans and debt,4,,,,,,
+Foreign property,24,,,,,,
+"Forests, forestry, trees",114,Basic Materials,Lumber & Wood Production,1,Mittel,,Forstgesetzgebung betrifft Holzproduktion direkt.
+France,1,,,,,France,
+Fraud offenses and financial crimes,81,Financial Services,,1,Mittel,,"Finanzbetrug-Gesetzgebung (Securities Fraud, Wire Fraud) betrifft Finanzsektor."
+Free trade and trade barriers,9,,,,,,
+Freedom of information,7,,,,,,
+Fruit and vegetables,6,Consumer Defensive,Farm Products,1,Hoch,,Obst-/Gemüseregulierung betrifft Farm Products direkt.
+Gambling,8,Consumer Cyclical,Gambling,1,Hoch,,Direkter 1:1-Match mit YF-Industry.
+Gambling,8,Consumer Cyclical,Resorts & Casinos,2,Hoch,,Casinos sind Teil der Glücksspielregulierung.
+Games and hobbies,1,,,,,,
+General Services Administration,1,,,,,,
+General taxation matters,2,,,,,,
+Genetics,9,Healthcare,Biotechnology,1,Mittel,,"Genetik-Gesetzgebung (Gentests, Gentherapie, GINA) betrifft Biotech direkt."
+Geography and mapping,96,,,,,,
+Georgia,16,,,,,Georgia (USA),
+Georgia (Republic),3,,,,,Georgia (Republic),
+Germany,2,,,,,Germany,
+Government Accountability Office (GAO),4,,,,,,
+Government National Mortgage Association (Ginnie Mae),1,Financial Services,Mortgage Finance,1,Hoch,,Ginnie Mae betrifft direkt Hypothekenfinanzierung.
+Government Publishing Office (GPO),1,,,,,,
+"Government buildings, facilities, and property",106,,,,,,
+Government corporations and government-sponsored enterprises,5,,,,,,
+"Government employee pay, benefits, personnel management",187,,,,,,
+"Government ethics and transparency, public corruption",46,,,,,,
+Government information and archives,488,,,,,,
+Government lending and loan guarantees,85,Financial Services,Credit Services,1,Mittel,,"Staatliche Kreditprogramme (SBA, Student Loans) betreffen Kreditmarkt."
+Government lending and loan guarantees,85,Financial Services,Mortgage Finance,2,Mittel,,FHA-/VA-Hypothekengarantien.
+Government liability,15,,,,,,
+Government studies and investigations,347,,,,,,
+Government trust funds,76,,,,,,
+Grain,1,Consumer Defensive,Farm Products,1,Hoch,,Getreide = Farm Products.
+Great Lakes,6,,,,,Great Lakes (USA),
+Guam,11,,,,,Guam (USA),
+Gulf of Mexico,3,,,,,Gulf of Mexico,
+HIV/AIDS,1,Healthcare,Biotechnology,1,Mittel,,HIV-Forschung/-Therapie betrifft Biotech-Unternehmen.
+HIV/AIDS,1,Healthcare,Drug Manufacturers - General,2,Mittel,,Auch große Pharmakonzerne mit antiretroviralen Medikamenten.
+Haiti,5,,,,,Haiti,
+Hawaii,12,,,,,Hawaii (USA),
+Hazardous wastes and toxic substances,33,Industrials,Pollution & Treatment Controls,1,Hoch,,"Gefahrstoffregulierung (RCRA, Superfund) betrifft direkt Pollution Controls."
+Hazardous wastes and toxic substances,33,Industrials,Waste Management,2,Hoch,,Sondermüllentsorgung betrifft Waste Management direkt.
+Health care costs and insurance,107,Healthcare,Healthcare Plans,1,Hoch,,Krankenversicherungsregulierung betrifft Healthcare Plans direkt.
+Health care costs and insurance,107,Healthcare,Medical Care Facilities,2,Mittel,,Kostenregulierung betrifft auch Krankenhäuser.
+Health care coverage and access,131,Healthcare,Healthcare Plans,1,Hoch,,Zugang zu Krankenversicherung betrifft Healthcare Plans direkt.
+Health care coverage and access,131,Healthcare,Medical Care Facilities,2,Mittel,,Versorgungszugang betrifft Kliniken/Krankenhäuser.
+Health care quality,8,Healthcare,Medical Care Facilities,1,Mittel,,Qualitätsstandards betreffen Krankenhäuser/Kliniken direkt.
+Health facilities and institutions,40,Healthcare,Medical Care Facilities,1,Hoch,,Direkter Match: Regulierung von Gesundheitseinrichtungen.
+Health information and medical records,46,Healthcare,Health Information Services,1,Hoch,,"HIPAA, EHR-Regulierung betrifft Health IT direkt."
+Health personnel,94,,,,,,
+Health programs administration and funding,105,Healthcare,,1,Hoch,,"Gesundheitsprogramm-Finanzierung (Medicare, Medicaid) betrifft Healthcare breit."
+Health promotion and preventive care,61,,,,,,
+"Health technology, devices, supplies",50,Healthcare,Medical Devices,1,Hoch,,Direkter Match: Medizintechnik/-geräte.
+"Health technology, devices, supplies",50,Healthcare,Medical Instruments & Supplies,2,Hoch,,Auch medizinische Instrumente und Verbrauchsmaterial.
+"Hearing, speech, and vision care",6,Healthcare,Medical Devices,1,Mittel,,"Hörgeräte, Sehhilfen sind Medizinprodukte."
+Hereditary and development disorders,3,Healthcare,Biotechnology,1,Mittel,,Erbkrankheiten sind Zielgebiet für Gentherapie (Biotech).
+Higher education,135,Consumer Defensive,Education & Training Services,1,Mittel,,"Hochschulregulierung betrifft Bildungsunternehmen (private Unis, Online-Anbieter)."
+Historic sites and heritage areas,34,,,,,,
+Historical and cultural resources,29,,,,,,
+Home and outpatient care,15,Healthcare,Medical Care Facilities,1,Mittel,,Ambulante Versorgung/Homecare betrifft Gesundheitseinrichtungen.
+Homeland security,8,,,,,,
+Homelessness and emergency shelter,18,,,,,,
+Horticulture and plants,4,,,,,,
+Hospital care,27,Healthcare,Medical Care Facilities,1,Hoch,,Direkter Match: Krankenhausversorgung.
+House Committee on Ethics,1,,,,,,
+House Committee on Ways and Means,1,,,,,,
+House of Representatives,14,,,,,,
+Housing and community development funding,31,,,,,,
+Housing discrimination,5,,,,,,
+Housing finance and home ownership,25,Financial Services,Mortgage Finance,1,Hoch,,Wohnungsfinanzierung betrifft Hypothekenmarkt direkt.
+Housing finance and home ownership,25,Real Estate,,2,Mittel,,Auch Immobilienmarkt insgesamt.
+Housing for the elderly and disabled,3,,,,,,
+Housing industry and standards,7,Consumer Cyclical,Residential Construction,1,Mittel,,Baustandards betreffen Wohnungsbau direkt.
+Housing industry and standards,7,Industrials,Building Products & Equipment,2,Hoch,,Auch Baumaterialien über Standards betroffen.
+Housing supply and affordability,18,Real Estate,,1,Mittel,,Wohnungsangebot/-bezahlbarkeit betrifft Immobilienmarkt direkt.
+Housing supply and affordability,18,Consumer Cyclical,Residential Construction,2,Mittel,,Wohnungsbau zur Angebotsausweitung.
+Human rights,27,,,,,,
+Human trafficking,40,,,,,,
+Humanities programs funding,1,,,,,,
+Hunting and fishing,20,,,,,,
+"Hybrid, electric, and advanced technology vehicles",6,Consumer Cyclical,Auto Manufacturers,1,Hoch,,EV-Regulierung/-Förderung betrifft Autohersteller direkt.
+"Hybrid, electric, and advanced technology vehicles",6,Consumer Cyclical,Auto Parts,2,Mittel,,"Auch Zulieferer (Batterien, Antriebssysteme)."
+"Hybrid, electric, and advanced technology vehicles",6,Technology,Electronic Components,3,Mittel,,"EV-Leistungselektronik (Power Modules, Sensoren)."
+Hydrology and hydrography,5,,,,,,
+Iceland,1,,,,,Iceland,
+Idaho,20,,,,,Idaho (USA),
+Illinois,13,,,,,Illinois (USA),
+Immigrant health and welfare,10,,,,,,
+Immigration status and procedures,46,,,,,,
+Immunology and vaccination,15,Healthcare,Biotechnology,1,Hoch,,Impfstoffregulierung betrifft Biotech-Unternehmen direkt.
+Immunology and vaccination,15,Healthcare,Drug Manufacturers - General,2,Hoch,,Auch große Pharmaunternehmen mit Impfstoff-Portfolios.
+Income tax credits,27,,,,,,
+Income tax deductions,25,,,,,,
+Income tax deferral,3,,,,,,
+Income tax exclusion,12,,,,,,
+Income tax rates,16,,,,,,
+India,5,,,,,India,
+Indian claims,26,,,,,,
+Indian lands and resources rights,84,,,,,,
+Indian social and development programs,36,,,,,,
+Indiana,9,,,,,Indiana (USA),
+Indonesia,3,,,,,Indonesia,
+Industrial facilities,11,Industrials,Specialty Industrial Machinery,1,Mittel,,"Industrieanlagen-Regulierung betrifft Maschinenbau, aber Tag ist breit."
+Industrial facilities,11,Industrials,Engineering & Construction,2,Mittel,,Industrieanlagen-Bau betrifft Engineering & Construction.
+Industrial policy and productivity,13,Industrials,,1,Mittel,,"Industriepolitik betrifft Industrials breit, kein spezifischer Industry-Match."
+Infectious and parasitic diseases,34,Healthcare,Biotechnology,1,Mittel,,"Infektionskrankheiten-Gesetzgebung (Pandemievorsorge, Antibiotika) betrifft Biotech direkt."
+Infectious and parasitic diseases,34,Healthcare,Drug Manufacturers - General,2,Mittel,,Auch grosse Pharmaunternehmen mit Impfstoffen/Antiviralen.
+Inflation and prices,45,Financial Services,,1,Mittel,,"Inflationsgesetzgebung (Preiskontrollen, Fed-Mandate) betrifft Finanzmaerkte direkt."
+Infrastructure development,33,Industrials,Engineering & Construction,1,Hoch,,Infrastrukturgesetze (IIJA) betreffen Engineering & Construction direkt.
+Infrastructure development,33,Industrials,Building Products & Equipment,2,Mittel,,Auch Baumaterialien-Nachfrage.
+Infrastructure development,33,Industrials,Metal Fabrication,3,Mittel,,Metallfertigung fuer Infrastrukturprojekte.
+Insects,3,,,,,,
+Insurance industry and regulation,4,Financial Services,Insurance - Diversified,1,Hoch,,Direkter Match: Versicherungsregulierung.
+Insurance industry and regulation,4,Financial Services,Insurance - Property & Casualty,2,Hoch,,Auch P&C-Versicherer reguliert.
+Insurance industry and regulation,4,Financial Services,Insurance - Life,3,Mittel,,Auch Lebensversicherer.
+Intellectual property,23,Technology,,1,Mittel,,"Patentrecht betrifft Tech-Sektor am staerksten (Software-Patente, Halbleiter)."
+Intellectual property,23,Healthcare,Drug Manufacturers - General,2,Mittel,,Pharma-Patente (Hatch-Waxman) sind zentrales Geschaeftsmodell.
+"Intelligence activities, surveillance, classified information",23,,,,,,
+Interagency Council on Homelessness,1,,,,,,
+"Interest, dividends, interest rates",19,Financial Services,Banks - Diversified,1,Hoch,,Zinsregulierung betrifft Banken direkt (Net Interest Margin).
+"Interest, dividends, interest rates",19,Financial Services,Banks - Regional,2,Hoch,,Auch Regional Banks.
+"Interest, dividends, interest rates",19,Financial Services,Capital Markets,3,Mittel,,Zinspolitik beeinflusst Capital Markets.
+Intergovernmental relations,166,,,,,,
+Internal Revenue Service (IRS),9,,,,,,
+International exchange and broadcasting,2,,,,,,
+International law and treaties,14,,,,,,
+International monetary system and foreign exchange,14,Financial Services,,1,Mittel,,Devisenmarkt-/Waehrungssystem-Regulierung betrifft Finanzsektor.
+International organizations and cooperation,36,,,,,,
+International scientific cooperation,6,,,,,,
+Internet and video services,1,Communication Services,Internet Content & Information,1,Hoch,,Regulierung von Internet-/Video-Diensten (Net Neutrality etc.).
+Internet and video services,1,Communication Services,Telecom Services,2,Mittel,,ISPs betroffen ueber Netzregulierung.
+"Internet, web applications, social media",140,Communication Services,Internet Content & Information,1,Hoch,,"Social-Media-Regulierung (Section 230, KOSA) betrifft Plattformen direkt."
+"Internet, web applications, social media",140,Technology,Software - Application,2,Mittel,,Web-Applikationen/SaaS-Regulierung.
+Iowa,9,,,,,Iowa (USA),
+Iran,20,,,,,Iran,
+Ireland,1,,,,,Ireland,
+Israel,4,,,,,Israel,
+Japan,6,,,,,Japan,
+Joint Committee on Taxation,1,,,,,,
+Joint Committee on the Library,2,,,,,,
+Joint Economic Committee,1,,,,,,
+Judges,17,,,,,,
+Judicial procedure and administration,37,,,,,,
+Judicial review and appeals,42,,,,,,
+Jurisdiction and venue,15,,,,,,
+Juvenile crime and gang violence,6,,,,,,
+Kansas,3,,,,,Kansas (USA),
+Kazakhstan,1,,,,,Kazakhstan,
+Kentucky,7,,,,,Kentucky (USA),
+Kiribati,3,,,,,Kiribati,
+Labor market,3,,,,,,
+Labor standards,25,,,,,,
+Labor-management relations,31,,,,,,
+Lakes and rivers,44,,,,,,
+Land transfers,124,,,,,,
+Land use and conservation,134,,,,,,
+Landlord and tenant,11,Real Estate,,1,Mittel,,"Mietrecht betrifft Immobilienmarkt direkt (Rent Control, Eviction Policy)."
+Language arts,1,,,,,,
+Laos,2,,,,,Laos,
+Latin America,23,,,,,Latin America,
+Law enforcement administration and funding,64,,,,,,
+Law enforcement officers,59,,,,,,
+Lawyers and legal services,23,,,,,,
+Lease and rental services,3,Industrials,Rental & Leasing Services,1,Mittel,,Leasing-Regulierung betrifft Rental & Leasing Services direkt.
+Lebanon,1,,,,,Lebanon,
+Legal fees and court costs,33,,,,,,
+Legislative rules and procedure,51,,,,,,
+Libraries and archives,4,,,,,,
+Library of Congress,3,,,,,,
+Licensing and registrations,158,,,,,,
+"Life, casualty, property insurance",6,Financial Services,Insurance - Life,1,Hoch,,Direkter Match: Lebensversicherung.
+"Life, casualty, property insurance",6,Financial Services,Insurance - Property & Casualty,2,Hoch,,Auch P&C direkt genannt.
+"Lighting, heating, cooling",12,Industrials,Building Products & Equipment,1,Mittel,,HVAC-/Beleuchtungsstandards betreffen Building Products.
+"Lighting, heating, cooling",12,Consumer Cyclical,"Furnishings, Fixtures & Appliances",2,Mittel,,"Auch Haushaltsgeraete (Heizung, Klimaanlagen)."
+Livestock,18,Consumer Defensive,Farm Products,1,Hoch,,Viehzucht = Farm Products.
+"Long-term, rehabilitative, and terminal care",24,Healthcare,Medical Care Facilities,1,Mittel,,Langzeitpflege betrifft Pflegeheime/Rehakliniken.
+Louisiana,6,,,,,Louisiana (USA),
+Low- and moderate-income housing,29,Real Estate,,1,Mittel,,"Sozialer Wohnungsbau betrifft Immobilienmarkt (LIHTC, Section 8)."
+Maine,4,,,,,Maine (USA),
+Malaysia,1,,,,,Malaysia,
+Mammals,12,,,,,,
+Manufacturing,49,Industrials,,1,Mittel,,Fertigungsindustrie-Politik betrifft Industrials breit.
+"Marine and coastal resources, fisheries",51,,,,,,
+Marine and inland water transportation,20,Industrials,Marine Shipping,1,Hoch,,Schifffahrtsregulierung (Jones Act) betrifft Marine Shipping direkt.
+Marine pollution,11,Industrials,Pollution & Treatment Controls,1,Mittel,,Meeresumweltschutz erzeugt Nachfrage nach Pollution Controls.
+Marketing and advertising,30,Communication Services,Advertising Agencies,1,Hoch,,"Werberegulierung (FTC, Digital Ads) betrifft Advertising direkt."
+Marriage and family status,11,,,,,,
+Marshall Islands,4,,,,,Marshall Islands,
+Maryland,17,,,,,Maryland (USA),
+Massachusetts,8,,,,,Massachusetts (USA),
+Materials,3,Basic Materials,,1,Mittel,,Materialien-Gesetzgebung (kritische Rohstoffe) betrifft Basic Materials.
+Meat,2,Consumer Defensive,Packaged Foods,1,Mittel,,"Fleischregulierung (USDA-Inspektion, Kennzeichnung) betrifft Packaged Foods."
+Meat,2,Consumer Defensive,Farm Products,2,Mittel,,Auch Viehzuechter betroffen.
+Medicaid,46,Healthcare,Healthcare Plans,1,Hoch,,Medicaid-Gesetzgebung betrifft Managed-Care-Versicherer direkt.
+Medicaid,46,Healthcare,Medical Care Facilities,2,Mittel,,Auch Krankenhaeuser ueber Erstattungsraten.
+Medical education,26,,,,,,
+Medical ethics,10,,,,,,
+Medical research,35,Healthcare,Biotechnology,1,Mittel,,NIH-Forschungsfoerderung fliesst in Biotech-Unternehmen.
+Medical research,35,Healthcare,Diagnostics & Research,2,Mittel,,Auch Diagnostik-/Forschungsunternehmen.
+Medical tests and diagnostic methods,35,Healthcare,Diagnostics & Research,1,Hoch,,Direkter Match: Diagnostik-Regulierung.
+Medical tests and diagnostic methods,35,Healthcare,Medical Instruments & Supplies,2,Mittel,,Auch diagnostische Instrumente.
+Medicare,87,Healthcare,Healthcare Plans,1,Hoch,,Medicare-Gesetzgebung betrifft Medicare Advantage-Versicherer direkt.
+Medicare,87,Healthcare,Medical Care Facilities,2,Hoch,,Krankenhaeuser ueber Erstattungsraten.
+Medicare,87,Healthcare,Drug Manufacturers - General,3,Mittel,,Part D Drug Pricing betrifft Pharma.
+Medicare Payment Advisory Commission,1,Healthcare,Healthcare Plans,1,Mittel,,MedPAC-Empfehlungen beeinflussen Medicare-Erstattung.
+Members of Congress,37,,,,,,
+Mental health,62,Healthcare,Medical Care Facilities,1,Mittel,,Mental-Health-Parity betrifft psychiatrische Einrichtungen.
+Mental health,62,Healthcare,,2,Mittel,,Psychopharmaka-Markt.
+Merit Systems Protection Board,3,,,,,,
+Metals,24,Basic Materials,Other Industrial Metals & Mining,1,Hoch,,"Metall-Gesetzgebung (Tarife, strategische Reserven) betrifft Metals direkt."
+Metals,24,Basic Materials,Steel,2,Hoch,,Auch Stahl.
+Mexico,10,,,,,Mexico,
+Michigan,8,,,,,Michigan (USA),
+Micronesia,3,,,,,Micronesia,
+Middle East,24,,,,,Middle East,
+"Migrant, seasonal, agricultural labor",3,,,,,,
+"Military assistance, sales, and agreements",15,Industrials,Aerospace & Defense,1,Mittel,,Foreign Military Sales betreffen Ruestungsexporteure.
+Military civil functions,1,,,,,,
+Military command and structure,2,,,,,,
+Military education and training,7,,,,,,
+Military facilities and property,18,,,,,,
+Military history,27,,,,,,
+Military medicine,7,,,,,,
+Military operations and strategy,12,,,,,,
+Military personnel and dependents,59,,,,,,
+"Military procurement, research, weapons development",7,Industrials,Aerospace & Defense,1,Hoch,,Ruestungsbeschaffung betrifft Defense-Industrie direkt.
+Mining,66,Basic Materials,Other Industrial Metals & Mining,1,Hoch,,Bergbau-Regulierung betrifft Mining direkt.
+Mining,66,Basic Materials,Gold,2,Mittel,,Auch Goldminen.
+Mining,66,Basic Materials,Copper,3,Mittel,,Auch Kupferminen.
+Minnesota,14,,,,,Minnesota (USA),
+Minority and disadvantaged businesses,1,,,,,,
+Minority education,5,,,,,,
+Minority employment,10,,,,,,
+Minority health,7,,,,,,
+Missing persons,5,,,,,,
+Mississippi,8,,,,,Mississippi (USA),
+Mississippi River,2,,,,,Mississippi River (USA),
+Missouri,8,,,,,Missouri (USA),
+Missouri River,2,,,,,Missouri River (USA),
+Monetary policy,6,Financial Services,Banks - Diversified,1,Hoch,,Geldpolitik betrifft Banken direkt.
+Monetary policy,6,Financial Services,Capital Markets,2,Mittel,,Auch Kapitalmaerkte ueber Zinsentscheidungen.
+Montana,24,,,,,Montana (USA),
+Monuments and memorials,42,,,,,,
+Motor carriers,7,Industrials,Trucking,1,Hoch,,Direkter Match: Speditions-/LKW-Regulierung.
+Motor fuels,5,Energy,Oil & Gas Refining & Marketing,1,Hoch,,"Kraftstoffregulierung (RFS, Ethanol-Mandate) betrifft Raffinerien direkt."
+Motor vehicles,43,Consumer Cyclical,Auto Manufacturers,1,Hoch,,"Kfz-Regulierung (NHTSA, Emissionsstandards) betrifft Autohersteller direkt."
+Motor vehicles,43,Consumer Cyclical,Auto Parts,2,Mittel,,Auch Zulieferer ueber Sicherheits-/Emissionsstandards.
+Multilateral development programs,8,,,,,,
+Musculoskeletal and skin diseases,2,Healthcare,Biotechnology,1,Mittel,,"Autoimmun-/Hautkrankheiten (Psoriasis, RA) sind Biotech-Zielgebiet."
+"Museums, exhibitions, cultural centers",29,,,,,,
+Music,4,,,,,,
+National Aeronautics and Space Administration,5,Industrials,Aerospace & Defense,1,Mittel,,NASA-Budget betrifft Luft-/Raumfahrtunternehmen direkt.
+National Credit Union Administration,1,Financial Services,Banks - Regional,1,Mittel,,NCUA reguliert Credit Unions; indirekte Wettbewerbswirkung auf Regional Banks.
+National Foundation on the Arts and the Humanities,1,,,,,,
+National Guard and reserves,7,,,,,,
+National Institutes of Health (NIH),8,Healthcare,Biotechnology,1,Mittel,,NIH-Budget finanziert Grundlagenforschung die Biotech-Pipelines speist.
+National Institutes of Health (NIH),8,Healthcare,Diagnostics & Research,2,Mittel,,Auch Forschungsunternehmen profitieren.
+National Labor Relations Board (NLRB),2,,,,,,
+National Railroad Passenger Corporation (Amtrak),5,Industrials,Railroads,1,Mittel,,Amtrak-Gesetzgebung betrifft Eisenbahn-Industrie.
+National Science Foundation,3,,,,,,
+National and community service,6,,,,,,
+National symbols,9,,,,,,
+Natural disasters,29,Financial Services,Insurance - Property & Casualty,1,Mittel,,"Katastrophengesetzgebung betrifft P&C-Versicherer (NFIP, Wildfire)."
+Nauru,1,,,,,Nauru,
+"Navigation, waterways, harbors",19,Industrials,Marine Shipping,1,Mittel,,Wasserstrassen-/Hafeninfrastruktur betrifft Schifffahrt.
+Nebraska,4,,,,,Nebraska (USA),
+Neurological disorders,13,Healthcare,Biotechnology,1,Mittel,,"Neurologie (Alzheimer, Parkinson) ist grosses Biotech-Forschungsgebiet."
+Neurological disorders,13,Healthcare,Drug Manufacturers - General,2,Mittel,,Auch Pharma mit Neurologie-Pipelines.
+Nevada,26,,,,,Nevada (USA),
+New Hampshire,4,,,,,New Hampshire (USA),
+New Jersey,12,,,,,New Jersey (USA),
+New Mexico,31,,,,,New Mexico (USA),
+New York City,5,,,,,New York City (USA),
+New York State,31,,,,,New York State (USA),
+New Zealand,2,,,,,New Zealand,
+News media and reporting,2,Communication Services,Publishing,1,Mittel,,Nachrichtenmedien-Regulierung (Journalism Competition Act) betrifft Publishing.
+"Normal trade relations, most-favored-nation treatment",7,,,,,,
+North America,7,,,,,North America,
+North Carolina,15,,,,,North Carolina (USA),
+North Dakota,7,,,,,North Dakota (USA),
+North Korea,13,,,,,North Korea,
+Northern Mariana Islands,10,,,,,Northern Mariana Islands (USA),
+Norway,1,,,,,Norway,
+Nuclear Regulatory Commission (NRC),1,Utilities,Utilities - Independent Power Producers,1,Mittel,,NRC reguliert Kernkraftwerke.
+Nuclear power,5,Utilities,Utilities - Independent Power Producers,1,Hoch,,Kernkraft-Gesetzgebung betrifft AKW-Betreiber direkt.
+Nuclear power,5,Energy,Uranium,2,Hoch,,Auch Uran-Produzenten.
+Nuclear weapons,6,,,,,,
+Nursing,16,,,,,,
+Nutrition and diet,13,Consumer Defensive,Packaged Foods,1,Mittel,,Ernaehrungsrichtlinien/-kennzeichnung betrifft Lebensmittelbranche.
+Oceania,3,,,,,Oceania,
+Office of Management and Budget (OMB),8,,,,,,
+Office of Personnel Management (OPM),6,,,,,,
+Office of Special Counsel,2,,,,,,
+Ohio,5,,,,,Ohio (USA),
+Oil and gas,45,Energy,Oil & Gas Integrated,1,Hoch,,Oel-/Gas-Regulierung betrifft integrierte Konzerne direkt.
+Oil and gas,45,Energy,Oil & Gas E&P,2,Hoch,,Auch Exploration & Production.
+Oil and gas,45,Energy,Oil & Gas Midstream,3,Mittel,,Pipeline-/Transportregulierung.
+Oil and gas,45,Energy,Oil & Gas Equipment & Services,4,Mittel,,Auch Ausruester/Dienstleister.
+Oklahoma,6,,,,,Oklahoma (USA),
+Olympic games,3,,,,,,
+Oregon,18,,,,,Oregon (USA),
+Organ and tissue donation and transplantation,10,,,,,,
+Organized crime,16,,,,,,
+Outdoor recreation,22,,,,,,
+Pacific Ocean,3,,,,,Pacific Ocean,
+Pakistan,1,,,,,Pakistan,
+Palau,2,,,,,Palau,
+Papua New Guinea,2,,,,,Papua New Guinea,
+"Parks, recreation areas, trails",105,,,,,,
+Pedestrians and bicycling,4,,,,,,
+Pennsylvania,8,,,,,Pennsylvania (USA),
+Performance measurement,73,,,,,,
+Performing arts,2,,,,,,
+Personnel records,17,,,,,,
+Pest management,13,Basic Materials,Agricultural Inputs,2,Mittel,,Auch Duengemittel-/Pestizid-Hersteller direkt betroffen.
+Arctic Ocean,1,,,,,Arctic Ocean,
+Azerbaijan,1,,,,,Azerbaijan,
+Belgium,2,,,,,Belgium,
+Central African Republic,4,,,,,Central African Republic,
+Colombia,6,,,,,Colombia,
+Commission of Fine Arts,5,,,,,,
+Committee for Purchase from People Who Are Blind or Severely Disabled,4,,,,,,
+Community Development Financial Institutions Fund,3,Financial Services,Banks - Regional,1,Mittel,,CDFI Fund foerdert Community Banks in unterversorgten Gebieten.
+Comoros,1,,,,,Comoros,
+Congo,1,,,,,Congo,
+Corporation for National and Community Service,6,,,,,,
+Defense Nuclear Facilities Safety Board,7,,,,,,
+Democratic Republic of the Congo,3,,,,,Democratic Republic of the Congo,
+Denali Commission,7,,,,,,
+Diego Garcia,1,,,,,Diego Garcia,
+Dominica,1,,,,,Dominica,
+Dominican Republic,1,,,,,Dominican Republic,
+Drug Enforcement Administration (DEA),7,,,,,,
+El Salvador,4,,,,,El Salvador,
+Equal Employment Opportunity Commission (EEOC),6,,,,,,
+Estonia,1,,,,,Estonia,
+Ethiopia,5,,,,,Ethiopia,
+Farm Credit Administration,6,Financial Services,Credit Services,1,Mittel,,FCA reguliert das Farm Credit System - direkte Aufsicht ueber Agrarkreditgeber.
+Federal Crop Insurance Corporation,5,Financial Services,Insurance - Specialty,1,Mittel,,FCIC verwaltet Bundesernteversicherungsprogramm. Konsistent mit Agricultural insurance aus Batch 1.
+Federal Election Commission (FEC),5,,,,,,
+Federal Mediation and Conciliation Service,5,,,,,,
+Federal Mine Safety and Health Review Commission,5,,,,,,
+"Federal Prison Industries, Inc.",2,,,,,,
+Gaza Strip,6,,,,,Gaza Strip,
+Greece,1,,,,,Greece,
+Greenland,2,,,,,Greenland,
+Grenada,1,,,,,Grenada,
+Guatemala,2,,,,,Guatemala,
+Guyana,1,,,,,Guyana,
+Hate crimes,5,,,,,,
+Honduras,3,,,,,Honduras,
+Hong Kong,4,,,,,Hong Kong,
+House Committee on Appropriations,1,,,,,,
+Inter-American Foundation,4,,,,,Latin America,
+Iraq,5,,,,,Iraq,
+Jamaica,1,,,,,Jamaica,
+Jordan,4,,,,,Jordan,
+Kosovo,1,,,,,Kosovo,
+Kuwait,1,,,,,Kuwait,
+Latvia,1,,,,,Latvia,
+Legal Services Corporation,4,,,,,,
+Lithuania,1,,,,,Lithuania,
+Maldives,2,,,,,Maldives,
+Marine Mammal Commission,2,,,,,,
+Military law,3,,,,,,
+Military readiness,3,Industrials,Aerospace & Defense,1,Mittel,,Militaerische Bereitschaft treibt Beschaffungsausgaben. Konsistent mit Defense spending aus Batch 1.
+Mongolia,1,,,,,Mongolia,
+National Archives and Records Administration,3,,,,,,
+National Capital Planning Commission,2,,,,,,
+National Council on Disability,1,,,,,,
+National Mediation Board,2,,,,,,
+National Security Agency,1,,,,,,
+National Transportation Safety Board (NTSB),2,,,,,,
+Neighborhood Reinvestment Corporation,2,,,,,,
+Nepal,2,,,,,Nepal,
+Nicaragua,3,,,,,Nicaragua,
+Nigeria,1,,,,,Nigeria,
+Nuclear Waste Technical Review Board,2,,,,,,
+Occupational Safety and Health Review Commission,2,,,,,,
+Office of Government Ethics,2,,,,,,
+Office of the U.S. Trade Representative,2,,,,,,
+Organization of American States,2,,,,,Americas,
+Palestinians,2,,,,,Palestinian Territories,
+Panama,1,,,,,Panama,
+Peace Corps,2,,,,,,
+Pension Benefit Guaranty Corporation,2,Financial Services,Asset Management,1,Mittel,,PBGC sichert betriebliche Pensionsplaene ab - betrifft Pension Fund Management direkt.
+Philippines,6,,,,,Philippines,
+Photography and imaging,16,,,,,,
+Physical fitness and lifestyle,1,,,,,,
+Pipelines,20,Energy,Oil & Gas Midstream,1,Hoch,,Pipeline-Regulierung/-Genehmigung betrifft Midstream-Unternehmen direkt.
+Pipelines,20,Utilities,Utilities - Regulated Gas,2,Mittel,,Gas-Pipelines fuer Utilities.
+Poland,2,,,,,Poland,
+Policy sciences,2,,,,,,
+Political advertising,2,,,,,,
+Political movements and philosophies,2,,,,,,
+Political parties and affiliation,7,,,,,,
+Political representation,1,,,,,,
+Pollution liability,16,Industrials,Pollution & Treatment Controls,1,Mittel,,Haftung fuer Umweltverschmutzung (Superfund Liability) treibt Sanierungsnachfrage.
+Pollution liability,16,Financial Services,Insurance - Specialty,2,Mittel,,Environmental Liability Insurance ist Specialty-Nische.
+Pornography,22,,,,,,
+Postal Regulatory Commission,3,,,,,,
+Postal service,74,,,,,,
+Poverty and welfare assistance,38,,,,,,
+Preschool education,14,,,,,,
+Prescription drugs,67,Healthcare,Drug Manufacturers - General,1,Hoch,,Arzneimittelpreisregulierung betrifft grosse Pharma direkt.
+Prescription drugs,67,Healthcare,Drug Manufacturers - Specialty & Generic,2,Hoch,,Auch Generika-/Spezialpharmaunternehmen.
+Prescription drugs,67,Healthcare,Pharmaceutical Retailers,3,Mittel,,Apothekenbranche ueber Erstattungsregeln betroffen.
+Presidential administrations,2,,,,,,
+"Presidents and presidential powers, Vice Presidents",100,,,,,,
+Privacy and Civil Liberties Oversight Board,2,,,,,,
+Private Legislation,13,,,,,,
+Product development and innovation,4,,,,,,
+Product safety and quality,21,Consumer Cyclical,,1,Mittel,,Produktsicherheitsregulierung (CPSC) betrifft Consumer-Produkte breit.
+Professional sports,6,,,,,,
+Property rights,7,,,,,,
+Property tax,2,Real Estate,,1,Niedrig,,Grundsteuergesetzgebung betrifft Immobilienmarkt.
+Protection of officials,12,,,,,,
+Protest and dissent,15,,,,,,
+Public contracts and procurement,131,Industrials,,1,Mittel,,Beschaffungsregulierung (FAR) betrifft primaer Industrieunternehmen als Hauptauftragnehmer.
+Public contracts and procurement,131,Technology,Information Technology Services,2,Mittel,,IT-Beschaffung des Bundes (FedRAMP etc.).
+Public housing,24,Real Estate,,1,Mittel,,Sozialwohnungsbau betrifft Immobilienmarkt direkt.
+Public participation and lobbying,20,,,,,,
+Public transit,14,Industrials,,1,Niedrig,,OEPNV-Gesetzgebung betrifft Schienenverkehr teilweise.
+Public utilities and utility rates,8,Utilities,,1,Hoch,,Direkter Match: Regulierung von Versorgungsunternehmen und Tarifen.
+Public-private cooperation,73,,,,,,
+Puerto Rico,16,,,,,Puerto Rico (USA),
+Puget Sound,2,,,,,Puget Sound (USA),
+Qatar,1,,,,,Qatar,
+Racial and ethnic relations,70,,,,,,
+Radiation,7,,,,,,
+Radio spectrum allocation,9,Communication Services,Telecom Services,1,Hoch,,Spektrum-Auktionen/-Zuteilung betrifft Telekom direkt.
+Radio spectrum allocation,9,Communication Services,Broadcasting,2,Mittel,,Auch Rundfunk nutzt zugeteiltes Spektrum.
+Radioactive wastes and releases,9,,,,,,
+Railroad Retirement Board,2,,,,,,
+Railroads,20,Industrials,Railroads,1,Hoch,,Direkter 1:1-Match mit YF-Industry.
+Real estate business,6,Real Estate,Real Estate Services,1,Hoch,,Direkter Match: Immobilienwirtschaft.
+Reconstruction and stabilization,5,,,,,,
+"Refugees, asylum, displaced persons",19,,,,,,
+Regional and metropolitan planning,12,,,,,,
+Religion,46,,,,,,
+Reptiles,1,,,,,,
+Research administration and funding,85,,,,,,
+Research and development,72,Technology,,1,Mittel,,"F&E-Foerderung betrifft primaer Tech-Sektor, aber Tag ist sehr breit."
+Research ethics,3,,,,,,
+Residential rehabilitation and home repair,27,Consumer Cyclical,Residential Construction,1,Mittel,,Wohnungssanierung betrifft Wohnungsbau.
+Residential rehabilitation and home repair,27,Industrials,Building Products & Equipment,2,Mittel,,Baumaterialien fuer Sanierung. Konsistent mit Building construction aus Batch 1.
+Retail and wholesale trades,48,Consumer Cyclical,Specialty Retail,1,Mittel,,Handelsregulierung betrifft Einzelhandel direkt.
+Retail and wholesale trades,48,Consumer Cyclical,Department Stores,2,Hoch,,Auch Warenhaeuser.
+Retail and wholesale trades,48,Consumer Defensive,Discount Stores,3,Mittel,,Auch Discounter.
+Rhode Island,6,,,,,Rhode Island (USA),
+Right of privacy,46,,,,,,
+Roads and highways,40,Industrials,Engineering & Construction,1,Mittel,,Strassenbaugesetzgebung (Highway Bill) betrifft Baufirmen direkt.
+Roads and highways,40,Basic Materials,Building Materials,2,Mittel,,"Asphalt, Beton, Zuschlagstoffe fuer Strassenbau."
+Roads and highways,40,Industrials,,3,Mittel,,Strassenbau betrifft Industrials breit.
+Rule of law and government transparency,13,,,,,,
+Rural conditions and development,80,,,,,,
+Russia,50,,,,,Russia,
+Rwanda,1,,,,,Rwanda,
+Saint Kitts and Nevis,1,,,,,Saint Kitts and Nevis,
+Saint Lucia,1,,,,,Saint Lucia,
+Saint Vincent and the Grenadines,1,,,,,Saint Vincent and the Grenadines,
+Sales and excise taxes,14,,,,,,
+Samoa,5,,,,,Samoa,
+Sanctions,46,,,,,,
+School administration,33,,,,,,
+School athletics,9,,,,,,
+Science and engineering education,14,,,,,,
+Scientific communication,7,,,,,,
+Seafood,13,Consumer Defensive,Farm Products,1,Mittel,,"Meeresfruechte-Regulierung (Fischerei, Aquakultur). Konsistent mit Aquaculture/Fishes."
+Seashores and lakeshores,14,,,,,,
+Securities,53,Financial Services,Capital Markets,1,Hoch,,Wertpapierregulierung betrifft Capital Markets direkt.
+Securities,53,Financial Services,Financial Data & Stock Exchanges,2,Hoch,,Auch Boersen und Marktdaten-Anbieter.
+Securities and Exchange Commission (SEC),19,Financial Services,Capital Markets,1,Hoch,,SEC reguliert Capital Markets direkt.
+Securities and Exchange Commission (SEC),19,Financial Services,Financial Data & Stock Exchanges,2,Hoch,,Auch Boersen unterliegen SEC-Aufsicht.
+Securities and Exchange Commission (SEC),19,Financial Services,Asset Management,3,Mittel,,SEC reguliert auch Investment Advisers und Fonds.
+Selective Service System,3,,,,,,
+Self-employed,8,,,,,,
+Senate,21,,,,,,
+Senate Committee on Finance,1,,,,,,
+Senate Select Committee on Ethics,1,,,,,,
+"Separation, divorce, custody, support",2,,,,,,
+Service animals,5,,,,,,
+Service industries,10,Industrials,Specialty Business Services,1,Niedrig,,Dienstleistungsbranche breit; Specialty Business Services als naechster Proxy.
+Sex and reproductive health,47,,,,,,
+Sex offenses,57,,,,,,
+"Sex, gender, sexual orientation discrimination",43,,,,,,
+Sexually transmitted diseases,4,,,,,,
+Singapore,3,,,,,Singapore,
+Small Business Administration,24,Financial Services,Credit Services,1,Niedrig,,SBA-Kreditprogramme tangieren Kreditmarkt.
+Small business,80,,,,,,
+Small towns,1,,,,,,
+Smithsonian Institution,14,,,,,,
+Smuggling and trafficking,57,,,,,,
+Social Security Administration,6,,,,,,
+Social security and elderly assistance,24,,,,,,
+"Social work, volunteer service, charitable organizations",49,,,,,,
+Soil pollution,4,Industrials,Pollution & Treatment Controls,1,Mittel,,Bodenverunreinigung (Superfund) betrifft Sanierungsunternehmen.
+Soil pollution,4,Industrials,Waste Management,2,Mittel,,Auch Abfallwirtschaft betroffen.
+Solid waste and recycling,24,Industrials,Waste Management,1,Hoch,,Direkter Match: Abfallwirtschaft und Recycling.
+Solomon Islands,5,,,,,Solomon Islands,
+Somalia,1,,,,,Somalia,
+Sound recording,7,Communication Services,Entertainment,1,Mittel,,Urheberrecht/Lizenzierung fuer Tonaufnahmen betrifft Musik-Entertainment.
+South Africa,2,,,,,South Africa,
+South Asia,7,,,,,South Asia,
+South Carolina,14,,,,,South Carolina (USA),
+South Dakota,12,,,,,South Dakota (USA),
+South Korea,7,,,,,South Korea,
+South Sudan,1,,,,,South Sudan,
+"Sovereignty, recognition, national governance and status",17,,,,,,
+Space flight and exploration,21,Industrials,Aerospace & Defense,1,Hoch,,Raumfahrt-Gesetzgebung (NASA-Authorization) betrifft Aerospace direkt.
+Spacecraft and satellites,30,Industrials,Aerospace & Defense,1,Hoch,,Satelliten-/Raumfahrzeugbau.
+Spacecraft and satellites,30,Communication Services,Telecom Services,2,Mittel,,Kommunikationssatelliten betreffen Telekom.
+Spain,2,,,,,Spain,
+Special education,14,,,,,,
+Specialized courts,17,,,,,,
+Sports and recreation facilities,9,,,,,,
+Sri Lanka,1,,,,,Sri Lanka,
+State and local courts,12,,,,,,
+State and local finance,42,,,,,,
+State and local government operations,269,,,,,,
+State and local taxation,10,,,,,,
+Strategic materials and reserves,26,Basic Materials,Other Industrial Metals & Mining,1,Hoch,,"Strategische Materialien = Seltene Erden, kritische Mineralien."
+Strategic materials and reserves,26,Basic Materials,Specialty Chemicals,2,Mittel,,Spezialchemie verarbeitet kritische Materialien.
+Student aid and college costs,75,Consumer Defensive,Education & Training Services,1,Mittel,,Studienfinanzierung betrifft private Hochschulen und Online-Anbieter direkt.
+Student aid and college costs,75,Financial Services,Credit Services,2,Mittel,,Student Loan-Regulierung betrifft Kreditgeber.
+Student records,8,,,,,,
+Subversive activities,14,,,,,,
+Sudan,3,,,,,Sudan,
+Supreme Court,14,,,,,,
+Surface Transportation Board,2,Industrials,Railroads,1,Mittel,,STB reguliert primaer Gueterbahnverkehr und Tarife.
+Surgery and anesthesia,13,Healthcare,Medical Instruments & Supplies,1,Mittel,,Chirurgie-Regulierung betrifft OP-Instrumente und Verbrauchsmaterial.
+Surgery and anesthesia,13,Healthcare,Medical Devices,2,Mittel,,"Auch Medizingeraete (Roboterchirurgie, Anaesthesie-Systeme)."
+Suriname,1,,,,,Suriname,
+Sweden,1,,,,,Sweden,
+Syria,10,,,,,Syria,
+Taiwan,21,Technology,Semiconductors,1,Mittel,Taiwan,Taiwan ist Zentrum der globalen Halbleiterproduktion (TSMC). Konsistent mit China-Tag-Logik.
+Tariffs,25,,,,,,
+"Tax administration and collection, taxpayers",39,,,,,,
+Tax reform and tax simplification,6,,,,,,
+Tax treatment of families,6,,,,,,
+Tax-exempt organizations,9,,,,,,
+Taxation of foreign income,11,,,,,,
+"Teaching, teachers, curricula",52,,,,,,
+Technology assessment,26,Technology,,1,Mittel,,"Technologiebewertung betrifft Tech-Sektor, aber sehr breiter/prozeduraler Tag."
+Technology transfer and commercialization,20,Technology,,1,Mittel,,"Technologietransfer (Bayh-Dole, SBIR) betrifft Tech-Sektor, aber breit."
+Telecommunication rates and fees,6,Communication Services,Telecom Services,1,Hoch,,Direkte Tarifregulierung fuer Telekommunikation.
+Telephone and wireless communication,68,Communication Services,Telecom Services,1,Hoch,,Direkte Regulierung von Telefonie und Mobilfunk.
+Telephone and wireless communication,68,Technology,Communication Equipment,2,Mittel,,"Auch Geraetehersteller (5G-Infrastruktur, Handsets) betroffen."
+Television and film,6,Communication Services,Entertainment,1,Hoch,,Direkte Regulierung der Film-/TV-Branche.
+Television and film,6,Communication Services,Broadcasting,2,Mittel,,Auch traditioneller Rundfunk betroffen.
+Temporary and part-time employment,12,,,,,,
+Tennessee,22,,,,,Tennessee (USA),
+Tennessee Valley Authority,2,Utilities,Utilities - Regulated Electric,1,Hoch,,TVA ist groesster oeffentlicher Stromversorger der USA.
+Terrorism,46,,,,,,
+Texas,38,,,,,Texas (USA),
+Thailand,3,,,,,Thailand,
+Tibet,3,,,,,Tibet,
+Time and calendar,4,,,,,,
+Tonga,5,,,,,Tonga,
+Trade adjustment assistance,1,,,,,,
+Trade agreements and negotiations,13,,,,,,
+Trade and Development Agency,1,,,,,,
+Trade restrictions,49,,,,,,
+Trade secrets and economic espionage,6,,,,,,
+Transfer and inheritance taxes,4,,,,,,
+Transportation costs,26,Industrials,Integrated Freight & Logistics,1,Mittel,,Transportkosten-Regulierung betrifft Logistikunternehmen direkt.
+Transportation costs,26,Industrials,Trucking,2,Mittel,,Auch LKW-Speditionsbranche.
+Transportation employees,11,,,,,,
+Transportation programs funding,11,Industrials,Engineering & Construction,1,Mittel,,Transportinfrastruktur-Foerderung fliesst in Bauprojekte. Konsistent mit Roads and highways aus Batch 4.
+Transportation safety and security,38,,,,,,
+Travel and tourism,19,Consumer Cyclical,Travel Services,1,Hoch,,Direkte Regulierung/Foerderung der Reisebranche.
+Travel and tourism,19,Consumer Cyclical,Lodging,2,Mittel,,Auch Hotelbranche betroffen.
+Travel and tourism,19,Industrials,Airlines,3,Mittel,,Tourismus beeinflusst Flugverkehr.
+Trinidad and Tobago,1,,,,,Trinidad and Tobago,
+Tunisia,1,,,,,Tunisia,
+Turkey,4,,,,,Turkey,
+Tuvalu,5,,,,,Tuvalu,
+U.S. Agency for Global Media,1,,,,,,
+U.S. Agency for International Development (USAID),2,,,,,,
+U.S. Capitol,12,,,,,,
+U.S. Commission on International Religious Freedom,2,,,,,,
+U.S. Holocaust Memorial Council,3,,,,,,
+U.S. Institute of Peace,4,,,,,,
+U.S. International Development Finance Corporation,4,Financial Services,,1,Mittel,,DFC finanziert Entwicklungsprojekte - tangiert Finanzsektor ueber Kreditgarantien.
+U.S. International Trade Commission,4,,,,,,
+U.S. Postal Service,16,,,,,,
+U.S. Sentencing Commission,9,,,,,,
+U.S. and foreign investments,36,Financial Services,Asset Management,1,Mittel,,"Investitionsregulierung (CFIUS, Outbound Investment Screening) betrifft Asset Manager."
+U.S. and foreign investments,36,Financial Services,Capital Markets,2,Mittel,,Auch Kapitalmaerkte ueber Investitionsrestriktionen.
+U.S. history,52,,,,,,
+U.S. territories and protectorates,23,,,,,U.S. Territories,
+Ukraine,16,,,,,Ukraine,
+Unemployment,19,,,,,,
+United Arab Emirates,2,,,,,United Arab Emirates,
+United Kingdom,8,,,,,United Kingdom,
+United Nations,11,,,,,,
+Urban and suburban affairs and development,9,,,,,,
+Uruguay,1,,,,,Uruguay,
+User charges and fees,92,,,,,,
+Utah,37,,,,,Utah (USA),
+Vanuatu,5,,,,,Vanuatu,
+Venezuela,18,,,,,Venezuela,
+Vermont,13,,,,,Vermont (USA),
+"Veterans' education, employment, rehabilitation",62,,,,,,
+"Veterans' loans, housing, homeless programs",32,Financial Services,Mortgage Finance,1,Mittel,,VA Home Loans betreffen Hypothekenmarkt. Konsistent mit Housing finance aus Batch 2.
+Veterans' medical care,133,Healthcare,Medical Care Facilities,1,Mittel,,VA-Gesundheitsversorgung betrifft Kliniken/Krankenhaeuser (VA-System + Community Care).
+Veterans' medical care,133,Healthcare,Healthcare Plans,2,Mittel,,TRICARE/Community Care betrifft auch Versicherer.
+Veterans' organizations and recognition,38,,,,,,
+Veterans' pensions and compensation,87,,,,,,
+Veterinary medicine and animal diseases,14,,,,,,
+Vietnam,11,,,,,Vietnam,
+Violent crime,35,,,,,,
+Virgin Islands,16,,,,,Virgin Islands (USA),
+Virginia,41,,,,,Virginia (USA),
+Visas and passports,30,,,,,,
+Vocational and technical education,28,Consumer Defensive,Education & Training Services,1,Mittel,,Berufsbildung betrifft private Bildungsanbieter. Konsistent mit Higher education / Adult education aus B1/B2.
+Voting rights,8,,,,,,
+Wages and earnings,64,,,,,,
+War and emergency powers,11,,,,,,
+"War crimes, genocide, crimes against humanity",15,,,,,,
+Washington State,27,,,,,Washington State (USA),
+Water quality,53,Utilities,Utilities - Regulated Water,1,Mittel,,"Wasserqualitaetsstandards (Clean Water Act, Safe Drinking Water Act) betreffen Wasserversorger direkt."
+Water quality,53,Industrials,Pollution & Treatment Controls,2,Mittel,,Wasseraufbereitungstechnik. Konsistent mit Air quality aus Batch 1.
+Water resources funding,42,Utilities,Utilities - Regulated Water,1,Mittel,,Wasserinfrastruktur-Foerderung betrifft Wasserversorger.
+Water storage,26,Utilities,Utilities - Regulated Water,1,Mittel,,"Wasserspeicher (Staudaemme, Reservoirs) betreffen Wasserversorger. Konsistent mit Dams and canals aus Batch 1."
+Water use and supply,70,Utilities,Utilities - Regulated Water,1,Hoch,,Direkte Regulierung der Wasserversorgung.
+Watersheds,27,,,,,,
+West Bank,2,,,,,West Bank,
+West Virginia,13,,,,,West Virginia (USA),
+Western Hemisphere,1,,,,,Western Hemisphere,
+Wetlands,16,,,,,,
+"Wilderness and natural areas, wildlife refuges, wild rivers, habitats",59,,,,,,
+Wildlife conservation and habitat protection,65,,,,,,
+Wisconsin,12,,,,,Wisconsin (USA),
+Women in business,6,,,,,,
+Women's education,2,,,,,,
+Women's employment,10,,,,,,
+Women's health,55,Healthcare,,1,Mittel,,"Frauengesundheit betrifft Healthcare breit, aber zu unspezifisch fuer eine Industry."
+Women's rights,5,,,,,,
+Worker safety and health,21,,,,,,
+World health,11,,,,,,
+World history,10,,,,,,
+Wyoming,27,,,,,Wyoming (USA),
+Youth employment and child labor,14,,,,,,
+Zimbabwe,2,,,,,Zimbabwe,

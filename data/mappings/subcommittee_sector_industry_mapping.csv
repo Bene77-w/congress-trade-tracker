@@ -1,0 +1,862 @@
+Chamber,Committee,Subcommittee,Sector,Industry,Sector_Rank,Konfidenz
+House,Agriculture,"Commodity Markets, Digital Assets, And Rural Development",Financial Services,Capital Markets,1,Hoch
+House,Agriculture,"Commodity Markets, Digital Assets, And Rural Development",Financial Services,Financial Data & Stock Exchanges,1,Hoch
+House,Agriculture,"Commodity Markets, Digital Assets, And Rural Development",Financial Services,Credit Services,1,Hoch
+House,Agriculture,"Commodity Markets, Digital Assets, And Rural Development",Financial Services,Insurance - Specialty,1,Hoch
+House,Agriculture,"Commodity Markets, Digital Assets, And Rural Development",Technology,Software - Application,2,Hoch
+House,Agriculture,"Commodity Markets, Digital Assets, And Rural Development",Technology,Software - Infrastructure,2,Hoch
+House,Agriculture,"Commodity Markets, Digital Assets, And Rural Development",Utilities,Utilities - Regulated Electric,3,Hoch
+House,Agriculture,"Commodity Markets, Digital Assets, And Rural Development",Communication Services,Telecom Services,4,Hoch
+House,Agriculture,"Conservation, Research, And Biotechnology",Healthcare,Biotechnology,1,Mittel
+House,Agriculture,"Conservation, Research, And Biotechnology",Healthcare,Diagnostics & Research,1,Mittel
+House,Agriculture,"Conservation, Research, And Biotechnology",Basic Materials,Agricultural Inputs,2,Mittel
+House,Agriculture,"Conservation, Research, And Biotechnology",Basic Materials,Specialty Chemicals,2,Mittel
+House,Agriculture,Forestry And Horticulture,Basic Materials,Lumber & Wood Production,1,Hoch
+House,Agriculture,Forestry And Horticulture,Basic Materials,Paper & Paper Products,1,Hoch
+House,Agriculture,Forestry And Horticulture,Consumer Defensive,Farm Products,2,Hoch
+House,Agriculture,"General Farm Commodities, Risk Management, And Credit",Consumer Defensive,Farm Products,1,Hoch
+House,Agriculture,"General Farm Commodities, Risk Management, And Credit",Consumer Defensive,Food Distribution,1,Hoch
+House,Agriculture,"General Farm Commodities, Risk Management, And Credit",Consumer Defensive,Packaged Foods,1,Hoch
+House,Agriculture,"General Farm Commodities, Risk Management, And Credit",Financial Services,Credit Services,2,Hoch
+House,Agriculture,"General Farm Commodities, Risk Management, And Credit",Financial Services,Insurance - Specialty,2,Hoch
+House,Agriculture,"General Farm Commodities, Risk Management, And Credit",Financial Services,Capital Markets,2,Hoch
+House,Agriculture,"Livestock, Dairy, And Poultry",Consumer Defensive,Farm Products,1,Hoch
+House,Agriculture,"Livestock, Dairy, And Poultry",Consumer Defensive,Packaged Foods,1,Hoch
+House,Agriculture,"Livestock, Dairy, And Poultry",Consumer Defensive,Food Distribution,1,Hoch
+House,Agriculture,Nutrition And Foreign Agriculture,Consumer Defensive,Packaged Foods,1,Hoch
+House,Agriculture,Nutrition And Foreign Agriculture,Consumer Defensive,Food Distribution,1,Hoch
+House,Agriculture,Nutrition And Foreign Agriculture,Consumer Defensive,Beverages - Non-Alcoholic,1,Hoch
+House,Agriculture,Nutrition And Foreign Agriculture,Consumer Defensive,Grocery Stores,1,Hoch
+House,Agriculture,Nutrition And Foreign Agriculture,Consumer Defensive,Tobacco,1,Hoch
+House,Agriculture,Nutrition And Foreign Agriculture,Consumer Defensive,Beverages - Brewers,1,Hoch
+House,Agriculture,Nutrition And Foreign Agriculture,Consumer Defensive,Beverages - Wineries & Distilleries,1,Hoch
+House,Agriculture,Nutrition And Foreign Agriculture,Consumer Defensive,Confectioners,1,Hoch
+House,Appropriations,"Agriculture, Rural Development, Food And Drug Administration, And Related Agencies",Consumer Defensive,Packaged Foods,1,Hoch
+House,Appropriations,"Agriculture, Rural Development, Food And Drug Administration, And Related Agencies",Consumer Defensive,Farm Products,1,Hoch
+House,Appropriations,"Agriculture, Rural Development, Food And Drug Administration, And Related Agencies",Consumer Defensive,Food Distribution,1,Hoch
+House,Appropriations,"Agriculture, Rural Development, Food And Drug Administration, And Related Agencies",Healthcare,Drug Manufacturers - General,2,Hoch
+House,Appropriations,"Agriculture, Rural Development, Food And Drug Administration, And Related Agencies",Healthcare,Drug Manufacturers - Specialty & Generic,2,Hoch
+House,Appropriations,"Agriculture, Rural Development, Food And Drug Administration, And Related Agencies",Healthcare,Biotechnology,2,Hoch
+House,Appropriations,"Agriculture, Rural Development, Food And Drug Administration, And Related Agencies",Healthcare,Medical Devices,2,Hoch
+House,Appropriations,"Commerce, Justice, Science, And Related Agencies",Technology,Software - Infrastructure,1,Mittel
+House,Appropriations,"Commerce, Justice, Science, And Related Agencies",Technology,Scientific & Technical Instruments,1,Mittel
+House,Appropriations,"Commerce, Justice, Science, And Related Agencies",Technology,Information Technology Services,1,Mittel
+House,Appropriations,"Commerce, Justice, Science, And Related Agencies",Communication Services,Telecom Services,2,Mittel
+House,Appropriations,"Commerce, Justice, Science, And Related Agencies",Communication Services,Internet Content & Information,2,Mittel
+House,Appropriations,"Commerce, Justice, Science, And Related Agencies",Industrials,Consulting Services,3,Mittel
+House,Appropriations,"Commerce, Justice, Science, And Related Agencies",Industrials,Specialty Business Services,3,Mittel
+House,Appropriations,Defense,Industrials,Aerospace & Defense,1,Hoch
+House,Appropriations,Defense,Industrials,Specialty Industrial Machinery,1,Hoch
+House,Appropriations,Defense,Industrials,Engineering & Construction,1,Hoch
+House,Appropriations,Defense,Technology,Software - Infrastructure,2,Hoch
+House,Appropriations,Defense,Technology,Communication Equipment,2,Hoch
+House,Appropriations,Defense,Technology,Semiconductors,2,Hoch
+House,Appropriations,Defense,Technology,Information Technology Services,2,Hoch
+House,Appropriations,Defense,Technology,Electronic Components,2,Hoch
+House,Appropriations,Defense,Technology,Computer Hardware,2,Hoch
+House,Appropriations,Defense,Healthcare,Healthcare Plans,3,Hoch
+House,Appropriations,Energy And Water Development And Related Agencies,Energy,Oil & Gas Integrated,1,Hoch
+House,Appropriations,Energy And Water Development And Related Agencies,Energy,Oil & Gas E&P,1,Hoch
+House,Appropriations,Energy And Water Development And Related Agencies,Energy,Oil & Gas Equipment & Services,1,Hoch
+House,Appropriations,Energy And Water Development And Related Agencies,Energy,Uranium,1,Hoch
+House,Appropriations,Energy And Water Development And Related Agencies,Utilities,Utilities - Regulated Electric,2,Hoch
+House,Appropriations,Energy And Water Development And Related Agencies,Utilities,Utilities - Regulated Water,2,Hoch
+House,Appropriations,Energy And Water Development And Related Agencies,Utilities,Utilities - Renewable,2,Hoch
+House,Appropriations,Energy And Water Development And Related Agencies,Utilities,Utilities - Independent Power Producers,2,Hoch
+House,Appropriations,Financial Services And General Government,Financial Services,Banks - Diversified,1,Hoch
+House,Appropriations,Financial Services And General Government,Financial Services,Banks - Regional,1,Hoch
+House,Appropriations,Financial Services And General Government,Financial Services,Capital Markets,1,Hoch
+House,Appropriations,Financial Services And General Government,Financial Services,Financial Data & Stock Exchanges,1,Hoch
+House,Appropriations,Financial Services And General Government,Financial Services,Asset Management,1,Hoch
+House,Appropriations,Financial Services And General Government,Financial Services,Credit Services,1,Hoch
+House,Appropriations,Financial Services And General Government,Communication Services,Telecom Services,2,Hoch
+House,Appropriations,Financial Services And General Government,Communication Services,Broadcasting,2,Hoch
+House,Appropriations,Financial Services And General Government,Communication Services,Internet Content & Information,2,Hoch
+House,Appropriations,Financial Services And General Government,Technology,Information Technology Services,3,Hoch
+House,Appropriations,Homeland Security,Industrials,Aerospace & Defense,1,Hoch
+House,Appropriations,Homeland Security,Industrials,Security & Protection Services,1,Hoch
+House,Appropriations,Homeland Security,Technology,Software - Infrastructure,2,Hoch
+House,Appropriations,Homeland Security,Technology,Communication Equipment,2,Hoch
+House,Appropriations,Homeland Security,Technology,Information Technology Services,2,Hoch
+House,Appropriations,"Interior, Environment, And Related Agencies",Energy,Oil & Gas E&P,1,Hoch
+House,Appropriations,"Interior, Environment, And Related Agencies",Energy,Oil & Gas Drilling,1,Hoch
+House,Appropriations,"Interior, Environment, And Related Agencies",Energy,Oil & Gas Equipment & Services,1,Hoch
+House,Appropriations,"Interior, Environment, And Related Agencies",Basic Materials,Other Industrial Metals & Mining,2,Hoch
+House,Appropriations,"Interior, Environment, And Related Agencies",Basic Materials,Gold,2,Hoch
+House,Appropriations,"Interior, Environment, And Related Agencies",Basic Materials,Copper,2,Hoch
+House,Appropriations,"Interior, Environment, And Related Agencies",Basic Materials,Lumber & Wood Production,2,Hoch
+House,Appropriations,"Interior, Environment, And Related Agencies",Basic Materials,Silver,2,Hoch
+House,Appropriations,"Interior, Environment, And Related Agencies",Basic Materials,Other Precious Metals & Mining,2,Hoch
+House,Appropriations,"Interior, Environment, And Related Agencies",Industrials,Pollution & Treatment Controls,3,Hoch
+House,Appropriations,"Interior, Environment, And Related Agencies",Industrials,Waste Management,3,Hoch
+House,Appropriations,"Labor, Health And Human Services, Education, And Related Agencies",Healthcare,Healthcare Plans,1,Hoch
+House,Appropriations,"Labor, Health And Human Services, Education, And Related Agencies",Healthcare,Medical Care Facilities,1,Hoch
+House,Appropriations,"Labor, Health And Human Services, Education, And Related Agencies",Healthcare,Drug Manufacturers - General,1,Hoch
+House,Appropriations,"Labor, Health And Human Services, Education, And Related Agencies",Healthcare,Drug Manufacturers - Specialty & Generic,1,Hoch
+House,Appropriations,"Labor, Health And Human Services, Education, And Related Agencies",Healthcare,Biotechnology,1,Hoch
+House,Appropriations,"Labor, Health And Human Services, Education, And Related Agencies",Healthcare,Medical Devices,1,Hoch
+House,Appropriations,"Labor, Health And Human Services, Education, And Related Agencies",Healthcare,Diagnostics & Research,1,Hoch
+House,Appropriations,"Military Construction, Veterans Affairs, And Related Agencies",Industrials,Engineering & Construction,1,Hoch
+House,Appropriations,"Military Construction, Veterans Affairs, And Related Agencies",Industrials,Building Products & Equipment,1,Hoch
+House,Appropriations,"Military Construction, Veterans Affairs, And Related Agencies",Industrials,Aerospace & Defense,1,Hoch
+House,Appropriations,"Military Construction, Veterans Affairs, And Related Agencies",Healthcare,Medical Care Facilities,2,Hoch
+House,Appropriations,"Military Construction, Veterans Affairs, And Related Agencies",Healthcare,Healthcare Plans,2,Hoch
+House,Appropriations,"Military Construction, Veterans Affairs, And Related Agencies",Healthcare,Medical Devices,2,Hoch
+House,Appropriations,"Military Construction, Veterans Affairs, And Related Agencies",Healthcare,Health Information Services,2,Hoch
+House,Appropriations,"Military Construction, Veterans Affairs, And Related Agencies",Real Estate,Real Estate - Development,3,Hoch
+House,Appropriations,"Military Construction, Veterans Affairs, And Related Agencies",Real Estate,REIT - Diversified,3,Hoch
+House,Appropriations,"National Security, Department Of State, And Related Programs",Industrials,Aerospace & Defense,1,Mittel
+House,Appropriations,"National Security, Department Of State, And Related Programs",Industrials,Security & Protection Services,1,Mittel
+House,Appropriations,"Transportation, Housing And Urban Development, And Related Agencies",Industrials,Airlines,1,Hoch
+House,Appropriations,"Transportation, Housing And Urban Development, And Related Agencies",Industrials,Railroads,1,Hoch
+House,Appropriations,"Transportation, Housing And Urban Development, And Related Agencies",Industrials,Trucking,1,Hoch
+House,Appropriations,"Transportation, Housing And Urban Development, And Related Agencies",Industrials,Engineering & Construction,1,Hoch
+House,Appropriations,"Transportation, Housing And Urban Development, And Related Agencies",Industrials,Building Products & Equipment,1,Hoch
+House,Appropriations,"Transportation, Housing And Urban Development, And Related Agencies",Industrials,Airports & Air Services,1,Hoch
+House,Appropriations,"Transportation, Housing And Urban Development, And Related Agencies",Real Estate,Real Estate - Development,2,Hoch
+House,Appropriations,"Transportation, Housing And Urban Development, And Related Agencies",Real Estate,REIT - Residential,2,Hoch
+House,Appropriations,"Transportation, Housing And Urban Development, And Related Agencies",Real Estate,Real Estate Services,2,Hoch
+House,Appropriations,"Transportation, Housing And Urban Development, And Related Agencies",Consumer Cyclical,Residential Construction,3,Hoch
+House,Armed Services,"Cyber, Information Technologies, And Innovation",Technology,Software - Infrastructure,1,Hoch
+House,Armed Services,"Cyber, Information Technologies, And Innovation",Technology,Software - Application,1,Hoch
+House,Armed Services,"Cyber, Information Technologies, And Innovation",Technology,Semiconductors,1,Hoch
+House,Armed Services,"Cyber, Information Technologies, And Innovation",Technology,Communication Equipment,1,Hoch
+House,Armed Services,"Cyber, Information Technologies, And Innovation",Technology,Information Technology Services,1,Hoch
+House,Armed Services,"Cyber, Information Technologies, And Innovation",Industrials,Aerospace & Defense,2,Hoch
+House,Armed Services,Intelligence And Special Operations,Industrials,Aerospace & Defense,1,Hoch
+House,Armed Services,Intelligence And Special Operations,Industrials,Security & Protection Services,1,Hoch
+House,Armed Services,Intelligence And Special Operations,Technology,Software - Infrastructure,2,Hoch
+House,Armed Services,Intelligence And Special Operations,Technology,Information Technology Services,2,Hoch
+House,Armed Services,Military Personnel,Industrials,Aerospace & Defense,1,Hoch
+House,Armed Services,Military Personnel,Healthcare,Healthcare Plans,2,Hoch
+House,Armed Services,Military Personnel,Healthcare,Medical Care Facilities,2,Hoch
+House,Armed Services,Military Personnel,Healthcare,Health Information Services,2,Hoch
+House,Armed Services,Military Personnel,Real Estate,REIT - Residential,3,Hoch
+House,Armed Services,Military Personnel,Financial Services,Insurance - Life,4,Hoch
+House,Armed Services,Military Personnel,Consumer Defensive,Education & Training Services,5,Hoch
+House,Armed Services,Readiness,Industrials,Aerospace & Defense,1,Hoch
+House,Armed Services,Readiness,Industrials,Specialty Industrial Machinery,1,Hoch
+House,Armed Services,Readiness,Industrials,Farm & Heavy Construction Machinery,1,Hoch
+House,Armed Services,Seapower And Projection Forces,Industrials,Aerospace & Defense,1,Hoch
+House,Armed Services,Seapower And Projection Forces,Industrials,Marine Shipping,1,Hoch
+House,Armed Services,Strategic Forces,Industrials,Aerospace & Defense,1,Hoch
+House,Armed Services,Strategic Forces,Technology,Semiconductors,2,Hoch
+House,Armed Services,Strategic Forces,Technology,Communication Equipment,2,Hoch
+House,Armed Services,Strategic Forces,Energy,Uranium,3,Hoch
+House,Armed Services,Tactical Air And Land Forces,Industrials,Aerospace & Defense,1,Hoch
+House,Education And Workforce,"Early Childhood, Elementary, And Secondary Education",Consumer Defensive,Education & Training Services,1,Mittel
+House,Education And Workforce,"Early Childhood, Elementary, And Secondary Education",Consumer Defensive,Packaged Foods,1,Mittel
+House,Education And Workforce,"Early Childhood, Elementary, And Secondary Education",Consumer Defensive,Food Distribution,1,Mittel
+House,Education And Workforce,"Early Childhood, Elementary, And Secondary Education",Technology,Software - Application,2,Mittel
+House,Education And Workforce,"Health, Employment, Labor, And Pensions",Healthcare,Healthcare Plans,1,Mittel
+House,Education And Workforce,"Health, Employment, Labor, And Pensions",Healthcare,Medical Care Facilities,1,Mittel
+House,Education And Workforce,"Health, Employment, Labor, And Pensions",Financial Services,Insurance - Life,2,Mittel
+House,Education And Workforce,"Health, Employment, Labor, And Pensions",Financial Services,Insurance - Diversified,2,Mittel
+House,Education And Workforce,"Health, Employment, Labor, And Pensions",Financial Services,Asset Management,2,Mittel
+House,Education And Workforce,Higher Education And Workforce Development,Consumer Defensive,Education & Training Services,1,Mittel
+House,Education And Workforce,Higher Education And Workforce Development,Financial Services,Credit Services,2,Mittel
+House,Education And Workforce,Higher Education And Workforce Development,Financial Services,Banks - Regional,2,Mittel
+House,Education And Workforce,Higher Education And Workforce Development,Technology,Software - Application,3,Mittel
+House,Education And Workforce,Workforce Protections,Industrials,Engineering & Construction,1,Mittel
+House,Education And Workforce,Workforce Protections,Industrials,Staffing & Employment Services,1,Mittel
+House,Education And Workforce,Workforce Protections,Basic Materials,Gold,2,Mittel
+House,Education And Workforce,Workforce Protections,Basic Materials,Other Industrial Metals & Mining,2,Mittel
+House,Education And Workforce,Workforce Protections,Basic Materials,Coking Coal,2,Mittel
+House,Education And Workforce,Workforce Protections,Energy,Thermal Coal,3,Mittel
+House,Education And Workforce,Workforce Protections,Energy,Oil & Gas Drilling,3,Mittel
+House,Education And Workforce,Workforce Protections,Consumer Cyclical,Restaurants,4,Mittel
+House,Energy And Commerce,"Commerce, Manufacturing, And Trade",Consumer Cyclical,Internet Retail,1,Hoch
+House,Energy And Commerce,"Commerce, Manufacturing, And Trade",Consumer Cyclical,Specialty Retail,1,Hoch
+House,Energy And Commerce,"Commerce, Manufacturing, And Trade",Consumer Cyclical,Auto Manufacturers,1,Hoch
+House,Energy And Commerce,"Commerce, Manufacturing, And Trade",Consumer Cyclical,Auto Parts,1,Hoch
+House,Energy And Commerce,"Commerce, Manufacturing, And Trade",Consumer Cyclical,Apparel Manufacturing,1,Hoch
+House,Energy And Commerce,"Commerce, Manufacturing, And Trade",Consumer Cyclical,Restaurants,1,Hoch
+House,Energy And Commerce,"Commerce, Manufacturing, And Trade",Consumer Cyclical,Home Improvement Retail,1,Hoch
+House,Energy And Commerce,"Commerce, Manufacturing, And Trade",Consumer Cyclical,Travel Services,1,Hoch
+House,Energy And Commerce,"Commerce, Manufacturing, And Trade",Consumer Cyclical,Apparel Retail,1,Hoch
+House,Energy And Commerce,"Commerce, Manufacturing, And Trade",Consumer Cyclical,Lodging,1,Hoch
+House,Energy And Commerce,"Commerce, Manufacturing, And Trade",Consumer Cyclical,Footwear & Accessories,1,Hoch
+House,Energy And Commerce,"Commerce, Manufacturing, And Trade",Consumer Cyclical,Leisure,1,Hoch
+House,Energy And Commerce,"Commerce, Manufacturing, And Trade",Consumer Cyclical,Auto & Truck Dealerships,1,Hoch
+House,Energy And Commerce,"Commerce, Manufacturing, And Trade",Consumer Cyclical,Residential Construction,1,Hoch
+House,Energy And Commerce,"Commerce, Manufacturing, And Trade",Consumer Cyclical,Packaging & Containers,1,Hoch
+House,Energy And Commerce,"Commerce, Manufacturing, And Trade",Consumer Cyclical,"Furnishings, Fixtures & Appliances",1,Hoch
+House,Energy And Commerce,"Commerce, Manufacturing, And Trade",Consumer Cyclical,Recreational Vehicles,1,Hoch
+House,Energy And Commerce,"Commerce, Manufacturing, And Trade",Consumer Cyclical,Luxury Goods,1,Hoch
+House,Energy And Commerce,"Commerce, Manufacturing, And Trade",Consumer Cyclical,Personal Services,1,Hoch
+House,Energy And Commerce,"Commerce, Manufacturing, And Trade",Consumer Cyclical,Department Stores,1,Hoch
+House,Energy And Commerce,"Commerce, Manufacturing, And Trade",Consumer Cyclical,Textile Manufacturing,1,Hoch
+House,Energy And Commerce,"Commerce, Manufacturing, And Trade",Consumer Defensive,Household & Personal Products,2,Hoch
+House,Energy And Commerce,"Commerce, Manufacturing, And Trade",Consumer Defensive,Discount Stores,2,Hoch
+House,Energy And Commerce,"Commerce, Manufacturing, And Trade",Consumer Defensive,Tobacco,2,Hoch
+House,Energy And Commerce,"Commerce, Manufacturing, And Trade",Consumer Defensive,Confectioners,2,Hoch
+House,Energy And Commerce,"Commerce, Manufacturing, And Trade",Consumer Defensive,Beverages - Brewers,2,Hoch
+House,Energy And Commerce,"Commerce, Manufacturing, And Trade",Consumer Defensive,Beverages - Wineries & Distilleries,2,Hoch
+House,Energy And Commerce,"Commerce, Manufacturing, And Trade",Industrials,Specialty Industrial Machinery,3,Hoch
+House,Energy And Commerce,"Commerce, Manufacturing, And Trade",Industrials,Industrial Distribution,3,Hoch
+House,Energy And Commerce,"Commerce, Manufacturing, And Trade",Industrials,Conglomerates,3,Hoch
+House,Energy And Commerce,"Commerce, Manufacturing, And Trade",Industrials,Electrical Equipment & Parts,3,Hoch
+House,Energy And Commerce,"Commerce, Manufacturing, And Trade",Industrials,Metal Fabrication,3,Hoch
+House,Energy And Commerce,"Commerce, Manufacturing, And Trade",Industrials,Tools & Accessories,3,Hoch
+House,Energy And Commerce,"Commerce, Manufacturing, And Trade",Industrials,Rental & Leasing Services,3,Hoch
+House,Energy And Commerce,"Commerce, Manufacturing, And Trade",Industrials,Business Equipment & Supplies,3,Hoch
+House,Energy And Commerce,Communications And Technology,Communication Services,Telecom Services,1,Hoch
+House,Energy And Commerce,Communications And Technology,Communication Services,Internet Content & Information,1,Hoch
+House,Energy And Commerce,Communications And Technology,Communication Services,Broadcasting,1,Hoch
+House,Energy And Commerce,Communications And Technology,Communication Services,Entertainment,1,Hoch
+House,Energy And Commerce,Communications And Technology,Communication Services,Electronic Gaming & Multimedia,1,Hoch
+House,Energy And Commerce,Communications And Technology,Communication Services,Publishing,1,Hoch
+House,Energy And Commerce,Communications And Technology,Communication Services,Advertising Agencies,1,Hoch
+House,Energy And Commerce,Communications And Technology,Technology,Software - Infrastructure,2,Hoch
+House,Energy And Commerce,Communications And Technology,Technology,Software - Application,2,Hoch
+House,Energy And Commerce,Communications And Technology,Technology,Semiconductors,2,Hoch
+House,Energy And Commerce,Communications And Technology,Technology,Communication Equipment,2,Hoch
+House,Energy And Commerce,Communications And Technology,Technology,Computer Hardware,2,Hoch
+House,Energy And Commerce,Communications And Technology,Technology,Electronic Components,2,Hoch
+House,Energy And Commerce,Communications And Technology,Technology,Electronics & Computer Distribution,2,Hoch
+House,Energy And Commerce,Communications And Technology,Technology,Consumer Electronics,2,Hoch
+House,Energy And Commerce,Communications And Technology,Technology,Information Technology Services,2,Hoch
+House,Energy And Commerce,Energy,Energy,Oil & Gas Integrated,1,Hoch
+House,Energy And Commerce,Energy,Energy,Oil & Gas E&P,1,Hoch
+House,Energy And Commerce,Energy,Energy,Oil & Gas Midstream,1,Hoch
+House,Energy And Commerce,Energy,Energy,Oil & Gas Refining & Marketing,1,Hoch
+House,Energy And Commerce,Energy,Energy,Oil & Gas Equipment & Services,1,Hoch
+House,Energy And Commerce,Energy,Energy,Thermal Coal,1,Hoch
+House,Energy And Commerce,Energy,Utilities,Utilities - Regulated Electric,2,Hoch
+House,Energy And Commerce,Energy,Utilities,Utilities - Regulated Gas,2,Hoch
+House,Energy And Commerce,Energy,Utilities,Utilities - Renewable,2,Hoch
+House,Energy And Commerce,Energy,Utilities,Utilities - Independent Power Producers,2,Hoch
+House,Energy And Commerce,Energy,Utilities,Utilities - Diversified,2,Hoch
+House,Energy And Commerce,Energy,Technology,Solar,3,Hoch
+House,Energy And Commerce,Environment,Utilities,Utilities - Regulated Water,1,Mittel
+House,Energy And Commerce,Environment,Utilities,Utilities - Renewable,1,Mittel
+House,Energy And Commerce,Environment,Industrials,Pollution & Treatment Controls,2,Mittel
+House,Energy And Commerce,Environment,Industrials,Waste Management,2,Mittel
+House,Energy And Commerce,Environment,Basic Materials,Specialty Chemicals,3,Mittel
+House,Energy And Commerce,Environment,Basic Materials,Chemicals,3,Mittel
+House,Energy And Commerce,Environment,Energy,Oil & Gas Integrated,4,Mittel
+House,Energy And Commerce,Environment,Energy,Oil & Gas E&P,4,Mittel
+House,Energy And Commerce,Health,Healthcare,Drug Manufacturers - General,1,Hoch
+House,Energy And Commerce,Health,Healthcare,Drug Manufacturers - Specialty & Generic,1,Hoch
+House,Energy And Commerce,Health,Healthcare,Biotechnology,1,Hoch
+House,Energy And Commerce,Health,Healthcare,Medical Devices,1,Hoch
+House,Energy And Commerce,Health,Healthcare,Healthcare Plans,1,Hoch
+House,Energy And Commerce,Health,Healthcare,Medical Care Facilities,1,Hoch
+House,Energy And Commerce,Health,Healthcare,Health Information Services,1,Hoch
+House,Energy And Commerce,Health,Healthcare,Diagnostics & Research,1,Hoch
+House,Energy And Commerce,Health,Healthcare,Medical Instruments & Supplies,1,Hoch
+House,Energy And Commerce,Health,Healthcare,Medical Distribution,1,Hoch
+House,Energy And Commerce,Health,Healthcare,Pharmaceutical Retailers,1,Hoch
+House,Energy And Commerce,Health,Consumer Defensive,Tobacco,2,Hoch
+House,Energy And Commerce,Health,Consumer Defensive,Packaged Foods,2,Hoch
+House,Financial Services,Capital Markets,Financial Services,Capital Markets,1,Hoch
+House,Financial Services,Capital Markets,Financial Services,Financial Data & Stock Exchanges,1,Hoch
+House,Financial Services,Capital Markets,Financial Services,Asset Management,1,Hoch
+House,Financial Services,"Digital Assets, Financial Technology, And Artificial Intelligence",Technology,Software - Application,1,Hoch
+House,Financial Services,"Digital Assets, Financial Technology, And Artificial Intelligence",Technology,Software - Infrastructure,1,Hoch
+House,Financial Services,"Digital Assets, Financial Technology, And Artificial Intelligence",Technology,Semiconductors,1,Hoch
+House,Financial Services,"Digital Assets, Financial Technology, And Artificial Intelligence",Financial Services,Credit Services,2,Hoch
+House,Financial Services,"Digital Assets, Financial Technology, And Artificial Intelligence",Financial Services,Capital Markets,2,Hoch
+House,Financial Services,"Digital Assets, Financial Technology, And Artificial Intelligence",Financial Services,Financial Data & Stock Exchanges,2,Hoch
+House,Financial Services,Financial Institutions,Financial Services,Banks - Diversified,1,Hoch
+House,Financial Services,Financial Institutions,Financial Services,Banks - Regional,1,Hoch
+House,Financial Services,Financial Institutions,Financial Services,Credit Services,1,Hoch
+House,Financial Services,Financial Institutions,Financial Services,Mortgage Finance,1,Hoch
+House,Financial Services,Financial Institutions,Financial Services,Financial Conglomerates,1,Hoch
+House,Financial Services,Housing And Insurance,Real Estate,Real Estate Services,1,Hoch
+House,Financial Services,Housing And Insurance,Real Estate,Real Estate - Development,1,Hoch
+House,Financial Services,Housing And Insurance,Real Estate,REIT - Residential,1,Hoch
+House,Financial Services,Housing And Insurance,Real Estate,REIT - Mortgage,1,Hoch
+House,Financial Services,Housing And Insurance,Real Estate,REIT - Specialty,1,Hoch
+House,Financial Services,Housing And Insurance,Real Estate,REIT - Industrial,1,Hoch
+House,Financial Services,Housing And Insurance,Real Estate,REIT - Healthcare Facilities,1,Hoch
+House,Financial Services,Housing And Insurance,Real Estate,REIT - Retail,1,Hoch
+House,Financial Services,Housing And Insurance,Real Estate,REIT - Hotel & Motel,1,Hoch
+House,Financial Services,Housing And Insurance,Real Estate,REIT - Office,1,Hoch
+House,Financial Services,Housing And Insurance,Real Estate,REIT - Diversified,1,Hoch
+House,Financial Services,Housing And Insurance,Real Estate,Real Estate - Diversified,1,Hoch
+House,Financial Services,Housing And Insurance,Financial Services,Insurance - Diversified,2,Hoch
+House,Financial Services,Housing And Insurance,Financial Services,Insurance - Property & Casualty,2,Hoch
+House,Financial Services,Housing And Insurance,Financial Services,Insurance - Life,2,Hoch
+House,Financial Services,Housing And Insurance,Financial Services,Insurance - Specialty,2,Hoch
+House,Financial Services,Housing And Insurance,Financial Services,Insurance Brokers,2,Hoch
+House,Financial Services,Housing And Insurance,Financial Services,Insurance - Reinsurance,2,Hoch
+House,Financial Services,Housing And Insurance,Financial Services,Mortgage Finance,2,Hoch
+House,Financial Services,Housing And Insurance,Consumer Cyclical,Residential Construction,3,Hoch
+House,Financial Services,"National Security, Illicit Finance, And International Financial Institutions",Financial Services,Banks - Diversified,1,Mittel
+House,Financial Services,"National Security, Illicit Finance, And International Financial Institutions",Financial Services,Financial Conglomerates,1,Mittel
+House,Financial Services,"National Security, Illicit Finance, And International Financial Institutions",Financial Services,Capital Markets,1,Mittel
+House,Foreign Affairs,Africa,Basic Materials,Other Industrial Metals & Mining,1,Niedrig
+House,Foreign Affairs,Africa,Basic Materials,Gold,1,Niedrig
+House,Foreign Affairs,Africa,Basic Materials,Copper,1,Niedrig
+House,Foreign Affairs,Africa,Energy,Oil & Gas E&P,2,Niedrig
+House,Foreign Affairs,East Asia And Pacific,Technology,Semiconductors,1,Mittel
+House,Foreign Affairs,East Asia And Pacific,Technology,Consumer Electronics,1,Mittel
+House,Foreign Affairs,East Asia And Pacific,Technology,Electronic Components,1,Mittel
+House,Foreign Affairs,East Asia And Pacific,Consumer Cyclical,Auto Manufacturers,2,Mittel
+House,Foreign Affairs,East Asia And Pacific,Consumer Cyclical,Internet Retail,2,Mittel
+House,Foreign Affairs,Europe,Industrials,Aerospace & Defense,1,Mittel
+House,Foreign Affairs,Europe,Financial Services,Banks - Diversified,2,Mittel
+House,Foreign Affairs,Europe,Energy,Oil & Gas Integrated,3,Mittel
+House,Foreign Affairs,Europe,Consumer Cyclical,Auto Manufacturers,4,Mittel
+House,Foreign Affairs,Middle East And North Africa,Energy,Oil & Gas Integrated,1,Mittel
+House,Foreign Affairs,Middle East And North Africa,Energy,Oil & Gas E&P,1,Mittel
+House,Foreign Affairs,Middle East And North Africa,Energy,Oil & Gas Midstream,1,Mittel
+House,Foreign Affairs,Middle East And North Africa,Industrials,Aerospace & Defense,2,Mittel
+House,Foreign Affairs,South And Central Asia,Technology,Information Technology Services,1,Niedrig
+House,Foreign Affairs,South And Central Asia,Technology,Software - Application,1,Niedrig
+House,Foreign Affairs,Western Hemisphere,Basic Materials,Copper,1,Mittel
+House,Foreign Affairs,Western Hemisphere,Basic Materials,Other Industrial Metals & Mining,1,Mittel
+House,Foreign Affairs,Western Hemisphere,Basic Materials,Silver,1,Mittel
+House,Foreign Affairs,Western Hemisphere,Energy,Oil & Gas E&P,2,Mittel
+House,Foreign Affairs,Western Hemisphere,Energy,Oil & Gas Integrated,2,Mittel
+House,Foreign Affairs,Western Hemisphere,Consumer Cyclical,Auto Manufacturers,3,Mittel
+House,Foreign Affairs,Western Hemisphere,Consumer Cyclical,Auto Parts,3,Mittel
+House,Homeland Security,Border Security And Enforcement,Industrials,Security & Protection Services,1,Mittel
+House,Homeland Security,Border Security And Enforcement,Industrials,Aerospace & Defense,1,Mittel
+House,Homeland Security,Border Security And Enforcement,Technology,Communication Equipment,2,Mittel
+House,Homeland Security,Border Security And Enforcement,Technology,Software - Infrastructure,2,Mittel
+House,Homeland Security,Counterterrorism And Intelligence,Industrials,Aerospace & Defense,1,Mittel
+House,Homeland Security,Counterterrorism And Intelligence,Industrials,Security & Protection Services,1,Mittel
+House,Homeland Security,Counterterrorism And Intelligence,Technology,Software - Infrastructure,2,Mittel
+House,Homeland Security,Counterterrorism And Intelligence,Technology,Information Technology Services,2,Mittel
+House,Homeland Security,Cybersecurity And Infrastructure Protection,Technology,Software - Infrastructure,1,Hoch
+House,Homeland Security,Cybersecurity And Infrastructure Protection,Technology,Software - Application,1,Hoch
+House,Homeland Security,Cybersecurity And Infrastructure Protection,Technology,Information Technology Services,1,Hoch
+House,Homeland Security,Cybersecurity And Infrastructure Protection,Technology,Communication Equipment,1,Hoch
+House,Homeland Security,Cybersecurity And Infrastructure Protection,Industrials,Security & Protection Services,2,Hoch
+House,Homeland Security,Emergency Management And Technology,Industrials,Security & Protection Services,1,Mittel
+House,Homeland Security,Emergency Management And Technology,Industrials,Specialty Business Services,1,Mittel
+House,Homeland Security,Emergency Management And Technology,Technology,Software - Application,2,Mittel
+House,Homeland Security,Emergency Management And Technology,Technology,Communication Equipment,2,Mittel
+House,Homeland Security,Transportation And Maritime Security,Industrials,Airlines,1,Hoch
+House,Homeland Security,Transportation And Maritime Security,Industrials,Marine Shipping,1,Hoch
+House,Homeland Security,Transportation And Maritime Security,Industrials,Airports & Air Services,1,Hoch
+House,Homeland Security,Transportation And Maritime Security,Industrials,Security & Protection Services,1,Hoch
+House,Joint Committee On Taxation,,Financial Services,Banks - Diversified,1,Mittel
+House,Joint Committee On Taxation,,Financial Services,Asset Management,1,Mittel
+House,Joint Committee On Taxation,,Financial Services,Insurance - Diversified,1,Mittel
+House,Joint Committee On Taxation,,Financial Services,Capital Markets,1,Mittel
+House,Joint Economic Committee,,Financial Services,Banks - Diversified,1,Mittel
+House,Joint Economic Committee,,Financial Services,Capital Markets,1,Mittel
+House,Joint Economic Committee,,Financial Services,Asset Management,1,Mittel
+House,Judiciary,"Courts, Intellectual Property, Artificial Intelligence, And The Internet",Technology,Software - Application,1,Hoch
+House,Judiciary,"Courts, Intellectual Property, Artificial Intelligence, And The Internet",Technology,Software - Infrastructure,1,Hoch
+House,Judiciary,"Courts, Intellectual Property, Artificial Intelligence, And The Internet",Technology,Semiconductors,1,Hoch
+House,Judiciary,"Courts, Intellectual Property, Artificial Intelligence, And The Internet",Communication Services,Internet Content & Information,2,Hoch
+House,Judiciary,"Courts, Intellectual Property, Artificial Intelligence, And The Internet",Communication Services,Entertainment,2,Hoch
+House,Judiciary,"Courts, Intellectual Property, Artificial Intelligence, And The Internet",Communication Services,Publishing,2,Hoch
+House,Judiciary,"Courts, Intellectual Property, Artificial Intelligence, And The Internet",Communication Services,Electronic Gaming & Multimedia,2,Hoch
+House,Judiciary,"Courts, Intellectual Property, Artificial Intelligence, And The Internet",Healthcare,Drug Manufacturers - General,3,Hoch
+House,Judiciary,"Courts, Intellectual Property, Artificial Intelligence, And The Internet",Healthcare,Biotechnology,3,Hoch
+House,Judiciary,"Courts, Intellectual Property, Artificial Intelligence, And The Internet",Healthcare,Medical Devices,3,Hoch
+House,Judiciary,"Immigration Integrity, Security, And Enforcement",Industrials,Security & Protection Services,1,Mittel
+House,Judiciary,"Immigration Integrity, Security, And Enforcement",Industrials,Aerospace & Defense,1,Mittel
+House,Judiciary,"Immigration Integrity, Security, And Enforcement",Technology,Software - Infrastructure,2,Mittel
+House,Judiciary,"Immigration Integrity, Security, And Enforcement",Technology,Communication Equipment,2,Mittel
+House,Judiciary,"The Administrative State, Regulatory Reform, And Antitrust",Technology,Software - Application,1,Mittel
+House,Judiciary,"The Administrative State, Regulatory Reform, And Antitrust",Technology,Software - Infrastructure,1,Mittel
+House,Judiciary,"The Administrative State, Regulatory Reform, And Antitrust",Technology,Internet Content & Information,1,Mittel
+House,Judiciary,"The Administrative State, Regulatory Reform, And Antitrust",Communication Services,Internet Content & Information,2,Mittel
+House,Natural Resources,Energy And Mineral Resources,Energy,Oil & Gas E&P,1,Hoch
+House,Natural Resources,Energy And Mineral Resources,Energy,Oil & Gas Drilling,1,Hoch
+House,Natural Resources,Energy And Mineral Resources,Energy,Oil & Gas Equipment & Services,1,Hoch
+House,Natural Resources,Energy And Mineral Resources,Energy,Uranium,1,Hoch
+House,Natural Resources,Energy And Mineral Resources,Energy,Thermal Coal,1,Hoch
+House,Natural Resources,Energy And Mineral Resources,Basic Materials,Other Industrial Metals & Mining,2,Hoch
+House,Natural Resources,Energy And Mineral Resources,Basic Materials,Gold,2,Hoch
+House,Natural Resources,Energy And Mineral Resources,Basic Materials,Copper,2,Hoch
+House,Natural Resources,Energy And Mineral Resources,Basic Materials,Silver,2,Hoch
+House,Natural Resources,Energy And Mineral Resources,Basic Materials,Other Precious Metals & Mining,2,Hoch
+House,Natural Resources,Energy And Mineral Resources,Basic Materials,Aluminum,2,Hoch
+House,Natural Resources,Energy And Mineral Resources,Basic Materials,Coking Coal,2,Hoch
+House,Natural Resources,Energy And Mineral Resources,Basic Materials,Steel,2,Hoch
+House,Natural Resources,Federal Lands,Real Estate,Real Estate - Development,1,Mittel
+House,Natural Resources,Federal Lands,Real Estate,Real Estate - Diversified,1,Mittel
+House,Natural Resources,Federal Lands,Basic Materials,Lumber & Wood Production,2,Mittel
+House,Natural Resources,Federal Lands,Basic Materials,Other Industrial Metals & Mining,2,Mittel
+House,Natural Resources,Federal Lands,Energy,Oil & Gas E&P,3,Mittel
+House,Natural Resources,Federal Lands,Energy,Oil & Gas Drilling,3,Mittel
+House,Natural Resources,Federal Lands,Consumer Cyclical,Travel Services,4,Mittel
+House,Natural Resources,Federal Lands,Consumer Cyclical,Lodging,4,Mittel
+House,Natural Resources,Federal Lands,Consumer Cyclical,Leisure,4,Mittel
+House,Natural Resources,Federal Lands,Consumer Cyclical,Recreational Vehicles,4,Mittel
+House,Natural Resources,"Water, Wildlife And Fisheries",Utilities,Utilities - Regulated Water,1,Mittel
+House,Oversight And Government Reform,"Cybersecurity, Information Technology, And Government Innovation",Technology,Software - Infrastructure,1,Hoch
+House,Oversight And Government Reform,"Cybersecurity, Information Technology, And Government Innovation",Technology,Software - Application,1,Hoch
+House,Oversight And Government Reform,"Cybersecurity, Information Technology, And Government Innovation",Technology,Information Technology Services,1,Hoch
+House,Oversight And Government Reform,"Cybersecurity, Information Technology, And Government Innovation",Technology,Communication Equipment,1,Hoch
+House,Oversight And Government Reform,Delivering On Government Efficiency,Technology,Software - Application,1,Mittel
+House,Oversight And Government Reform,Delivering On Government Efficiency,Technology,Information Technology Services,1,Mittel
+House,Oversight And Government Reform,"Economic Growth, Energy Policy, And Regulatory Affairs",Energy,Oil & Gas Integrated,1,Mittel
+House,Oversight And Government Reform,"Economic Growth, Energy Policy, And Regulatory Affairs",Energy,Oil & Gas E&P,1,Mittel
+House,Oversight And Government Reform,"Economic Growth, Energy Policy, And Regulatory Affairs",Energy,Oil & Gas Midstream,1,Mittel
+House,Oversight And Government Reform,"Economic Growth, Energy Policy, And Regulatory Affairs",Financial Services,Banks - Diversified,2,Mittel
+House,Oversight And Government Reform,"Economic Growth, Energy Policy, And Regulatory Affairs",Financial Services,Capital Markets,2,Mittel
+House,Oversight And Government Reform,Health Care And Financial Services,Healthcare,Healthcare Plans,1,Hoch
+House,Oversight And Government Reform,Health Care And Financial Services,Healthcare,Drug Manufacturers - General,1,Hoch
+House,Oversight And Government Reform,Health Care And Financial Services,Healthcare,Medical Care Facilities,1,Hoch
+House,Oversight And Government Reform,Health Care And Financial Services,Healthcare,Health Information Services,1,Hoch
+House,Oversight And Government Reform,Health Care And Financial Services,Financial Services,Banks - Diversified,2,Hoch
+House,Oversight And Government Reform,Health Care And Financial Services,Financial Services,Insurance - Diversified,2,Hoch
+House,Oversight And Government Reform,Health Care And Financial Services,Financial Services,Credit Services,2,Hoch
+House,Oversight And Government Reform,Military And Foreign Affairs,Industrials,Aerospace & Defense,1,Mittel
+House,Permanent Select Committee On Intelligence,,Industrials,Aerospace & Defense,1,Hoch
+House,Permanent Select Committee On Intelligence,,Industrials,Security & Protection Services,1,Hoch
+House,Permanent Select Committee On Intelligence,,Technology,Software - Infrastructure,2,Hoch
+House,Permanent Select Committee On Intelligence,,Technology,Information Technology Services,2,Hoch
+House,Permanent Select Committee On Intelligence,,Technology,Semiconductors,2,Hoch
+House,Permanent Select Committee On Intelligence,,Technology,Communication Equipment,2,Hoch
+House,"Science, Space, And Technology",Energy,Energy,Oil & Gas Integrated,1,Hoch
+House,"Science, Space, And Technology",Energy,Energy,Oil & Gas Equipment & Services,1,Hoch
+House,"Science, Space, And Technology",Energy,Energy,Uranium,1,Hoch
+House,"Science, Space, And Technology",Energy,Utilities,Utilities - Renewable,2,Hoch
+House,"Science, Space, And Technology",Energy,Utilities,Utilities - Independent Power Producers,2,Hoch
+House,"Science, Space, And Technology",Environment,Utilities,Utilities - Renewable,1,Mittel
+House,"Science, Space, And Technology",Environment,Utilities,Utilities - Regulated Water,1,Mittel
+House,"Science, Space, And Technology",Environment,Industrials,Pollution & Treatment Controls,2,Mittel
+House,"Science, Space, And Technology",Environment,Industrials,Waste Management,2,Mittel
+House,"Science, Space, And Technology",Environment,Basic Materials,Specialty Chemicals,3,Mittel
+House,"Science, Space, And Technology",Research And Technology,Technology,Semiconductors,1,Hoch
+House,"Science, Space, And Technology",Research And Technology,Technology,Software - Infrastructure,1,Hoch
+House,"Science, Space, And Technology",Research And Technology,Technology,Scientific & Technical Instruments,1,Hoch
+House,"Science, Space, And Technology",Research And Technology,Technology,Semiconductor Equipment & Materials,1,Hoch
+House,"Science, Space, And Technology",Research And Technology,Healthcare,Biotechnology,2,Hoch
+House,"Science, Space, And Technology",Research And Technology,Healthcare,Diagnostics & Research,2,Hoch
+House,"Science, Space, And Technology",Space And Aeronautics,Industrials,Aerospace & Defense,1,Hoch
+House,"Science, Space, And Technology",Space And Aeronautics,Technology,Communication Equipment,2,Hoch
+House,"Science, Space, And Technology",Space And Aeronautics,Technology,Semiconductors,2,Hoch
+House,"Science, Space, And Technology",Space And Aeronautics,Technology,Scientific & Technical Instruments,2,Hoch
+House,Select Committee On The Strategic Competition Between The United States And The Chinese Communist Party,,Technology,Semiconductors,1,Hoch
+House,Select Committee On The Strategic Competition Between The United States And The Chinese Communist Party,,Technology,Semiconductor Equipment & Materials,1,Hoch
+House,Select Committee On The Strategic Competition Between The United States And The Chinese Communist Party,,Technology,Consumer Electronics,1,Hoch
+House,Select Committee On The Strategic Competition Between The United States And The Chinese Communist Party,,Technology,Software - Application,1,Hoch
+House,Select Committee On The Strategic Competition Between The United States And The Chinese Communist Party,,Technology,Communication Equipment,1,Hoch
+House,Select Committee On The Strategic Competition Between The United States And The Chinese Communist Party,,Technology,Solar,1,Hoch
+House,Select Committee On The Strategic Competition Between The United States And The Chinese Communist Party,,Industrials,Aerospace & Defense,2,Hoch
+House,Select Committee On The Strategic Competition Between The United States And The Chinese Communist Party,,Industrials,Specialty Industrial Machinery,2,Hoch
+House,Select Committee On The Strategic Competition Between The United States And The Chinese Communist Party,,Industrials,Marine Shipping,2,Hoch
+House,Select Committee On The Strategic Competition Between The United States And The Chinese Communist Party,,Consumer Cyclical,Auto Manufacturers,3,Hoch
+House,Select Committee On The Strategic Competition Between The United States And The Chinese Communist Party,,Consumer Cyclical,Internet Retail,3,Hoch
+House,Select Committee On The Strategic Competition Between The United States And The Chinese Communist Party,,Consumer Cyclical,Auto Parts,3,Hoch
+House,Select Committee On The Strategic Competition Between The United States And The Chinese Communist Party,,Basic Materials,Other Industrial Metals & Mining,4,Hoch
+House,Select Committee On The Strategic Competition Between The United States And The Chinese Communist Party,,Healthcare,Drug Manufacturers - Specialty & Generic,5,Hoch
+House,Small Business,Contracting And Infrastructure,Industrials,Engineering & Construction,1,Mittel
+House,Small Business,Contracting And Infrastructure,Industrials,Building Products & Equipment,1,Mittel
+House,Small Business,Contracting And Infrastructure,Industrials,Specialty Business Services,1,Mittel
+House,Small Business,"Economic Growth, Tax, And Capital Access",Financial Services,Banks - Regional,1,Mittel
+House,Small Business,"Economic Growth, Tax, And Capital Access",Financial Services,Credit Services,1,Mittel
+House,Small Business,"Economic Growth, Tax, And Capital Access",Financial Services,Asset Management,1,Mittel
+House,Small Business,"Innovation, Entrepreneurship, And Workforce Development",Technology,Software - Application,1,Mittel
+House,Small Business,"Innovation, Entrepreneurship, And Workforce Development",Technology,Software - Infrastructure,1,Mittel
+House,Small Business,"Innovation, Entrepreneurship, And Workforce Development",Technology,Semiconductors,1,Mittel
+House,Small Business,"Innovation, Entrepreneurship, And Workforce Development",Technology,Information Technology Services,1,Mittel
+House,Small Business,"Innovation, Entrepreneurship, And Workforce Development",Industrials,Specialty Industrial Machinery,2,Mittel
+House,Small Business,"Innovation, Entrepreneurship, And Workforce Development",Industrials,Consulting Services,2,Mittel
+House,Small Business,"Innovation, Entrepreneurship, And Workforce Development",Industrials,Specialty Business Services,2,Mittel
+House,Small Business,"Innovation, Entrepreneurship, And Workforce Development",Consumer Cyclical,Internet Retail,3,Mittel
+House,Small Business,"Innovation, Entrepreneurship, And Workforce Development",Consumer Cyclical,Specialty Retail,3,Mittel
+House,Small Business,"Rural Development, Energy, And Supply Chains",Energy,Oil & Gas E&P,1,Mittel
+House,Small Business,"Rural Development, Energy, And Supply Chains",Energy,Oil & Gas Midstream,1,Mittel
+House,Small Business,"Rural Development, Energy, And Supply Chains",Industrials,Integrated Freight & Logistics,2,Mittel
+House,Small Business,"Rural Development, Energy, And Supply Chains",Industrials,Trucking,2,Mittel
+House,Transportation And Infrastructure,Aviation,Industrials,Airlines,1,Hoch
+House,Transportation And Infrastructure,Aviation,Industrials,Aerospace & Defense,1,Hoch
+House,Transportation And Infrastructure,Aviation,Industrials,Airports & Air Services,1,Hoch
+House,Transportation And Infrastructure,Coast Guard And Maritime Transportation,Industrials,Marine Shipping,1,Hoch
+House,Transportation And Infrastructure,Coast Guard And Maritime Transportation,Industrials,Security & Protection Services,1,Hoch
+House,Transportation And Infrastructure,"Economic Development, Public Buildings, And Emergency Management",Real Estate,Real Estate - Development,1,Mittel
+House,Transportation And Infrastructure,"Economic Development, Public Buildings, And Emergency Management",Real Estate,REIT - Office,1,Mittel
+House,Transportation And Infrastructure,"Economic Development, Public Buildings, And Emergency Management",Industrials,Engineering & Construction,2,Mittel
+House,Transportation And Infrastructure,"Economic Development, Public Buildings, And Emergency Management",Industrials,Building Products & Equipment,2,Mittel
+House,Transportation And Infrastructure,Highways And Transit,Industrials,Engineering & Construction,1,Hoch
+House,Transportation And Infrastructure,Highways And Transit,Industrials,Farm & Heavy Construction Machinery,1,Hoch
+House,Transportation And Infrastructure,Highways And Transit,Industrials,Specialty Industrial Machinery,1,Hoch
+House,Transportation And Infrastructure,Highways And Transit,Basic Materials,Building Materials,2,Hoch
+House,Transportation And Infrastructure,Highways And Transit,Basic Materials,Steel,2,Hoch
+House,Transportation And Infrastructure,"Railroads, Pipelines, And Hazardous Materials",Industrials,Railroads,1,Hoch
+House,Transportation And Infrastructure,"Railroads, Pipelines, And Hazardous Materials",Energy,Oil & Gas Midstream,2,Hoch
+House,Transportation And Infrastructure,Water Resources And Environment,Utilities,Utilities - Regulated Water,1,Mittel
+House,Transportation And Infrastructure,Water Resources And Environment,Industrials,Engineering & Construction,2,Mittel
+House,Transportation And Infrastructure,Water Resources And Environment,Industrials,Pollution & Treatment Controls,2,Mittel
+House,Veterans' Affairs,Economic Opportunity,Financial Services,Mortgage Finance,1,Mittel
+House,Veterans' Affairs,Economic Opportunity,Consumer Defensive,Education & Training Services,2,Mittel
+House,Veterans' Affairs,Economic Opportunity,Industrials,Staffing & Employment Services,3,Mittel
+House,Veterans' Affairs,Health,Healthcare,Medical Care Facilities,1,Hoch
+House,Veterans' Affairs,Health,Healthcare,Healthcare Plans,1,Hoch
+House,Veterans' Affairs,Health,Healthcare,Medical Devices,1,Hoch
+House,Veterans' Affairs,Health,Healthcare,Drug Manufacturers - General,1,Hoch
+House,Veterans' Affairs,Health,Healthcare,Health Information Services,1,Hoch
+House,Veterans' Affairs,Technology Modernization,Technology,Software - Application,1,Mittel
+House,Veterans' Affairs,Technology Modernization,Technology,Information Technology Services,1,Mittel
+House,Veterans' Affairs,Technology Modernization,Technology,Software - Infrastructure,1,Mittel
+House,Veterans' Affairs,Technology Modernization,Healthcare,Health Information Services,2,Mittel
+House,Ways And Means,Health,Healthcare,Healthcare Plans,1,Hoch
+House,Ways And Means,Health,Healthcare,Medical Care Facilities,1,Hoch
+House,Ways And Means,Health,Healthcare,Drug Manufacturers - General,1,Hoch
+House,Ways And Means,Health,Healthcare,Drug Manufacturers - Specialty & Generic,1,Hoch
+House,Ways And Means,Health,Healthcare,Medical Devices,1,Hoch
+House,Ways And Means,Social Security,Financial Services,Insurance - Life,1,Mittel
+House,Ways And Means,Social Security,Financial Services,Asset Management,1,Mittel
+House,Ways And Means,Social Security,Financial Services,Insurance - Diversified,1,Mittel
+House,Ways And Means,Work And Welfare,Industrials,Staffing & Employment Services,1,Mittel
+House,Ways And Means,Work And Welfare,Utilities,Utilities - Regulated Electric,2,Mittel
+House,Ways And Means,Work And Welfare,Consumer Defensive,Discount Stores,3,Mittel
+House,Ways And Means,Work And Welfare,Consumer Defensive,Grocery Stores,3,Mittel
+Senate,"Agriculture, Nutrition, and Forestry","Subcommittee on Commodities, Derivatives, Risk Management, and Trade",Financial Services,Capital Markets,1,Hoch
+Senate,"Agriculture, Nutrition, and Forestry","Subcommittee on Commodities, Derivatives, Risk Management, and Trade",Financial Services,Financial Data & Stock Exchanges,1,Hoch
+Senate,"Agriculture, Nutrition, and Forestry","Subcommittee on Commodities, Derivatives, Risk Management, and Trade",Financial Services,Insurance - Specialty,1,Hoch
+Senate,"Agriculture, Nutrition, and Forestry","Subcommittee on Commodities, Derivatives, Risk Management, and Trade",Consumer Defensive,Farm Products,2,Hoch
+Senate,"Agriculture, Nutrition, and Forestry","Subcommittee on Commodities, Derivatives, Risk Management, and Trade",Consumer Defensive,Food Distribution,2,Hoch
+Senate,"Agriculture, Nutrition, and Forestry","Subcommittee on Conservation, Forestry, Natural Resources, and Biotechnology",Basic Materials,Lumber & Wood Production,1,Mittel
+Senate,"Agriculture, Nutrition, and Forestry","Subcommittee on Conservation, Forestry, Natural Resources, and Biotechnology",Basic Materials,Paper & Paper Products,1,Mittel
+Senate,"Agriculture, Nutrition, and Forestry","Subcommittee on Conservation, Forestry, Natural Resources, and Biotechnology",Basic Materials,Agricultural Inputs,1,Mittel
+Senate,"Agriculture, Nutrition, and Forestry","Subcommittee on Conservation, Forestry, Natural Resources, and Biotechnology",Healthcare,Biotechnology,2,Mittel
+Senate,"Agriculture, Nutrition, and Forestry","Subcommittee on Food and Nutrition, Specialty Crops, Organics, and Research",Consumer Defensive,Packaged Foods,1,Hoch
+Senate,"Agriculture, Nutrition, and Forestry","Subcommittee on Food and Nutrition, Specialty Crops, Organics, and Research",Consumer Defensive,Food Distribution,1,Hoch
+Senate,"Agriculture, Nutrition, and Forestry","Subcommittee on Food and Nutrition, Specialty Crops, Organics, and Research",Consumer Defensive,Grocery Stores,1,Hoch
+Senate,"Agriculture, Nutrition, and Forestry","Subcommittee on Food and Nutrition, Specialty Crops, Organics, and Research",Consumer Defensive,Farm Products,1,Hoch
+Senate,"Agriculture, Nutrition, and Forestry","Subcommittee on Livestock, Dairy, Poultry, and Food Safety",Consumer Defensive,Farm Products,1,Hoch
+Senate,"Agriculture, Nutrition, and Forestry","Subcommittee on Livestock, Dairy, Poultry, and Food Safety",Consumer Defensive,Packaged Foods,1,Hoch
+Senate,"Agriculture, Nutrition, and Forestry","Subcommittee on Livestock, Dairy, Poultry, and Food Safety",Consumer Defensive,Food Distribution,1,Hoch
+Senate,"Agriculture, Nutrition, and Forestry","Subcommittee on Livestock, Dairy, Poultry, and Food Safety",Consumer Cyclical,Restaurants,2,Hoch
+Senate,"Agriculture, Nutrition, and Forestry","Subcommittee on Livestock, Dairy, Poultry, and Food Safety",Healthcare,Diagnostics & Research,3,Hoch
+Senate,"Agriculture, Nutrition, and Forestry","Subcommittee on Rural Development, Energy, and Credit",Energy,Oil & Gas E&P,1,Mittel
+Senate,"Agriculture, Nutrition, and Forestry","Subcommittee on Rural Development, Energy, and Credit",Energy,Oil & Gas Midstream,1,Mittel
+Senate,"Agriculture, Nutrition, and Forestry","Subcommittee on Rural Development, Energy, and Credit",Financial Services,Banks - Regional,2,Mittel
+Senate,"Agriculture, Nutrition, and Forestry","Subcommittee on Rural Development, Energy, and Credit",Financial Services,Credit Services,2,Mittel
+Senate,"Agriculture, Nutrition, and Forestry","Subcommittee on Rural Development, Energy, and Credit",Communication Services,Telecom Services,3,Mittel
+Senate,"Agriculture, Nutrition, and Forestry","Subcommittee on Rural Development, Energy, and Credit",Utilities,Utilities - Regulated Electric,4,Mittel
+Senate,"Agriculture, Nutrition, and Forestry","Subcommittee on Rural Development, Energy, and Credit",Utilities,Utilities - Regulated Water,4,Mittel
+Senate,"Agriculture, Nutrition, and Forestry","Subcommittee on Rural Development, Energy, and Credit",Technology,Solar,5,Mittel
+Senate,Appropriations,"Subcommittee on Agriculture, Rural Development, Food and Drug Administration, and Related Agencies",Consumer Defensive,Packaged Foods,1,Hoch
+Senate,Appropriations,"Subcommittee on Agriculture, Rural Development, Food and Drug Administration, and Related Agencies",Consumer Defensive,Farm Products,1,Hoch
+Senate,Appropriations,"Subcommittee on Agriculture, Rural Development, Food and Drug Administration, and Related Agencies",Consumer Defensive,Food Distribution,1,Hoch
+Senate,Appropriations,"Subcommittee on Agriculture, Rural Development, Food and Drug Administration, and Related Agencies",Healthcare,Drug Manufacturers - General,2,Hoch
+Senate,Appropriations,"Subcommittee on Agriculture, Rural Development, Food and Drug Administration, and Related Agencies",Healthcare,Drug Manufacturers - Specialty & Generic,2,Hoch
+Senate,Appropriations,"Subcommittee on Agriculture, Rural Development, Food and Drug Administration, and Related Agencies",Healthcare,Biotechnology,2,Hoch
+Senate,Appropriations,"Subcommittee on Agriculture, Rural Development, Food and Drug Administration, and Related Agencies",Healthcare,Medical Devices,2,Hoch
+Senate,Appropriations,"Subcommittee on Commerce, Justice, Science, and Related Agencies",Technology,Software - Infrastructure,1,Mittel
+Senate,Appropriations,"Subcommittee on Commerce, Justice, Science, and Related Agencies",Technology,Scientific & Technical Instruments,1,Mittel
+Senate,Appropriations,"Subcommittee on Commerce, Justice, Science, and Related Agencies",Technology,Semiconductors,1,Mittel
+Senate,Appropriations,"Subcommittee on Commerce, Justice, Science, and Related Agencies",Communication Services,Telecom Services,2,Mittel
+Senate,Appropriations,"Subcommittee on Commerce, Justice, Science, and Related Agencies",Communication Services,Internet Content & Information,2,Mittel
+Senate,Appropriations,Subcommittee on Department of Defense,Industrials,Aerospace & Defense,1,Hoch
+Senate,Appropriations,Subcommittee on Department of Defense,Technology,Software - Infrastructure,2,Hoch
+Senate,Appropriations,Subcommittee on Department of Defense,Technology,Semiconductors,2,Hoch
+Senate,Appropriations,Subcommittee on Department of Defense,Technology,Communication Equipment,2,Hoch
+Senate,Appropriations,Subcommittee on Department of Defense,Technology,Information Technology Services,2,Hoch
+Senate,Appropriations,Subcommittee on Department of Homeland Security,Industrials,Aerospace & Defense,1,Hoch
+Senate,Appropriations,Subcommittee on Department of Homeland Security,Industrials,Security & Protection Services,1,Hoch
+Senate,Appropriations,Subcommittee on Department of Homeland Security,Technology,Software - Infrastructure,2,Hoch
+Senate,Appropriations,Subcommittee on Department of Homeland Security,Technology,Communication Equipment,2,Hoch
+Senate,Appropriations,"Subcommittee on Department of Interior, Environment, and Related Agencies",Energy,Oil & Gas E&P,1,Mittel
+Senate,Appropriations,"Subcommittee on Department of Interior, Environment, and Related Agencies",Energy,Oil & Gas Drilling,1,Mittel
+Senate,Appropriations,"Subcommittee on Department of Interior, Environment, and Related Agencies",Basic Materials,Other Industrial Metals & Mining,2,Mittel
+Senate,Appropriations,"Subcommittee on Department of Interior, Environment, and Related Agencies",Basic Materials,Gold,2,Mittel
+Senate,Appropriations,"Subcommittee on Department of Interior, Environment, and Related Agencies",Basic Materials,Copper,2,Mittel
+Senate,Appropriations,"Subcommittee on Departments of Labor, Health and Human Services, and Education, and Related Agencies",Healthcare,Healthcare Plans,1,Hoch
+Senate,Appropriations,"Subcommittee on Departments of Labor, Health and Human Services, and Education, and Related Agencies",Healthcare,Medical Care Facilities,1,Hoch
+Senate,Appropriations,"Subcommittee on Departments of Labor, Health and Human Services, and Education, and Related Agencies",Healthcare,Drug Manufacturers - General,1,Hoch
+Senate,Appropriations,"Subcommittee on Departments of Labor, Health and Human Services, and Education, and Related Agencies",Healthcare,Biotechnology,1,Hoch
+Senate,Appropriations,"Subcommittee on Departments of Labor, Health and Human Services, and Education, and Related Agencies",Healthcare,Medical Devices,1,Hoch
+Senate,Appropriations,"Subcommittee on Departments of Labor, Health and Human Services, and Education, and Related Agencies",Healthcare,Diagnostics & Research,1,Hoch
+Senate,Appropriations,Subcommittee on Energy and Water Development,Energy,Oil & Gas Integrated,1,Hoch
+Senate,Appropriations,Subcommittee on Energy and Water Development,Energy,Oil & Gas Equipment & Services,1,Hoch
+Senate,Appropriations,Subcommittee on Energy and Water Development,Energy,Uranium,1,Hoch
+Senate,Appropriations,Subcommittee on Energy and Water Development,Utilities,Utilities - Regulated Electric,2,Hoch
+Senate,Appropriations,Subcommittee on Energy and Water Development,Utilities,Utilities - Regulated Water,2,Hoch
+Senate,Appropriations,Subcommittee on Energy and Water Development,Utilities,Utilities - Renewable,2,Hoch
+Senate,Appropriations,Subcommittee on Financial Services and General Government,Financial Services,Banks - Diversified,1,Mittel
+Senate,Appropriations,Subcommittee on Financial Services and General Government,Financial Services,Banks - Regional,1,Mittel
+Senate,Appropriations,Subcommittee on Financial Services and General Government,Financial Services,Capital Markets,1,Mittel
+Senate,Appropriations,"Subcommittee on Military Construction, Veterans Affairs, and Related Agencies",Industrials,Engineering & Construction,1,Hoch
+Senate,Appropriations,"Subcommittee on Military Construction, Veterans Affairs, and Related Agencies",Industrials,Building Products & Equipment,1,Hoch
+Senate,Appropriations,"Subcommittee on Military Construction, Veterans Affairs, and Related Agencies",Healthcare,Medical Care Facilities,2,Hoch
+Senate,Appropriations,"Subcommittee on Military Construction, Veterans Affairs, and Related Agencies",Healthcare,Medical Devices,2,Hoch
+Senate,Appropriations,"Subcommittee on Military Construction, Veterans Affairs, and Related Agencies",Healthcare,Health Information Services,2,Hoch
+Senate,Appropriations,"Subcommittee on Military Construction, Veterans Affairs, and Related Agencies",Real Estate,Real Estate - Development,3,Hoch
+Senate,Appropriations,"Subcommittee on Transportation, Housing and Urban Development, and Related Agencies",Industrials,Airlines,1,Hoch
+Senate,Appropriations,"Subcommittee on Transportation, Housing and Urban Development, and Related Agencies",Industrials,Railroads,1,Hoch
+Senate,Appropriations,"Subcommittee on Transportation, Housing and Urban Development, and Related Agencies",Industrials,Trucking,1,Hoch
+Senate,Appropriations,"Subcommittee on Transportation, Housing and Urban Development, and Related Agencies",Industrials,Engineering & Construction,1,Hoch
+Senate,Appropriations,"Subcommittee on Transportation, Housing and Urban Development, and Related Agencies",Industrials,Airports & Air Services,1,Hoch
+Senate,Appropriations,"Subcommittee on Transportation, Housing and Urban Development, and Related Agencies",Real Estate,Real Estate - Development,2,Hoch
+Senate,Appropriations,"Subcommittee on Transportation, Housing and Urban Development, and Related Agencies",Real Estate,REIT - Residential,2,Hoch
+Senate,Appropriations,"Subcommittee on Transportation, Housing and Urban Development, and Related Agencies",Real Estate,Real Estate Services,2,Hoch
+Senate,Armed Services,Subcommittee on Airland,Industrials,Aerospace & Defense,1,Hoch
+Senate,Armed Services,Subcommittee on Cybersecurity,Technology,Software - Infrastructure,1,Hoch
+Senate,Armed Services,Subcommittee on Cybersecurity,Technology,Software - Application,1,Hoch
+Senate,Armed Services,Subcommittee on Cybersecurity,Technology,Information Technology Services,1,Hoch
+Senate,Armed Services,Subcommittee on Cybersecurity,Technology,Communication Equipment,1,Hoch
+Senate,Armed Services,Subcommittee on Cybersecurity,Industrials,Aerospace & Defense,2,Hoch
+Senate,Armed Services,Subcommittee on Emerging Threats and Capabilities,Technology,Software - Infrastructure,1,Hoch
+Senate,Armed Services,Subcommittee on Emerging Threats and Capabilities,Technology,Semiconductors,1,Hoch
+Senate,Armed Services,Subcommittee on Emerging Threats and Capabilities,Technology,Scientific & Technical Instruments,1,Hoch
+Senate,Armed Services,Subcommittee on Emerging Threats and Capabilities,Industrials,Aerospace & Defense,2,Hoch
+Senate,Armed Services,Subcommittee on Personnel,Industrials,Aerospace & Defense,1,Mittel
+Senate,Armed Services,Subcommittee on Personnel,Healthcare,Healthcare Plans,2,Mittel
+Senate,Armed Services,Subcommittee on Personnel,Healthcare,Medical Care Facilities,2,Mittel
+Senate,Armed Services,Subcommittee on Readiness and Management Support,Industrials,Aerospace & Defense,1,Hoch
+Senate,Armed Services,Subcommittee on Readiness and Management Support,Industrials,Specialty Industrial Machinery,1,Hoch
+Senate,Armed Services,Subcommittee on Readiness and Management Support,Industrials,Engineering & Construction,1,Hoch
+Senate,Armed Services,Subcommittee on Readiness and Management Support,Industrials,Waste Management,1,Hoch
+Senate,Armed Services,Subcommittee on Readiness and Management Support,Industrials,Pollution & Treatment Controls,1,Hoch
+Senate,Armed Services,Subcommittee on Readiness and Management Support,Industrials,Integrated Freight & Logistics,1,Hoch
+Senate,Armed Services,Subcommittee on Readiness and Management Support,Energy,Oil & Gas Refining & Marketing,2,Hoch
+Senate,Armed Services,Subcommittee on Readiness and Management Support,Basic Materials,Other Industrial Metals & Mining,3,Hoch
+Senate,Armed Services,Subcommittee on Readiness and Management Support,Technology,Information Technology Services,4,Hoch
+Senate,Armed Services,Subcommittee on Seapower,Industrials,Aerospace & Defense,1,Hoch
+Senate,Armed Services,Subcommittee on Seapower,Industrials,Marine Shipping,1,Hoch
+Senate,Armed Services,Subcommittee on Strategic Forces,Industrials,Aerospace & Defense,1,Hoch
+Senate,Armed Services,Subcommittee on Strategic Forces,Technology,Semiconductors,2,Hoch
+Senate,Armed Services,Subcommittee on Strategic Forces,Technology,Communication Equipment,2,Hoch
+Senate,Armed Services,Subcommittee on Strategic Forces,Energy,Uranium,3,Hoch
+Senate,"Banking, Housing, and Urban Affairs",Subcommittee on Digital Assets,Technology,Software - Application,1,Hoch
+Senate,"Banking, Housing, and Urban Affairs",Subcommittee on Digital Assets,Technology,Software - Infrastructure,1,Hoch
+Senate,"Banking, Housing, and Urban Affairs",Subcommittee on Digital Assets,Financial Services,Credit Services,2,Hoch
+Senate,"Banking, Housing, and Urban Affairs",Subcommittee on Digital Assets,Financial Services,Capital Markets,2,Hoch
+Senate,"Banking, Housing, and Urban Affairs",Subcommittee on Digital Assets,Financial Services,Financial Data & Stock Exchanges,2,Hoch
+Senate,"Banking, Housing, and Urban Affairs",Subcommittee on Economic Policy,Financial Services,Banks - Diversified,1,Mittel
+Senate,"Banking, Housing, and Urban Affairs",Subcommittee on Economic Policy,Financial Services,Banks - Regional,1,Mittel
+Senate,"Banking, Housing, and Urban Affairs",Subcommittee on Economic Policy,Financial Services,Capital Markets,1,Mittel
+Senate,"Banking, Housing, and Urban Affairs",Subcommittee on Economic Policy,Financial Services,Asset Management,1,Mittel
+Senate,"Banking, Housing, and Urban Affairs",Subcommittee on Financial Institutions and Consumer Protection,Financial Services,Banks - Diversified,1,Hoch
+Senate,"Banking, Housing, and Urban Affairs",Subcommittee on Financial Institutions and Consumer Protection,Financial Services,Banks - Regional,1,Hoch
+Senate,"Banking, Housing, and Urban Affairs",Subcommittee on Financial Institutions and Consumer Protection,Financial Services,Credit Services,1,Hoch
+Senate,"Banking, Housing, and Urban Affairs",Subcommittee on Financial Institutions and Consumer Protection,Financial Services,Mortgage Finance,1,Hoch
+Senate,"Banking, Housing, and Urban Affairs",Subcommittee on Financial Institutions and Consumer Protection,Financial Services,Financial Conglomerates,1,Hoch
+Senate,"Banking, Housing, and Urban Affairs","Subcommittee on Housing, Transportation, and Community Development",Real Estate,Real Estate Services,1,Hoch
+Senate,"Banking, Housing, and Urban Affairs","Subcommittee on Housing, Transportation, and Community Development",Real Estate,Real Estate - Development,1,Hoch
+Senate,"Banking, Housing, and Urban Affairs","Subcommittee on Housing, Transportation, and Community Development",Real Estate,REIT - Residential,1,Hoch
+Senate,"Banking, Housing, and Urban Affairs","Subcommittee on Housing, Transportation, and Community Development",Real Estate,REIT - Mortgage,1,Hoch
+Senate,"Banking, Housing, and Urban Affairs","Subcommittee on Housing, Transportation, and Community Development",Real Estate,REIT - Specialty,1,Hoch
+Senate,"Banking, Housing, and Urban Affairs","Subcommittee on Housing, Transportation, and Community Development",Real Estate,REIT - Industrial,1,Hoch
+Senate,"Banking, Housing, and Urban Affairs","Subcommittee on Housing, Transportation, and Community Development",Real Estate,REIT - Healthcare Facilities,1,Hoch
+Senate,"Banking, Housing, and Urban Affairs","Subcommittee on Housing, Transportation, and Community Development",Real Estate,REIT - Retail,1,Hoch
+Senate,"Banking, Housing, and Urban Affairs","Subcommittee on Housing, Transportation, and Community Development",Real Estate,REIT - Hotel & Motel,1,Hoch
+Senate,"Banking, Housing, and Urban Affairs","Subcommittee on Housing, Transportation, and Community Development",Real Estate,REIT - Office,1,Hoch
+Senate,"Banking, Housing, and Urban Affairs","Subcommittee on Housing, Transportation, and Community Development",Real Estate,REIT - Diversified,1,Hoch
+Senate,"Banking, Housing, and Urban Affairs","Subcommittee on Housing, Transportation, and Community Development",Real Estate,Real Estate - Diversified,1,Hoch
+Senate,"Banking, Housing, and Urban Affairs","Subcommittee on Housing, Transportation, and Community Development",Industrials,Engineering & Construction,2,Hoch
+Senate,"Banking, Housing, and Urban Affairs","Subcommittee on Housing, Transportation, and Community Development",Financial Services,Mortgage Finance,3,Hoch
+Senate,"Banking, Housing, and Urban Affairs",Subcommittee on National Security and International Trade and Finance,Financial Services,Banks - Diversified,1,Mittel
+Senate,"Banking, Housing, and Urban Affairs",Subcommittee on National Security and International Trade and Finance,Financial Services,Financial Conglomerates,1,Mittel
+Senate,"Banking, Housing, and Urban Affairs",Subcommittee on National Security and International Trade and Finance,Financial Services,Capital Markets,1,Mittel
+Senate,"Banking, Housing, and Urban Affairs",Subcommittee on National Security and International Trade and Finance,Industrials,Aerospace & Defense,2,Mittel
+Senate,"Banking, Housing, and Urban Affairs","Subcommittee on Securities, Insurance, and Investment",Financial Services,Capital Markets,1,Hoch
+Senate,"Banking, Housing, and Urban Affairs","Subcommittee on Securities, Insurance, and Investment",Financial Services,Asset Management,1,Hoch
+Senate,"Banking, Housing, and Urban Affairs","Subcommittee on Securities, Insurance, and Investment",Financial Services,Insurance - Diversified,1,Hoch
+Senate,"Banking, Housing, and Urban Affairs","Subcommittee on Securities, Insurance, and Investment",Financial Services,Insurance - Property & Casualty,1,Hoch
+Senate,"Banking, Housing, and Urban Affairs","Subcommittee on Securities, Insurance, and Investment",Financial Services,Insurance - Life,1,Hoch
+Senate,"Banking, Housing, and Urban Affairs","Subcommittee on Securities, Insurance, and Investment",Financial Services,Insurance - Specialty,1,Hoch
+Senate,"Banking, Housing, and Urban Affairs","Subcommittee on Securities, Insurance, and Investment",Financial Services,Insurance Brokers,1,Hoch
+Senate,"Banking, Housing, and Urban Affairs","Subcommittee on Securities, Insurance, and Investment",Financial Services,Insurance - Reinsurance,1,Hoch
+Senate,"Banking, Housing, and Urban Affairs","Subcommittee on Securities, Insurance, and Investment",Financial Services,Financial Data & Stock Exchanges,1,Hoch
+Senate,"Banking, Housing, and Urban Affairs","Subcommittee on Securities, Insurance, and Investment",Financial Services,Financial Conglomerates,1,Hoch
+Senate,"Commerce, Science, and Transportation","Subcommittee on Aviation, Space, and Innovation",Industrials,Airlines,1,Hoch
+Senate,"Commerce, Science, and Transportation","Subcommittee on Aviation, Space, and Innovation",Industrials,Aerospace & Defense,1,Hoch
+Senate,"Commerce, Science, and Transportation","Subcommittee on Aviation, Space, and Innovation",Industrials,Airports & Air Services,1,Hoch
+Senate,"Commerce, Science, and Transportation","Subcommittee on Aviation, Space, and Innovation",Technology,Communication Equipment,2,Hoch
+Senate,"Commerce, Science, and Transportation","Subcommittee on Aviation, Space, and Innovation",Technology,Scientific & Technical Instruments,2,Hoch
+Senate,"Commerce, Science, and Transportation","Subcommittee on Coast Guard, Maritime, and Fisheries",Industrials,Marine Shipping,1,Hoch
+Senate,"Commerce, Science, and Transportation","Subcommittee on Coast Guard, Maritime, and Fisheries",Industrials,Security & Protection Services,1,Hoch
+Senate,"Commerce, Science, and Transportation","Subcommittee on Consumer Protection, Technology, and Data Privacy",Technology,Software - Application,1,Hoch
+Senate,"Commerce, Science, and Transportation","Subcommittee on Consumer Protection, Technology, and Data Privacy",Technology,Software - Infrastructure,1,Hoch
+Senate,"Commerce, Science, and Transportation","Subcommittee on Consumer Protection, Technology, and Data Privacy",Technology,Consumer Electronics,1,Hoch
+Senate,"Commerce, Science, and Transportation","Subcommittee on Consumer Protection, Technology, and Data Privacy",Technology,Information Technology Services,1,Hoch
+Senate,"Commerce, Science, and Transportation","Subcommittee on Consumer Protection, Technology, and Data Privacy",Communication Services,Internet Content & Information,2,Hoch
+Senate,"Commerce, Science, and Transportation","Subcommittee on Consumer Protection, Technology, and Data Privacy",Communication Services,Telecom Services,2,Hoch
+Senate,"Commerce, Science, and Transportation","Subcommittee on Consumer Protection, Technology, and Data Privacy",Communication Services,Advertising Agencies,2,Hoch
+Senate,"Commerce, Science, and Transportation","Subcommittee on Consumer Protection, Technology, and Data Privacy",Consumer Cyclical,Internet Retail,3,Hoch
+Senate,"Commerce, Science, and Transportation","Subcommittee on Consumer Protection, Technology, and Data Privacy",Consumer Cyclical,Travel Services,3,Hoch
+Senate,"Commerce, Science, and Transportation","Subcommittee on Consumer Protection, Technology, and Data Privacy",Financial Services,Insurance - Property & Casualty,4,Hoch
+Senate,"Commerce, Science, and Transportation","Subcommittee on Science, Manufacturing, and Competitiveness",Technology,Semiconductors,1,Hoch
+Senate,"Commerce, Science, and Transportation","Subcommittee on Science, Manufacturing, and Competitiveness",Technology,Semiconductor Equipment & Materials,1,Hoch
+Senate,"Commerce, Science, and Transportation","Subcommittee on Science, Manufacturing, and Competitiveness",Technology,Scientific & Technical Instruments,1,Hoch
+Senate,"Commerce, Science, and Transportation","Subcommittee on Science, Manufacturing, and Competitiveness",Industrials,Specialty Industrial Machinery,2,Hoch
+Senate,"Commerce, Science, and Transportation","Subcommittee on Science, Manufacturing, and Competitiveness",Industrials,Farm & Heavy Construction Machinery,2,Hoch
+Senate,"Commerce, Science, and Transportation","Subcommittee on Surface Transportation, Freight, Pipelines, and Safety",Industrials,Railroads,1,Hoch
+Senate,"Commerce, Science, and Transportation","Subcommittee on Surface Transportation, Freight, Pipelines, and Safety",Industrials,Trucking,1,Hoch
+Senate,"Commerce, Science, and Transportation","Subcommittee on Surface Transportation, Freight, Pipelines, and Safety",Industrials,Integrated Freight & Logistics,1,Hoch
+Senate,"Commerce, Science, and Transportation","Subcommittee on Surface Transportation, Freight, Pipelines, and Safety",Energy,Oil & Gas Midstream,2,Hoch
+Senate,"Commerce, Science, and Transportation",Subcommittee on Telecommunications and Media,Communication Services,Telecom Services,1,Hoch
+Senate,"Commerce, Science, and Transportation",Subcommittee on Telecommunications and Media,Communication Services,Broadcasting,1,Hoch
+Senate,"Commerce, Science, and Transportation",Subcommittee on Telecommunications and Media,Communication Services,Entertainment,1,Hoch
+Senate,"Commerce, Science, and Transportation",Subcommittee on Telecommunications and Media,Communication Services,Internet Content & Information,1,Hoch
+Senate,"Commerce, Science, and Transportation",Subcommittee on Telecommunications and Media,Communication Services,Electronic Gaming & Multimedia,1,Hoch
+Senate,"Commerce, Science, and Transportation",Subcommittee on Telecommunications and Media,Communication Services,Publishing,1,Hoch
+Senate,"Commerce, Science, and Transportation",Subcommittee on Telecommunications and Media,Communication Services,Advertising Agencies,1,Hoch
+Senate,"Commerce, Science, and Transportation",Subcommittee on Telecommunications and Media,Technology,Communication Equipment,2,Hoch
+Senate,"Commerce, Science, and Transportation",Subcommittee on Telecommunications and Media,Technology,Consumer Electronics,2,Hoch
+Senate,Energy and Natural Resources,Subcommittee on Energy,Energy,Oil & Gas Integrated,1,Hoch
+Senate,Energy and Natural Resources,Subcommittee on Energy,Energy,Oil & Gas E&P,1,Hoch
+Senate,Energy and Natural Resources,Subcommittee on Energy,Energy,Oil & Gas Midstream,1,Hoch
+Senate,Energy and Natural Resources,Subcommittee on Energy,Energy,Oil & Gas Refining & Marketing,1,Hoch
+Senate,Energy and Natural Resources,Subcommittee on Energy,Energy,Oil & Gas Equipment & Services,1,Hoch
+Senate,Energy and Natural Resources,Subcommittee on Energy,Energy,Uranium,1,Hoch
+Senate,Energy and Natural Resources,Subcommittee on Energy,Energy,Oil & Gas Drilling,1,Hoch
+Senate,Energy and Natural Resources,Subcommittee on Energy,Energy,Thermal Coal,1,Hoch
+Senate,Energy and Natural Resources,Subcommittee on Energy,Utilities,Utilities - Regulated Electric,2,Hoch
+Senate,Energy and Natural Resources,Subcommittee on Energy,Utilities,Utilities - Renewable,2,Hoch
+Senate,Energy and Natural Resources,Subcommittee on Energy,Utilities,Utilities - Independent Power Producers,2,Hoch
+Senate,Energy and Natural Resources,Subcommittee on Energy,Utilities,Utilities - Diversified,2,Hoch
+Senate,Energy and Natural Resources,Subcommittee on Energy,Technology,Solar,3,Hoch
+Senate,Energy and Natural Resources,Subcommittee on National Parks,Consumer Cyclical,Travel Services,1,Mittel
+Senate,Energy and Natural Resources,Subcommittee on National Parks,Consumer Cyclical,Lodging,1,Mittel
+Senate,Energy and Natural Resources,Subcommittee on National Parks,Consumer Cyclical,Leisure,1,Mittel
+Senate,Energy and Natural Resources,Subcommittee on National Parks,Consumer Cyclical,Recreational Vehicles,1,Mittel
+Senate,Energy and Natural Resources,Subcommittee on National Parks,Real Estate,Real Estate Services,2,Mittel
+Senate,Energy and Natural Resources,"Subcommittee on Public Lands, Forests, and Mining",Basic Materials,Other Industrial Metals & Mining,1,Hoch
+Senate,Energy and Natural Resources,"Subcommittee on Public Lands, Forests, and Mining",Basic Materials,Gold,1,Hoch
+Senate,Energy and Natural Resources,"Subcommittee on Public Lands, Forests, and Mining",Basic Materials,Copper,1,Hoch
+Senate,Energy and Natural Resources,"Subcommittee on Public Lands, Forests, and Mining",Basic Materials,Silver,1,Hoch
+Senate,Energy and Natural Resources,"Subcommittee on Public Lands, Forests, and Mining",Basic Materials,Other Precious Metals & Mining,1,Hoch
+Senate,Energy and Natural Resources,"Subcommittee on Public Lands, Forests, and Mining",Basic Materials,Aluminum,1,Hoch
+Senate,Energy and Natural Resources,"Subcommittee on Public Lands, Forests, and Mining",Basic Materials,Steel,1,Hoch
+Senate,Energy and Natural Resources,"Subcommittee on Public Lands, Forests, and Mining",Basic Materials,Coking Coal,1,Hoch
+Senate,Energy and Natural Resources,"Subcommittee on Public Lands, Forests, and Mining",Basic Materials,Lumber & Wood Production,1,Hoch
+Senate,Energy and Natural Resources,"Subcommittee on Public Lands, Forests, and Mining",Basic Materials,Paper & Paper Products,1,Hoch
+Senate,Energy and Natural Resources,"Subcommittee on Public Lands, Forests, and Mining",Energy,Oil & Gas E&P,2,Hoch
+Senate,Energy and Natural Resources,"Subcommittee on Public Lands, Forests, and Mining",Energy,Oil & Gas Drilling,2,Hoch
+Senate,Energy and Natural Resources,"Subcommittee on Public Lands, Forests, and Mining",Energy,Thermal Coal,2,Hoch
+Senate,Energy and Natural Resources,"Subcommittee on Public Lands, Forests, and Mining",Energy,Uranium,2,Hoch
+Senate,Energy and Natural Resources,Subcommittee on Water and Power,Utilities,Utilities - Regulated Water,1,Hoch
+Senate,Energy and Natural Resources,Subcommittee on Water and Power,Utilities,Utilities - Regulated Electric,1,Hoch
+Senate,Energy and Natural Resources,Subcommittee on Water and Power,Utilities,Utilities - Renewable,1,Hoch
+Senate,Environment and Public Works,"Subcommittee on Chemical Safety, Waste Management, Environmental Justice, and Regulatory Oversight",Basic Materials,Specialty Chemicals,1,Hoch
+Senate,Environment and Public Works,"Subcommittee on Chemical Safety, Waste Management, Environmental Justice, and Regulatory Oversight",Basic Materials,Chemicals,1,Hoch
+Senate,Environment and Public Works,"Subcommittee on Chemical Safety, Waste Management, Environmental Justice, and Regulatory Oversight",Industrials,Waste Management,2,Hoch
+Senate,Environment and Public Works,"Subcommittee on Chemical Safety, Waste Management, Environmental Justice, and Regulatory Oversight",Industrials,Pollution & Treatment Controls,2,Hoch
+Senate,Environment and Public Works,"Subcommittee on Clean Air, Climate, and Nuclear Innovation and Safety",Energy,Uranium,1,Hoch
+Senate,Environment and Public Works,"Subcommittee on Clean Air, Climate, and Nuclear Innovation and Safety",Energy,Oil & Gas Integrated,1,Hoch
+Senate,Environment and Public Works,"Subcommittee on Clean Air, Climate, and Nuclear Innovation and Safety",Energy,Thermal Coal,1,Hoch
+Senate,Environment and Public Works,"Subcommittee on Clean Air, Climate, and Nuclear Innovation and Safety",Utilities,Utilities - Renewable,2,Hoch
+Senate,Environment and Public Works,"Subcommittee on Clean Air, Climate, and Nuclear Innovation and Safety",Utilities,Utilities - Independent Power Producers,2,Hoch
+Senate,Environment and Public Works,"Subcommittee on Clean Air, Climate, and Nuclear Innovation and Safety",Utilities,Utilities - Regulated Electric,2,Hoch
+Senate,Environment and Public Works,"Subcommittee on Clean Air, Climate, and Nuclear Innovation and Safety",Consumer Cyclical,Auto Manufacturers,3,Hoch
+Senate,Environment and Public Works,"Subcommittee on Clean Air, Climate, and Nuclear Innovation and Safety",Technology,Solar,4,Hoch
+Senate,Environment and Public Works,"Subcommittee on Fisheries, Wildlife, and Water",Utilities,Utilities - Regulated Water,1,Mittel
+Senate,Environment and Public Works,Subcommittee on Transportation and Infrastructure,Industrials,Engineering & Construction,1,Hoch
+Senate,Environment and Public Works,Subcommittee on Transportation and Infrastructure,Industrials,Building Products & Equipment,1,Hoch
+Senate,Environment and Public Works,Subcommittee on Transportation and Infrastructure,Industrials,Farm & Heavy Construction Machinery,1,Hoch
+Senate,Environment and Public Works,Subcommittee on Transportation and Infrastructure,Basic Materials,Building Materials,2,Hoch
+Senate,Environment and Public Works,Subcommittee on Transportation and Infrastructure,Basic Materials,Steel,2,Hoch
+Senate,Finance,"Subcommittee on Energy, Natural Resources, and Infrastructure",Energy,Oil & Gas Integrated,1,Hoch
+Senate,Finance,"Subcommittee on Energy, Natural Resources, and Infrastructure",Energy,Oil & Gas E&P,1,Hoch
+Senate,Finance,"Subcommittee on Energy, Natural Resources, and Infrastructure",Energy,Oil & Gas Midstream,1,Hoch
+Senate,Finance,"Subcommittee on Energy, Natural Resources, and Infrastructure",Energy,Oil & Gas Equipment & Services,1,Hoch
+Senate,Finance,"Subcommittee on Energy, Natural Resources, and Infrastructure",Industrials,Engineering & Construction,2,Hoch
+Senate,Finance,"Subcommittee on Energy, Natural Resources, and Infrastructure",Basic Materials,Other Industrial Metals & Mining,3,Hoch
+Senate,Finance,"Subcommittee on Energy, Natural Resources, and Infrastructure",Basic Materials,Steel,3,Hoch
+Senate,Finance,"Subcommittee on Energy, Natural Resources, and Infrastructure",Basic Materials,Building Materials,3,Hoch
+Senate,Finance,Subcommittee on Fiscal Responsibility and Economic Growth,Financial Services,Banks - Diversified,1,Mittel
+Senate,Finance,Subcommittee on Fiscal Responsibility and Economic Growth,Financial Services,Capital Markets,1,Mittel
+Senate,Finance,Subcommittee on Fiscal Responsibility and Economic Growth,Financial Services,Asset Management,1,Mittel
+Senate,Finance,Subcommittee on Health Care,Healthcare,Healthcare Plans,1,Hoch
+Senate,Finance,Subcommittee on Health Care,Healthcare,Drug Manufacturers - General,1,Hoch
+Senate,Finance,Subcommittee on Health Care,Healthcare,Drug Manufacturers - Specialty & Generic,1,Hoch
+Senate,Finance,Subcommittee on Health Care,Healthcare,Medical Devices,1,Hoch
+Senate,Finance,Subcommittee on Health Care,Healthcare,Medical Care Facilities,1,Hoch
+Senate,Finance,Subcommittee on Health Care,Healthcare,Biotechnology,1,Hoch
+Senate,Finance,Subcommittee on Health Care,Healthcare,Medical Instruments & Supplies,1,Hoch
+Senate,Finance,Subcommittee on Health Care,Healthcare,Medical Distribution,1,Hoch
+Senate,Finance,Subcommittee on Health Care,Healthcare,Diagnostics & Research,1,Hoch
+Senate,Finance,Subcommittee on Health Care,Healthcare,Health Information Services,1,Hoch
+Senate,Finance,Subcommittee on Health Care,Healthcare,Pharmaceutical Retailers,1,Hoch
+Senate,Finance,Subcommittee on Health Care,Financial Services,Insurance - Diversified,2,Hoch
+Senate,Finance,"Subcommittee on International Trade, Customs, and Global Competitiveness",Consumer Cyclical,Auto Manufacturers,1,Mittel
+Senate,Finance,"Subcommittee on International Trade, Customs, and Global Competitiveness",Consumer Cyclical,Internet Retail,1,Mittel
+Senate,Finance,"Subcommittee on International Trade, Customs, and Global Competitiveness",Consumer Cyclical,Auto Parts,1,Mittel
+Senate,Finance,"Subcommittee on International Trade, Customs, and Global Competitiveness",Consumer Cyclical,Apparel Manufacturing,1,Mittel
+Senate,Finance,"Subcommittee on International Trade, Customs, and Global Competitiveness",Technology,Semiconductors,2,Mittel
+Senate,Finance,"Subcommittee on International Trade, Customs, and Global Competitiveness",Technology,Consumer Electronics,2,Mittel
+Senate,Finance,"Subcommittee on International Trade, Customs, and Global Competitiveness",Industrials,Specialty Industrial Machinery,3,Mittel
+Senate,Finance,"Subcommittee on International Trade, Customs, and Global Competitiveness",Basic Materials,Steel,4,Mittel
+Senate,Finance,"Subcommittee on International Trade, Customs, and Global Competitiveness",Basic Materials,Aluminum,4,Mittel
+Senate,Finance,"Subcommittee on International Trade, Customs, and Global Competitiveness",Consumer Defensive,Farm Products,5,Mittel
+Senate,Finance,"Subcommittee on International Trade, Customs, and Global Competitiveness",Energy,Oil & Gas Integrated,6,Mittel
+Senate,Finance,"Subcommittee on Social Security, Pensions, and Family Policy",Financial Services,Insurance - Life,1,Mittel
+Senate,Finance,"Subcommittee on Social Security, Pensions, and Family Policy",Financial Services,Asset Management,1,Mittel
+Senate,Finance,"Subcommittee on Social Security, Pensions, and Family Policy",Financial Services,Insurance - Diversified,1,Mittel
+Senate,Finance,Subcommittee on Taxation and IRS Oversight,Financial Services,Banks - Diversified,1,Mittel
+Senate,Finance,Subcommittee on Taxation and IRS Oversight,Financial Services,Asset Management,1,Mittel
+Senate,Finance,Subcommittee on Taxation and IRS Oversight,Financial Services,Capital Markets,1,Mittel
+Senate,Finance,Subcommittee on Taxation and IRS Oversight,Financial Services,Insurance - Diversified,1,Mittel
+Senate,Foreign Relations,Subcommittee on Africa and Global Health Policy,Healthcare,Drug Manufacturers - General,1,Niedrig
+Senate,Foreign Relations,Subcommittee on Africa and Global Health Policy,Healthcare,Biotechnology,1,Niedrig
+Senate,Foreign Relations,"Subcommittee on East Asia, the Pacific, and International Cybersecurity Policy",Technology,Semiconductors,1,Mittel
+Senate,Foreign Relations,"Subcommittee on East Asia, the Pacific, and International Cybersecurity Policy",Technology,Semiconductor Equipment & Materials,1,Mittel
+Senate,Foreign Relations,"Subcommittee on East Asia, the Pacific, and International Cybersecurity Policy",Technology,Consumer Electronics,1,Mittel
+Senate,Foreign Relations,"Subcommittee on East Asia, the Pacific, and International Cybersecurity Policy",Technology,Communication Equipment,1,Mittel
+Senate,Foreign Relations,"Subcommittee on East Asia, the Pacific, and International Cybersecurity Policy",Industrials,Aerospace & Defense,2,Mittel
+Senate,Foreign Relations,"Subcommittee on East Asia, the Pacific, and International Cybersecurity Policy",Industrials,Marine Shipping,2,Mittel
+Senate,Foreign Relations,"Subcommittee on East Asia, the Pacific, and International Cybersecurity Policy",Communication Services,Internet Content & Information,3,Mittel
+Senate,Foreign Relations,Subcommittee on Europe and Regional Security Cooperation,Industrials,Aerospace & Defense,1,Mittel
+Senate,Foreign Relations,Subcommittee on Europe and Regional Security Cooperation,Energy,Oil & Gas Integrated,2,Mittel
+Senate,Foreign Relations,Subcommittee on Europe and Regional Security Cooperation,Financial Services,Banks - Diversified,3,Mittel
+Senate,Foreign Relations,Subcommittee on Europe and Regional Security Cooperation,Consumer Cyclical,Auto Manufacturers,4,Mittel
+Senate,Foreign Relations,"Subcommittee on Multilateral International Development, Multilateral Institutions, and International Economic, Energy, and Environmental Policy",Energy,Oil & Gas Integrated,1,Niedrig
+Senate,Foreign Relations,"Subcommittee on Multilateral International Development, Multilateral Institutions, and International Economic, Energy, and Environmental Policy",Financial Services,Banks - Diversified,2,Niedrig
+Senate,Foreign Relations,"Subcommittee on Near East, South Asia, Central Asia, and Counterterrorism",Energy,Oil & Gas Integrated,1,Mittel
+Senate,Foreign Relations,"Subcommittee on Near East, South Asia, Central Asia, and Counterterrorism",Energy,Oil & Gas E&P,1,Mittel
+Senate,Foreign Relations,"Subcommittee on Near East, South Asia, Central Asia, and Counterterrorism",Industrials,Aerospace & Defense,2,Mittel
+Senate,Foreign Relations,"Subcommittee on Western Hemisphere, Transnational Crime, Civilian Security, Democracy, Human Rights, and Global Women's Issues",Basic Materials,Copper,1,Mittel
+Senate,Foreign Relations,"Subcommittee on Western Hemisphere, Transnational Crime, Civilian Security, Democracy, Human Rights, and Global Women's Issues",Basic Materials,Other Industrial Metals & Mining,1,Mittel
+Senate,Foreign Relations,"Subcommittee on Western Hemisphere, Transnational Crime, Civilian Security, Democracy, Human Rights, and Global Women's Issues",Basic Materials,Silver,1,Mittel
+Senate,Foreign Relations,"Subcommittee on Western Hemisphere, Transnational Crime, Civilian Security, Democracy, Human Rights, and Global Women's Issues",Energy,Oil & Gas E&P,2,Mittel
+Senate,Foreign Relations,"Subcommittee on Western Hemisphere, Transnational Crime, Civilian Security, Democracy, Human Rights, and Global Women's Issues",Energy,Oil & Gas Integrated,2,Mittel
+Senate,Foreign Relations,"Subcommittee on Western Hemisphere, Transnational Crime, Civilian Security, Democracy, Human Rights, and Global Women's Issues",Consumer Cyclical,Auto Manufacturers,3,Mittel
+Senate,"Health, Education, Labor, and Pensions",Subcommittee on Employment and Workplace Safety,Industrials,Staffing & Employment Services,1,Mittel
+Senate,"Health, Education, Labor, and Pensions",Subcommittee on Employment and Workplace Safety,Industrials,Specialty Business Services,1,Mittel
+Senate,"Health, Education, Labor, and Pensions",Subcommittee on Employment and Workplace Safety,Industrials,Engineering & Construction,1,Mittel
+Senate,"Health, Education, Labor, and Pensions",Subcommittee on Employment and Workplace Safety,Consumer Cyclical,Restaurants,2,Mittel
+Senate,"Health, Education, Labor, and Pensions",Subcommittee on Employment and Workplace Safety,Consumer Defensive,Grocery Stores,3,Mittel
+Senate,"Health, Education, Labor, and Pensions",Subcommittee on Employment and Workplace Safety,Basic Materials,Gold,4,Mittel
+Senate,"Health, Education, Labor, and Pensions",Subcommittee on Employment and Workplace Safety,Basic Materials,Other Industrial Metals & Mining,4,Mittel
+Senate,"Health, Education, Labor, and Pensions",Subcommittee on Employment and Workplace Safety,Energy,Thermal Coal,5,Mittel
+Senate,"Health, Education, Labor, and Pensions",Subcommittee on Employment and Workplace Safety,Energy,Oil & Gas Drilling,5,Mittel
+Senate,"Health, Education, Labor, and Pensions",Subcommittee on Primary Health and Retirement Security,Healthcare,Healthcare Plans,1,Hoch
+Senate,"Health, Education, Labor, and Pensions",Subcommittee on Primary Health and Retirement Security,Healthcare,Medical Care Facilities,1,Hoch
+Senate,"Health, Education, Labor, and Pensions",Subcommittee on Primary Health and Retirement Security,Healthcare,Drug Manufacturers - General,1,Hoch
+Senate,"Health, Education, Labor, and Pensions",Subcommittee on Primary Health and Retirement Security,Healthcare,Drug Manufacturers - Specialty & Generic,1,Hoch
+Senate,"Health, Education, Labor, and Pensions",Subcommittee on Primary Health and Retirement Security,Healthcare,Medical Devices,1,Hoch
+Senate,"Health, Education, Labor, and Pensions",Subcommittee on Primary Health and Retirement Security,Healthcare,Medical Instruments & Supplies,1,Hoch
+Senate,"Health, Education, Labor, and Pensions",Subcommittee on Primary Health and Retirement Security,Healthcare,Medical Distribution,1,Hoch
+Senate,"Health, Education, Labor, and Pensions",Subcommittee on Primary Health and Retirement Security,Healthcare,Diagnostics & Research,1,Hoch
+Senate,"Health, Education, Labor, and Pensions",Subcommittee on Primary Health and Retirement Security,Financial Services,Insurance - Life,2,Hoch
+Senate,"Health, Education, Labor, and Pensions",Subcommittee on Primary Health and Retirement Security,Financial Services,Asset Management,2,Hoch
+Senate,"Health, Education, Labor, and Pensions",Subcommittee on Primary Health and Retirement Security,Financial Services,Insurance - Diversified,2,Hoch
+Senate,Homeland Security and Governmental Affairs,Permanent Subcommittee on Investigations,Financial Services,Banks - Diversified,1,Mittel
+Senate,Homeland Security and Governmental Affairs,Permanent Subcommittee on Investigations,Financial Services,Capital Markets,1,Mittel
+Senate,Homeland Security and Governmental Affairs,Permanent Subcommittee on Investigations,Healthcare,Drug Manufacturers - General,2,Mittel
+Senate,Homeland Security and Governmental Affairs,Permanent Subcommittee on Investigations,Technology,Software - Application,3,Mittel
+Senate,Homeland Security and Governmental Affairs,"Subcommittee on Border Management, Federal Workforce, and Regulatory Affairs",Technology,Software - Infrastructure,1,Niedrig
+Senate,Homeland Security and Governmental Affairs,"Subcommittee on Border Management, Federal Workforce, and Regulatory Affairs",Technology,Information Technology Services,1,Niedrig
+Senate,Homeland Security and Governmental Affairs,"Subcommittee on Disaster Management, District of Columbia, and Census",Financial Services,Insurance - Property & Casualty,1,Niedrig
+Senate,Homeland Security and Governmental Affairs,"Subcommittee on Disaster Management, District of Columbia, and Census",Financial Services,Insurance - Specialty,1,Niedrig
+Senate,Judiciary,"Subcommittee on Antitrust, Competition Policy, and Consumer Rights",Technology,Software - Application,1,Hoch
+Senate,Judiciary,"Subcommittee on Antitrust, Competition Policy, and Consumer Rights",Technology,Software - Infrastructure,1,Hoch
+Senate,Judiciary,"Subcommittee on Antitrust, Competition Policy, and Consumer Rights",Technology,Consumer Electronics,1,Hoch
+Senate,Judiciary,"Subcommittee on Antitrust, Competition Policy, and Consumer Rights",Communication Services,Internet Content & Information,2,Hoch
+Senate,Judiciary,"Subcommittee on Antitrust, Competition Policy, and Consumer Rights",Communication Services,Entertainment,2,Hoch
+Senate,Judiciary,"Subcommittee on Federal Courts, Oversight, Agency Action, and Federal Rights",Healthcare,Drug Manufacturers - General,1,Mittel
+Senate,Judiciary,"Subcommittee on Federal Courts, Oversight, Agency Action, and Federal Rights",Healthcare,Biotechnology,1,Mittel
+Senate,Judiciary,"Subcommittee on Federal Courts, Oversight, Agency Action, and Federal Rights",Financial Services,Banks - Diversified,2,Mittel
+Senate,Judiciary,"Subcommittee on Federal Courts, Oversight, Agency Action, and Federal Rights",Financial Services,Capital Markets,2,Mittel
+Senate,Judiciary,"Subcommittee on Federal Courts, Oversight, Agency Action, and Federal Rights",Energy,Oil & Gas Integrated,3,Mittel
+Senate,Judiciary,"Subcommittee on Federal Courts, Oversight, Agency Action, and Federal Rights",Utilities,Utilities - Regulated Electric,4,Mittel
+Senate,Judiciary,Subcommittee on Intellectual Property,Technology,Software - Application,1,Hoch
+Senate,Judiciary,Subcommittee on Intellectual Property,Technology,Semiconductors,1,Hoch
+Senate,Judiciary,Subcommittee on Intellectual Property,Healthcare,Drug Manufacturers - General,2,Hoch
+Senate,Judiciary,Subcommittee on Intellectual Property,Healthcare,Biotechnology,2,Hoch
+Senate,Judiciary,Subcommittee on Intellectual Property,Communication Services,Entertainment,3,Hoch
+Senate,Judiciary,Subcommittee on Intellectual Property,Communication Services,Publishing,3,Hoch
+Senate,Judiciary,"Subcommittee on Privacy, Technology, and the Law",Technology,Software - Application,1,Hoch
+Senate,Judiciary,"Subcommittee on Privacy, Technology, and the Law",Technology,Software - Infrastructure,1,Hoch
+Senate,Judiciary,"Subcommittee on Privacy, Technology, and the Law",Technology,Information Technology Services,1,Hoch
+Senate,Judiciary,"Subcommittee on Privacy, Technology, and the Law",Communication Services,Internet Content & Information,2,Hoch
+Senate,Judiciary,"Subcommittee on Privacy, Technology, and the Law",Communication Services,Advertising Agencies,2,Hoch
+Senate,Judiciary,"Subcommittee on Privacy, Technology, and the Law",Healthcare,Health Information Services,3,Hoch
+Senate,Judiciary,"Subcommittee on Privacy, Technology, and the Law",Healthcare,Biotechnology,3,Hoch
+Senate,Judiciary,"Subcommittee on Privacy, Technology, and the Law",Financial Services,Credit Services,4,Hoch

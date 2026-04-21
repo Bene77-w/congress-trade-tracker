@@ -4,9 +4,13 @@ __pycache__/
 *.pyc
 .pytest_cache/
 data/processed/
+data/cache/*.db
 data/raw/congress_trading_data_quiver.xlsx
 logs/
-archive/
+archive/trades_master_backup
+data/processed/trades_stage.csv
+data/processed/delisted_trades_stage.csv
+data/processed/delisted_trades.csv
 
 # git add . — markiert alle Dateien (außer .gitignore-Einträge) als "bereit zum Speichern" (Staging)
 # git commit — speichert einen Snapshot des aktuellen Zustands dauerhaft in der lokalen Git-Datenbank

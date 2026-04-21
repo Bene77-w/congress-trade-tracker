@@ -14,7 +14,7 @@ python scrapers/house_scraper.py           # → house_trades.csv
 python scrapers/senate_scraper.py          # → senate_trades.csv
 
 # 2. Optional: OCR fuer gescannte PDFs
-python scrapers/house_pdf_extractor.py     # → ergaenzt house_trades.csv
+python scrapers/house_pdf_extractor_v2.py  # → ergaenzt house_trades.csv (empfohlen)
 python scrapers/senate_pdf_extractor.py    # → ergaenzt senate_trades.csv (irrelevant)
 
 # 3. Import-Pipeline (Anreicherung + Dedup)
@@ -100,11 +100,58 @@ python scripts/convert_xlsx_to_csv.py      # → mapping-CSVs neu generieren
 - Typ B: Querformat getippte Tabellen (mehrere Trades/Seite)
 - Typ C: Hybrid rotierte getippte Formulare
 
+**Delta-Check:** Bereits verarbeitete DocIDs werden in `logs/house_pdf_extractor_done.csv` getrackt und beim naechsten Lauf uebersprungen. Gilt auch fuer PDFs mit 0 Trades.
+
 **CLI:**
 ```
---doc-id ID --year Y Einzelne PDF
+--doc-id ID --year Y Einzelne PDF (kein Delta-Check)
 --dry-run            Nicht speichern
+--no-delta           Alle PDFs verarbeiten (Done-CSV ignorieren)
 --model claude-sonnet-4-6  Anderes Modell
+```
+
+---
+
+## Pipeline 3b: House PDF Extractor v2 (Grid-basiert)
+
+**Script:** `scrapers/house_pdf_extractor_v2.py`
+**Input:** `data/raw/house_scraper_fehler.csv` (reason="empty_text")
+**Output:** Ergaenzt `data/raw/house_trades.csv`
+**Status:** Empfohlen (loest Merge-, Truncation- und Amount-NaN-Probleme von v1)
+
+**Ablauf:**
+1. Liest Fehler-CSV, filtert `empty_text`-Eintraege
+2. PDF-Download → Seiten als Bilder (pdfplumber, 300 DPI)
+3. Rotationserkennung (Portrait = 90° gedreht)
+4. **OpenCV Grid-Detection** auf Raw-Graustufenbild (morphologische Linienerkennung)
+5. **Pixel-Density Amount-Detection**: Zaehlt dunkle Pixel in A-K Checkbox-Zellen
+6. **Vision API pro 5-Zeilen-Batch** fuer Text-Felder (Owner, Asset, Tx Type, Dates) + `readable`-Flag pro Zeile
+7. Fallback: Wenn Grid nicht erkannt → ganzes Seitenbild an Vision API (wie v1), Terminal-Ausgabe
+8. **Quality Gate**: Zeilen mit `readable: false` → `logs/ocr_uncertain.csv` (nicht in house_trades.csv)
+9. Dedup gegen bestehende house_trades.csv → nur neue Trades anhaengen
+
+**Unterstützte Formulartypen:**
+- Typ A: Rotierte handschriftliche Formulare (1 Trade/Seite) — Bilirakis, Wagner
+- Typ B: Querformat getippte Tabellen (~25 Trades/Seite, manchmal 90° gedreht) — McCaul
+- Typ C: Hybrid rotierte getippte Formulare (~7 Trades/Seite) — Fleischmann
+- Typ D: Broker Statements, rotiert (~15-20 Trades/Seite) — Khanna
+
+**Delta-Check:** Wie v1 — `logs/house_pdf_extractor_done.csv`
+
+**CLI:**
+```
+--doc-id ID --year Y Einzelne PDF (kein Delta-Check)
+--dry-run            Nicht speichern
+--no-delta           Alle PDFs verarbeiten (Done-CSV ignorieren)
+--model claude-sonnet-4-6  Anderes Modell
+```
+
+**Konfiguration** (config/settings.py):
+```
+PDF_EXTRACTOR_DPI = 300
+PDF_EXTRACTOR_AMOUNT_PIXEL_THRESHOLD = 50
+PDF_EXTRACTOR_USE_GRID_DETECTION = True
+PDF_EXTRACTOR_ROW_BATCH_SIZE = 5
 ```
 
 ---
@@ -120,56 +167,124 @@ python scripts/convert_xlsx_to_csv.py      # → mapping-CSVs neu generieren
 1. Liest Skipped-CSV (Paper-PTR-Links)
 2. Playwright oeffnet Print-URL mit Session-Cookies
 3. GIF-Bilder aus DOM extrahieren (efd-media-public.senate.gov)
-4. Vision API → JSON-Extraktion
+4. Vision API → JSON-Extraktion (2s Pause zwischen Seiten)
 5. Anhaengen an senate_trades.csv
+
+**Delta-Check:** Bereits verarbeitete ptr_links werden in `data/raw/senate_pdf_extractor_done.csv` getrackt und beim naechsten Lauf uebersprungen. Gilt auch fuer PDFs mit 0 Trades.
+
+**CLI:**
+```
+--url URL            Einzelne PTR-URL (kein Delta-Check)
+--dry-run            Nicht speichern
+--no-delta           Alle PDFs verarbeiten (Done-CSV ignorieren)
+--model claude-sonnet-4-6  Anderes Modell
+```
 
 ---
 
 ## Pipeline 5: Import-Pipeline (Hauptpipeline)
 
 **Script:** `scripts/import_trades.py`
-**Input:** `house_trades.csv` + `senate_trades.csv`
-**Output:** `trades_master.csv`, `trades_new.csv`, `unmatched_names.csv`
+**Input:** `data/raw/congress-trading-all.csv` (Quiver-Snapshot, vollständiger Datensatz)
+**Output:** `data/processed/trades_master.csv`, `data/processed/unmatched_names.csv`, `data/processed/unmatched_preferred.csv` (bei Bedarf)
 
-**Ablauf:**
+**Modi:**
+- `python scripts/import_trades.py` — Full Rebuild (trades_master.csv komplett neu schreiben, mit Backup)
+- `python scripts/import_trades.py --delta` — Delta-Import (nur neue Trades anreichern + merge in Master)
+- `python scripts/import_trades.py --dry_run` — Alle Stages → trades_stage.csv (Master unberührt)
+
+**Stage-Pipeline (einzelne Schritte, unabhängig re-runnable):**
 ```
-[1] Lade Scraped Trades
-    → house_trades.csv + senate_trades.csv einlesen
-    → chamber-Spalte hinzufuegen ("House"/"Senate")
-    → Datum-Spalten konvertieren
+--stage_rename       # Quiver laden, Spalten umbenennen → Master/Stage
+--stage_date         # Datum normalisieren
+--stage_committees   # Committee-Member-Enrichment (nur Member-Spalten, kein Scoring)
+--stage_tickertype   # ticker_type via OpenFIGI ableiten
+--stage_tickerindustry  # yfinance Sector/Industry Lookup
+--stage_filter       # Scoring + Filter 0 (Asset-Klasse) + Filter 4 (Vote-Timing)
+--stage_save         # trades_stage.csv → trades_master.csv (replace/delta-merge)
+```
+
+**Flag-Matrix: Was wird gelesen/geschrieben?**
+| Aufruf | Input | Output | Master-Backup |
+|--------|-------|--------|---------------|
+| `--stage_X` | trades_master.csv | trades_master.csv | ✅ |
+| `--stage_X --dry_run` | trades_master.csv | trades_stage.csv | ❌ |
+| `--stage_X --delta` | trades_stage.csv | trades_stage.csv | ❌ |
+| `--stage_save` | trades_stage.csv | trades_master.csv (replace) | ✅ |
+| `--delta --stage_save` | trades_stage.csv | trades_master.csv (merge) | ✅ |
+| `--dry_run` (kein Stage) | Quiver | trades_stage.csv | ❌ |
+| `--delta` (kein Stage) | Quiver+Master | trades_master.csv (merge) | ✅ |
+
+**Ablauf Full Rebuild:**
+```
+[1] Lade Quiver-Trades + Datum normalisieren
+    → Quiver-CSV einlesen (Spalten-Rename via QUIVER_COLUMN_MAP)
+    → Datum-Fallback: fehlende/future transaction_date ← disclosure_date
          ↓
-[2] Lade bestehende Master-Daten
-    → trades_master.csv (kumulativ)
-    → Leerer DataFrame bei Erstimport
-         ↓
-[3] Duplikat-Erkennung
-    → Composite Key aus 11 Spalten (settings.DUPLICATE_CHECK_COLUMNS)
-    → Vergleich gegen Master → nur neue Trades weiter
-         ↓
-[4] Anreicherung (NameMatcher + CommitteeFilter)
+[2] Committee-Member-Enrichment (enrich_member_data)
+    → Checkpoint-Support: alle 5.000 Trades als Pickle (Abbruch-sicher)
     → 3-Stufen Matching: Alias → Exakt → Fuzzy (85%)
-    → Committee-Relevanz berechnen (Rank × Confidence × Role)
-    → Neue Spalten: Member_Party/State/Committees/ExOfficio/Chamber,
-      MatchScore/Source, Relevant_Sectors, Relevance_Score, Confidence_Level
+    → Neue Spalten: Member_Party, Member_State, Member_Committees,
+      Member_ExOfficio, Member_Chamber, Member_Committees_Full
+    (KEIN Scoring in dieser Stage → kommt in [4])
          ↓
-[5] Speichern
-    → trades_new.csv (aktuelle Batch)
-    → trades_master.csv (Master + neue Trades)
-    → unmatched_names.csv (fehlgeschlagene Matches mit Best-Guess)
+[3] Ticker-Type Klassifikation (OpenFIGI API + Regex)
+    → ticker_type Spalte setzen
+         ↓
+[4] Ticker-Industry Lookup (yfinance)
+    → Ticker_Sector, Ticker_Industry Spalten setzen
+         ↓
+[5] Filter-Logik (_apply_filter_logic)
+    → MatchScore, MatchSource (via NameMatcher erneut, schnell)
+    → Relevant_Sectors, Relevance_Score, Confidence_Level (via CommitteeFilter)
+    → asset_class_excluded (Filter 0: Asset-Klasse)
+    → Vote_Timing_Hit, Vote_Date, Vote_Bill_Title, Vote_Policy_Area,
+      Vote_Timing_Score, Days_To_Vote (Filter 4: Vote-Timing)
+    → TODO: Filter 1/2/6/7 (Volumen, Schwarm, Long/Short, Position)
+         ↓
+[6] Speichern
+    → Backup: archive/trades_master_backup/trades_master_{YYYYMMDD-HHMMSS}.csv
+    → trades_master.csv (komplett neu geschrieben)
+    → unmatched_names.csv
 ```
 
-**Full Rebuild:** Die Pipeline verarbeitet nur neue Trades (Duplikat-Check). Um alle Trades neu anzureichern (z.B. nach Member-CSV-Aenderung), `trades_master.csv` loeschen und Pipeline erneut ausfuehren.
+**Hinweis:** Die Pipeline ist ein reiner Enrichment-Durchlauf — es werden keine Zeilen entfernt.
+
+**Delta-Modus** (`--delta`): Lädt aktuelle Quiver-CSV, vergleicht per Key-Dedup gegen bestehende
+trades_master.csv, reichert nur neue Trades an und mergt sie (mit Dedup) in Master.
+
+**Einzelstage re-runnen (Beispiele):**
+```bash
+# Filter-Stage nach Mapping-Änderung neu berechnen (mit Backup):
+python scripts/import_trades.py --stage_filter
+
+# Dry-Run: komplette Pipeline ohne Master-Touch:
+python scripts/import_trades.py --dry_run
+
+# Dry-Run committen:
+python scripts/import_trades.py --stage_save
+
+# Delta stage-weise:
+python scripts/import_trades.py --delta --stage_rename    # neue Trades → stage.csv
+python scripts/import_trades.py --delta --stage_filter    # filter auf stage.csv
+python scripts/import_trades.py --delta --stage_save      # merge in Master
+```
 
 **Abhaengigkeiten:**
 - `utils/name_matcher.py` — 3-Tier Matching (Alias/Exakt/Fuzzy)
 - `filters/committee_filter.py` — Committee-Relevanz-Scoring
+- `filters/asset_class_filter.py` — Filter 0: Nicht-Aktien flaggen (asset_class_excluded)
+- `filters/vote_timing_filter.py` — Filter 4: Vote-Timing (respektiert asset_class_excluded)
 - `config/committee_mapping.py` — O(1) Subcommittee→Sektor Lookup
 - `config/settings.py` — Alle Schwellenwerte und Pfade
+- `data/mappings/Vorzugsaktien_mapping.csv` — Preferred→Stammaktien-Ticker (16 Mappings)
+- `data/mappings/ticker_industry_cache.json` — yfinance-Cache (Ticker→Sector/Industry)
+- `yfinance` (Python-Paket) — Sector/Industry Lookup via Yahoo Finance API
 
 **NameMatcher-Details:**
 | Stufe | Methode | Datenquelle |
 |-------|---------|-------------|
-| 1. Alias | Exakter Lookup | `data/config/name_aliases.csv` |
+| 1. Alias | Exakter Lookup | `data/mappings/name_aliases.csv` |
 | 2. Exakt | Case-insensitive Key | House/Senate Member-CSVs + Former Members |
 | 3. Fuzzy | rapidfuzz WRatio ≥85% | Alle Member-Namen (inkl. Former) |
 
@@ -185,9 +300,9 @@ Senate-Besonderheit: Zwei Lookup-Keys pro Senator ("Last, First" + "First Last")
 **Konvertierungen:**
 | Input (xlsx) | Sheet | Output (csv) |
 |---|---|---|
-| `yf_secotors_with_industries.xlsx` | — | `yf_sectors_with_industries.csv` |
-| `subcommittee_sector_industry_mapping_v3.xlsx` | Industry_Mapping | `subcommittee_sector_industry_mapping.csv` |
-| `subcommittee_sector_industry_mapping_v3.xlsx` | Region_Mapping | `subcommittee_region_mapping.csv` |
+| `data/mappings/yf_secotors_with_industries.xlsx` | — | `data/mappings/yf_sectors_with_industries.csv` |
+| `data/mappings/subcommittee_sector_industry_mapping_v3.xlsx` | Industry_Mapping | `data/mappings/subcommittee_sector_industry_mapping.csv` |
+| `data/mappings/subcommittee_sector_industry_mapping_v3.xlsx` | Region_Mapping | `data/mappings/subcommittee_region_mapping.csv` |
 
 Nur ausfuehren wenn xlsx-Dateien geaendert wurden.
 
@@ -263,10 +378,12 @@ Diese Dateien werden nicht durch Pipelines erzeugt, sondern manuell gepflegt:
 
 | Datei | Aktualisierung | Zweck |
 |-------|----------------|-------|
-| `data/raw/house_member&(sub)committees.csv` | Alle 2 Jahre (Wahlen) | 437 House-Mitglieder + Committees (inkl. 5 Leadership ex officio) |
-| `data/raw/senate_member&(sub)committees.csv` | Alle 2 Jahre (Wahlen) | 100 Senatoren + Committees |
+| `data/mappings/house_member&(sub)committees.csv` | Alle 2 Jahre (Wahlen) | 437 House-Mitglieder + Committees (inkl. 5 Leadership ex officio) |
+| `data/mappings/senate_member&(sub)committees.csv` | Alle 2 Jahre (Wahlen) | 100 Senatoren + Committees |
+| `data/mappings/name_aliases.csv` | Bei Bedarf (neue Varianten) | Manuelle Namenskorrekturen (11 Eintraege) |
+| `data/mappings/subcommittee_sector_industry_mapping.csv` | Bei Bedarf | Subcommittee→Sektor/Industry (861 Zeilen) |
+| `data/mappings/vote_sector_mapping.py` | Bei Bedarf | Policy Area→YF-Sektoren (Python, 12 Mappings) |
 | `data/raw/former_members.csv` | Bei Bedarf (Congresswechsel) | Ehemalige Politiker mit Trades (6 Eintraege) |
-| `data/config/name_aliases.csv` | Bei Bedarf (neue Varianten) | Manuelle Namenskorrekturen (11 Eintraege) |
 | `config/settings.py` | Bei Bedarf | Alle Schwellenwerte, Pfade, Gewichtungen |
 
 ---

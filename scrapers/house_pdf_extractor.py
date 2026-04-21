@@ -66,6 +66,21 @@ AMOUNT_RANGES = {
     "K": "$1,000,001+",
 }
 
+# Type D: Broker-Statement-Formulare (z.B. Khanna) — G/H vertauscht, I breiter
+AMOUNT_RANGES_TYPE_D = {
+    "A": "$1,001 - $15,000",
+    "B": "$15,001 - $50,000",
+    "C": "$50,001 - $100,000",
+    "D": "$100,001 - $250,000",
+    "E": "$250,001 - $500,000",
+    "F": "$500,001 - $1,000,000",
+    "G": "$5,000,001 - $25,000,000",
+    "H": "$1,000,001 - $5,000,000",
+    "I": "$5,000,001 - $50,000,000",
+    "J": "Over $50,000,000",
+    "K": "$1,000,001+",
+}
+
 # Owner-Langformen (konsistent mit house_trades.csv)
 OWNER_LONG = {
     "Self": "Self",
@@ -84,10 +99,15 @@ Always respond with valid JSON only. No explanations, no markdown fences."""
 
 EXTRACTION_USER_PROMPT = """Extract ALL transactions from this House PTR paper form image.
 
-IMPORTANT: These forms come in 3 variants:
+IMPORTANT: These forms come in 4 variants:
 1. ROTATED HANDWRITTEN: 90° rotated, handwritten entries, 1 trade per page
 2. LANDSCAPE TABLE: Normal orientation, typed entries, many trades per page (e.g. McCaul)
 3. HYBRID: 90° rotated but typed entries, multiple trades per page (e.g. Fleischmann)
+4. BROKER STATEMENT TABLE: Normal orientation, typed entries, many trades per page.
+   Amount columns A-K are INLINE per row as the rightmost columns of the table.
+   Each row has exactly one "x" in one of the A-K amount columns.
+   Do NOT confuse these with the Type of Transaction checkmarks (Purchase/Sale/Exchange)
+   which are in the LEFT section of the table.
 
 The form columns are:
 - SP/JT/DC: Owner code (SP=Spouse, JT=Joint, DC=Dependent Child, blank=Self)
@@ -95,15 +115,20 @@ The form columns are:
 - TYPE OF TRANSACTION: Checkmark in Purchase/Sale/Partial Sale/Exchange column
 - DATE OF TRANSACTION: MM/DD/YY or MM/DD/YYYY
 - DATE NOTIFIED: MM/DD/YY or MM/DD/YYYY
-- AMOUNT OF TRANSACTION: Letter A through K (checkbox), each mapping to a dollar range:
-  A=$1,001-$15,000, B=$15,001-$50,000, C=$50,001-$100,000, D=$100,001-$250,000,
-  E=$250,001-$500,000, F=$500,001-$1,000,000, G=$1,000,001-$5,000,000,
-  H=$5,000,001-$25,000,000, I=$25,000,001-$50,000,000, J=Over $50,000,000,
-  K=Spouse/DC over $1,000,000
+- AMOUNT OF TRANSACTION: Columns A through K at the RIGHT side of the table.
+  Each row has an "x" in exactly one column. Return the dollar range as "amount" text.
+  Standard mapping: A=$1,001-$15,000, B=$15,001-$50,000, C=$50,001-$100,000,
+  D=$100,001-$250,000, E=$250,001-$500,000, F=$500,001-$1,000,000,
+  G=$1,000,001-$5,000,000, H=$5,000,001-$25,000,000, I=$25,000,001-$50,000,000,
+  J=Over $50,000,000, K=Spouse/DC Asset over $1,000,000
+  NOTE: Some forms (TYPE 4) swap G and H: G=$5,000,001-$25,000,000, H=$1,000,001-$5,000,000,
+  I=$5,000,001-$50,000,000. Read the actual column header text to determine the correct range.
 
 CRITICAL RULES:
 - Extract EVERY transaction row, do not skip any
-- For the AMOUNT field: Look for the checked letter (A-K) and return that letter as amount_code
+- For the AMOUNT field: Find the "x" in the A-K amount columns (rightmost columns of the table).
+  Return BOTH the letter as "amount_code" AND the dollar range as "amount" text.
+  If you can read the column header, use that as "amount". Otherwise use the letter code.
 - For TYPE B/C forms with many trades: The amount checkboxes may be in a grid at the bottom,
   where each COLUMN corresponds to a transaction ROW above. Match them carefully by position.
 - Owner codes: "SP" or "Spouse" → "Spouse", "JT" or "Joint" → "Joint",
@@ -130,6 +155,7 @@ CRITICAL RULES:
 Return JSON:
 {
   "is_transaction_page": true,
+  "form_variant": "standard" or "type_d",
   "member_name": "FIRST LAST" or "" if not visible,
   "notification_date": "MM/DD/YYYY" or "" if not visible,
   "transactions": [
@@ -141,6 +167,7 @@ Return JSON:
       "transaction_date": "MM/DD/YYYY",
       "notification_date": "MM/DD/YYYY",
       "amount_code": "A" through "K",
+      "amount": "$1,001 - $15,000" (dollar range text, preferred),
       "comment": ""
     }
   ]
@@ -176,6 +203,9 @@ class HousePdfExtractor:
         self._fehler_path = os.path.join(
             self._project_root, settings.DATA_RAW_PATH, "house_scraper_fehler.csv"
         )
+        self._done_path = os.path.join(
+            self._project_root, settings.LOGS_PATH, "house_pdf_extractor_done.csv"
+        )
         self._http = requests.Session()
         self._http.headers.update({"User-Agent": settings.SCRAPER_USER_AGENT})
         self._anthropic = None  # lazy init
@@ -184,12 +214,38 @@ class HousePdfExtractor:
     # Oeffentliche API
     # ------------------------------------------------------------------
 
+    def _load_done_doc_ids(self) -> set:
+        """Laedt bereits verarbeitete DocIDs aus der Done-CSV."""
+        if not os.path.isfile(self._done_path):
+            return set()
+        df = pd.read_csv(self._done_path)
+        return set(df["doc_id"].astype(str))
+
+    def _save_done_doc_ids(self, doc_ids: list[str]):
+        """Haengt verarbeitete DocIDs an die Done-CSV an."""
+        if not doc_ids:
+            return
+        new_df = pd.DataFrame({
+            "doc_id": doc_ids,
+            "processed_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        })
+        if os.path.isfile(self._done_path):
+            existing = pd.read_csv(self._done_path)
+            combined = pd.concat([existing, new_df], ignore_index=True)
+            combined.drop_duplicates(subset=["doc_id"], keep="last", inplace=True)
+        else:
+            combined = new_df
+        os.makedirs(os.path.dirname(self._done_path), exist_ok=True)
+        combined.to_csv(self._done_path, index=False)
+        logger.info(f"Done-CSV aktualisiert: {len(doc_ids)} DocIDs → {self._done_path}")
+
     def run(
         self,
         input_csv: Optional[str] = None,
         single_doc_id: Optional[str] = None,
         year: Optional[int] = None,
         dry_run: bool = False,
+        no_delta: bool = False,
     ) -> pd.DataFrame:
         """
         Haupteinstiegspunkt. Verarbeitet PDFs aus house_scraper_fehler.csv
@@ -200,6 +256,7 @@ class HousePdfExtractor:
             single_doc_id: Einzelne DocID verarbeiten (erfordert year)
             year:          Jahr fuer die DocID
             dry_run:       Wenn True, nur extrahieren, nicht speichern
+            no_delta:      Wenn True, alle PDFs verarbeiten (Delta-Check ueberspringen)
 
         Returns:
             pd.DataFrame mit allen extrahierten Trades.
@@ -223,6 +280,17 @@ class HousePdfExtractor:
             df_input = pd.read_csv(csv_path)
             # Nur empty_text PDFs verarbeiten (download_error etc. ueberspringen)
             df_input = df_input[df_input["reason"] == "empty_text"]
+
+            # Delta-Check: bereits verarbeitete DocIDs ueberspringen
+            if not no_delta:
+                done_ids = self._load_done_doc_ids()
+                if done_ids:
+                    before = len(df_input)
+                    df_input = df_input[~df_input["doc_id"].astype(str).isin(done_ids)]
+                    skipped = before - len(df_input)
+                    if skipped > 0:
+                        logger.info(f"Delta-Check: {skipped} bereits verarbeitete PDFs uebersprungen")
+
             rows = df_input.to_dict("records")
 
         if not rows:
@@ -288,6 +356,11 @@ class HousePdfExtractor:
                 f"=== Gesamt: {len(df)} Trades "
                 f"({before - len(df)} OCR-Duplikate entfernt) ==="
             )
+
+        # Verarbeitete DocIDs tracken (auch bei 0 Trades)
+        processed_ids = [str(r.get("doc_id", "")) for r in rows]
+        if not dry_run and processed_ids:
+            self._save_done_doc_ids(processed_ids)
 
         if not dry_run and not df.empty:
             self.save(df)
@@ -521,6 +594,8 @@ class HousePdfExtractor:
         # JSON-Fences entfernen falls vorhanden
         cleaned = re.sub(r"^```(?:json)?\s*", "", raw_text, flags=re.MULTILINE)
         cleaned = re.sub(r"```\s*$", "", cleaned, flags=re.MULTILINE).strip()
+        # Ungueltige JSON-Escape-Sequenzen reparieren (z.B. \i, \V → \\i, \\V)
+        cleaned = re.sub(r'\\(?!["\\/bfnrtu])', r'\\\\', cleaned)
 
         try:
             data = json.loads(cleaned)
@@ -536,6 +611,10 @@ class HousePdfExtractor:
         api_name = str(data.get("member_name", "")).strip()
         # disclosure_date: bevorzuge CSV-Wert, Fallback auf API
         api_notif_date = str(data.get("notification_date", "")).strip()
+
+        # Form-Variante bestimmt Amount-Mapping (G/H vertauscht bei Type D)
+        form_variant = str(data.get("form_variant", "standard")).strip().lower()
+        amount_dict = AMOUNT_RANGES_TYPE_D if form_variant == "type_d" else AMOUNT_RANGES
 
         transactions: list = data.get("transactions", [])
         trades: list[dict] = []
@@ -559,11 +638,16 @@ class HousePdfExtractor:
                 logger.debug(f"  Unbekannter transaction_type: {tx_type!r} - uebersprungen.")
                 continue
 
-            # Amount aus amount_code
-            amount = ""
+            # Amount: bevorzuge Text direkt, dann Code-Mapping, dann leer
+            amount = str(tx.get("amount", "")).strip()
             amount_code = str(tx.get("amount_code", "")).strip().upper()
-            if amount_code in AMOUNT_RANGES:
-                amount = AMOUNT_RANGES[amount_code]
+            if not amount and amount_code in amount_dict:
+                amount = amount_dict[amount_code]
+            row_idx = int(tx.get("row_index", idx + 1))
+            if not amount:
+                logger.warning(
+                    f"  Kein Amount fuer Zeile {row_idx}: {str(tx.get('asset_name', ''))[:40]!r}"
+                )
 
             # Dates normalisieren
             tx_date = self._normalize_date(
@@ -583,7 +667,7 @@ class HousePdfExtractor:
             comment = str(tx.get("comment", "")).strip()
 
             # Subholding-Header überspringen: kein Datum + kein Amount = kein echter Trade
-            if not tx_date and not amount_code:
+            if not tx_date and not amount and not amount_code:
                 logger.debug(
                     f"  Subholding-Header übersprungen: {asset_name!r} "
                     f"(transaction_type={tx_type!r}, kein Datum/Amount)"
@@ -696,6 +780,11 @@ def main():
         action="store_true",
         help="Extrahieren ohne Speichern",
     )
+    parser.add_argument(
+        "--no-delta",
+        action="store_true",
+        help="Alle PDFs verarbeiten (bereits verarbeitete nicht ueberspringen)",
+    )
     args = parser.parse_args()
 
     extractor = HousePdfExtractor(model=args.model)
@@ -704,9 +793,25 @@ def main():
         single_doc_id=args.doc_id,
         year=args.year,
         dry_run=args.dry_run,
+        no_delta=args.no_delta,
     )
 
-    print(f"\n>>> Extraktion abgeschlossen: {len(df)} Trades")
+    print(f"\n{'=' * 55}")
+    print(f"  Neu extrahiert:  {len(df):>8,} Trades")
+
+    if not args.dry_run:
+        output_path = extractor._output_path
+        if os.path.isfile(output_path):
+            size_bytes = os.path.getsize(output_path)
+            size_mb = size_bytes / (1024 * 1024)
+            with open(output_path, encoding="utf-8", errors="replace") as f:
+                total_rows = sum(1 for _ in f) - 1  # Kopfzeile abziehen
+            print(f"  CSV gesamt:      {total_rows:>8,} Zeilen  ({size_mb:.1f} MB)")
+            print(f"  Datei:           {output_path}")
+    else:
+        print("  (dry-run: keine Datei geschrieben)")
+    print(f"{'=' * 55}\n")
+
     if not df.empty:
         print(
             df[["name", "asset_name", "transaction_type", "amount", "transaction_date"]]

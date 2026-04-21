@@ -7,8 +7,14 @@ Python + Streamlit App die US-Kongress-Mitglieder Stock-Trades trackt, analysier
 1. **Alle Filter-Parameter muessen konfigurierbar sein** (in config/settings.py)
 2. **Immer erst Implementierungsplan zeigen**, dann auf "OK" warten bevor Code geschrieben wird
 3. **transaction_date verwenden**, nicht disclosure_date (45-Tage Meldefrist)
-4. **Neue Dateien dokumentieren**: Bei Erstellung oder Verwendung neuer projektrelevanter Dateien (Daten, Config, Scripts) → in `organisation/DATA_STRUCTURE.md` aufnehmen (Struktur, Spalten, Zweck, Beispiele)
-5. **Sytemanweisung**: Du bist ein erfahrener Software Entwickler. Du estellst vor jeder code Code-Änderung einen Implementierungsplan, bevor du diesen strikt umsetzt. Um einen individuell passenden Plan zu erstellen frägst du den User nach konkreten Anweisungen und frägst bei wichtigen Planungsfragen deine Entschiedung vom User approven. Du teilst jeden Gedankengang und Entscheidungsweg mit mir. Falls Rückfragen oder Probleme auftreten, teile mir diese mit. 
+4. **Neue Dateien dokumentieren**: Bei Erstellung oder Verwendung neuer projektrelevanter Dateien (Daten, Config, Scripts) → in `organisation/DATA_STRUCTURE.md` (Struktur, Spalten, Zweck, Beispiele) und `organisation/Pipelines.md` (Zweck, Postion in Pipeline) aufnehmen 
+5. **Dokumentation aktualisieren**: Bei jeder Code-Änderung die betroffenen Erklärungs-Dateien mitpflegen:
+   - Neue/geänderte Datenstrukturen oder Spalten → `organisation/DATA_STRUCTURE.md`
+   - Neue/geänderte Scripts, Ablauf oder Abhängigkeiten → `organisation/Pipelines.md`
+   - Neue Features, Filter, Scoring oder Workflow-Änderungen → `organisation/BMB_Tradingprogramm_Anleitung.md`
+   - Mindestens eine der drei Dateien ist bei jeder relevanten Änderung anzupassen.
+6. **Sytemanweisung**: Du bist ein erfahrener Software Entwickler. Du estellst vor jeder code Code-Änderung einen Implementierungsplan, bevor du diesen strikt umsetzt. Um einen individuell passenden Plan zu erstellen frägst du den User nach konkreten Anweisungen und frägst bei wichtigen Planungsfragen deine Entschiedung vom User approven. Du teilst jeden Gedankengang und Entscheidungsweg mit mir. Falls Rückfragen oder Probleme auftreten, teile mir diese mit. 
+7. **Fragen an dich** wenn ich nach deriner Einschätzung frage, dann präsentiere mir zunächst deinen Gedankengang; verschiedene Lösungswege; pro-/kontra Argumente und konsequenzen jedes Lösungsweges und zuletzt deine begründete Empfehlung 
 
 ---
 
@@ -17,12 +23,12 @@ Python + Streamlit App die US-Kongress-Mitglieder Stock-Trades trackt, analysier
 | Modul | Status | Beschreibung |
 |-------|--------|--------------|
 | 1 | FERTIG | Projektstruktur |
-| 2 | FERTIG | House Trades Scraping (ZIP + PDF-Parsing, 126 Tests, subholding-Fix Feb 2026) + House PDF Extractor (OCR, alle Formulartypen A/B/C getestet Feb 2026) |
+| 2 | FERTIG | House Trades Scraping (ZIP + PDF-Parsing, 126 Tests, subholding-Fix Feb 2026) + House PDF Extractor v2 (OpenCV Grid + Pixel-Density + Vision API Batch, alle Formulartypen A/B/C/D, Mrz 2026) |
 | 3 | FERTIG | Senate Trades Scraping (Playwright + DataTables API). senate_pdf_extractor liest gescannte PDFs fehlerhaft (Vision API), aber irrelevant - einziger Senator mit Paper-PTRs investiert nur in Fonds |
 | 4 | FERTIG | Ausschuss-Sektor-Mapping (CommitteeMapper + CommitteeFilter implementiert) |
 | 5 | ÜBERSPRUNGEN | Kursdaten (Yahoo Finance) - vorerst übersprungen |
-| 6 | Offen| Abstimmungsdaten - vorerst übersprungen |
-| 7 | OFFEN | Filter-Logik (Filter 1, 2, 4, 6, 7) + Filter 3 als Auto-Flag |
+| 6 | UNVOLLSTÄNDIG | bill_actions.json gefetcht (12.135 Bills, 409 Roll-Calls House+Senate). Extraktion → votes_house/senate.json fehlt. fetch_congress_votes.py obsolet. Filter 4 Code vorhanden aber inaktiv. |
+| 7 | OFFEN | Filter-Logik: Filter 3 ✅, Filter 4 Code ✅/Daten ❌, Filter 1/2/6/7 Code fehlt |
 | 8 | OFFEN | Scoring-System |
 | 9 | OFFEN | Streamlit Dashboard |
 | 10 | OFFEN | Email-Benachrichtigungen |
@@ -40,19 +46,21 @@ Python + Streamlit App die US-Kongress-Mitglieder Stock-Trades trackt, analysier
 
 ### Config
 - `config/settings.py` - Alle konfigurierbaren Parameter
-- `data/config/name_aliases.csv` - Manuelle Namenskorrekturen
+- `data/mappings/name_aliases.csv` - Manuelle Namenskorrekturen
 
 ### Daten
-- `data/raw/house_member&(sub)committees.csv` - House Mitglieder mit Committees (aus PDF extrahiert)
-- `data/raw/senate_member&(sub)committees.csv` - Senate Mitglieder mit Committees (aus PDF extrahiert)
+- `data/mappings/house_member&(sub)committees.csv` - House Mitglieder mit Committees (aus PDF extrahiert)
+- `data/mappings/senate_member&(sub)committees.csv` - Senate Mitglieder mit Committees (aus PDF extrahiert)
 - `data/raw/member&(sub)committees_structure.md` - Strukturdefinition für House/Senate Committee CSVs
 - `data/raw/house_trades.csv` - House PTR Trades (via house_scraper.py)
 - `data/raw/senate_trades.csv` - Senate PTR Trades (via senate_scraper.py)
 - `data/raw/congress_trading_data_quiver.xlsx` - Quiver Trade-Daten (legacy, nicht mehr als Import-Quelle genutzt)
-- `data/raw/yf_sectors_with_industries.csv` - Yahoo Finance Sektoren (11) mit Industries (176) **[CSV, empfohlen]**
-- `data/raw/yf_secotors_with_industries.xlsx` - Originaldatei (hierarchisch strukturiert)
-- `data/raw/subcommittee_sector_industry_mapping.csv` - Subcommittee→Sektor/Industry (861 Zeilen, normalisiert) **[CSV, empfohlen]**
-- `data/raw/subcommittee_sector_industry_mapping_v3.xlsx` - Originaldatei (6 Sheets: Industry_Mapping, Region_Mapping, etc.)
+- `data/mappings/yf_sectors_with_industries.csv` - Yahoo Finance Sektoren (11) mit Industries (176) **[CSV, empfohlen]**
+- `data/mappings/yf_secotors_with_industries.xlsx` - Originaldatei (hierarchisch strukturiert)
+- `data/mappings/subcommittee_sector_industry_mapping.csv` - Subcommittee→Sektor/Industry (861 Zeilen, normalisiert) **[CSV, empfohlen]**
+- `data/mappings/subcommittee_sector_industry_mapping_v3.xlsx` - Originaldatei (6 Sheets: Industry_Mapping, Region_Mapping, etc.)
+- `data/mappings/name_aliases.csv` - Manuelle Namenskorrekturen
+- `data/mappings/vote_sector_mapping.py` - Policy Area→YF-Sektoren Mapping (Python)
 - `data/processed/trades_master.csv` - Alle Trades mit Committee-Spalte
 - `data/raw/former_members.csv` - Ehemalige Politiker (name, party, state, chamber)
 - `data/processed/unmatched_names.csv` - Namen ohne Match
@@ -68,7 +76,7 @@ Python + Streamlit App die US-Kongress-Mitglieder Stock-Trades trackt, analysier
 - **Inhalt**: 11 Haupt-Sektoren, ~176 Industries
 
 #### Subcommittee → Sektor/Industry Mapping
-- **xlsx**: `data/raw/subcommittee_sector_industry_mapping_v3.xlsx` (6 Sheets)
+- **xlsx**: `data/raw/subcommittee_sector_industry_mapping.xlsx` (6 Sheets)
 - **CSV (empfohlen)**: `data/raw/subcommittee_sector_industry_mapping.csv` (Industry_Mapping Sheet)
 - **Struktur**: 7 Spalten (`Chamber`, `Committee`, `Subcommittee`, `Sector`, `Industry`, `Sector_Rank`, `Konfidenz`)
 - **Inhalt**: 861 Zeilen (180 Subcommittees, normalisiert)
@@ -102,8 +110,8 @@ python scripts/convert_xlsx_to_csv.py
 
 ```bash
 # 3. (Optional) Hand-Delivered PDFs via OCR extrahieren:
-python scrapers/house_pdf_extractor.py           # Alle fehler-PDFs (empty_text)
-python scrapers/house_pdf_extractor.py --dry-run  # Trockenlauf
+python scrapers/house_pdf_extractor_v2.py           # Alle fehler-PDFs (empfohlen)
+python scrapers/house_pdf_extractor_v2.py --dry-run  # Trockenlauf
 ```
 
 **Hinweis:** Member-Listen (CSVs) werden direkt aus PDF extrahiert und liegen bereits in `data/raw/`. Bei neuen Wahlen: Neue PDFs extrahieren und CSVs ersetzen.

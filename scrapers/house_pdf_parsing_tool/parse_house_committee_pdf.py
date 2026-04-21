@@ -9,7 +9,7 @@ import re
 import csv
 from collections import OrderedDict
 
-PDF_PATH = "/mnt/user-data/uploads/house_info_all.pdf"  # Default, via --pdf ueberschreibbar
+PDF_PATH = None  # Muss via --pdf angegeben werden
 AGRICULTURE_PAGES = [4, 5, 6]
 ALPHA_LIST_PAGES = list(range(59, 80))  # Pages 60-80 (0-indexed)
 LEFT_COL_THRESHOLD = 330
@@ -528,8 +528,8 @@ def main():
     parser.add_argument(
         "--pdf",
         type=str,
-        default=PDF_PATH,
-        help=f"Pfad zur House Committee PDF (default: {PDF_PATH})",
+        required=True,
+        help="Pfad zur House Committee PDF",
     )
     parser.add_argument(
         "--out",

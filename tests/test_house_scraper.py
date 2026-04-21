@@ -926,7 +926,7 @@ class TestGetExistingDocIds(unittest.TestCase):
             os.unlink(tmp_path)
 
     def test_no_existing_file(self):
-        scraper = _make_scraper(output_path="/tmp/nonexistent_file_for_test.csv")
+        scraper = _make_scraper(output_path=os.path.join(tempfile.gettempdir(), "nonexistent_file_for_test.csv"))
         doc_ids = scraper._get_existing_doc_ids()
         self.assertEqual(doc_ids, set())
 

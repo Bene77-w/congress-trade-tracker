@@ -34,6 +34,7 @@ import os
 import re
 import sys
 import time
+from datetime import datetime
 from typing import Optional
 
 import pandas as pd
@@ -179,6 +180,9 @@ class SenatePdfExtractor:
         self._skipped_path = os.path.join(
             self._project_root, settings.DATA_RAW_PATH, "senate_pdf_skipped.csv"
         )
+        self._done_path = os.path.join(
+            self._project_root, settings.DATA_RAW_PATH, "senate_pdf_extractor_done.csv"
+        )
         self._http = requests.Session()
         self._http.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
         self._anthropic = None  # lazy init
@@ -187,11 +191,37 @@ class SenatePdfExtractor:
     # Oeffentliche API
     # ------------------------------------------------------------------
 
+    def _load_done_ptr_links(self) -> set:
+        """Laedt bereits verarbeitete ptr_links aus der Done-CSV."""
+        if not os.path.isfile(self._done_path):
+            return set()
+        df = pd.read_csv(self._done_path)
+        return set(df["ptr_link"].astype(str))
+
+    def _save_done_ptr_links(self, ptr_links: list[str]):
+        """Haengt verarbeitete ptr_links an die Done-CSV an."""
+        if not ptr_links:
+            return
+        new_df = pd.DataFrame({
+            "ptr_link": ptr_links,
+            "processed_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        })
+        if os.path.isfile(self._done_path):
+            existing = pd.read_csv(self._done_path)
+            combined = pd.concat([existing, new_df], ignore_index=True)
+            combined.drop_duplicates(subset=["ptr_link"], keep="last", inplace=True)
+        else:
+            combined = new_df
+        os.makedirs(os.path.dirname(self._done_path), exist_ok=True)
+        combined.to_csv(self._done_path, index=False)
+        logger.info(f"Done-CSV aktualisiert: {len(ptr_links)} Links → {self._done_path}")
+
     def run(
         self,
         input_csv: Optional[str] = None,
         single_url: Optional[str] = None,
         dry_run: bool = False,
+        no_delta: bool = False,
     ) -> pd.DataFrame:
         """
         Haupteinstiegspunkt. Verarbeitet alle PDFs aus senate_pdf_skipped.csv
@@ -201,6 +231,7 @@ class SenatePdfExtractor:
             input_csv:  Pfad zur Input-CSV (Standard: senate_pdf_skipped.csv)
             single_url: Verarbeite nur diese eine PTR-URL (fuer Tests)
             dry_run:    Wenn True, nur extrahieren, nicht speichern
+            no_delta:   Wenn True, alle PDFs verarbeiten (Delta-Check ueberspringen)
 
         Returns:
             pd.DataFrame mit allen extrahierten Trades.
@@ -213,7 +244,22 @@ class SenatePdfExtractor:
                 logger.error(f"Input-CSV nicht gefunden: {csv_path}")
                 return pd.DataFrame(columns=CSV_COLUMNS)
             df_input = pd.read_csv(csv_path)
+
+            # Delta-Check: bereits verarbeitete ptr_links ueberspringen
+            if not no_delta:
+                done_links = self._load_done_ptr_links()
+                if done_links:
+                    before = len(df_input)
+                    df_input = df_input[~df_input["ptr_link"].astype(str).isin(done_links)]
+                    skipped = before - len(df_input)
+                    if skipped > 0:
+                        logger.info(f"Delta-Check: {skipped} bereits verarbeitete PDFs uebersprungen")
+
             rows = df_input.to_dict("records")
+
+        if not rows:
+            logger.info("Keine PDFs zum Verarbeiten gefunden.")
+            return pd.DataFrame(columns=CSV_COLUMNS)
 
         self._init_anthropic()
         logger.info(f"=== Senate PDF Extractor gestartet: {len(rows)} PDFs (Modell: {self.model}) ===")
@@ -272,6 +318,11 @@ class SenatePdfExtractor:
             logger.info(
                 f"=== Gesamt: {len(df)} Trades ({before - len(df)} OCR-Duplikate entfernt) ==="
             )
+
+        # Verarbeitete ptr_links tracken (auch bei 0 Trades)
+        processed_links = [str(r.get("ptr_link", "")) for r in rows]
+        if not dry_run and processed_links:
+            self._save_done_ptr_links(processed_links)
 
         if not dry_run and not df.empty:
             self.save(df)
@@ -630,6 +681,11 @@ def main():
         help="Extrahieren ohne Speichern",
     )
     parser.add_argument(
+        "--no-delta",
+        action="store_true",
+        help="Alle PDFs verarbeiten (Done-CSV ignorieren)",
+    )
+    parser.add_argument(
         "--headless",
         action="store_true",
         default=True,
@@ -645,9 +701,25 @@ def main():
         input_csv=args.input_csv,
         single_url=args.url,
         dry_run=args.dry_run,
+        no_delta=args.no_delta,
     )
 
-    print(f"\n>>> Extraktion abgeschlossen: {len(df)} Trades")
+    print(f"\n{'=' * 55}")
+    print(f"  Neu extrahiert:  {len(df):>8,} Trades")
+
+    if not args.dry_run:
+        output_path = extractor._output_path
+        if os.path.isfile(output_path):
+            size_bytes = os.path.getsize(output_path)
+            size_mb = size_bytes / (1024 * 1024)
+            with open(output_path, encoding="utf-8", errors="replace") as f:
+                total_rows = sum(1 for _ in f) - 1  # Kopfzeile abziehen
+            print(f"  CSV gesamt:      {total_rows:>8,} Zeilen  ({size_mb:.1f} MB)")
+            print(f"  Datei:           {output_path}")
+    else:
+        print("  (dry-run: keine Datei geschrieben)")
+    print(f"{'=' * 55}\n")
+
     if not df.empty:
         print(df[["name", "asset_name", "transaction_type", "amount", "transaction_date"]].to_string(index=False))
 

@@ -7,6 +7,7 @@ Alle Anthropic und Playwright Calls werden gemockt.
 
 import json
 import os
+import tempfile
 import sys
 import unittest
 from unittest.mock import MagicMock, patch, PropertyMock
@@ -268,10 +269,11 @@ class TestRun(unittest.TestCase):
         extractor.headless = True
         extractor.model = "claude-haiku-4-5-20251001"
         extractor._project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        extractor._output_path = "/tmp/test_senate_trades.csv"
+        extractor._output_path = os.path.join(tempfile.gettempdir(), "test_senate_trades.csv")
         extractor._skipped_path = os.path.join(
             extractor._project_root, "data", "raw", "senate_pdf_skipped.csv"
         )
+        extractor._done_path = os.path.join(tempfile.gettempdir(), "test_senate_pdf_extractor_done.csv")
         extractor._http = MagicMock()
         extractor._anthropic = None
         return extractor

@@ -1,0 +1,48 @@
+{
+  "sectors": [
+    {
+      "sector": "Technology",
+      "industries": ["Semiconductors", "Software - Infrastructure", "Consumer Electronics", "Software - Application", "Semiconductor Equipment & Materials", "Information Technology Services", "Computer Hardware", "Communication Equipment", "Electronic Components", "Scientific & Technical Instruments", "Solar", "Electronics & Computer Distribution"]
+    },
+    {
+      "sector": "Financial Services",
+      "industries": ["Banks - Diversified", "Credit Services", "Asset Management", "Insurance - Diversified", "Banks - Regional", "Capital Markets", "Insurance - Property & Casualty", "Financial Data & Stock Exchanges", "Insurance Brokers", "Insurance - Life", "Insurance - Specialty", "Mortgage Finance", "Insurance - Reinsurance", "Financial Conglomerates", "Shell Companies"]
+    },
+    {
+      "sector": "Consumer Cyclical",
+      "industries": ["Internet Retail", "Auto Manufacturers", "Restaurants", "Home Improvement Retail", "Travel Services", "Auto Parts", "Apparel Retail", "Specialty Retail", "Residential Construction", "Lodging", "Packaging & Containers", "Auto & Truck Dealerships", "Footwear & Accessories", "Resorts & Casinos", "Leisure", "Apparel Manufacturing", "Furnishings, Fixtures & Appliances", "Gambling", "Personal Services", "Luxury Goods", "Recreational Vehicles", "Department Stores", "Textile Manufacturing"]
+    },
+    {
+      "sector": "Communication Services",
+      "industries": ["Internet Content & Information", "Telecom Services", "Entertainment", "Advertising Agencies", "Electronic Gaming & Multimedia", "Publishing", "Broadcasting"]
+    },
+    {
+      "sector": "Healthcare",
+      "industries": ["Drug Manufacturers - General", "Biotechnology", "Medical Devices", "Diagnostics & Research", "Healthcare Plans", "Medical Instruments & Supplies", "Medical Distribution", "Medical Care Facilities", "Drug Manufacturers - Specialty & Generic", "Health Information Services", "Pharmaceutical Retailers"]
+    },
+    {
+      "sector": "Industrials",
+      "industries": ["Aerospace & Defense", "Specialty Industrial Machinery", "Farm & Heavy Construction Machinery", "Railroads", "Engineering & Construction", "Building Products & Equipment", "Conglomerates", "Industrial Distribution", "Integrated Freight & Logistics", "Specialty Business Services", "Waste Management", "Electrical Equipment & Parts", "Rental & Leasing Services", "Airlines", "Trucking", "Tools & Accessories", "Metal Fabrication", "Consulting Services", "Security & Protection Services", "Pollution & Treatment Controls", "Marine Shipping", "Airports & Air Services", "Staffing & Employment Services", "Business Equipment & Supplies", "Infrastructure Operations"]
+    },
+    {
+      "sector": "Consumer Defensive",
+      "industries": ["Discount Stores", "Beverages - Non-Alcoholic", "Household & Personal Products", "Tobacco", "Packaged Foods", "Confectioners", "Food Distribution", "Farm Products", "Grocery Stores", "Beverages - Brewers", "Education & Training Services", "Beverages - Wineries & Distilleries"]
+    },
+    {
+      "sector": "Energy",
+      "industries": ["Oil & Gas Integrated", "Oil & Gas Midstream", "Oil & Gas E&P", "Oil & Gas Equipment & Services", "Oil & Gas Refining & Marketing", "Uranium", "Oil & Gas Drilling", "Thermal Coal"]
+    },
+    {
+      "sector": "Basic Materials",
+      "industries": ["Gold", "Specialty Chemicals", "Copper", "Building Materials", "Steel", "Agricultural Inputs", "Other Industrial Metals & Mining", "Chemicals", "Other Precious Metals & Mining", "Aluminum", "Lumber & Wood Production", "Silver", "Coking Coal", "Paper & Paper Products"]
+    },
+    {
+      "sector": "Utilities",
+      "industries": ["Utilities - Regulated Electric", "Utilities - Independent Power Producers", "Utilities - Regulated Gas", "Utilities - Diversified", "Utilities - Renewable", "Utilities - Regulated Water"]
+    },
+    {
+      "sector": "Real Estate",
+      "industries": ["REIT - Specialty", "REIT - Industrial", "REIT - Healthcare Facilities", "REIT - Retail", "REIT - Residential", "Real Estate Services", "REIT - Mortgage", "REIT - Diversified", "REIT - Office", "REIT - Hotel & Motel", "Real Estate - Development", "Real Estate - Diversified"]
+    }
+  ]
+}
