@@ -144,71 +144,91 @@ class CommitteeFilter:
         self.mapper = mapper or CommitteeMapper()
         self.parser = CommitteeParser()
 
-        # Load weights from settings
-        self.rank_weights = getattr(settings, 'COMMITTEE_RANK_WEIGHTS', {
-            1: 1.00, 2: 0.75, 3: 0.50, 4: 0.25
-        })
-        self.confidence_weights = getattr(settings, 'COMMITTEE_CONFIDENCE_WEIGHTS', {
-            'Hoch': 1.0, 'Mittel': 0.7, 'Niedrig': 0.4
-        })
-        self.role_weights = getattr(settings, 'COMMITTEE_ROLE_WEIGHTS', {
-            'Chairman': 1.5, 'Ranking Member': 1.5,
-            'Vice Chairman': 1.2, 'Cochairman': 1.5,
-            '': 1.0
-        })
+        # Score-Parameter (alle aus settings.py konfigurierbar — Regel 1 in CLAUDE.md)
+        self.sector_points = getattr(settings, 'COMMITTEE_SECTOR_MATCH_POINTS', 33)
+        self.industry_points = getattr(settings, 'COMMITTEE_INDUSTRY_MATCH_POINTS', 33)
+        self.ex_officio_mult = getattr(settings, 'COMMITTEE_EX_OFFICIO_MULTIPLIER', 1.5)
+        self.ex_officio_roles = {
+            r.strip().lower()
+            for r in getattr(settings, 'COMMITTEE_EX_OFFICIO_ROLES',
+                             ['Chairman', 'Ranking Member', 'Vice Chairman',
+                              'Cochairman', 'EXOfficio'])
+        }
+        # Match-Modus fuer Intersection Insider_Sectors × Ticker
+        self.match_mode = getattr(settings, 'RELEVANT_SECTORS_MATCH_MODE',
+                                  'sector_or_industry')
+
+    @staticmethod
+    def _norm(value: Any) -> str:
+        """Normalisiert Sektor/Industry-Strings für robusten Vergleich."""
+        if value is None:
+            return ''
+        s = str(value).strip().lower()
+        if s in ('nan', 'none', 'n/a'):
+            return ''
+        return s
 
     def calculate_relevance(
         self,
         committees_string: str,
         chamber: str,
-        ticker: Optional[str] = None
+        ticker: Optional[str] = None,
+        ticker_sector: Optional[str] = None,
+        ticker_industry: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        Calculate committee relevance for a trade.
+        Berechnet Insider_Sectors (alle Committee-Sektoren des Members),
+        Relevant_Sectors (Intersection mit Ticker_Sector/Industry) und
+        Relevance_Score.
 
-        Args:
-            committees_string: Politician's committee memberships
-            chamber: 'House' or 'Senate'
-            ticker: Stock ticker (optional, for future Modul 5)
+        Score-Formel:
+            sector_match   = ∃ Mapping-Eintrag mit Sector  == ticker_sector
+            industry_match = ∃ Mapping-Eintrag mit Industry == ticker_industry
+            ex_officio     = ∃ beitragender Treffer mit Rolle ∈ ex_officio_roles
+            raw   = (sector_points if sector_match else 0)
+                  + (industry_points if industry_match else 0)
+            score = round(raw * (ex_officio_mult if ex_officio else 1.0))
+
+        Intersection-Modus (RELEVANT_SECTORS_MATCH_MODE):
+            'sector_or_industry'  — sector ODER industry matcht (Default)
+            'sector_and_industry' — sector UND industry muessen matchen
+            'hybrid'              — bevorzuge (sector+industry), fallback
+                                    auf sector_or_industry
 
         Returns:
             {
-                'relevant_sectors': [...],
-                'relevance_score': 85,
-                'confidence_level': 'Hoch',
-                'match_count': 3
+                'insider_sectors': [...],     # alle (sub)committee-Sektoren
+                'relevant_sectors': [...],    # Intersection mit Ticker
+                'relevance_score': int,
+                'match_count': int,
             }
         """
+        empty_result = {
+            'insider_sectors': [],
+            'relevant_sectors': [],
+            'relevance_score': 0,
+            'match_count': 0,
+        }
+
         # 1. Parse committee string
         parsed = self.parser.parse_committees(committees_string, chamber)
-
         if not parsed:
-            return {
-                'relevant_sectors': [],
-                'relevance_score': 0,
-                'confidence_level': '',
-                'match_count': 0
-            }
+            return empty_result
 
-        # 2. For each committee/subcommittee: lookup sectors
+        # 2. Mapping-Einträge sammeln (mit zugehöriger Rolle)
         all_sectors = []
-
         for comm in parsed:
-            # Process subcommittees
             if comm['subcommittees']:
                 for subcom in comm['subcommittees']:
                     sectors = self.mapper.get_sectors_for_subcommittee(
                         chamber, comm['committee'], subcom['name']
                     )
-                    # Attach role info for scoring
                     role = subcom['role'] or comm['role']
                     for s in sectors:
                         s['role'] = role
                         s['committee'] = comm['committee']
                         s['subcommittee'] = subcom['name']
                     all_sectors.extend(sectors)
-
-            # If no subcommittees, get committee-level sectors
             else:
                 sectors = self.mapper.get_all_sectors_for_committee(
                     chamber, comm['committee']
@@ -219,121 +239,85 @@ class CommitteeFilter:
                     s['subcommittee'] = ''
                 all_sectors.extend(sectors)
 
-        # 3. Deduplicate (keep highest scoring entry for each sector/industry)
         unique_sectors = self._deduplicate_sectors(all_sectors)
 
-        # 4. Calculate weighted relevance score
-        relevance_score = self._calculate_score(unique_sectors)
+        # 3. Match-Pass über alle Einträge
+        t_sector_n = self._norm(ticker_sector)
+        t_industry_n = self._norm(ticker_industry)
 
-        # 5. Determine confidence level (highest from matches)
-        confidence_level = self._get_highest_confidence(unique_sectors)
+        if not t_sector_n and not t_industry_n:
+            # Kein Ticker-Sektor/Industry vorhanden → keine Match-Berechnung möglich
+            return {
+                'insider_sectors': unique_sectors,
+                'relevant_sectors': [],
+                'relevance_score': 0,
+                'match_count': len(unique_sectors),
+            }
 
-        # 6. Return
+        sector_match = False
+        industry_match = False
+        ex_officio = False
+        intersection_or: List[Dict[str, Any]] = []
+        intersection_and: List[Dict[str, Any]] = []
+
+        for entry in unique_sectors:
+            entry_sector = self._norm(entry.get('sector'))
+            entry_industry = self._norm(entry.get('industry'))
+            role_norm = str(entry.get('role') or '').strip().lower()
+            is_ex_officio = role_norm in self.ex_officio_roles
+
+            hit_sector = bool(t_sector_n) and entry_sector == t_sector_n
+            hit_industry = bool(t_industry_n) and entry_industry == t_industry_n
+
+            if hit_sector:
+                sector_match = True
+                if is_ex_officio:
+                    ex_officio = True
+            if hit_industry:
+                industry_match = True
+                if is_ex_officio:
+                    ex_officio = True
+
+            if hit_sector or hit_industry:
+                intersection_or.append(entry)
+            if hit_sector and hit_industry:
+                intersection_and.append(entry)
+
+        # Intersection nach Match-Modus auswaehlen
+        if self.match_mode == 'sector_and_industry':
+            intersection_list = intersection_and
+        elif self.match_mode == 'hybrid':
+            intersection_list = intersection_and if intersection_and else intersection_or
+        else:  # 'sector_or_industry' (Default)
+            intersection_list = intersection_or
+
+        # 4. Score berechnen
+        raw = (self.sector_points if sector_match else 0) \
+            + (self.industry_points if industry_match else 0)
+        multiplier = self.ex_officio_mult if ex_officio else 1.0
+        score = int(round(raw * multiplier))
+
         return {
-            'relevant_sectors': unique_sectors,
-            'relevance_score': relevance_score,
-            'confidence_level': confidence_level,
-            'match_count': len(unique_sectors)
+            'insider_sectors': unique_sectors,
+            'relevant_sectors': intersection_list,
+            'relevance_score': score,
+            'match_count': len(unique_sectors),
         }
 
     def _deduplicate_sectors(self, sectors: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
-        Deduplicate sectors, keeping the highest-scoring entry for each sector/industry.
-
-        Args:
-            sectors: List of sector dicts
-
-        Returns:
-            Deduplicated list
+        Dedupliziert (sector, industry)-Kombinationen.
+        Bei Duplikaten gewinnt der niedrigere Rank (= primärer Sektor),
+        bei Gleichstand bleibt der erste Eintrag.
         """
-        unique = {}
-
+        unique: Dict[tuple, Dict[str, Any]] = {}
         for sector in sectors:
             key = (sector['sector'], sector['industry'])
-
             if key not in unique:
                 unique[key] = sector
-            else:
-                # Keep the one with better rank (lower is better)
-                if sector['rank'] < unique[key]['rank']:
-                    unique[key] = sector
-                # If same rank, prefer higher confidence
-                elif sector['rank'] == unique[key]['rank']:
-                    conf_weight_new = self.confidence_weights.get(sector['confidence'], 0.4)
-                    conf_weight_existing = self.confidence_weights.get(unique[key]['confidence'], 0.4)
-                    if conf_weight_new > conf_weight_existing:
-                        unique[key] = sector
-
+            elif sector.get('rank', 99) < unique[key].get('rank', 99):
+                unique[key] = sector
         return list(unique.values())
-
-    def _calculate_score(self, sectors: List[Dict[str, Any]]) -> int:
-        """
-        Calculate 0-100 relevance score from sector matches.
-
-        Scoring algorithm:
-        - Base score: Rank-based (1=100, 2=75, 3=50, 4=25)
-        - Confidence multiplier: Hoch=1.0, Mittel=0.7, Niedrig=0.4
-        - Role multiplier: Chairman/Ranking=1.5x, Vice=1.2x, Member=1.0x
-        - Result: Maximum score across all matches (capped at 100)
-
-        Args:
-            sectors: List of sector dicts with rank, confidence, role
-
-        Returns:
-            Score 0-100
-        """
-        if not sectors:
-            return 0
-
-        max_score = 0
-
-        for sector in sectors:
-            rank = sector.get('rank', 99)
-            confidence = sector.get('confidence', 'Niedrig')
-            role = sector.get('role', '')
-
-            # Base score from rank
-            base_score = self.rank_weights.get(rank, 0.0) * 100
-
-            # Confidence multiplier
-            conf_mult = self.confidence_weights.get(confidence, 0.4)
-
-            # Role multiplier
-            role_mult = self.role_weights.get(role, 1.0)
-
-            # Calculate final score for this sector
-            sector_score = base_score * conf_mult * role_mult
-
-            # Track maximum
-            max_score = max(max_score, sector_score)
-
-        # Cap at 100
-        return min(100, int(round(max_score)))
-
-    def _get_highest_confidence(self, sectors: List[Dict[str, Any]]) -> str:
-        """
-        Get the highest confidence level from sector matches.
-
-        Args:
-            sectors: List of sector dicts
-
-        Returns:
-            'Hoch', 'Mittel', 'Niedrig', or empty string
-        """
-        if not sectors:
-            return ''
-
-        # Priority: Hoch > Mittel > Niedrig
-        confidences = [s.get('confidence', '') for s in sectors]
-
-        if 'Hoch' in confidences:
-            return 'Hoch'
-        elif 'Mittel' in confidences:
-            return 'Mittel'
-        elif 'Niedrig' in confidences:
-            return 'Niedrig'
-        else:
-            return ''
 
     def filter_by_ticker_sector(
         self,

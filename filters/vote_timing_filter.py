@@ -9,9 +9,11 @@ Logik:
 1. Fuer jeden Bill: legislative_subjects aus bill_subjects.json laden
 2. Jedes Subject gegen legislative_subject_mapping_complete.csv matchen
 3. Union aller gemappten Sektoren = Bill's Sektor-Footprint
-4. Fuer jeden Trade: Sektoren aus Relevant_Sectors extrahieren
+4. Fuer jeden Trade: Sektoren aus Relevant_Sectors (Intersection
+   Insider × Ticker) extrahieren
 5. Sektor-Intersection pruefen + Zeitfenster
-6. Bei Treffer: naechstgelegenen Vote waehlen, Konfidenz gewichten
+6. Alle Treffer im Fenster werden in Vote_Timing_Hits (JSON-Liste)
+   gespeichert, Vote_Timing_Hit_Count = Anzahl der Treffer.
 """
 
 import os
@@ -39,12 +41,9 @@ SUBJECT_MAPPING_PATH = os.path.join(
 
 # Neue Spalten die dieser Filter hinzufuegt
 VOTE_TIMING_COLUMNS = [
-    'Vote_Timing_Hit',      # bool: Trade im Zeitfenster?
-    'Vote_Date',             # str: Datum der Abstimmung
-    'Vote_Bill_Title',       # str: Bill-Titel
-    'Vote_Policy_Area',      # str: Policy Area
-    'Vote_Timing_Score',     # int: 0 oder gewichteter Score
-    'Days_To_Vote',          # int: Abstand (negativ = vor Abstimmung)
+    'Vote_Timing_Hit',         # bool: mindestens ein Vote im Zeitfenster mit Sektor-Match?
+    'Vote_Timing_Hits',        # str: JSON-Liste aller Treffer (Datum, Bill, Policy Area, Days_To_Vote, Konfidenz)
+    'Vote_Timing_Hit_Count',   # int: Anzahl Treffer in Vote_Timing_Hits
 ]
 
 
@@ -59,8 +58,6 @@ class VoteTimingFilter:
     def __init__(self):
         self.window_before = settings.VOTE_TIMING_WINDOW_BEFORE
         self.window_after = settings.VOTE_TIMING_WINDOW_AFTER
-        self.timing_score = settings.VOTE_TIMING_SCORE
-        self.konfidenz_multipliers = settings.VOTE_KONFIDENZ_MULTIPLIERS
         self._subject_mapping = None
 
     def _load_subject_mapping(self) -> dict:
@@ -286,11 +283,8 @@ class VoteTimingFilter:
 
         # Defaults setzen
         df['Vote_Timing_Hit'] = False
-        df['Vote_Date'] = ''
-        df['Vote_Bill_Title'] = ''
-        df['Vote_Policy_Area'] = ''
-        df['Vote_Timing_Score'] = 0
-        df['Days_To_Vote'] = 0
+        df['Vote_Timing_Hits'] = '[]'
+        df['Vote_Timing_Hit_Count'] = 0
 
         # Votes laden
         if votes_df is None:
@@ -358,35 +352,23 @@ class VoteTimingFilter:
             if in_window.empty:
                 continue
 
-            # Sektor-Match pruefen
-            best_vote = None
-            best_days = float('inf')
-            best_konfidenz = 'Niedrig'
-
+            # Sektor-Match pruefen: alle Treffer im Fenster sammeln
+            hits_list = []
             for _, vote in in_window.iterrows():
-                vote_sectors = vote['_sectors_set']
-                if not trade_sectors.intersection(vote_sectors):
+                if not trade_sectors.intersection(vote['_sectors_set']):
                     continue
+                hits_list.append({
+                    'date': vote['vote_date'].strftime('%Y-%m-%d'),
+                    'bill_title': str(vote.get('bill_title', '')),
+                    'policy_area': str(vote.get('policy_area', '')),
+                    'days_to_vote': int((vote['vote_date'] - trade_date).days),
+                    'konfidenz': str(vote.get('konfidenz', 'Niedrig')),
+                })
 
-                # Abstand berechnen (negativ = Trade vor Vote)
-                days_diff = (vote['vote_date'] - trade_date).days
-
-                if abs(days_diff) < abs(best_days):
-                    best_days = days_diff
-                    best_vote = vote
-                    best_konfidenz = vote.get('konfidenz', 'Niedrig')
-
-            if best_vote is not None:
-                # Konfidenz-gewichteter Score
-                multiplier = self.konfidenz_multipliers.get(best_konfidenz, 0.4)
-                weighted_score = int(self.timing_score * multiplier)
-
+            if hits_list:
                 df.at[idx, 'Vote_Timing_Hit'] = True
-                df.at[idx, 'Vote_Date'] = best_vote['vote_date'].strftime('%Y-%m-%d')
-                df.at[idx, 'Vote_Bill_Title'] = str(best_vote.get('bill_title', ''))
-                df.at[idx, 'Vote_Policy_Area'] = str(best_vote.get('policy_area', ''))
-                df.at[idx, 'Vote_Timing_Score'] = weighted_score
-                df.at[idx, 'Days_To_Vote'] = best_days
+                df.at[idx, 'Vote_Timing_Hits'] = json.dumps(hits_list)
+                df.at[idx, 'Vote_Timing_Hit_Count'] = len(hits_list)
                 hits += 1
 
         # Aufraeumen: temporaere Spalte entfernen

@@ -62,6 +62,7 @@ data/mappings/*.xlsx          →  scripts/convert_xlsx_to_csv.py  →  data/map
 | `scrapers/fetch_congress_data.py` | Congress.gov API (Bills, Votes, Subjects) |
 | `scripts/convert_xlsx_to_csv.py` | Mapping-Excel-Dateien in CSV konvertieren |
 | `scripts/diagnose_scraper.py` | QA-Tests für Senate-Scraper |
+| `scripts/reset_pipeline.py` | Granularer Reset (Logs/Caches/Stage/Processed); Default reversibler Move nach `archive/reset_pipeline/`, optional `--purge` |
 
 ### Config & Utils
 | Datei | Zweck |

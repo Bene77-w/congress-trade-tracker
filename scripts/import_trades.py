@@ -1,25 +1,31 @@
 """
-Congress Trade Tracker - Trade Import Pipeline
-Importiert Trades, reichert mit Committee-Daten, Ticker-Industry und Filter-Logik an.
+Congress Trade Tracker - Trade Import Pipeline (8 Stages, Rebuild Teil 3)
+Importiert Trades, reichert mit Committee-Daten, Ticker-Klassifikation,
+OpenFIGI/yfinance-Sektor und Filter-Logik an.
 
 Modi:
-  python scripts/import_trades.py                    # Full Rebuild
-  python scripts/import_trades.py --delta            # Nur neue Trades
-  python scripts/import_trades.py --dry_run          # Alle Stages → trades_stage.csv
+  python scripts/import_trades.py                    # Full Rebuild (alle 8 Stages)
+  python scripts/import_trades.py --delta            # Nur neue Trades (via trade_id)
+  python scripts/import_trades.py --dry_run          # Alle Stages -> trades_stage.csv
 
 Stage-Pipeline (einzelne Schritte, re-runnable):
-  python scripts/import_trades.py --stage_rename          # CSV laden + Spalten umbenennen
-  python scripts/import_trades.py --stage_date            # Datum normalisieren
-  python scripts/import_trades.py --stage_committees      # Committee-Member-Enrichment
-  python scripts/import_trades.py --stage_tickertype      # ticker_type ableiten
-  python scripts/import_trades.py --stage_tickerindustry  # yfinance Lookup
-  python scripts/import_trades.py --stage_filter          # Scoring + Filter 0/4
-  python scripts/import_trades.py --stage_save            # trades_stage.csv → trades_master.csv
+  --stage_rename          # CSV laden + Spalten umbenennen + trade_id
+  --stage_date            # Datum normalisieren
+  --stage_committees      # Committee-Member-Enrichment (Fuzzy-Match)
+  --stage_tickerclassify  # Offline-Klassifikation (Regex-Entscheidungsbaum)
+  --stage_tickeropenfigi  # OpenFIGI-Normalisierung (FIGI, ticker_figi)
+  --stage_tickeryfinance  # yfinance Sector/Industry-Anreicherung
+  --stage_filter          # Scoring + Filter 0/4
+  --stage_save            # trades_stage.csv -> complete + curated Master
 
-Flags kombinierbar:
-  --dry_run        schreibt Output in trades_stage.csv statt trades_master.csv
-  --delta          liest/schreibt trades_stage.csv als Puffer, merge bei save
-  --delta --stage_rename --dry_run  → trades_stage.csv (neue Trades, kein Master-Touch)
+Bonus-Flags (kein Master-Touch, exklusiv):
+  --manual_review_only    # Regeneriert manual_review_tickers.csv aus complete
+  --regenerate_curated    # Regeneriert trades_master.csv aus complete
+
+Flag-Matrix:
+  --dry_run        schreibt Output in trades_stage.csv statt complete+curated
+  --delta          Delta-Detect via trade_id, merge bei save
+  --delta --stage_rename --dry_run  -> Stage-CSV (neue Trades, kein Master-Touch)
 """
 
 import argparse
@@ -31,7 +37,7 @@ import shutil
 import sys
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Tuple
 
 import pandas as pd
@@ -42,7 +48,17 @@ sys.path.insert(0, BASE_DIR)
 
 from config import settings
 from utils.name_matcher import NameMatcher
-from utils.openfigi_client import OpenFigiClient
+from utils.openfigi_client import OpenFigiClient  # noqa: F401  (Legacy, parallel verfuegbar)
+from utils.trade_id import compute_trade_ids, detect_new_trades
+from utils.ticker_classifier import (
+    classify,
+    TickerType,
+    ApiStrategy,
+    Confidence,
+    TickerClassification,
+)
+from utils.ticker_normalizer import TickerNormalizer, NormalizedTicker
+from utils.ticker_sector import TickerSectorEnricher
 from filters.vote_timing_filter import VoteTimingFilter, VOTE_TIMING_COLUMNS
 from filters.asset_class_filter import AssetClassFilter, ASSET_CLASS_COLUMNS
 
@@ -53,10 +69,14 @@ PROCESSED_DIR = os.path.join(BASE_DIR, settings.DATA_PROCESSED_PATH)
 RAW_DIR = os.path.join(BASE_DIR, settings.DATA_RAW_PATH)
 # Input/Output Dateien (aus Config)
 QUIVER_TRADES_PATH = os.path.join(RAW_DIR, settings.QUIVER_TRADES_FILE)
-MASTER_CSV_PATH = os.path.join(PROCESSED_DIR, 'trades_master.csv')
+MASTER_CSV_PATH = os.path.join(PROCESSED_DIR, 'trades_master.csv')                          # kuratierte Sicht
+MASTER_COMPLETE_CSV_PATH = os.path.join(PROCESSED_DIR, settings.TRADES_MASTER_COMPLETE_CSV)  # vollstaendig
+MANUAL_REVIEW_CSV_PATH = os.path.join(PROCESSED_DIR, settings.MANUAL_REVIEW_CSV)
 UNMATCHED_PATH = os.path.join(PROCESSED_DIR, 'unmatched_names.csv')
 UNMATCHED_PREFERRED_PATH = os.path.join(PROCESSED_DIR, 'unmatched_preferred.csv')
 DELISTED_TRADES_PATH = os.path.join(PROCESSED_DIR, 'delisted_trades.csv')
+IGNORED_TICKERS_PATH = os.path.join(BASE_DIR, settings.DATA_MAPPINGS_PATH,
+                                    settings.IGNORED_TICKERS_FILE)
 CHECKPOINT_PATH = os.path.join(PROCESSED_DIR, '.enrichment_checkpoint.pkl')
 
 CHECKPOINT_INTERVAL = 5000  # Trades zwischen Checkpoint-Speicherungen
@@ -66,12 +86,15 @@ STAGE_CSV_PATH = os.path.join(PROCESSED_DIR, 'trades_stage.csv')
 PIPELINE_STATE_PATH = os.path.join(PROCESSED_DIR, 'pipeline_state.json')
 UNMATCHED_STAGE_PATH = os.path.join(PROCESSED_DIR, 'unmatched_names_stage.csv')
 DELISTED_STAGE_PATH = os.path.join(PROCESSED_DIR, 'delisted_trades_stage.csv')
+UNMATCHED_PREFERRED_STAGE_PATH = os.path.join(PROCESSED_DIR, 'unmatched_preferred_stage.csv')
 
 STAGE_DEPS = {
     'rename': {
         'input_cols': [],
-        'output_cols': ['name', 'ticker', 'asset_name', 'transaction_date', 'disclosure_date',
-                        'chamber', 'Member_Party', 'Member_State', 'comment', 'subholding', 'bio_guide_id'],
+        'output_cols': ['trade_id', 'name', 'ticker', 'asset_name',
+                        'transaction_date', 'disclosure_date',
+                        'chamber', 'Member_Party', 'Member_State',
+                        'comment', 'subholding', 'bio_guide_id'],
     },
     'date': {
         'input_cols': ['transaction_date', 'disclosure_date'],
@@ -79,24 +102,31 @@ STAGE_DEPS = {
     },
     'committees': {
         'input_cols': ['name', 'chamber'],
-        'output_cols': ['Member_Party', 'Member_State', 'Member_Committees',
+        'output_cols': ['Member_Party', 'Member_State',
                         'Member_ExOfficio', 'Member_Chamber', 'Member_Committees_Full'],
     },
-    'tickertype': {
+    'tickerclassify': {
         'input_cols': ['ticker'],
-        'output_cols': ['ticker_type'],
+        'output_cols': ['ticker_type', 'ticker_base', 'classification_reason',
+                        'classification_confidence', 'api_strategy',
+                        'exch_code', 'series_letter', 'status_suffix',
+                        'manual_review_flag'],
     },
-    'tickerindustry': {
-        'input_cols': ['ticker'],
-        'output_cols': ['Ticker_Sector', 'Ticker_Industry'],
+    'tickeropenfigi': {
+        'input_cols': ['ticker_type', 'ticker_base', 'api_strategy'],
+        'output_cols': ['figi', 'ticker_figi', 'name_figi',
+                        'security_type_figi', 'market_sector_figi'],
+    },
+    'tickeryfinance': {
+        'input_cols': ['ticker_base', 'ticker_type'],
+        'output_cols': ['sector_yf', 'industry_yf', 'quote_type_yf'],
     },
     'filter': {
         'input_cols': ['name', 'chamber', 'Member_Committees_Full', 'ticker',
                        'ticker_type', 'transaction_date'],
-        'output_cols': ['MatchScore', 'MatchSource', 'Relevant_Sectors', 'Relevance_Score',
-                        'Confidence_Level', 'asset_class_excluded', 'Vote_Timing_Hit',
-                        'Vote_Date', 'Vote_Bill_Title', 'Vote_Policy_Area',
-                        'Vote_Timing_Score', 'Days_To_Vote'],
+        'output_cols': ['MatchScore', 'MatchSource', 'Insider_Sectors', 'Relevant_Sectors',
+                        'Relevance_Score', 'asset_class_excluded',
+                        'Vote_Timing_Hit', 'Vote_Timing_Hits', 'Vote_Timing_Hit_Count'],
     },
     'save': {
         'input_cols': [],
@@ -118,6 +148,7 @@ DUPLICATE_COLUMNS = getattr(
 QUIVER_COLUMN_MAP = {
     'Name': 'name',
     'Ticker': 'ticker',
+    'TickerType': 'tickertype_org',
     'Company': 'asset_name',
     'Traded': 'transaction_date',
     'Filed': 'disclosure_date',
@@ -282,7 +313,7 @@ class TradeImporter:
     def enrich_member_data(self, df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
         Reichert Trades mit Committee-Member-Daten an (kein Scoring).
-        Scoring-Spalten (MatchScore, Relevant_Sectors etc.) werden in _stage_filter gesetzt.
+        Scoring-Spalten (MatchScore, Insider_Sectors, Relevant_Sectors etc.) werden in _stage_filter gesetzt.
         Unterstuetzt Checkpoint-basiertes Resuming bei Abbruch.
 
         Args:
@@ -309,7 +340,6 @@ class TradeImporter:
             df = df.copy()
             df['Member_Party'] = ''
             df['Member_State'] = ''
-            df['Member_Committees'] = ''
             df['Member_ExOfficio'] = ''
             df['Member_Chamber'] = ''
             df['Member_Committees_Full'] = ''
@@ -332,7 +362,6 @@ class TradeImporter:
 
             df.at[idx, 'Member_Party'] = result['party']
             df.at[idx, 'Member_State'] = result['state']
-            df.at[idx, 'Member_Committees'] = result['committees']
             df.at[idx, 'Member_ExOfficio'] = result['ex_officio']
             df.at[idx, 'Member_Chamber'] = result['chamber']
 
@@ -378,497 +407,366 @@ class TradeImporter:
 
         return df, unmatched_df
 
-    def derive_ticker_types(self, df: pd.DataFrame) -> pd.DataFrame:
+    # =========================================================================
+    # Ticker-Stages (Rebuild Teil 3): Classify -> OpenFIGI -> yfinance
+    # =========================================================================
+
+    def _reconstruct_classifications(self, df: pd.DataFrame) -> list:
+        """Rekonstruiert TickerClassification-Liste aus DataFrame-Spalten.
+
+        Erwartet Spalten aus _stage_tickerclassify (siehe STAGE_DEPS).
+        Reihenfolge entspricht df.index (positional).
         """
-        Leitet ticker_type via OpenFIGI API + Regex ab.
+        out = []
+        for _, row in df.iterrows():
+            exch = row.get('exch_code')
+            series = row.get('series_letter')
+            status = row.get('status_suffix')
+            out.append(TickerClassification(
+                raw_ticker=str(row.get('ticker') or ''),
+                company_name=str(row.get('asset_name') or ''),
+                ticker_base=str(row.get('ticker_base') or ''),
+                ticker_type=TickerType(row['ticker_type']),
+                api_strategy=ApiStrategy(row['api_strategy']),
+                exch_code=exch if pd.notna(exch) and exch != '' else None,
+                confidence=Confidence(row.get('classification_confidence') or 'low'),
+                classification_reason=str(row.get('classification_reason') or ''),
+                manual_review=bool(row.get('manual_review_flag', False)),
+                series_letter=series if pd.notna(series) and series != '' else None,
+                status_suffix=status if pd.notna(status) and status != '' else None,
+            ))
+        return out
 
-        6-Stufen-Pipeline:
-        1. Leere/kaputte Ticker → "Unknown"
-        2. Regex (TICKER_TYPE_PATTERNS) → Bond, T-Bill, Crypto, Warrant etc.
-        3. SQLite-Cache (OpenFIGI-Ergebnisse)
-        4. OpenFIGI Batch-Lookup (Cache-Misses)
-        5. Whitelist (Sonderfaelle) → "Stock"
-        6. Fallback → "Unknown"
+    def _reconstruct_normalized(self, df: pd.DataFrame) -> list:
+        """Rekonstruiert NormalizedTicker-Liste aus DataFrame-Spalten."""
+        classifications = self._reconstruct_classifications(df)
+        out = []
+        for cls, (_, row) in zip(classifications, df.iterrows()):
+            def _val(col):
+                v = row.get(col)
+                return v if pd.notna(v) and v != '' else None
+            out.append(NormalizedTicker(
+                classification=cls,
+                figi=_val('figi'),
+                ticker_figi=_val('ticker_figi'),
+                name_figi=_val('name_figi'),
+                security_type_figi=_val('security_type_figi'),
+                market_sector_figi=_val('market_sector_figi'),
+                normalization_errors=[],
+            ))
+        return out
 
-        Args:
-            df: DataFrame mit 'ticker'-Spalte
-
-        Returns:
-            DataFrame mit ticker_type-Spalte
-        """
-        # Alle unique Ticker sammeln
-        all_tickers = df['ticker'].dropna().unique().tolist()
-        all_tickers = [str(t).strip() for t in all_tickers if str(t).strip()]
-
-        result_map = {}  # ticker → ticker_type
-
-        # Stufe 1+2: Leere abfangen + Regex Pre-Klassifikation
-        api_candidates = []
-        for ticker in all_tickers:
-            # Stufe 1: Leerer/kaputter Ticker
-            if not ticker or isinstance(ticker, float):
-                result_map[ticker] = 'Unknown'
-                continue
-
-            # Stufe 2: Regex-Patterns (Bonds, T-Bills, Crypto, etc.)
-            matched = False
-            for label, patterns in settings.TICKER_TYPE_PATTERNS.items():
-                for pattern in patterns:
-                    if re.match(pattern, ticker):
-                        result_map[ticker] = label
-                        matched = True
-                        break
-                if matched:
-                    break
-
-            if not matched:
-                # Stufe 5 vorziehen: Whitelist (BRK-A etc.)
-                if ticker in settings.TICKER_WHITELIST:
-                    result_map[ticker] = 'Stock'
-                else:
-                    api_candidates.append(ticker)
-
-        print(f"      Regex/Whitelist: {len(result_map)} Ticker vorklassifiziert")
-        print(f"      OpenFIGI-Kandidaten: {len(api_candidates)} Ticker")
-
-        # Stufe 3+4: OpenFIGI Cache + API-Lookup
-        if api_candidates:
-            cache_db_path = os.path.join(BASE_DIR, settings.DATA_CACHE_PATH,
-                                         settings.TICKER_TYPE_CACHE_DB)
-            client = OpenFigiClient(
-                cache_db_path=cache_db_path,
-                api_key=settings.OPENFIGI_API_KEY
-            )
-            openfigi_results = client.classify_tickers(api_candidates)
-
-            for ticker in api_candidates:
-                figi_type = openfigi_results.get(ticker, 'Unknown')
-                # Stufe 6: Fallback
-                result_map[ticker] = figi_type if figi_type else 'Unknown'
-
-        # Ergebnis auf DataFrame mappen
-        df['ticker_type'] = df['ticker'].map(result_map).fillna('Unknown')
-
-        type_counts = df['ticker_type'].value_counts()
-        print(f"      Ticker-Types: {len(type_counts)} Kategorien")
-        for tt, cnt in type_counts.head(10).items():
-            print(f"        {tt}: {cnt:,}")
-
-        return df
-
-    def enrich_with_ticker_industry(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Reichert Trades mit YF Sector/Industry an (via yfinance + Cache).
-
-        Laedt bestehenden Cache, fragt nur neue Ticker bei yfinance ab,
-        speichert Ergebnis in ticker_industry_cache.json.
-
-        Args:
-            df: DataFrame mit Trades (muss 'ticker'-Spalte haben)
-
-        Returns:
-            DataFrame mit neuen Spalten Ticker_Sector und Ticker_Industry
-        """
-        mappings_dir = os.path.join(BASE_DIR, settings.DATA_MAPPINGS_PATH)
-
-        # 0. Vorzugsaktien-Mapping laden
-        pref_mapping = {}  # {"EP$C": "KMI", ...}
-        pref_file = os.path.join(mappings_dir, settings.PREFERRED_TICKER_MAPPING_FILE)
-        if os.path.isfile(pref_file):
-            pref_df = pd.read_csv(pref_file, usecols=['stammaktien_ticker', 'vorzugsaktien_ticker'])
-            for _, row in pref_df.iterrows():
-                pref_mapping[row['vorzugsaktien_ticker']] = row['stammaktien_ticker']
-            logger.info(f"Vorzugsaktien-Mapping geladen: {len(pref_mapping)} Eintraege")
-
-        # Preferred-Ticker in Trades erkennen und Statistiken sammeln
-        pref_stats = {'total_mappings': len(pref_mapping), 'trades_mapped': 0, 'trades_unmatched': 0}
-        pref_unmatched_trades = []
-
-        all_tickers_raw = df['ticker'].dropna().unique().tolist()
-        all_tickers_raw = [t.strip() for t in all_tickers_raw if t.strip()]
-
-        # Preferred-Ticker erkennen: $ im Ticker
-        preferred_tickers_in_data = [t for t in all_tickers_raw if '$' in t]
-
-        # Mapping anwenden: preferred → stammticker fuer Cache-Lookup
-        # ticker_lookup_map: original_ticker → ticker der fuer yfinance verwendet wird
-        ticker_lookup_map = {}
-        for pt in preferred_tickers_in_data:
-            if pt in pref_mapping:
-                ticker_lookup_map[pt] = pref_mapping[pt]
-                trades_with_ticker = (df['ticker'].str.strip() == pt).sum()
-                pref_stats['trades_mapped'] += trades_with_ticker
-            else:
-                ticker_lookup_map[pt] = None  # unmatched
-                trades_with_ticker = (df['ticker'].str.strip() == pt).sum()
-                pref_stats['trades_unmatched'] += trades_with_ticker
-                # Unmatched-Details sammeln
-                unmatched_rows = df[df['ticker'].str.strip() == pt]
-                pref_unmatched_trades.append({
-                    'ticker': pt,
-                    'count': len(unmatched_rows),
-                    'names': ', '.join(unmatched_rows['name'].dropna().unique()[:3]),
-                    'asset_names': ', '.join(unmatched_rows['asset_name'].dropna().unique()[:3]),
-                })
-
-        # 1. Cache laden (beide Dateien: positiv + null)
-        cache = self._load_ticker_caches(mappings_dir)
-
-        # 2. Neue Ticker identifizieren (mit Preferred-Aufloesung)
-        all_tickers = []
-        for t in all_tickers_raw:
-            if '$' in t:
-                resolved = ticker_lookup_map.get(t)
-                if resolved:
-                    # Stammticker in die Liste, damit er bei yfinance abgefragt wird
-                    all_tickers.append(resolved)
-                # Unmatched preferred → nicht abfragen
-            else:
-                all_tickers.append(t)
-        all_tickers = list(set(all_tickers))  # Deduplizieren
-
-        new_tickers = [t for t in all_tickers if t not in cache]
-
-        # Pre-Filter: Ticker klassifizieren (valid/whitelist/filtered)
-        valid_new = []
-        filtered_new = []
-        for t in new_tickers:
-            cls = self._classify_ticker(t)
-            if cls == 'filtered':
-                filtered_new.append(t)
-                cache[t] = None  # direkt null cachen, keine API-Abfrage
-            else:
-                valid_new.append(t)  # 'valid' oder 'whitelist'
-
-        if filtered_new:
-            print(f"      Pre-Filter: {len(filtered_new)} Non-Standard-Ticker erkannt "
-                  f"(Warrants, CUSIPs, Bonds etc.) -> direkt null")
-
-        if not valid_new:
-            print(f"      Cache: {len(cache)} Ticker, 0 neue Abfragen noetig")
-        else:
-            est_minutes = len(valid_new) * settings.TICKER_LOOKUP_PAUSE_SECONDS / 60
-            print(f"      Cache: {len(cache) - len(filtered_new)} bekannt, "
-                  f"{len(valid_new)} neue Ticker, "
-                  f"{len(filtered_new)} gefiltert (Non-Standard)")
-            print(f"      Geschaetzte Dauer: {est_minutes:.1f} Minuten")
-
-            # Bestaetigung bei vielen neuen Tickern
-            if len(valid_new) >= settings.TICKER_LOOKUP_CONFIRM_THRESHOLD:
-                try:
-                    answer = input(f"      {len(valid_new)} yfinance-Abfragen starten? [Enter] oder Ctrl+C: ")
-                except (KeyboardInterrupt, EOFError):
-                    print("\n      [SKIP] Ticker-Industry Lookup abgebrochen")
-                    df['Ticker_Sector'] = ''
-                    df['Ticker_Industry'] = ''
-                    # Gefilterte Ticker trotzdem speichern
-                    self._save_ticker_caches(cache, mappings_dir)
-                    return df
-
-            # 3. yfinance abfragen
-            import yfinance as yf
-
-            # yfinance-Logger unterdrücken (404-Spam vermeiden)
-            yf_logger = logging.getLogger('yfinance')
-            yf_log_level_orig = yf_logger.level
-            yf_logger.setLevel(logging.CRITICAL)
-
-            success = 0
-            errors = 0
-            net_errors = 0
-            net_errors_consecutive = 0
-            retry_later = []  # Ticker die wegen Netzwerk-Fehler nicht gecacht werden
-            start_time = time.time()
-            cache_interval = getattr(settings, 'TICKER_LOOKUP_CACHE_INTERVAL', 100)
-
-            for i, ticker_sym in enumerate(valid_new):
-                entry = self._fetch_ticker_info(yf, ticker_sym)
-
-                if entry == 'NETWORK_ERROR':
-                    # Netzwerk-Fehler: NICHT cachen, spaeter erneut versuchen
-                    net_errors += 1
-                    net_errors_consecutive += 1
-                    retry_later.append(ticker_sym)
-
-                    # Auto-Pause bei mehreren Netzwerk-Fehlern
-                    pause_threshold = getattr(settings, 'TICKER_LOOKUP_NET_ERROR_PAUSE', 30)
-                    abort_threshold = getattr(settings, 'TICKER_LOOKUP_NET_ERROR_ABORT', 5)
-
-                    if net_errors_consecutive >= abort_threshold:
-                        print(f"\n      [!] {abort_threshold} Netzwerk-Fehler in Folge — Abbruch")
-                        print(f"          {len(retry_later)} Ticker werden beim naechsten Lauf erneut versucht")
-                        break
-                    elif net_errors_consecutive >= 3:
-                        print(f"\n      [!] {net_errors_consecutive} Netzwerk-Fehler in Folge — {pause_threshold}s Pause...")
-                        time.sleep(pause_threshold)
-                elif entry is not None:
-                    cache[ticker_sym] = entry
-                    success += 1
-                    net_errors_consecutive = 0
-                else:
-                    cache[ticker_sym] = None
-                    errors += 1
-                    net_errors_consecutive = 0
-
-                # Fortschritt alle 100 Ticker (mit ETA)
-                done = i + 1
-                if done % 100 == 0 or done == len(valid_new):
-                    elapsed = time.time() - start_time
-                    rate = elapsed / done if done > 0 else 0
-                    remaining = rate * (len(valid_new) - done)
-                    eta_min = remaining / 60
-                    print(f"      [{done}/{len(valid_new)}] "
-                          f"{success} OK, {errors} ohne, {net_errors} Netz-Fehler"
-                          f" | ETA: {eta_min:.0f}min")
-
-                # Cache-Checkpoint (nur positive, schnell)
-                if done % cache_interval == 0:
-                    self._save_ticker_cache_checkpoint(cache, mappings_dir)
-
-                time.sleep(settings.TICKER_LOOKUP_PAUSE_SECONDS)
-
-            # yfinance-Logger wiederherstellen
-            yf_logger.setLevel(yf_log_level_orig)
-
-            print(f"      Fertig: {success} mit Industry, {errors} ohne, {net_errors} Netz-Fehler")
-
-            # Retry-Runde fuer Netzwerk-Fehler
-            if retry_later:
-                print(f"      Retry: {len(retry_later)} Ticker mit Netzwerk-Fehler...")
-                yf_logger.setLevel(logging.CRITICAL)
-                retry_success = 0
-                for ticker_sym in retry_later:
-                    entry = self._fetch_ticker_info(yf, ticker_sym)
-                    if entry == 'NETWORK_ERROR':
-                        pass  # Immer noch Netzwerk-Fehler — nicht cachen
-                    elif entry is not None:
-                        cache[ticker_sym] = entry
-                        retry_success += 1
-                        success += 1
-                    else:
-                        cache[ticker_sym] = None
-                        errors += 1
-                    time.sleep(settings.TICKER_LOOKUP_PAUSE_SECONDS)
-                yf_logger.setLevel(yf_log_level_orig)
-                still_failed = len(retry_later) - retry_success - sum(
-                    1 for t in retry_later if t in cache)
-                print(f"      Retry: {retry_success} OK, {still_failed} weiterhin fehlgeschlagen")
-
-        # 4. Spalten befuellen (mit Preferred-Ticker-Aufloesung)
-        def _resolve_ticker(t):
-            """Loest Preferred-Ticker auf Stammticker auf fuer Cache-Lookup."""
-            if pd.isna(t):
-                return ''
-            t = str(t).strip()
-            if '$' in t:
-                resolved = ticker_lookup_map.get(t)
-                if resolved:
-                    return (cache.get(resolved) or {}).get('sector', '')
-                return ''
-            return (cache.get(t) or {}).get('sector', '')
-
-        def _resolve_ticker_industry(t):
-            if pd.isna(t):
-                return ''
-            t = str(t).strip()
-            if '$' in t:
-                resolved = ticker_lookup_map.get(t)
-                if resolved:
-                    return (cache.get(resolved) or {}).get('industry', '')
-                return ''
-            return (cache.get(t) or {}).get('industry', '')
-
-        df['Ticker_Sector'] = df['ticker'].map(_resolve_ticker)
-        df['Ticker_Industry'] = df['ticker'].map(_resolve_ticker_industry)
-
-        filled = (df['Ticker_Industry'] != '').sum()
-        print(f"      {filled}/{len(df)} Trades mit Ticker-Industry angereichert")
-
-        # 6. Vorzugsaktien-Report
-        if pref_mapping or preferred_tickers_in_data:
-            print(f"\n      Vorzugsaktien-Mapping:")
-            print(f"        {pref_stats['total_mappings']} Mappings geladen")
-            total_pref_trades = pref_stats['trades_mapped'] + pref_stats['trades_unmatched']
-            print(f"        {total_pref_trades} Trades mit Preferred-Ticker")
-            if pref_stats['trades_mapped'] > 0:
-                # Beispiel zeigen
-                example = next(iter(ticker_lookup_map.items()))
-                if example[1]:
-                    print(f"        {pref_stats['trades_mapped']} gemappt (z.B. {example[0]} -> {example[1]})")
-                else:
-                    print(f"        {pref_stats['trades_mapped']} gemappt")
-            if pref_stats['trades_unmatched'] > 0:
-                print(f"        {pref_stats['trades_unmatched']} unmatched -> {UNMATCHED_PREFERRED_PATH}")
-            else:
-                print(f"        0 unmatched")
-
-        # Unmatched Preferred speichern
-        if pref_unmatched_trades:
-            unmatched_pref_df = pd.DataFrame(pref_unmatched_trades)
-            self._ensure_directories()
-            unmatched_pref_df.to_csv(UNMATCHED_PREFERRED_PATH, index=False, encoding='utf-8')
-            logger.info(f"Unmatched Preferred Ticker gespeichert: {UNMATCHED_PREFERRED_PATH}")
-
-        # Preferred-Ticker auch im Cache speichern (mit Stammticker-Daten)
-        for pt, base in ticker_lookup_map.items():
-            if base and base in cache:
-                cache[pt] = cache[base]
-        self._save_ticker_caches(cache, mappings_dir)
-
-        # Delisted-Analyse: Ticker ohne Industry mit transaction_date
-        # Nur echte Ticker (nicht gefilterte Non-Standard-Ticker)
-        null_tickers = {t for t, v in cache.items()
-                        if v is None and self._classify_ticker(t) != 'filtered'}
-        if null_tickers:
-            delisted_mask = (
-                df['ticker'].notna() &
-                df['ticker'].str.strip().isin(null_tickers) &
-                df['Ticker_Industry'].eq('')
-            )
-            delisted_df = df[delisted_mask][['ticker', 'name', 'asset_name', 'transaction_date', 'chamber']].copy()
-
-            if not delisted_df.empty:
-                # Terminal-Report: Anzahl pro Jahr
-                delisted_df['year'] = pd.to_datetime(
-                    delisted_df['transaction_date'], errors='coerce'
-                ).dt.year
-                year_counts = delisted_df['year'].value_counts().sort_index()
-
-                print(f"\n      Delisted/Unbekannte Ticker: {len(null_tickers)} Ticker, {len(delisted_df)} Trades")
-                print(f"      Verteilung nach Jahr:")
-                for year, count in year_counts.items():
-                    if pd.notna(year):
-                        print(f"        {int(year)}: {count:,} Trades")
-
-                # CSV speichern (immer als Stage-Datei, bei --stage_save in delisted_trades.csv uebernehmen)
-                self._ensure_directories()
-                delisted_df.drop(columns=['year'], inplace=True)
-                try:
-                    delisted_df.to_csv(DELISTED_STAGE_PATH, index=False, encoding='utf-8')
-                    print(f"      -> {DELISTED_STAGE_PATH}")
-                except PermissionError:
-                    print(f"      [!] Konnte delisted_trades_stage.csv nicht schreiben (Datei geoeffnet?)")
-
-        return df
-
-    # Fehlermuster die auf Netzwerk-Probleme hindeuten (nicht cachen!)
-    _NETWORK_ERROR_PATTERNS = [
-        'Could not resolve host',
-        'TLS connect error',
-        'Connection refused',
-        'Connection reset',
-        'Connection timed out',
-        'Network is unreachable',
-    ]
-
-    def _is_network_error(self, error_msg: str) -> bool:
-        """Prüft ob ein Fehler ein Netzwerk-Problem ist (vs. 404/inhaltlich)."""
-        return any(p in error_msg for p in self._NETWORK_ERROR_PATTERNS)
-
-    def _fetch_ticker_info(self, yf, ticker_sym: str) -> dict | None | str:
-        """
-        Holt Sector/Industry fuer einen Ticker von yfinance mit Retry-Logik.
-
-        Returns:
-            dict mit 'sector', 'industry' bei Erfolg
-            None bei 404/unbekannt/ETF/Fonds ohne Sektor (sicher cachebar)
-            'NETWORK_ERROR' bei DNS/TLS/Verbindungsfehler (NICHT cachen)
-        """
-        delay = settings.TICKER_LOOKUP_RETRY_DELAY
-        for attempt in range(settings.TICKER_LOOKUP_RETRY_ATTEMPTS):
+    def _load_ignored_tickers(self) -> set:
+        """Lädt Ignore-Liste (raw_ticker → set). Cached pro Instanz."""
+        if hasattr(self, '_ignored_tickers_cache'):
+            return self._ignored_tickers_cache
+        ignored: set = set()
+        if os.path.isfile(IGNORED_TICKERS_PATH):
             try:
-                info = yf.Ticker(ticker_sym).info
-                sector = info.get('sector', '')
-                industry = info.get('industry', '')
-                if sector and industry:
-                    return {'sector': sector, 'industry': industry}
-                return None
-            except Exception as e:
-                err_str = str(e)
-                if self._is_network_error(err_str):
-                    # Netzwerk-Fehler: Retry mit Backoff
-                    if attempt < settings.TICKER_LOOKUP_RETRY_ATTEMPTS - 1:
-                        logger.debug(f"Netzwerk-Retry {ticker_sym} ({attempt+1}): {e}")
-                        time.sleep(delay)
-                        delay *= 2
-                    else:
-                        logger.warning(f"Netzwerk-Fehler {ticker_sym}: {e}")
-                        return 'NETWORK_ERROR'
+                ign_df = pd.read_csv(IGNORED_TICKERS_PATH, dtype=str).fillna('')
+                ignored = set(ign_df['raw_ticker'].astype(str).str.strip())
+            except Exception as exc:
+                logger.warning(f"Ignore-Liste {IGNORED_TICKERS_PATH} konnte nicht gelesen werden: {exc}")
+        self._ignored_tickers_cache = ignored
+        return ignored
+
+    def _apply_ignore_list(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Markiert Trades, deren raw_ticker in ignored_tickers.csv steht.
+
+        Setzt ticker_type='ignored', api_strategy='skip', manual_review_flag=False.
+        Verhindert, dass private/nicht-oeffentliche Assets in manual_review-Aggregat
+        oder API-Lookups landen.
+        """
+        ignored = self._load_ignored_tickers()
+        if not ignored or 'ticker' not in df.columns:
+            return df
+        mask = df['ticker'].astype(str).str.strip().isin(ignored)
+        n_hit = int(mask.sum())
+        if n_hit == 0:
+            return df
+        df.loc[mask, 'ticker_type'] = 'ignored'
+        if 'api_strategy' in df.columns:
+            df.loc[mask, 'api_strategy'] = 'skip'
+        if 'manual_review_flag' in df.columns:
+            df.loc[mask, 'manual_review_flag'] = False
+        if 'classification_reason' in df.columns:
+            df.loc[mask, 'classification_reason'] = 'IGNORED_LIST'
+        print(f"      {n_hit} Trades via ignored_tickers.csv ausgeschlossen")
+        return df
+
+    # ------------------------------------------------------------------
+    # Kumulative Problem-Outputs (Delta-Modus): Merge + Re-Validate
+    # ------------------------------------------------------------------
+    def _merge_cumulative_csv(
+        self,
+        target_path: str,
+        new_df: pd.DataFrame,
+        key_columns: list,
+        revalidate_fn,
+        sum_columns=None,
+    ) -> None:
+        """Merged neue Eintraege in bestehende Live-Datei und re-validiert.
+
+        Verhalten:
+        - Liest target_path (falls vorhanden) als old_df.
+        - Kombiniert old_df + new_df via key_columns.
+        - sum_columns werden bei Konflikten aufsummiert; andere Spalten:
+          letzter Wert gewinnt.
+        - revalidate_fn filtert Eintraege heraus, die nicht mehr aktuell sind.
+        - Schreibt Ergebnis nach target_path. Leeres Ergebnis -> Datei loeschen.
+        """
+        if os.path.isfile(target_path):
+            try:
+                old_df = pd.read_csv(target_path, dtype=str).fillna('')
+            except Exception as exc:
+                logger.warning(
+                    f"Kumulative Datei {target_path} konnte nicht gelesen werden: {exc}")
+                old_df = pd.DataFrame()
+        else:
+            old_df = pd.DataFrame()
+
+        if old_df.empty and (new_df is None or new_df.empty):
+            if os.path.isfile(target_path):
+                os.remove(target_path)
+            return
+
+        if new_df is None or new_df.empty:
+            union_df = old_df.copy()
+        elif old_df.empty:
+            union_df = new_df.copy()
+        else:
+            union_df = pd.concat([old_df, new_df], ignore_index=True, sort=False)
+
+        if sum_columns:
+            for col in sum_columns:
+                if col in union_df.columns:
+                    union_df[col] = (pd.to_numeric(union_df[col], errors='coerce')
+                                     .fillna(0).astype(int))
+            agg = {c: 'sum' for c in sum_columns if c in union_df.columns}
+            other_cols = [c for c in union_df.columns
+                          if c not in key_columns and c not in (sum_columns or [])]
+            for c in other_cols:
+                agg[c] = 'last'
+            union_df = union_df.groupby(key_columns, as_index=False).agg(agg)
+        else:
+            union_df = union_df.drop_duplicates(subset=key_columns, keep='last')
+
+        final_df = revalidate_fn(union_df)
+
+        if final_df is None or final_df.empty:
+            if os.path.isfile(target_path):
+                os.remove(target_path)
+            return
+        final_df.to_csv(target_path, index=False, encoding='utf-8')
+
+    def _revalidate_unmatched_names(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Drop Eintraege, fuer die NameMatcher.match jetzt einen Match liefert."""
+        if df is None or df.empty:
+            return df
+        self._init_matcher()
+        keep_idx = []
+        for idx, row in df.iterrows():
+            result = self.matcher.match(
+                row.get('trade_name', ''),
+                row.get('chamber', ''),
+            )
+            if not result.get('matched', False):
+                keep_idx.append(idx)
+        if not keep_idx:
+            return df.iloc[0:0]
+        return df.loc[keep_idx].reset_index(drop=True)
+
+    def _revalidate_unmatched_preferred(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Drop preferred_ticker, die jetzt in Vorzugsaktien_mapping.csv oder
+        ignored_tickers.csv stehen.
+
+        Liest das Vorzugsaktien-Mapping mit csv.DictReader (gleiche Logik wie
+        utils/ticker_sector.py), um robust gegen Kommas in Firmennamen zu sein.
+        """
+        if df is None or df.empty:
+            return df
+        import csv as _csv
+        preferred_path = os.path.join(BASE_DIR, settings.DATA_MAPPINGS_PATH,
+                                      settings.PREFERRED_TICKER_MAPPING_FILE)
+        mapped_set: set = set()
+        if os.path.isfile(preferred_path):
+            try:
+                with open(preferred_path, 'r', encoding='utf-8-sig') as f:
+                    reader = _csv.DictReader(f)
+                    for row in reader:
+                        pref = (row.get('vorzugsaktien_ticker') or '').strip()
+                        if pref:
+                            mapped_set.add(pref)
+            except Exception as exc:
+                logger.warning(
+                    f"Vorzugsaktien-Mapping {preferred_path} konnte nicht gelesen werden: {exc}")
+        ignored = self._load_ignored_tickers()
+        excluded = mapped_set | ignored
+        if not excluded or 'preferred_ticker' not in df.columns:
+            return df
+        mask = ~df['preferred_ticker'].astype(str).str.strip().isin(excluded)
+        return df[mask].reset_index(drop=True)
+
+    def _revalidate_delisted(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Drop Ticker, die jetzt im positiven ticker_industry_cache.json stehen.
+
+        Kein API-Call - rein cache-basiert.
+        """
+        if df is None or df.empty:
+            return df
+        cache_path = os.path.join(BASE_DIR, settings.DATA_MAPPINGS_PATH,
+                                  settings.TICKER_INDUSTRY_CACHE_FILE)
+        if not os.path.isfile(cache_path):
+            return df
+        try:
+            with open(cache_path, encoding='utf-8') as f:
+                positive_cache = json.load(f)
+        except Exception as exc:
+            logger.warning(
+                f"Positiv-Cache {cache_path} konnte nicht gelesen werden: {exc}")
+            return df
+        positive_tickers = set(positive_cache.keys()) if isinstance(positive_cache, dict) else set()
+        if not positive_tickers or 'ticker' not in df.columns:
+            return df
+        mask = ~df['ticker'].astype(str).str.strip().isin(positive_tickers)
+        return df[mask].reset_index(drop=True)
+
+    def _promote_problem_outputs(self, delta: bool) -> None:
+        """Promotet Stage-Dateien zu Live-Dateien fuer alle Problem-Outputs.
+
+        delta=False (Full-Run): Overwrite Live mit Stage; falls Stage fehlt
+          oder leer, wird Live geloescht (Auto-Purge).
+        delta=True (Delta-Run): Merge alt + neu via Schluessel, Re-Validation,
+          dann schreiben. Gefixte Eintraege verschwinden automatisch.
+
+        Stage-Dateien werden in beiden Modi am Ende entfernt.
+        """
+        promotions = [
+            # (stage_path, live_path, key_columns, revalidate_fn, sum_columns, label)
+            (UNMATCHED_STAGE_PATH, UNMATCHED_PATH,
+             ['trade_name', 'chamber'], self._revalidate_unmatched_names,
+             ['count'], 'Unmatched-Names'),
+            (DELISTED_STAGE_PATH, DELISTED_TRADES_PATH,
+             ['ticker'], self._revalidate_delisted, None, 'Delisted'),
+            (UNMATCHED_PREFERRED_STAGE_PATH, UNMATCHED_PREFERRED_PATH,
+             ['preferred_ticker'], self._revalidate_unmatched_preferred,
+             None, 'Unmatched-Preferred'),
+        ]
+        for stage_path, live_path, keys, revalidate, sum_cols, label in promotions:
+            if delta:
+                if os.path.isfile(stage_path):
+                    try:
+                        new_df = pd.read_csv(stage_path, dtype=str).fillna('')
+                    except Exception as exc:
+                        logger.warning(
+                            f"Stage-Datei {stage_path} konnte nicht gelesen werden: {exc}")
+                        new_df = pd.DataFrame()
                 else:
-                    # 404, Permission, sonstige API-Fehler: nicht retrien
-                    return None
+                    new_df = pd.DataFrame()
+                self._merge_cumulative_csv(
+                    target_path=live_path,
+                    new_df=new_df,
+                    key_columns=keys,
+                    revalidate_fn=revalidate,
+                    sum_columns=sum_cols,
+                )
+                if os.path.isfile(live_path):
+                    print(f"      {label}: {live_path} (kumulativ + re-validated)")
+            else:
+                # Full-Run: Stage -> Live overwrite. Stage fehlt/leer -> Live loeschen.
+                stage_has_rows = False
+                if os.path.isfile(stage_path):
+                    try:
+                        stage_df = pd.read_csv(stage_path, dtype=str)
+                        stage_has_rows = not stage_df.empty
+                    except Exception:
+                        stage_has_rows = False
+                if stage_has_rows:
+                    shutil.copy2(stage_path, live_path)
+                    print(f"      {label}: {live_path}")
+                else:
+                    if os.path.isfile(live_path):
+                        os.remove(live_path)
+                        print(f"      {label}: {live_path} entfernt (keine offenen Probleme)")
+            if os.path.isfile(stage_path):
+                os.remove(stage_path)
 
-    @staticmethod
-    def _load_ticker_caches(mappings_dir: str) -> dict:
-        """Laedt beide Cache-Dateien und mergt sie zu einem internen Cache."""
-        cache = {}
-        # Positive Cache (sector/industry)
-        pos_path = os.path.join(mappings_dir, settings.TICKER_INDUSTRY_CACHE_FILE)
-        if os.path.isfile(pos_path):
-            with open(pos_path, 'r', encoding='utf-8') as f:
-                pos = json.load(f)
-            cache.update(pos)
-            logger.info(f"Positive Cache geladen: {len(pos)} Ticker mit Industry")
+    def _build_manual_review_preview(self, delta_enriched: pd.DataFrame) -> pd.DataFrame:
+        """Erzeugt Vorschau-DataFrame fuer manual_review_tickers.csv im Delta-Dry-Run.
 
-        # Null Cache (delistet/ETF/Bonds/Non-Standard)
-        null_path = os.path.join(mappings_dir, settings.TICKER_0_CACHE_FILE)
-        if os.path.isfile(null_path):
-            with open(null_path, 'r', encoding='utf-8') as f:
-                null_cache = json.load(f)
-            # Alle null-Eintraege setzen
-            for t in null_cache:
-                if t not in cache:  # Positive Cache hat Vorrang
-                    cache[t] = None
-            logger.info(f"Null Cache geladen: {len(null_cache)} Ticker ohne Industry")
-
-        return cache
-
-    @staticmethod
-    def _save_ticker_caches(cache: dict, mappings_dir: str):
-        """Splittet Cache in positive + null und speichert beide Dateien."""
-        os.makedirs(mappings_dir, exist_ok=True)
-
-        pos_cache = {k: v for k, v in cache.items() if v is not None}
-        null_cache = sorted(k for k, v in cache.items() if v is None)
-
-        pos_path = os.path.join(mappings_dir, settings.TICKER_INDUSTRY_CACHE_FILE)
-        with open(pos_path, 'w', encoding='utf-8') as f:
-            json.dump(pos_cache, f, ensure_ascii=False, indent=2)
-
-        null_path = os.path.join(mappings_dir, settings.TICKER_0_CACHE_FILE)
-        with open(null_path, 'w', encoding='utf-8') as f:
-            json.dump(null_cache, f, ensure_ascii=False, indent=2)
-
-        logger.info(f"Cache gespeichert: {len(pos_cache)} positiv ({settings.TICKER_INDUSTRY_CACHE_FILE}), "
-                     f"{len(null_cache)} null ({settings.TICKER_0_CACHE_FILE})")
-
-    @staticmethod
-    def _save_ticker_cache_checkpoint(cache: dict, mappings_dir: str):
-        """Schneller Checkpoint: nur positive Cache schreiben (Absturzsicherung)."""
-        pos_cache = {k: v for k, v in cache.items() if v is not None}
-        pos_path = os.path.join(mappings_dir, settings.TICKER_INDUSTRY_CACHE_FILE)
-        os.makedirs(mappings_dir, exist_ok=True)
-        with open(pos_path, 'w', encoding='utf-8') as f:
-            json.dump(pos_cache, f, ensure_ascii=False, indent=2)
-
-    @staticmethod
-    def _classify_ticker(ticker: str) -> str:
+        Kombiniert delta_enriched mit dem bestehenden Master (Lese-only).
+        Der Aufrufer schreibt das Aggregat via _write_manual_review_subset.
         """
-        Klassifiziert einen Ticker als 'valid', 'whitelist' oder 'filtered'.
+        if not os.path.isfile(MASTER_COMPLETE_CSV_PATH):
+            return delta_enriched
+        try:
+            master_df = pd.read_csv(MASTER_COMPLETE_CSV_PATH, low_memory=False)
+        except Exception as exc:
+            logger.warning(f"Master-Complete fuer Preview nicht lesbar: {exc}")
+            return delta_enriched
+        # Zusammenfuehren; Spalten harmonisieren ueber Union
+        combined = pd.concat([master_df, delta_enriched], ignore_index=True, sort=False)
+        # Bei doppeltem trade_id den neueren Eintrag (delta) bevorzugen
+        if 'trade_id' in combined.columns:
+            combined = combined.drop_duplicates(subset=['trade_id'], keep='last')
+        return combined
 
-        Returns:
-            'whitelist' - Ticker in Whitelist (trotz ungewoehnlichem Format bei yfinance abfragen)
-            'valid'     - Standard-Ticker-Format, bei yfinance abfragen
-            'filtered'  - Non-Standard (Warrant, CUSIP, Bond etc.), direkt null cachen
+    def _write_manual_review_subset(self, df: pd.DataFrame):
+        """Aggregiert manual_review-Tickers pro raw_ticker und schreibt CSV.
+
+        Bei jedem Lauf neu geschrieben (kein Append). Wenn keine Reviews
+        anstehen, wird eine evtl. vorhandene Datei entfernt.
+        Eintraege mit ticker_type='ignored' werden ausgeklammert.
         """
-        if ticker in settings.TICKER_WHITELIST:
-            return 'whitelist'
+        if 'manual_review_flag' not in df.columns:
+            return
+        review_df = df[df['manual_review_flag'] == True].copy()
+        if 'ticker_type' in review_df.columns:
+            review_df = review_df[review_df['ticker_type'] != 'ignored']
+        ignored = self._load_ignored_tickers()
+        if ignored and 'ticker' in review_df.columns:
+            review_df = review_df[~review_df['ticker'].astype(str).str.strip().isin(ignored)]
+        if review_df.empty:
+            if os.path.isfile(MANUAL_REVIEW_CSV_PATH):
+                os.remove(MANUAL_REVIEW_CSV_PATH)
+            return
 
-        for pattern in settings.TICKER_FILTER_PATTERNS:
-            if re.match(pattern, ticker):
-                return 'filtered'
+        agg = review_df.groupby('ticker').agg(
+            ticker_base=('ticker_base', 'first'),
+            ticker_type=('ticker_type', 'first'),
+            classification_reason=('classification_reason', 'first'),
+            count_of_trades=('trade_id', 'count'),
+            first_trade_date=('transaction_date', 'min'),
+            last_trade_date=('transaction_date', 'max'),
+            example_member=('name', 'first'),
+        ).reset_index().rename(columns={'ticker': 'raw_ticker'})
+        agg = agg.sort_values('count_of_trades', ascending=False)
+        agg.to_csv(MANUAL_REVIEW_CSV_PATH, index=False, encoding='utf-8')
+        print(f"      -> {MANUAL_REVIEW_CSV_PATH} ({len(agg)} Tickers)")
 
-        return 'valid'
+    def _export_curated_master(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Extrahiert kuratierte Spalten aus complete-DataFrame.
+
+        Spalten in CURATED_COALESCE: erstes nicht-leeres Element der Quellspalten-Liste gewinnt.
+        adj_-Prefix-Regel (legacy): 'adj_X' liest Quellspalte 'X', schreibt als 'adj_X'.
+        """
+        cols = list(settings.CURATED_COLUMNS)
+        coalesce = getattr(settings, 'CURATED_COALESCE', {})
+        out_data = {}
+        for col in cols:
+            if col in coalesce:
+                series = pd.Series([''] * len(df), index=df.index, dtype=object)
+                for src in coalesce[col]:
+                    if src in df.columns:
+                        filled = df[src].fillna('').astype(str).str.strip()
+                        series = series.where(series != '', filled)
+                out_data[col] = series
+            elif col.startswith('adj_'):
+                src = col[len('adj_'):]
+                out_data[col] = df[src] if src in df.columns else ''
+            else:
+                out_data[col] = df[col] if col in df.columns else ''
+        return pd.DataFrame(out_data, index=df.index)
 
     def enrich_with_vote_timing(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -887,9 +785,14 @@ class TradeImporter:
             logger.info("Keine Vote-Daten, ueberspringe Vote-Timing")
             print("      [SKIP] Keine bill_actions.json vorhanden oder keine gemappten Votes")
             # Defaults setzen
+            defaults = {
+                'Vote_Timing_Hit': False,
+                'Vote_Timing_Hits': '[]',
+                'Vote_Timing_Hit_Count': 0,
+            }
             for col in VOTE_TIMING_COLUMNS:
                 if col not in df.columns:
-                    df[col] = False if col == 'Vote_Timing_Hit' else (0 if 'Score' in col or 'Days' in col else '')
+                    df[col] = defaults.get(col, '')
             return df
 
         result = vote_filter.apply(df, votes_df)
@@ -921,14 +824,15 @@ class TradeImporter:
         return df
 
     def _apply_committee_relevance(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Berechnet Relevant_Sectors, Relevance_Score, Confidence_Level."""
+        """Berechnet Insider_Sectors (alle Committee-Sektoren), Relevant_Sectors
+        (Intersection mit sector_yf/industry_yf) und Relevance_Score."""
         from filters.committee_filter import CommitteeFilter
         committee_filter = CommitteeFilter()
 
         df = df.copy()
+        df['Insider_Sectors'] = ''
         df['Relevant_Sectors'] = ''
         df['Relevance_Score'] = 0
-        df['Confidence_Level'] = ''
 
         for idx, row in df.iterrows():
             committees_full = str(row.get('Member_Committees_Full', '') or '')
@@ -936,22 +840,94 @@ class TradeImporter:
                 continue
             chamber = str(row.get('Member_Chamber', '') or '')
             ticker = str(row.get('ticker', '') or '')
+            ticker_sector = row.get('sector_yf', '') or ''
+            ticker_industry = row.get('industry_yf', '') or ''
             try:
                 relevance = committee_filter.calculate_relevance(
                     committees_string=committees_full,
                     chamber=chamber,
                     ticker=ticker,
+                    ticker_sector=str(ticker_sector),
+                    ticker_industry=str(ticker_industry),
                 )
+                df.at[idx, 'Insider_Sectors'] = json.dumps(relevance['insider_sectors'])
                 df.at[idx, 'Relevant_Sectors'] = json.dumps(relevance['relevant_sectors'])
                 df.at[idx, 'Relevance_Score'] = relevance['relevance_score']
-                df.at[idx, 'Confidence_Level'] = relevance['confidence_level']
             except Exception as e:
                 logger.warning(f"Relevance-Berechnung fehlgeschlagen fuer {row.get('name', '')}: {e}")
 
         return df
 
+    def _ensure_fresh_vote_data(self):
+        """
+        Pre-Stage Hook fuer Filter 4: Stoesst Delta-Update von bill_actions.json
+        + bill_subjects.json an, wenn eine der Dateien aelter als
+        settings.VOTE_DATA_TTL_HOURS ist. Schlaegt der Fetch fehl (kein API-Key,
+        Netzwerk, sys.exit aus run_update), laeuft die Pipeline mit dem letzten
+        bekannten Stand weiter (Warning).
+        """
+        actions_path = os.path.join(BASE_DIR, 'data/congress_api/bill_actions.json')
+        subjects_path = os.path.join(BASE_DIR, 'data/congress_api/bill_subjects.json')
+        ttl = timedelta(hours=settings.VOTE_DATA_TTL_HOURS)
+        now = datetime.now()
+
+        def _age(p):
+            if not os.path.exists(p):
+                return None
+            return now - datetime.fromtimestamp(os.path.getmtime(p))
+
+        age_actions = _age(actions_path)
+        age_subjects = _age(subjects_path)
+
+        if (age_actions is not None and age_subjects is not None
+                and age_actions < ttl and age_subjects < ttl):
+            print(f"      [Vote-Data] frisch (Alter: actions={age_actions}, "
+                  f"subjects={age_subjects}) - skip Fetch")
+            return
+
+        # Lock-Datei pruefen: anderer Fetcher-Prozess (manueller --force / --update) laeuft
+        lock_path = os.path.join(BASE_DIR, 'data/congress_api/.force_in_progress')
+        if os.path.exists(lock_path):
+            try:
+                with open(lock_path, 'r', encoding='utf-8') as f:
+                    lock_info = json.load(f)
+                lock_msg = (f"PID {lock_info.get('pid', '?')}, gestartet "
+                            f"{lock_info.get('started_at', '?')}, Modus "
+                            f"{lock_info.get('mode', '?')}")
+            except (OSError, json.JSONDecodeError):
+                lock_msg = "Lock-Datei vorhanden, aber unleserlich"
+            print(f"      [Vote-Data] WARN: anderer fetch_congress_data-Prozess laeuft "
+                  f"({lock_msg}) - skip Auto-Refresh, nutze vorhandene JSON")
+            return
+
+        try:
+            from scrapers.fetch_congress_data import CongressFetcher
+            api_key = os.getenv('CONGRESS_API_KEY')
+            if not api_key:
+                print("      [Vote-Data] WARN: CONGRESS_API_KEY fehlt - skip Fetch "
+                      "(nutze vorhandene JSON)")
+                return
+
+            print(f"      [Vote-Data] Delta-Update startet "
+                  f"(TTL ueberschritten: actions={age_actions}, subjects={age_subjects})")
+            fetcher = CongressFetcher(api_key=api_key)
+            fetcher.run_update()
+            print("      [Vote-Data] Delta-Update fertig")
+
+        except SystemExit as e:
+            print(f"      [Vote-Data] WARN: Fetch abgebrochen ({e}) - "
+                  f"nutze vorhandene JSON")
+        except KeyboardInterrupt:
+            raise
+        except Exception as e:
+            print(f"      [Vote-Data] WARN: Fetch fehlgeschlagen "
+                  f"({type(e).__name__}: {e}) - nutze vorhandene JSON")
+
     def _apply_filter_logic(self, df: pd.DataFrame) -> pd.DataFrame:
         """Wendet alle Filter an: Scoring, Filter 0 (Asset-Klasse), Filter 4 (Vote-Timing)."""
+        # Pre-Hook: Vote-Daten frisch halten (Filter 4)
+        self._ensure_fresh_vote_data()
+
         # 1. MatchScore + MatchSource
         df = self._apply_match_scores(df)
 
@@ -973,15 +949,18 @@ class TradeImporter:
     # =========================================================================
 
     def _backup_master(self):
-        """Backup von trades_master.csv vor destruktivem Schreiben."""
-        if not os.path.isfile(MASTER_CSV_PATH):
-            return
+        """Backup beider Master-Dateien (trades_master.csv und complete) vor destruktivem Schreiben."""
         os.makedirs(ARCHIVE_BACKUP_DIR, exist_ok=True)
         ts = datetime.now().strftime('%Y%m%d-%H%M%S')
-        backup_path = os.path.join(ARCHIVE_BACKUP_DIR, f'trades_master_{ts}.csv')
-        shutil.copy2(MASTER_CSV_PATH, backup_path)
-        logger.info(f"Master-Backup: {backup_path}")
-        print(f"      Backup: {backup_path}")
+        for src, prefix in [
+            (MASTER_CSV_PATH, 'trades_master'),
+            (MASTER_COMPLETE_CSV_PATH, 'trades_master_complete'),
+        ]:
+            if os.path.isfile(src):
+                backup_path = os.path.join(ARCHIVE_BACKUP_DIR, f'{prefix}_{ts}.csv')
+                shutil.copy2(src, backup_path)
+                logger.info(f"Master-Backup: {backup_path}")
+                print(f"      Backup: {backup_path}")
 
     def _check_stage_inputs(self, stage: str, df: pd.DataFrame):
         """Prueft ob alle Eingabe-Spalten fuer eine Stage vorhanden sind."""
@@ -1004,11 +983,16 @@ class TradeImporter:
                     f"Bitte zuerst --delta --stage_rename ausfuehren.")
             df = pd.read_csv(STAGE_CSV_PATH, low_memory=False)
         else:
-            if not os.path.isfile(MASTER_CSV_PATH):
+            # Single-Stage liest aus complete-Master (vollstaendige Spalten).
+            # Curated-Master traegt nur eine Teilmenge und wuerde fehlende
+            # Inputs liefern.
+            if not os.path.isfile(MASTER_COMPLETE_CSV_PATH):
                 raise FileNotFoundError(
-                    f"trades_master.csv nicht gefunden: {MASTER_CSV_PATH}\n"
-                    f"Bitte zuerst Full Rebuild: python scripts/import_trades.py")
-            df = pd.read_csv(MASTER_CSV_PATH, low_memory=False)
+                    f"trades_master_complete.csv nicht gefunden: {MASTER_COMPLETE_CSV_PATH}\n"
+                    f"Bitte zuerst Migration ausfuehren: "
+                    f"python scripts/migrate_add_trade_ids.py\n"
+                    f"oder Full Rebuild: python scripts/import_trades.py")
+            df = pd.read_csv(MASTER_COMPLETE_CSV_PATH, low_memory=False)
 
         for col in ['transaction_date', 'disclosure_date']:
             if col in df.columns:
@@ -1016,27 +1000,36 @@ class TradeImporter:
         return df
 
     def _write_stage_output(self, df: pd.DataFrame, stage: str, delta: bool, dry_run: bool):
-        """Schreibt Output-Datei basierend auf Flag-Matrix (nicht fuer 'save')."""
+        """Schreibt Output-Datei basierend auf Flag-Matrix (nicht fuer 'save').
+
+        Single-Stage ohne dry_run/delta schreibt in den complete-Master,
+        damit alle Spalten erhalten bleiben.
+        """
         self._ensure_directories()
         if dry_run or delta:
             df.to_csv(STAGE_CSV_PATH, index=False, encoding='utf-8')
             print(f"      -> {STAGE_CSV_PATH} ({len(df):,} Trades)")
         else:
             self._backup_master()
-            df.to_csv(MASTER_CSV_PATH, index=False, encoding='utf-8')
-            print(f"      -> {MASTER_CSV_PATH} ({len(df):,} Trades)")
+            df.to_csv(MASTER_COMPLETE_CSV_PATH, index=False, encoding='utf-8')
+            print(f"      -> {MASTER_COMPLETE_CSV_PATH} ({len(df):,} Trades)")
 
     def _merge_into_master(self, stage_df: pd.DataFrame,
                            master_df: pd.DataFrame = None) -> pd.DataFrame:
-        """Merged stage_df in trades_master.csv (fuer Delta-Save)."""
+        """Merged stage_df in trades_master_complete.csv.
+
+        Duplikat-Behandlung gemaess settings.DEDUP_STRATEGY:
+          - 'last_wins': bei gleicher trade_id nur die zuletzt erscheinende Zeile
+          - 'keep_all':  alle Zeilen behalten (trade_id nicht mehr eindeutig)
+        """
         if master_df is None:
-            if not os.path.isfile(MASTER_CSV_PATH):
-                return stage_df
-            master_df = pd.read_csv(MASTER_CSV_PATH, low_memory=False)
+            if not os.path.isfile(MASTER_COMPLETE_CSV_PATH):
+                return stage_df.reset_index(drop=True)
+            master_df = pd.read_csv(MASTER_COMPLETE_CSV_PATH, low_memory=False)
         merged = pd.concat([master_df, stage_df], ignore_index=True)
-        dup_key = self._create_dup_key(merged)
-        merged = merged[~dup_key.duplicated(keep='last')]
-        return merged
+        if 'trade_id' in merged.columns and settings.DEDUP_STRATEGY == 'last_wins':
+            merged = merged[~merged['trade_id'].duplicated(keep='last')]
+        return merged.reset_index(drop=True)
 
     @staticmethod
     def _load_pipeline_state() -> dict:
@@ -1054,23 +1047,26 @@ class TradeImporter:
             json.dump(state, f, indent=2)
 
     def _stage_rename(self, delta: bool = False, dry_run: bool = False):
-        """Stage: CSV laden, Spalten umbenennen, Datum normalisieren."""
+        """Stage: CSV laden, Spalten umbenennen, Datum normalisieren, trade_id vergeben."""
         print(f"\n[Stage: rename] Lade und benenne Spalten um...")
         df = self.load_and_rename()
         df = self.normalize_dates(df)
-        print(f"      {len(df):,} Trades geladen")
+        # trade_id stabil aus Trade-Inhalt (sha256-Hash) berechnen.
+        df['trade_id'] = compute_trade_ids(df)
+        print(f"      {len(df):,} Trades geladen, trade_ids vergeben")
 
         if delta:
-            if not os.path.exists(MASTER_CSV_PATH):
+            if not os.path.exists(MASTER_COMPLETE_CSV_PATH):
                 raise FileNotFoundError(
-                    f"Delta-Modus: trades_master.csv nicht gefunden: {MASTER_CSV_PATH}")
-            master_df = pd.read_csv(MASTER_CSV_PATH, low_memory=False)
-            if 'transaction_date' in master_df.columns:
-                master_df['transaction_date'] = pd.to_datetime(
-                    master_df['transaction_date'], errors='coerce')
-            df = self.detect_new_trades(df, master_df)
-            print(f"      Delta: {self.stats.get('new_trades', 0):,} neue, "
-                  f"{self.stats.get('duplicates', 0):,} bereits vorhanden")
+                    f"Delta-Modus: {MASTER_COMPLETE_CSV_PATH} nicht gefunden.\n"
+                    f"Bitte zuerst Migration: python scripts/migrate_add_trade_ids.py")
+            master_df = pd.read_csv(MASTER_COMPLETE_CSV_PATH, low_memory=False)
+            new_df = detect_new_trades(df, master_df)
+            self.stats['new_trades'] = len(new_df)
+            self.stats['duplicates'] = len(df) - len(new_df)
+            df = new_df
+            print(f"      Delta: {self.stats['new_trades']:,} neue, "
+                  f"{self.stats['duplicates']:,} bereits vorhanden")
             if df.empty:
                 print("      [OK] Keine neuen Trades.")
 
@@ -1102,24 +1098,101 @@ class TradeImporter:
         print(f"      {self.stats['matched']} gematcht, {self.stats['unmatched']} unmatched")
 
         self._write_stage_output(df, 'committees', delta, dry_run)
-        if not unmatched_df.empty:
-            unmatched_df.to_csv(UNMATCHED_STAGE_PATH, index=False, encoding='utf-8')
+        # Stage immer schreiben (auch leer) -> Promotion kann zwischen
+        # "kein Run" und "leerer Run" unterscheiden (Auto-Purge bei Full-Run).
+        unmatched_df.to_csv(UNMATCHED_STAGE_PATH, index=False, encoding='utf-8')
 
-    def _stage_tickertype(self, delta: bool = False, dry_run: bool = False):
-        """Stage: ticker_type ableiten."""
-        print(f"\n[Stage: tickertype] Leite ticker_type ab...")
-        df = self._read_stage_input('tickertype', delta, dry_run)
-        self._check_stage_inputs('tickertype', df)
-        df = self.derive_ticker_types(df)
-        self._write_stage_output(df, 'tickertype', delta, dry_run)
+    def _stage_tickerclassify(self, delta: bool = False, dry_run: bool = False):
+        """Stage: Offline-Klassifikation via Regex-Entscheidungsbaum."""
+        print(f"\n[Stage: tickerclassify] Offline-Klassifikation...")
+        df = self._read_stage_input('tickerclassify', delta, dry_run)
+        self._check_stage_inputs('tickerclassify', df)
 
-    def _stage_tickerindustry(self, delta: bool = False, dry_run: bool = False):
-        """Stage: yfinance Sector/Industry Lookup."""
-        print(f"\n[Stage: tickerindustry] Ticker-Industry Lookup...")
-        df = self._read_stage_input('tickerindustry', delta, dry_run)
-        self._check_stage_inputs('tickerindustry', df)
-        df = self.enrich_with_ticker_industry(df)
-        self._write_stage_output(df, 'tickerindustry', delta, dry_run)
+        classifications = [
+            classify(row.get('ticker', ''), row.get('asset_name', '') or '')
+            for _, row in df.iterrows()
+        ]
+        df = df.copy()
+        df['ticker_type']               = [c.ticker_type.value for c in classifications]
+        df['ticker_base']               = [c.ticker_base for c in classifications]
+        df['classification_reason']     = [c.classification_reason for c in classifications]
+        df['classification_confidence'] = [c.confidence.value for c in classifications]
+        df['api_strategy']              = [c.api_strategy.value for c in classifications]
+        df['exch_code']                 = [c.exch_code for c in classifications]
+        df['series_letter']             = [c.series_letter for c in classifications]
+        df['status_suffix']             = [c.status_suffix for c in classifications]
+        df['manual_review_flag']        = [c.manual_review for c in classifications]
+
+        df = self._apply_ignore_list(df)
+        n_review = int(df['manual_review_flag'].sum())
+        print(f"      {len(df):,} klassifiziert, {n_review} fuer manual_review markiert")
+        self._write_manual_review_subset(df)
+        self._write_stage_output(df, 'tickerclassify', delta, dry_run)
+
+    def _stage_tickeropenfigi(self, delta: bool = False, dry_run: bool = False):
+        """Stage: OpenFIGI-Normalisierung (FIGI, ticker_figi, security_type_figi)."""
+        print(f"\n[Stage: tickeropenfigi] OpenFIGI-Normalisierung...")
+        df = self._read_stage_input('tickeropenfigi', delta, dry_run)
+        self._check_stage_inputs('tickeropenfigi', df)
+
+        cache_db = os.path.join(BASE_DIR, settings.DATA_CACHE_PATH,
+                                settings.TICKER_TYPE_CACHE_DB)
+        normalizer = TickerNormalizer(
+            cache_db_path=cache_db,
+            api_key=settings.OPENFIGI_API_KEY,
+        )
+
+        classifications = self._reconstruct_classifications(df)
+        normalized = normalizer.normalize_batch(classifications)
+
+        df = df.copy()
+        df['figi']             = [n.figi for n in normalized]
+        df['ticker_figi'] = [n.ticker_figi for n in normalized]
+        df['name_figi']   = [n.name_figi for n in normalized]
+        df['security_type_figi']    = [n.security_type_figi for n in normalized]
+        df['market_sector_figi']    = [n.market_sector_figi for n in normalized]
+
+        # Type-Korrektur (z.B. STOCK -> ETF) zurueckspielen
+        n_corrected = 0
+        indices = df.index.tolist()
+        for pos, idx in enumerate(indices):
+            n = normalized[pos]
+            if n.classification.ticker_type.value != df.at[idx, 'ticker_type']:
+                df.at[idx, 'ticker_type']           = n.classification.ticker_type.value
+                df.at[idx, 'classification_reason'] = n.classification.classification_reason
+                n_corrected += 1
+        if n_corrected:
+            print(f"      Type-Korrektur: {n_corrected} (z.B. STOCK -> ETF)")
+
+        self._write_stage_output(df, 'tickeropenfigi', delta, dry_run)
+
+    def _stage_tickeryfinance(self, delta: bool = False, dry_run: bool = False):
+        """Stage: yfinance Sector/Industry-Anreicherung."""
+        print(f"\n[Stage: tickeryfinance] yfinance Sector/Industry...")
+        df = self._read_stage_input('tickeryfinance', delta, dry_run)
+        self._check_stage_inputs('tickeryfinance', df)
+
+        mappings_dir = os.path.join(BASE_DIR, settings.DATA_MAPPINGS_PATH)
+        enricher = TickerSectorEnricher(
+            cache_dir=mappings_dir,
+            preferred_mapping_path=os.path.join(
+                mappings_dir, settings.PREFERRED_TICKER_MAPPING_FILE),
+            delisted_output_path=DELISTED_STAGE_PATH,
+            unmatched_preferred_path=UNMATCHED_PREFERRED_STAGE_PATH,
+        )
+
+        normalized = self._reconstruct_normalized(df)
+        transaction_dates = df['transaction_date'].tolist() if 'transaction_date' in df.columns else None
+        sector_infos = enricher.enrich_batch(normalized, transaction_dates=transaction_dates)
+
+        df = df.copy()
+        df['sector_yf']   = [s.sector_yf for s in sector_infos]
+        df['industry_yf'] = [s.industry_yf for s in sector_infos]
+        df['quote_type_yf']      = [s.quote_type_yf for s in sector_infos]
+
+        n_sector = int((df['sector_yf'].notna() & (df['sector_yf'] != '')).sum())
+        print(f"      {n_sector:,}/{len(df):,} mit Sektor angereichert")
+        self._write_stage_output(df, 'tickeryfinance', delta, dry_run)
 
     def _stage_filter(self, delta: bool = False, dry_run: bool = False):
         """Stage: Scoring + Filter 0 (Asset-Klasse) + Filter 4 (Vote-Timing)."""
@@ -1130,7 +1203,7 @@ class TradeImporter:
         self._write_stage_output(df, 'filter', delta, dry_run)
 
     def _stage_save(self, delta: bool = False, dry_run: bool = False):
-        """Stage: trades_stage.csv → trades_master.csv (replace oder delta-merge)."""
+        """Stage: trades_stage.csv -> complete + curated Master (replace oder delta-merge)."""
         print(f"\n[Stage: save] Speichere Ergebnisse...")
 
         if not os.path.isfile(STAGE_CSV_PATH):
@@ -1144,27 +1217,28 @@ class TradeImporter:
         self._backup_master()
         self._ensure_directories()
 
-        if delta and os.path.isfile(MASTER_CSV_PATH):
+        if delta and os.path.isfile(MASTER_COMPLETE_CSV_PATH):
             df = self._merge_into_master(df)
             print(f"      Delta-Merge: {len(df):,} Trades gesamt")
 
-        df.to_csv(MASTER_CSV_PATH, index=False, encoding='utf-8')
-        print(f"      -> {MASTER_CSV_PATH} ({len(df):,} Trades)")
+        # 1. Complete-Master (alle Spalten)
+        df.to_csv(MASTER_COMPLETE_CSV_PATH, index=False, encoding='utf-8')
+        print(f"      -> {MASTER_COMPLETE_CSV_PATH} ({len(df):,} Trades)")
 
-        # Stage-Datei aufraaeumen
+        # 2. Curated-Master
+        curated = self._export_curated_master(df)
+        curated.to_csv(MASTER_CSV_PATH, index=False, encoding='utf-8')
+        print(f"      -> {MASTER_CSV_PATH} ({len(curated):,} Trades, "
+              f"{len(curated.columns)} Spalten)")
+
+        # 3. Manual-Review (falls Tickers mit manual_review_flag)
+        self._write_manual_review_subset(df)
+
+        # Stage-Datei aufraeumen
         os.remove(STAGE_CSV_PATH)
 
-        # Unmatched-Stage → Unmatched kopieren
-        if os.path.isfile(UNMATCHED_STAGE_PATH):
-            shutil.copy2(UNMATCHED_STAGE_PATH, UNMATCHED_PATH)
-            os.remove(UNMATCHED_STAGE_PATH)
-            print(f"      Unmatched: {UNMATCHED_PATH}")
-
-        # Delisted-Stage → Delisted kopieren
-        if os.path.isfile(DELISTED_STAGE_PATH):
-            shutil.copy2(DELISTED_STAGE_PATH, DELISTED_TRADES_PATH)
-            os.remove(DELISTED_STAGE_PATH)
-            print(f"      Delisted: {DELISTED_TRADES_PATH}")
+        # Problem-Outputs promoten: Delta=akkumulieren+revalidieren, Full=overwrite
+        self._promote_problem_outputs(delta=delta)
 
     def run_stage(self, stage: str, delta: bool = False, dry_run: bool = False):
         """
@@ -1188,48 +1262,10 @@ class TradeImporter:
 
         print(f"\n[OK] Stage '{stage}' abgeschlossen.")
 
-    @staticmethod
-    def _create_dup_key(df: pd.DataFrame) -> pd.Series:
-        """Erstellt einen String-Key pro Zeile fuer Duplikat-Erkennung."""
-        key_parts = []
-        for col in DUPLICATE_COLUMNS:
-            if col in df.columns:
-                key_parts.append(df[col].astype(str))
-        return key_parts[0].str.cat(key_parts[1:], sep='|', na_rep='')
-
-    def detect_new_trades(self, input_df: pd.DataFrame,
-                          master_df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Erkennt neue Trades durch Key-Vergleich (fuer Delta-Modus).
-
-        Args:
-            input_df: Komplette Quiver-Daten (neu heruntergeladen)
-            master_df: Bestehende trades_master.csv
-
-        Returns:
-            DataFrame nur mit neuen Trades (nicht in Master vorhanden)
-        """
-        if master_df.empty:
-            self.stats['new_trades'] = len(input_df)
-            self.stats['duplicates'] = 0
-            return input_df.copy()
-
-        input_keys = self._create_dup_key(input_df)
-        master_keys = set(self._create_dup_key(master_df))
-
-        is_new = ~input_keys.isin(master_keys)
-        new_trades = input_df[is_new].copy()
-
-        self.stats['new_trades'] = len(new_trades)
-        self.stats['duplicates'] = len(input_df) - len(new_trades)
-
-        logger.info(f"Delta: {self.stats['new_trades']} neue, "
-                     f"{self.stats['duplicates']} bereits vorhanden")
-        return new_trades
-
     def run_delta(self, dry_run: bool = False) -> dict:
         """
         Delta-Import: Nur neue Trades anreichern und an Master mergen.
+        8-Stages-Pipeline (Rebuild Teil 3).
 
         Args:
             dry_run: Wenn True, schreibt Ergebnis in trades_stage.csv statt Master
@@ -1241,14 +1277,15 @@ class TradeImporter:
         print("CONGRESS TRADE TRACKER - Delta Import")
         print("=" * 60)
 
-        # 1. Laden + Umbenennen
-        print("\n[1/6] Lade Quiver-Trades...")
+        # 1. Laden + Umbenennen + trade_id
+        print("\n[1/8] Lade Quiver-Trades...")
         input_df = self.load_and_rename()
         print(f"      Gesamt: {len(input_df)} Trades in Quiver-Datei")
 
         # 2. Datum normalisieren
-        print("\n[2/6] Normalisiere Datumsspalten...")
+        print("\n[2/8] Normalisiere Datumsspalten...")
         input_df = self.normalize_dates(input_df)
+        input_df['trade_id'] = compute_trade_ids(input_df)
         n_fallback = self.stats.get('date_fallback', 0)
         n_future = self.stats.get('date_future_fallback', 0)
         if n_fallback > 0:
@@ -1256,19 +1293,22 @@ class TradeImporter:
         if n_future > 0:
             print(f"      Fallback: {n_future} future-dates korrigiert")
 
-        # 3. Master laden + Delta erkennen
-        print("\n[3/6] Lade Master + erkenne neue Trades...")
-        if not os.path.exists(MASTER_CSV_PATH):
-            print("      [!] Keine trades_master.csv vorhanden.")
-            print("          Bitte zuerst Full Rebuild: python scripts/import_trades.py")
+        # 3. Master laden + Delta erkennen via trade_id
+        print("\n[3/8] Lade Master + erkenne neue Trades...")
+        if not os.path.exists(MASTER_COMPLETE_CSV_PATH):
+            print(f"      [!] {MASTER_COMPLETE_CSV_PATH} nicht vorhanden.")
+            print("          Bitte zuerst Migration: python scripts/migrate_add_trade_ids.py")
+            print("          oder Full Rebuild: python scripts/import_trades.py")
             return self.stats
-        master_df = pd.read_csv(MASTER_CSV_PATH, low_memory=False)
+        master_df = pd.read_csv(MASTER_COMPLETE_CSV_PATH, low_memory=False)
         if 'transaction_date' in master_df.columns:
             master_df['transaction_date'] = pd.to_datetime(
                 master_df['transaction_date'], errors='coerce')
         print(f"      {len(master_df):,} bestehende Trades")
 
-        new_trades = self.detect_new_trades(input_df, master_df)
+        new_trades = detect_new_trades(input_df, master_df)
+        self.stats['new_trades'] = len(new_trades)
+        self.stats['duplicates'] = len(input_df) - len(new_trades)
         print(f"      {self.stats['new_trades']:,} neue Trades")
         print(f"      {self.stats['duplicates']:,} bereits vorhanden")
 
@@ -1277,17 +1317,66 @@ class TradeImporter:
             return self.stats
 
         # 4. Committee-Member-Enrichment
-        print(f"\n[4/6] Reichere {len(new_trades):,} neue Trades an...")
+        print(f"\n[4/8] Reichere {len(new_trades):,} neue Trades an...")
         enriched_df, unmatched_df = self.enrich_member_data(new_trades)
         print(f"      {self.stats['matched']} gematcht, {self.stats['unmatched']} unmatched")
 
-        # 5. Ticker-Type + Ticker-Industry
-        print("\n[5/6] Ticker-Type + Industry Lookup...")
-        enriched_df = self.derive_ticker_types(enriched_df)
-        enriched_df = self.enrich_with_ticker_industry(enriched_df)
+        # 5. Ticker-Klassifikation (offline)
+        print("\n[5/8] Ticker-Klassifikation (offline)...")
+        classifications = [
+            classify(row.get('ticker', ''), row.get('asset_name', '') or '')
+            for _, row in enriched_df.iterrows()
+        ]
+        enriched_df = enriched_df.copy()
+        enriched_df['ticker_type']               = [c.ticker_type.value for c in classifications]
+        enriched_df['ticker_base']               = [c.ticker_base for c in classifications]
+        enriched_df['classification_reason']     = [c.classification_reason for c in classifications]
+        enriched_df['classification_confidence'] = [c.confidence.value for c in classifications]
+        enriched_df['api_strategy']              = [c.api_strategy.value for c in classifications]
+        enriched_df['exch_code']                 = [c.exch_code for c in classifications]
+        enriched_df['series_letter']             = [c.series_letter for c in classifications]
+        enriched_df['status_suffix']             = [c.status_suffix for c in classifications]
+        enriched_df['manual_review_flag']        = [c.manual_review for c in classifications]
+        enriched_df = self._apply_ignore_list(enriched_df)
 
-        # 6. Filter-Logik (Scoring + Filter 0 + Filter 4)
-        print("\n[6/6] Filter-Logik (Scoring, Asset-Klasse, Vote-Timing)...")
+        # 6. OpenFIGI-Normalisierung
+        print("\n[6/8] OpenFIGI-Normalisierung...")
+        cache_db = os.path.join(BASE_DIR, settings.DATA_CACHE_PATH,
+                                settings.TICKER_TYPE_CACHE_DB)
+        normalizer = TickerNormalizer(cache_db_path=cache_db,
+                                       api_key=settings.OPENFIGI_API_KEY)
+        normalized = normalizer.normalize_batch(classifications)
+        enriched_df['figi']             = [n.figi for n in normalized]
+        enriched_df['ticker_figi'] = [n.ticker_figi for n in normalized]
+        enriched_df['name_figi']   = [n.name_figi for n in normalized]
+        enriched_df['security_type_figi']    = [n.security_type_figi for n in normalized]
+        enriched_df['market_sector_figi']    = [n.market_sector_figi for n in normalized]
+        # Type-Korrektur in-place
+        indices = enriched_df.index.tolist()
+        for pos, idx in enumerate(indices):
+            n = normalized[pos]
+            if n.classification.ticker_type.value != enriched_df.at[idx, 'ticker_type']:
+                enriched_df.at[idx, 'ticker_type']           = n.classification.ticker_type.value
+                enriched_df.at[idx, 'classification_reason'] = n.classification.classification_reason
+
+        # 7. yfinance Sector/Industry
+        print("\n[7/8] yfinance Sector/Industry-Anreicherung...")
+        mappings_dir = os.path.join(BASE_DIR, settings.DATA_MAPPINGS_PATH)
+        enricher = TickerSectorEnricher(
+            cache_dir=mappings_dir,
+            preferred_mapping_path=os.path.join(
+                mappings_dir, settings.PREFERRED_TICKER_MAPPING_FILE),
+            delisted_output_path=DELISTED_STAGE_PATH,
+            unmatched_preferred_path=UNMATCHED_PREFERRED_STAGE_PATH,
+        )
+        transaction_dates = enriched_df['transaction_date'].tolist() if 'transaction_date' in enriched_df.columns else None
+        sector_infos = enricher.enrich_batch(normalized, transaction_dates=transaction_dates)
+        enriched_df['sector_yf']   = [s.sector_yf for s in sector_infos]
+        enriched_df['industry_yf'] = [s.industry_yf for s in sector_infos]
+        enriched_df['quote_type_yf']      = [s.quote_type_yf for s in sector_infos]
+
+        # 8. Filter-Logik (Scoring + Filter 0 + Filter 4)
+        print("\n[8/8] Filter-Logik (Scoring, Asset-Klasse, Vote-Timing)...")
         enriched_df = self._apply_filter_logic(enriched_df)
 
         # Speichern
@@ -1295,24 +1384,26 @@ class TradeImporter:
         enriched_df['ImportDate'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         self._ensure_directories()
 
-        # Unmatched immer in Stage-Datei schreiben
-        if not unmatched_df.empty:
-            unmatched_df.to_csv(UNMATCHED_STAGE_PATH, index=False, encoding='utf-8')
+        # Stage immer schreiben (auch leer) -> Promotion entscheidet
+        unmatched_df.to_csv(UNMATCHED_STAGE_PATH, index=False, encoding='utf-8')
 
         if dry_run:
             enriched_df.to_csv(STAGE_CSV_PATH, index=False, encoding='utf-8')
-            print(f"\nDry-Run: {len(enriched_df):,} neue Trades → {STAGE_CSV_PATH}")
+            # Vorschau Endzustand: existing-master ∪ delta_enriched fuer manual_review
+            preview_df = self._build_manual_review_preview(enriched_df)
+            self._write_manual_review_subset(preview_df)
+            print(f"\nDry-Run: {len(enriched_df):,} neue Trades -> {STAGE_CSV_PATH}")
             print("(Zum Committen: python scripts/import_trades.py --delta --stage_save)")
         else:
             self._backup_master()
             updated_master = self._merge_into_master(enriched_df, master_df)
-            updated_master.to_csv(MASTER_CSV_PATH, index=False, encoding='utf-8')
+            updated_master.to_csv(MASTER_COMPLETE_CSV_PATH, index=False, encoding='utf-8')
+            curated = self._export_curated_master(updated_master)
+            curated.to_csv(MASTER_CSV_PATH, index=False, encoding='utf-8')
+            self._write_manual_review_subset(updated_master)
             logger.info(f"Master aktualisiert: {len(updated_master):,} Trades "
                         f"({len(enriched_df):,} neu hinzugefuegt)")
-            if not unmatched_df.empty:
-                shutil.copy2(UNMATCHED_STAGE_PATH, UNMATCHED_PATH)
-            if os.path.isfile(DELISTED_STAGE_PATH):
-                shutil.copy2(DELISTED_STAGE_PATH, DELISTED_TRADES_PATH)
+            self._promote_problem_outputs(delta=True)
 
         # Zusammenfassung
         print("\n" + "=" * 60)
@@ -1327,11 +1418,17 @@ class TradeImporter:
             updated_count = len(master_df) + self.stats.get('new_trades', 0)
             print(f"Master neu: ~{updated_count:,} Trades gesamt")
         print(f"\nOutput-Dateien:")
-        print(f"  - {STAGE_CSV_PATH if dry_run else MASTER_CSV_PATH}")
+        print(f"  - {STAGE_CSV_PATH if dry_run else MASTER_COMPLETE_CSV_PATH}")
+        if not dry_run:
+            print(f"  - {MASTER_CSV_PATH} (kuratiert)")
         if not unmatched_df.empty:
             print(f"  - {UNMATCHED_STAGE_PATH if dry_run else UNMATCHED_PATH}")
         if os.path.isfile(DELISTED_STAGE_PATH):
             print(f"  - {DELISTED_STAGE_PATH if dry_run else DELISTED_TRADES_PATH}")
+        if os.path.isfile(UNMATCHED_PREFERRED_PATH):
+            print(f"  - {UNMATCHED_PREFERRED_PATH}")
+        if os.path.isfile(MANUAL_REVIEW_CSV_PATH):
+            print(f"  - {MANUAL_REVIEW_CSV_PATH}")
 
         return self.stats
 
@@ -1341,12 +1438,9 @@ class TradeImporter:
         unmatched_df: pd.DataFrame
     ):
         """
-        Speichert alle Ergebnisse.
-        trades_master.csv wird komplett neu geschrieben (kein Append).
-
-        Args:
-            enriched_df: Alle angereicherten Trades (kompletter Quiver-Snapshot)
-            unmatched_df: Nicht-gematchte Namen
+        Speichert alle Ergebnisse als complete + curated Master plus
+        manual_review_tickers.csv. Beide Master-Dateien werden komplett
+        neu geschrieben (kein Append).
         """
         self._ensure_directories()
 
@@ -1354,24 +1448,28 @@ class TradeImporter:
         enriched_df = enriched_df.copy()
         enriched_df['ImportDate'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
-        # Master komplett neu schreiben (Quiver = vollstaendiger Snapshot)
-        enriched_df.to_csv(MASTER_CSV_PATH, index=False, encoding='utf-8')
-        logger.info(f"Master neu geschrieben: {MASTER_CSV_PATH} ({len(enriched_df)} Trades)")
+        # 1. Complete-Master (alle Spalten)
+        enriched_df.to_csv(MASTER_COMPLETE_CSV_PATH, index=False, encoding='utf-8')
+        logger.info(f"Complete-Master: {MASTER_COMPLETE_CSV_PATH} ({len(enriched_df)} Trades)")
 
-        # Unmatched Names: Stage → Final
-        if not unmatched_df.empty:
-            unmatched_df.to_csv(UNMATCHED_STAGE_PATH, index=False, encoding='utf-8')
-            shutil.copy2(UNMATCHED_STAGE_PATH, UNMATCHED_PATH)
-            logger.info(f"Unmatched Names: {UNMATCHED_PATH} ({len(unmatched_df)} Namen)")
+        # 2. Curated-Master (Spalten gemaess settings.CURATED_COLUMNS)
+        curated = self._export_curated_master(enriched_df)
+        curated.to_csv(MASTER_CSV_PATH, index=False, encoding='utf-8')
+        logger.info(f"Curated-Master: {MASTER_CSV_PATH} "
+                    f"({len(curated)} Trades, {len(curated.columns)} Spalten)")
 
-        # Delisted Trades: Stage → Final
-        if os.path.isfile(DELISTED_STAGE_PATH):
-            shutil.copy2(DELISTED_STAGE_PATH, DELISTED_TRADES_PATH)
-            logger.info(f"Delisted Trades: {DELISTED_TRADES_PATH}")
+        # 3. Manual-Review (falls Tickers mit manual_review_flag)
+        self._write_manual_review_subset(enriched_df)
+
+        # 4. Stage immer schreiben (auch leer) -> Promotion entscheidet
+        unmatched_df.to_csv(UNMATCHED_STAGE_PATH, index=False, encoding='utf-8')
+
+        # 5. Problem-Outputs promoten: Full-Run = Overwrite (Auto-Purge)
+        self._promote_problem_outputs(delta=False)
 
     def run(self, dry_run: bool = False) -> dict:
         """
-        Fuehrt den kompletten Import durch (alle Stages im Speicher).
+        Fuehrt den kompletten Import durch (alle 8 Stages im Speicher).
 
         Args:
             dry_run: Wenn True, schreibt Ergebnis in trades_stage.csv statt Master
@@ -1380,44 +1478,100 @@ class TradeImporter:
             dict mit Statistiken
         """
         print("=" * 60)
-        print("CONGRESS TRADE TRACKER - Import Pipeline")
+        print("CONGRESS TRADE TRACKER - Import Pipeline (8 Stages)")
         print("=" * 60)
 
-        # 1. Laden + Umbenennen
-        print("\n[1/6] Lade Quiver-Trades...")
+        # 1. Laden + Umbenennen + trade_id
+        print("\n[1/8] Lade Quiver-Trades...")
         df = self.load_and_rename()
         print(f"      Gesamt: {len(df)} Trades geladen")
 
-        # 2. Datum normalisieren
-        print("\n[2/6] Normalisiere Datumsspalten...")
+        # 2. Datum normalisieren + trade_id
+        print("\n[2/8] Normalisiere Datumsspalten + trade_id...")
         df = self.normalize_dates(df)
+        df['trade_id'] = compute_trade_ids(df)
         n_fallback = self.stats.get('date_fallback', 0)
         n_future = self.stats.get('date_future_fallback', 0)
         if n_fallback > 0:
             print(f"      Fallback: {n_fallback} fehlende transaction_dates gefuellt")
         if n_future > 0:
             print(f"      Fallback: {n_future} future-dates korrigiert")
+        print(f"      {len(df):,} trade_ids vergeben")
 
         # 3. Committee-Member-Enrichment
-        print("\n[3/6] Reichere mit Committee-Member-Daten an...")
+        print("\n[3/8] Reichere mit Committee-Member-Daten an...")
         df, unmatched_df = self.enrich_member_data(df)
         print(f"      {self.stats['matched']} erfolgreich gematcht")
         print(f"      {self.stats['unmatched']} nicht gefunden")
 
-        # 4. Ticker-Type ableiten
-        print("\n[4/6] Ticker-Type Klassifikation...")
-        df = self.derive_ticker_types(df)
+        # 4. Ticker-Klassifikation (offline)
+        print("\n[4/8] Ticker-Klassifikation (offline Regex)...")
+        classifications = [
+            classify(row.get('ticker', ''), row.get('asset_name', '') or '')
+            for _, row in df.iterrows()
+        ]
+        df = df.copy()
+        df['ticker_type']               = [c.ticker_type.value for c in classifications]
+        df['ticker_base']               = [c.ticker_base for c in classifications]
+        df['classification_reason']     = [c.classification_reason for c in classifications]
+        df['classification_confidence'] = [c.confidence.value for c in classifications]
+        df['api_strategy']              = [c.api_strategy.value for c in classifications]
+        df['exch_code']                 = [c.exch_code for c in classifications]
+        df['series_letter']             = [c.series_letter for c in classifications]
+        df['status_suffix']             = [c.status_suffix for c in classifications]
+        df['manual_review_flag']        = [c.manual_review for c in classifications]
+        df = self._apply_ignore_list(df)
+        n_review = int(df['manual_review_flag'].sum())
+        print(f"      {len(df):,} klassifiziert, {n_review} fuer manual_review markiert")
 
-        # 5. Ticker-Industry Lookup (yfinance)
-        print("\n[5/6] Ticker-Industry Lookup...")
-        df = self.enrich_with_ticker_industry(df)
+        # 5. OpenFIGI-Normalisierung
+        print("\n[5/8] OpenFIGI-Normalisierung...")
+        cache_db = os.path.join(BASE_DIR, settings.DATA_CACHE_PATH,
+                                settings.TICKER_TYPE_CACHE_DB)
+        normalizer = TickerNormalizer(
+            cache_db_path=cache_db,
+            api_key=settings.OPENFIGI_API_KEY,
+        )
+        normalized = normalizer.normalize_batch(classifications)
+        df['figi']             = [n.figi for n in normalized]
+        df['ticker_figi'] = [n.ticker_figi for n in normalized]
+        df['name_figi']   = [n.name_figi for n in normalized]
+        df['security_type_figi']    = [n.security_type_figi for n in normalized]
+        df['market_sector_figi']    = [n.market_sector_figi for n in normalized]
+        # Type-Korrektur (z.B. STOCK -> ETF)
+        n_corrected = 0
+        indices = df.index.tolist()
+        for pos, idx in enumerate(indices):
+            n = normalized[pos]
+            if n.classification.ticker_type.value != df.at[idx, 'ticker_type']:
+                df.at[idx, 'ticker_type']           = n.classification.ticker_type.value
+                df.at[idx, 'classification_reason'] = n.classification.classification_reason
+                n_corrected += 1
+        if n_corrected:
+            print(f"      Type-Korrektur: {n_corrected} (z.B. STOCK -> ETF)")
 
-        # 6. Filter-Logik (Scoring + Filter 0 + Filter 4)
-        print("\n[6/6] Filter-Logik (Scoring, Asset-Klasse, Vote-Timing)...")
+        # 6. yfinance Sector/Industry-Anreicherung
+        print("\n[6/8] yfinance Sector/Industry-Anreicherung...")
+        mappings_dir = os.path.join(BASE_DIR, settings.DATA_MAPPINGS_PATH)
+        enricher = TickerSectorEnricher(
+            cache_dir=mappings_dir,
+            preferred_mapping_path=os.path.join(
+                mappings_dir, settings.PREFERRED_TICKER_MAPPING_FILE),
+            delisted_output_path=DELISTED_STAGE_PATH,
+            unmatched_preferred_path=UNMATCHED_PREFERRED_STAGE_PATH,
+        )
+        transaction_dates = df['transaction_date'].tolist() if 'transaction_date' in df.columns else None
+        sector_infos = enricher.enrich_batch(normalized, transaction_dates=transaction_dates)
+        df['sector_yf']   = [s.sector_yf for s in sector_infos]
+        df['industry_yf'] = [s.industry_yf for s in sector_infos]
+        df['quote_type_yf']      = [s.quote_type_yf for s in sector_infos]
+
+        # 7. Filter-Logik (Scoring + Filter 0 + Filter 4)
+        print("\n[7/8] Filter-Logik (Scoring, Asset-Klasse, Vote-Timing)...")
         df = self._apply_filter_logic(df)
 
-        # Speichern
-        print("\nSpeichere Ergebnisse...")
+        # 8. Speichern
+        print("\n[8/8] Speichere Ergebnisse...")
         if dry_run:
             self._ensure_directories()
             df_out = df.copy()
@@ -1425,7 +1579,8 @@ class TradeImporter:
             df_out.to_csv(STAGE_CSV_PATH, index=False, encoding='utf-8')
             if not unmatched_df.empty:
                 unmatched_df.to_csv(UNMATCHED_STAGE_PATH, index=False, encoding='utf-8')
-            print(f"\nDry-Run: {len(df_out):,} Trades → {STAGE_CSV_PATH}")
+            self._write_manual_review_subset(df_out)
+            print(f"\nDry-Run: {len(df_out):,} Trades -> {STAGE_CSV_PATH}")
             print("(Zum Committen: python scripts/import_trades.py --stage_save)")
         else:
             self._backup_master()
@@ -1440,13 +1595,48 @@ class TradeImporter:
         print(f"Unmatched:  {self.stats['unmatched']:,} Trades")
 
         print("\nOutput-Dateien:")
-        print(f"  - {STAGE_CSV_PATH if dry_run else MASTER_CSV_PATH}")
+        if dry_run:
+            print(f"  - {STAGE_CSV_PATH}")
+        else:
+            print(f"  - {MASTER_COMPLETE_CSV_PATH}")
+            print(f"  - {MASTER_CSV_PATH} (kuratiert)")
         if self.stats['unmatched'] > 0:
             print(f"  - {UNMATCHED_STAGE_PATH if dry_run else UNMATCHED_PATH}")
         if os.path.isfile(DELISTED_STAGE_PATH):
             print(f"  - {DELISTED_STAGE_PATH if dry_run else DELISTED_TRADES_PATH}")
+        if os.path.isfile(UNMATCHED_PREFERRED_PATH):
+            print(f"  - {UNMATCHED_PREFERRED_PATH}")
+        if os.path.isfile(MANUAL_REVIEW_CSV_PATH):
+            print(f"  - {MANUAL_REVIEW_CSV_PATH}")
 
         return self.stats
+
+    # =========================================================================
+    # Bonus-Flag-Handler (Rebuild Teil 3)
+    # =========================================================================
+
+    def run_manual_review_only(self):
+        """Regeneriert manual_review_tickers.csv aus complete-Master, ohne Master-Touch."""
+        if not os.path.isfile(MASTER_COMPLETE_CSV_PATH):
+            raise FileNotFoundError(
+                f"trades_master_complete.csv nicht vorhanden: {MASTER_COMPLETE_CSV_PATH}\n"
+                f"Bitte zuerst Migration: python scripts/migrate_add_trade_ids.py")
+        df = pd.read_csv(MASTER_COMPLETE_CSV_PATH, low_memory=False)
+        self._write_manual_review_subset(df)
+        print(f"\n[OK] Manual-Review aus {len(df):,} Trades regeneriert.")
+
+    def run_regenerate_curated(self):
+        """Regeneriert trades_master.csv (kuratiert) aus complete, ohne Datenverlust."""
+        if not os.path.isfile(MASTER_COMPLETE_CSV_PATH):
+            raise FileNotFoundError(
+                f"trades_master_complete.csv nicht vorhanden: {MASTER_COMPLETE_CSV_PATH}\n"
+                f"Bitte zuerst Migration: python scripts/migrate_add_trade_ids.py")
+        df = pd.read_csv(MASTER_COMPLETE_CSV_PATH, low_memory=False)
+        self._backup_master()
+        curated = self._export_curated_master(df)
+        curated.to_csv(MASTER_CSV_PATH, index=False, encoding='utf-8')
+        print(f"\n[OK] Curated regeneriert: {MASTER_CSV_PATH} "
+              f"({len(curated):,} Trades, {len(curated.columns)} Spalten)")
 
 
 def main():
@@ -1463,14 +1653,22 @@ def main():
                         help='Stage: Datum-Normalisierung')
     parser.add_argument('--stage_committees', action='store_true',
                         help='Stage: Committee-Member-Enrichment')
-    parser.add_argument('--stage_tickertype', action='store_true',
-                        help='Stage: ticker_type ableiten')
-    parser.add_argument('--stage_tickerindustry', action='store_true',
-                        help='Stage: yfinance Sector/Industry Lookup')
+    parser.add_argument('--stage_tickerclassify', action='store_true',
+                        help='Stage: Offline-Klassifikation via Regex-Entscheidungsbaum')
+    parser.add_argument('--stage_tickeropenfigi', action='store_true',
+                        help='Stage: OpenFIGI-Normalisierung (FIGI, ticker_figi)')
+    parser.add_argument('--stage_tickeryfinance', action='store_true',
+                        help='Stage: yfinance Sector/Industry-Anreicherung')
     parser.add_argument('--stage_filter', action='store_true',
                         help='Stage: Scoring + Filter 0 (Asset-Klasse) + Filter 4 (Vote-Timing)')
     parser.add_argument('--stage_save', action='store_true',
-                        help='Stage: trades_stage.csv → trades_master.csv')
+                        help='Stage: trades_stage.csv -> complete + curated Master')
+
+    # Bonus-Flags (Rebuild Teil 3): Regenerieren ohne Master-Touch
+    parser.add_argument('--manual_review_only', action='store_true',
+                        help='Regeneriert manual_review_tickers.csv aus complete-Master')
+    parser.add_argument('--regenerate_curated', action='store_true',
+                        help='Regeneriert trades_master.csv (kuratiert) aus complete')
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -1483,8 +1681,9 @@ def main():
         'rename': args.stage_rename,
         'date': args.stage_date,
         'committees': args.stage_committees,
-        'tickertype': args.stage_tickertype,
-        'tickerindustry': args.stage_tickerindustry,
+        'tickerclassify': args.stage_tickerclassify,
+        'tickeropenfigi': args.stage_tickeropenfigi,
+        'tickeryfinance': args.stage_tickeryfinance,
         'filter': args.stage_filter,
         'save': args.stage_save,
     }
@@ -1493,13 +1692,30 @@ def main():
     importer = TradeImporter()
 
     try:
+        # Bonus-Flag-Dispatch: nicht kombinierbar mit anderen Flags
+        if args.manual_review_only:
+            if active_stages or args.delta or args.dry_run:
+                print("[X] --manual_review_only nicht kombinierbar mit "
+                      "--stage_*, --delta oder --dry_run")
+                sys.exit(1)
+            importer.run_manual_review_only()
+            return
+
+        if args.regenerate_curated:
+            if active_stages or args.delta or args.dry_run:
+                print("[X] --regenerate_curated nicht kombinierbar mit "
+                      "--stage_*, --delta oder --dry_run")
+                sys.exit(1)
+            importer.run_regenerate_curated()
+            return
+
         if len(active_stages) == 1:
             importer.run_stage(active_stages[0], delta=args.delta, dry_run=args.dry_run)
         elif len(active_stages) > 1:
             print("[X] Nur ein --stage_* Flag gleichzeitig erlaubt")
             sys.exit(1)
         else:
-            # Kein Stage-Flag → kompletter Lauf
+            # Kein Stage-Flag -> kompletter Lauf
             if args.delta:
                 importer.run_delta(dry_run=args.dry_run)
             else:

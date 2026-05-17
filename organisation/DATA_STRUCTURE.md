@@ -268,11 +268,30 @@ Credit Services,14.38%
 **Verwendung**: Verhindert wiederholte yfinance-API-Calls fuer bekannt unresolvbare Ticker (Sektor/Industrie). Wird NICHT fuer ticker_type verwendet.
 
 ### `data/cache/ticker_type_cache.db`
-**Quelle**: Automatisch von `scripts/import_trades.py` via `utils/openfigi_client.py` (OpenFIGI API)
+**Quelle**: Automatisch von `scripts/import_trades.py`. Enthaelt zwei Tabellen parallel:
+- `ticker_types` (Legacy, via `utils/openfigi_client.py` — nicht mehr aktiv genutzt)
+- `ticker_normalizer` (Rebuild Teil 2/3, via `utils/ticker_normalizer.py` — aktive Pipeline)
 **Format**: SQLite-Datenbank
 **Update**: Bei jedem Import (nur Cache-Misses werden bei der API abgefragt)
 
-**Schema**:
+**Schema (aktiv) — `ticker_normalizer`** (seit 2026-05-14: `_figi`-Suffix):
+```sql
+CREATE TABLE ticker_normalizer (
+    cache_key           TEXT PRIMARY KEY,   -- "<ticker_base>:<id_type>:<exch_code|*>"
+    classification_type TEXT NOT NULL,      -- "TICKER" | "SEARCH" | "ID_CUSIP"
+    figi                TEXT,               -- FIGI (Bloomberg, z.B. "BBG000B9XRY4")
+    ticker_figi         TEXT,               -- Canonical Ticker laut OpenFIGI
+    name_figi           TEXT,               -- Canonical Name laut OpenFIGI
+    security_type_figi  TEXT,               -- OpenFIGI securityType
+    raw_security_type   TEXT,               -- OpenFIGI securityType (Roh-Spiegel)
+    raw_security_type2  TEXT,               -- OpenFIGI securityType2 (z.B. "ETP" → Type-Korrektur)
+    market_sector_figi  TEXT,               -- OpenFIGI marketSector (z.B. "Equity", "Pfd", "Muni")
+    source              TEXT NOT NULL,      -- "mapping" | "search" | "search_empty" | "empty"
+    checked_date        TEXT NOT NULL       -- ISO-Zeitstempel
+);
+```
+
+**Schema (Legacy) — `ticker_types`**:
 ```sql
 CREATE TABLE ticker_types (
     ticker TEXT PRIMARY KEY,        -- Ticker-Symbol (z.B. "SPY", "AAPL")
@@ -286,9 +305,9 @@ CREATE TABLE ticker_types (
 );
 ```
 
-**TTL**: Normale Eintraege 90 Tage, "Unknown" 7 Tage. Bei Offline: alle Cache-Eintraege gueltig.
+**TTL**: Normale Eintraege 90 Tage, "Unknown"/"empty" 7 Tage. Bei Offline: alle Cache-Eintraege gueltig.
 
-**Verwendung**: Primaere Quelle fuer `ticker_type`-Spalte in `trades_master.csv`. Ersetzt die fruehere yfinance-basierte quoteType-Klassifikation.
+**Verwendung**: `ticker_normalizer` ist die aktive Quelle der OpenFIGI-Felder im Master (Spalten `figi`, `ticker_figi`, `name_figi`, `security_type_figi`, `market_sector_figi`). `ticker_types` ist Legacy und wird nicht mehr beschrieben.
 
 ### `data/mappings/Vorzugsaktien_mapping.csv`
 **Quelle**: Manuell gepflegt
@@ -433,13 +452,38 @@ python scrapers/house_pdf_extractor_v2.py --model claude-sonnet-4-6    # Anderes
 
 ## 6. Processed Data (Output)
 
-### `data/processed/trades_master.csv`
-**Quelle**: Output von `scripts/import_trades.py`
+### `data/processed/trades_master.csv` (kuratierte Sicht)
+**Quelle**: Output von `scripts/import_trades.py` (Stage `save`)
 **Format**: CSV
-**Größe**: Variable (aktuell ~9,591 Trades, nur eigene Scraped-Daten)
-**Update**: Bei jedem Import (kumulativ)
+**Update**: Bei jedem Import (kumulativ; vollstaendige Spalten in `trades_master_complete.csv`)
 
-**Spalten** (26 Spalten, Stand Maerz 2026):
+**Hinweis (Rebuild Teil 3, 26.04.2026)**: `trades_master.csv` enthaelt jetzt
+nur die **kuratierten Spalten** aus `settings.CURATED_COLUMNS`. Die
+vollstaendige Spalten-Sicht liegt in `trades_master_complete.csv`. Der
+Wechsel passiert beim Speichern automatisch — fuer Stage-Inputs liest
+die Pipeline immer aus `trades_master_complete.csv`.
+
+**Kuratierte Spalten** (Default in `settings.CURATED_COLUMNS`, vom
+User erweiterbar):
+- `trade_id` — 16-Hex Hash-ID (utils/trade_id.compute_trade_ids)
+- `name`, `ticker`, `ticker_base`, `asset_name`
+- `transaction_date`, `transaction_type`, `amount`
+- `chamber`, `Member_Party`, `Member_State`
+- `security_type_figi`, `sector_yf`, `industry_yf`
+- `MatchScore`, `Vote_Timing_Hit`
+
+**adj_-Prefix-Regel**: Spalten mit `adj_X` lesen den Wert aus der
+Quellspalte `X` der complete-Datei und schreiben ihn unter dem
+`adj_X`-Namen (signalisiert: Pipeline-modifizierter Wert).
+
+---
+
+### `data/processed/trades_master_complete.csv` (vollstaendige Persistierung)
+**Quelle**: Output von `scripts/import_trades.py` (Stage `save`)
+**Format**: CSV
+**Update**: Bei jedem Import (kumulativ; jeder Stage schreibt hier ein)
+
+**Spalten** (alle, deutlich mehr als `trades_master.csv`):
 ```csv
 # Original Scraped Trade-Daten (Reihenfolge wie in CSV)
 name,                   # Politiker-Name
@@ -461,7 +505,6 @@ subholding,             # Depot/Trust-Name (nur House, aus "S O:" Zeilen)
 # Anreicherung durch Name Matching
 Member_Party,           # D oder R
 Member_State,           # CA, TX, etc.
-Member_Committees,      # Committee-String
 Member_ExOfficio,       # True/False
 Member_Chamber,         # House/Senate
 MatchScore,             # 0-100 (Fuzzy Match Score)
@@ -469,16 +512,24 @@ MatchSource,            # exact, fuzzy, alias, none
 
 # Anreicherung durch Committee Filter (Modul 4)
 Member_Committees_Full, # Vollstaendiger Committee-String
-Relevant_Sectors,       # JSON: [{sector, industry, rank, confidence, committee, subcommittee}, ...]
-Relevance_Score,        # 0-100 (Committee-Sektor Relevanz)
-Confidence_Level,       # Hoch/Mittel/Niedrig
+Insider_Sectors,        # JSON: ALLE (sub)committee-Sektoren des Members [{sector, industry, rank, confidence, role, committee, subcommittee}, ...]
+Relevant_Sectors,       # JSON: Intersection von Insider_Sectors mit sector_yf/industry_yf (Match-Mode konfigurierbar in settings.RELEVANT_SECTORS_MATCH_MODE)
+Relevance_Score,        # 0-100 (Committee-Sektor Relevanz, basierend auf Sector/Industry-Match × Ex-Officio-Multiplikator)
 
 # Anreicherung durch Filter 0 (Asset-Klasse)
 asset_class_excluded,   # True = Nicht-Aktie (ETF/Option/Bond/Crypto/...) -> wird von Scoring ignoriert
 
-# Anreicherung durch Ticker-Industry Lookup (yfinance)
-Ticker_Sector,          # YF Sector (z.B. "Technology") — leer bei ETFs/Bonds/unbekannten Tickern
-Ticker_Industry,        # YF Industry (z.B. "Consumer Electronics") — leer bei ETFs/Bonds/unbekannten Tickern
+# Anreicherung durch OpenFIGI (Stage tickeropenfigi) — Suffix _figi
+figi,                   # FIGI-ID (z.B. "BBG000B9XRY4")
+ticker_figi,            # Canonical Ticker laut OpenFIGI (Bloomberg-Form, z.B. "WRB 7.375 PERP +A")
+name_figi,              # Canonical Name laut OpenFIGI (z.B. "W.R. BERKLEY CORPORATION")
+security_type_figi,     # OpenFIGI securityType (z.B. "Common Stock", "PUBLIC", "FIXED, OID")
+market_sector_figi,     # OpenFIGI marketSector (z.B. "Equity", "Pfd", "Corp", "Muni", "Govt")
+
+# Anreicherung durch yfinance (Stage tickeryfinance) — Suffix _yf
+sector_yf,              # YF Sector (z.B. "Technology") — leer bei ETFs/Bonds/unbekannten Tickern
+industry_yf,            # YF Industry (z.B. "Consumer Electronics") — leer bei ETFs/Bonds/unbekannten Tickern
+quote_type_yf,          # YF quoteType (z.B. "EQUITY", "ETF", "MUTUALFUND")
 
 # Metadata
 ImportDate              # YYYY-MM-DD HH:MM:SS
@@ -486,36 +537,103 @@ ImportDate              # YYYY-MM-DD HH:MM:SS
 
 **Hinweis**: `subholding` steht nach `chamber` (nicht nach `owner`), weil Senate-Trades kein `subholding` haben — pandas fuegt die Spalte beim Concat ans Ende an.
 
-**ticker_type Werte** (abgeleitet via OpenFIGI API + Regex Pre-Filter):
+**Naming-Konvention (seit 2026-05-14, Spalten-Refactoring)**: Felder, die aus
+externen APIs stammen, tragen Suffixe zur eindeutigen Quellzuordnung:
+- `_figi` — alle aus OpenFIGI abgeleiteten Felder (Stage `tickeropenfigi`)
+- `_yf` — alle aus yfinance abgeleiteten Felder (Stage `tickeryfinance`)
+- ohne Suffix — Classifier-Outputs (`ticker_type`, `ticker_base`, …) oder Original-Scrape-Daten.
+
+Die ID-Spalte `figi` selbst behält keinen Suffix (Eigenname/Akronym).
+
+**Stage `tickerclassify` (Rebuild Teil 3) ergaenzt zusaetzliche Spalten**:
+- `ticker_base` — normalisierte Form (z.B. BRK-B fuer BRK.B)
+- `classification_reason` — welche Regex/Regel hat gefeuert
+- `classification_confidence` — high/medium/low
+- `api_strategy` — figi_mapping/figi_search/cusip_lookup/yfinance_direct/skip/manual_review
+- `exch_code`, `series_letter`, `status_suffix`
+- `manual_review_flag` — bool
+
+**Stage `tickeropenfigi` (Rebuild Teil 3) ergaenzt zusaetzliche Spalten**:
+- `figi`, `ticker_figi`, `name_figi`
+- `security_type_figi`, `market_sector_figi`
+
+**Stage `tickeryfinance` ergaenzt**:
+- `sector_yf`, `industry_yf`, `quote_type_yf`
+
+**ticker_type Werte** (Rebuild Teil 3 — neue Enum-Werte aus `utils.ticker_classifier.TickerType`,
+kleinbuchstabig statt der alten Großbuchstaben-Strings):
 
 | Wert | Quelle | Beschreibung | Beispiel-Ticker |
 |------|--------|-------------|-----------------|
-| Stock | OpenFIGI (Common Stock, REIT, ADR) | Normale Aktie | AAPL, MSFT, BRK-B |
-| ETF | OpenFIGI (ETP) | Exchange-Traded Fund/Product | SPY, QQQ, GLD |
-| Mutual Fund | OpenFIGI (Open-End Fund) oder Regex | Investmentfonds | VFIAX, SYMBOL: AEPGX |
-| Closed-End Fund | OpenFIGI (Closed-End Fund) | Geschlossener Fonds | UTF, EOS |
-| Preferred Stock | OpenFIGI (Preferred Stock) | Vorzugsaktie | O-PA, ATH-PE |
-| Warrant | Regex oder OpenFIGI | Optionsschein | KMB-W, GE-W, BACWSA |
-| Rights | OpenFIGI (Right) | Bezugsrecht | TTM-R |
-| SPAC Unit | OpenFIGI (Unit) | SPAC-Unit | BLOC-U |
-| Bond/CUSIP | Regex | Anleihe/CUSIP-Nummer | 912796U49, 37045XEF9 |
-| Bond | OpenFIGI (marketSector: Corp/Govt/Muni) | Anleihe (API-erkannt) | |
-| Bond (Maturity) | Regex | Anleihe mit Faelligkeitsdatum | DUE 12/01/27 |
-| T-Bill | Regex | Geldmarkt-Instrument | 8.WEEK, MATURE |
-| Crypto | Regex | Kryptowaehrung | CRYPTO:BTC, BITCOIN |
-| Foreign Stock | Regex | Auslandsnotierung | 1AMT.MI, NYSE: COV |
-| Index | Regex | Index-Ticker | ^MWE, ^RGP |
-| Option | Regex | Option | SPY160219P00180000 |
-| SEDOL | Regex | UK-Wertpapierkennung | B1WSP14 |
-| Other | Regex | Sonstiges (Junk, Test, Freitext) | 44, BELGIUM |
-| Unknown | Fallback/Error | Kein Ergebnis von OpenFIGI | |
-| Stock (Delisted) | Regression-Schutz (refresh_ticker_types) | Legacy-Label fuer akquirierte/delisted Aktien, die OpenFIGI heute nicht mehr kennt | CELG, ALXN, TWTR, ATVI |
-| Depositary Receipt | OpenFIGI | ADR fuer auslaendische Aktien (expliziter als "Stock") | BABA, TSM, ASML |
-| Partnership Shares | OpenFIGI | MLP-Anteile | EPD, MMP, ET |
+| `stock` | Classifier (1-5 Buchstaben) | Normale US-Aktie inkl. ADR/REIT/MLP | AAPL, MSFT, BABA |
+| `foreign_stock` | Classifier (Suffix .L, .DE, ...) | Auslandsnotierung | NESN.SW, AIR.PA |
+| `shareclass` | Classifier (-A, -B etc., NICHT Preferred) | Aktien-Klasse | BRK-B, GOOGL |
+| `etf` | Type-Korrektur OpenFIGI | Exchange-Traded Fund | SPY, QQQ |
+| `preferred` | Classifier ($, .PR, -P-X etc.) | Vorzugsaktie | EP$C, ATH.PRC |
+| `warrant` | Classifier (-W, -WS, w-Suffix) | Optionsschein | KMB-W, BACWSA |
+| `option` | Classifier (OCC-Format) | Option | SPY160219P00180000 |
+| `bond` | Classifier (CUSIP-aehnlich) | Anleihe | 37045XEF9 |
+| `treasury` | Classifier (T+8-9 alnum) | US-Treasury T-Bill | T912796U49 |
+| `crypto` | Classifier (USD/USDT etc.) | Krypto-Pair | BTC-USD |
+| `unit` | Classifier (-U) | SPAC-Unit | BLOC-U |
+| `when_issued` | Classifier (-W I) | "When-Issued"-Aktie | XYZ-WI |
+| `numeric_suffix` | Classifier (AGN1, PYPL1) | Numerisches Suffix (manual_review=True) | AGN1 |
+| `long_alpha_suspect` | Classifier (>=6 Großbuchstaben) | Datenmuell-Verdacht | BELGIUM |
+| `misc` | Classifier (Sonderzeichen) | Sonstige Sonder-Ticker | |
+| `invalid` | Classifier (Datenmuell, leer) | Nicht klassifizierbar | |
+| `unknown` | Fallback | Kein Pattern getroffen | |
 
-**Filter 0 (Asset-Klasse, `asset_class_excluded`)**: Setzt `True` fuer alle `ticker_type`-Werte **ausser** `Stock`, `Stock (Delisted)`, `Depositary Receipt`, `Partnership Shares` (siehe `config/settings.py::FILTER_0_KEEP_TYPES`). Ausgefilterte Trades bleiben in der Datei, werden aber vom VoteTimingFilter und nachgelagerten Scoring-Modulen uebersprungen.
+**Filter 0 (Asset-Klasse, `asset_class_excluded`)**: Setzt `True` fuer alle `ticker_type`-Werte **ausser** `stock`, `foreign_stock`, `shareclass` (siehe `config/settings.py::FILTER_0_KEEP_TYPES`). Ausgefilterte Trades bleiben in der Datei, werden aber vom VoteTimingFilter und nachgelagerten Scoring-Modulen uebersprungen.
 
 **Verwendung**: Hauptdatenbank fuer Analyse, Filter und Scoring
+
+---
+
+### Problem-Outputs: Stage-vs-Live-Verhalten (Mai 2026)
+
+Die vier Diagnose-Dateien `unmatched_names.csv`, `unmatched_preferred.csv`, `delisted_trades.csv`, `manual_review_tickers.csv` folgen einem einheitlichen Stage→Live-Muster:
+
+| Lauf-Typ | Verhalten | Wirkung |
+|----------|-----------|---------|
+| **Full-Run** (`python scripts/import_trades.py`) | **Overwrite**: Live-Datei wird mit aktuellem Stand überschrieben. Bei leerem Ergebnis → Datei wird gelöscht. | Auto-Purge: gelöste Probleme verschwinden automatisch. |
+| **Delta-Run** (`--delta`) | **Akkumuliert + Re-Validiert**: alte Live-Datei + neue Probleme werden gemerged via natürlichem Schlüssel. Anschließend werden Einträge entfernt, die jetzt gelöst sind (z.B. Name jetzt in `name_aliases.csv`, Ticker in `ignored_tickers.csv` oder im positiven Cache). | Akkumuliert offene Probleme über Runs hinweg. |
+| **Dry-Run** (`--dry_run`) | Schreibt nur `*_stage.csv` (Vorschau aktueller Run). Live-Dateien bleiben unangetastet. `manual_review_tickers.csv` zeigt die projizierte Endform (existing-master ∪ delta). | Sichere Vorschau ohne destruktive Änderung. |
+
+**Stage-Dateien** (Zwischen-Output während des Laufs):
+- `unmatched_names_stage.csv`
+- `unmatched_preferred_stage.csv` (NEU)
+- `delisted_trades_stage.csv`
+
+Sie werden nach erfolgreicher Promotion automatisch entfernt (`_promote_problem_outputs(delta)` in `scripts/import_trades.py`).
+
+**Re-Validation-Quellen pro Datei**:
+| Datei | Re-Validation gegen |
+|-------|---------------------|
+| `unmatched_names.csv` | `NameMatcher.match()` mit aktuellen `name_aliases.csv` + Member-CSVs |
+| `unmatched_preferred.csv` | `Vorzugsaktien_mapping.csv` + `ignored_tickers.csv` |
+| `delisted_trades.csv` | Positiver `ticker_industry_cache.json` (kein API-Call) |
+| `manual_review_tickers.csv` | bestehende Filter (`ticker_type!='ignored'`, `manual_review_flag=True`, nicht in `ignored_tickers`) |
+
+`count`-Spalte in `unmatched_names.csv` wird beim Delta-Merge **aufsummiert** (alt + neu), damit Sortierung nach Triage-Priorität bleibt.
+
+---
+
+### `data/processed/manual_review_tickers.csv` (Diagnose-Output, Rebuild Teil 3)
+**Quelle**: Stage `save` und Bonus-Flag `--manual_review_only`
+**Format**: CSV, sortiert nach `count_of_trades` absteigend
+**Update**: Bei jedem Import neu geschrieben (kein Append)
+**Daten-Basis**: Full-Run und Delta-Run aggregieren aus dem **vollen gemergten Master**. Im Delta-Dry-Run wird `existing-master ∪ delta_enriched` als Vorschau aggregiert.
+
+**Spalten**:
+- `raw_ticker` — wie aus dem Quiver-Feed
+- `ticker_base` — normalisierte Form
+- `ticker_type` — Classifier-Ergebnis
+- `classification_reason` — welche Regel hat gefeuert
+- `count_of_trades` — Anzahl Trades mit diesem Ticker
+- `first_trade_date`, `last_trade_date`
+- `example_member` — ein Politiker als Beispiel
+
+**Verwendung**: Aufmerksame Pruefung von `manual_review=True`-Tickern, fuer die der Classifier keine eindeutige Regel hatte (z.B. NUMERIC_SUFFIX, LONG_ALPHA_SUSPECT). Regeneration ohne Master-Touch via `python scripts/import_trades.py --manual_review_only`.
 
 ---
 
@@ -533,12 +651,14 @@ ImportDate              # YYYY-MM-DD HH:MM:SS
 ### `data/processed/unmatched_names.csv`
 **Quelle**: Output von `scripts/import_trades.py`
 **Format**: CSV
-**Update**: Bei jedem Import
+**Update**: Full-Run = Overwrite. Delta-Run = Akkumuliert + Re-Validiert (siehe Übersicht oben).
+**Auto-Purge**: Sobald ein Name in `data/mappings/name_aliases.csv` (oder Member-CSV) auftaucht, wird er beim nächsten Run automatisch aus der Datei entfernt.
 
 **Spalten**:
 ```csv
 trade_name, count, chamber, best_match, best_match_score
 ```
+- `count` wird beim Delta-Merge aufsummiert (alt + neu).
 
 **Beispiel**:
 ```csv
@@ -548,43 +668,46 @@ Nancy Pelosi,30,house,Nancy Mace,63
 
 **Verwendung**:
 - Review von nicht-gematchten Namen
-- Kandidaten für `data/config/name_aliases.csv`
+- Kandidaten für `data/mappings/name_aliases.csv`
 
 ---
 
 ### `data/processed/unmatched_preferred.csv`
-**Quelle**: Output von `scripts/import_trades.py` (Ticker-Industry Lookup)
-**Format**: CSV
-**Update**: Bei jedem Import (nur wenn unmatched Preferred-Ticker existieren)
+**Quelle**: Output von `scripts/import_trades.py` via `utils/ticker_sector.py:_write_unmatched_preferred()`
+**Format**: CSV (1 Spalte: `preferred_ticker`)
+**Update**: Full-Run = Overwrite. Delta-Run = Akkumuliert + Re-Validiert.
+**Auto-Purge**: Sobald ein Ticker in `Vorzugsaktien_mapping.csv` oder `ignored_tickers.csv` auftaucht, wird er beim nächsten Run entfernt.
 
-**Spalten**:
-```csv
-ticker, count, names, asset_names
-```
+**Stage-Datei**: `data/processed/unmatched_preferred_stage.csv` (Zwischenpuffer, wird nach Promotion gelöscht).
 
 **Beispiel**:
 ```csv
-XYZ$A,3,"John Doe, Jane Smith","COMPANY INC."
+preferred_ticker
+EFC$D
+BAC$I
 ```
 
 **Verwendung**:
 - Review von Preferred-Tickern ohne Mapping in `Vorzugsaktien_mapping.csv`
-- Kandidaten fuer neue Eintraege in der Mapping-Datei
+- Kandidaten für neue Einträge in der Mapping-Datei oder `ignored_tickers.csv`
 
 ---
 
 ### `data/processed/delisted_trades.csv`
-**Quelle**: Output von `scripts/import_trades.py` (Ticker-Industry Lookup)
+**Quelle**: Output von `scripts/import_trades.py` (Ticker-Sector Stage via `utils/ticker_sector.py`)
 **Format**: CSV
-**Update**: Bei jedem Import
+**Update**: Full-Run = Overwrite. Delta-Run = Akkumuliert + Re-Validiert (Cache-only).
+**Auto-Purge**: Sobald ein Ticker im positiven `data/mappings/ticker_industry_cache.json` auftaucht, wird er beim nächsten Run entfernt (kein API-Call).
+
+**Stage-Datei**: `data/processed/delisted_trades_stage.csv` (Zwischenpuffer, wird nach Promotion gelöscht).
 
 **Spalten**:
 ```csv
-ticker, name, asset_name, transaction_date, chamber
+ticker, ticker_type, company_name, classification_reason, transaction_date
 ```
 
 **Verwendung**:
-- Uebersicht aller Trades mit delisteten/unbekannten Tickern (kein Sector/Industry bei yfinance)
+- Übersicht aller Trades mit delisteten/unbekannten Tickern (kein Sector/Industry bei yfinance)
 - Terminal-Report zeigt Verteilung nach Jahr
 
 ---
@@ -635,6 +758,41 @@ Thomas H Tuberville,"Tuberville, Tommy",senate
 
 ---
 
+### `data/mappings/ignored_tickers.csv`
+**Quelle**: Manuell gepflegt
+**Format**: CSV
+**Zweck**: Allowlist-Gegenstueck — Trades, deren `raw_ticker` in dieser Liste
+steht, werden in der Pipeline mit `ticker_type='ignored'`, `api_strategy='skip'`
+und `manual_review_flag=False` markiert. Dadurch entfallen API-Lookups
+(OpenFIGI/yfinance) und der Eintrag taucht nicht mehr in
+`manual_review_tickers.csv` auf.
+
+**Spalten**:
+```csv
+raw_ticker, category, reason
+```
+
+- `raw_ticker` (str, **exakter Match** auf Spalte `ticker` im Trade): z.B. `"GLAS FUNDS, LP"`
+- `category` (str): freie Kategorisierung, z.B. `private_fund`, `non_public`, `obvious_typo`
+- `reason` (str): Begruendung fuer den Eintrag (Audit-Trail)
+
+**Beispiel**:
+```csv
+raw_ticker,category,reason
+"GLAS FUNDS, LP",private_fund,Private investment platform - kein oeffentlicher Ticker
+```
+
+**Verwendung**: `scripts/import_trades.py` → `_load_ignored_tickers()` /
+`_apply_ignore_list()`. Wird nach jeder Klassifikation angewendet (Stage
+`tickerclassify` sowie in `run()` und `run_delta()`). Pipeline schreibt
+diese Datei NIE — nur lesen.
+
+**Pflege**: Eintraege aus `data/processed/manual_review_tickers.csv` koennen
+hierher verschoben werden, wenn klar ist, dass das Asset keinen oeffentlichen
+Ticker hat oder anderweitig ausgeschlossen werden soll.
+
+---
+
 ## 7. Weitere Mappings
 
 ### `data/raw/subcommittee_region_mapping.csv`
@@ -670,25 +828,25 @@ Chamber, Committee, Subcommittee, Region, Konfidenz
    ↓
    utils/name_matcher.py (Senate-Normalisierung + Fuzzy 85%)
    ↓
-   [Member_Party, Member_State, Member_Committees, Member_ExOfficio,
+   [Member_Party, Member_State, Member_ExOfficio,
     Member_Chamber, Member_Committees_Full]
    (MatchScore/MatchSource kommen in Stage 4)
 
 3. TICKER-TYPE + TICKER-INDUSTRY
-   + OpenFIGI API (ticker_type)
-   + yfinance (Ticker_Sector, Ticker_Industry)
+   + OpenFIGI API (Stage tickeropenfigi, Suffix _figi)
+   + yfinance (Stage tickeryfinance, Suffix _yf)
    ↓
-   [ticker_type, Ticker_Sector, Ticker_Industry]
+   [ticker_type, figi, ticker_figi, name_figi, security_type_figi,
+    market_sector_figi, sector_yf, industry_yf, quote_type_yf]
 
 4. FILTER-LOGIK (--stage_filter / _apply_filter_logic)
    + subcommittee_sector_industry_mapping.csv (CommitteeFilter)
    + bill_actions.json + bill_subjects.json (VoteTimingFilter)
    ↓
    _apply_match_scores → [MatchScore, MatchSource]
-   _apply_committee_relevance → [Relevant_Sectors, Relevance_Score, Confidence_Level]
+   _apply_committee_relevance → [Insider_Sectors, Relevant_Sectors, Relevance_Score]
    AssetClassFilter → [asset_class_excluded]
-   VoteTimingFilter → [Vote_Timing_Hit, Vote_Date, Vote_Bill_Title,
-                        Vote_Policy_Area, Vote_Timing_Score, Days_To_Vote]
+   VoteTimingFilter → [Vote_Timing_Hit, Vote_Timing_Hits, Vote_Timing_Hit_Count]
 
 5. OUTPUT
    ↓
@@ -702,27 +860,45 @@ Chamber, Committee, Subcommittee, Region, Konfidenz
 ## Scoring-Formel (Modul 4)
 
 ```python
-# Für jeden Sector Match:
-base_score = RANK_WEIGHTS[rank] * 100
-  # Rank 1 = 100, Rank 2 = 75, Rank 3 = 50, Rank 4 = 25
+# Pro Trade über alle Mapping-Einträge der Member-Committees prüfen:
+sector_match   = ∃ Mapping-Eintrag mit Sector   == sector_yf
+industry_match = ∃ Mapping-Eintrag mit Industry == industry_yf
+ex_officio     = ∃ beitragender Treffer (Sektor ODER Industry)
+                 mit Rolle ∈ {Chairman, Ranking Member, Vice Chairman, Cochairman}
 
-confidence_mult = CONFIDENCE_WEIGHTS[confidence]
-  # Hoch = 1.0, Mittel = 0.7, Niedrig = 0.4
-
-role_mult = ROLE_WEIGHTS[role]
-  # Chairman/Ranking Member/Vice Chairman/EXOfficio = 1.5
-  # Regular Member = 1.0
-
-sector_score = base_score × confidence_mult × role_mult
-
-# Final Score = Maximum über alle Matches (0-100, capped)
+raw   = (33 if sector_match else 0) + (33 if industry_match else 0)
+score = round(raw × (1.5 if ex_officio else 1.0))
 ```
 
-**Beispiel**:
-- Politician: Chairman von Agriculture/Commodity Markets
-- Trade: Financial Services Aktie
-- Mapping: Rank 1, Hoch Confidence
-- Score: 100 × 1.0 × 1.5 = **150 → capped at 100**
+Mögliche Werte: **0 · 33 · 50 · 66 · 99**
+
+Konstanten konfigurierbar in `config/settings.py`:
+- `COMMITTEE_SECTOR_MATCH_POINTS` (Default 33)
+- `COMMITTEE_INDUSTRY_MATCH_POINTS` (Default 33)
+- `COMMITTEE_EX_OFFICIO_MULTIPLIER` (Default 1.5)
+- `COMMITTEE_EX_OFFICIO_ROLES` (Default: Chairman, Ranking Member, Vice Chairman, Cochairman, EXOfficio)
+
+### Relevant_Sectors (Intersection) vs. Insider_Sectors
+
+- **`Insider_Sectors`** = JSON-Liste aller (sub)committee-Sektoren des Members
+  (frueher: `Relevant_Sectors`). Inhalt haengt nur am Member, nicht am Ticker.
+- **`Relevant_Sectors`** (neu) = Teilmenge von `Insider_Sectors`, deren Eintraege
+  zum gehandelten Ticker passen (Match gegen `sector_yf` / `industry_yf`).
+  Match-Modus konfigurierbar in `config/settings.py`:
+  - `RELEVANT_SECTORS_MATCH_MODE = 'sector_or_industry'` (Default): Eintrag matcht,
+    wenn Sektor ODER Industry passt.
+  - `'sector_and_industry'`: nur Eintraege mit Sektor UND Industry-Match.
+  - `'hybrid'`: bevorzuge Sektor+Industry-Matches, sonst Fallback auf
+    sector_or_industry.
+
+`Confidence_Level` wurde entfernt — die Info liegt pro Eintrag in `Insider_Sectors`
+unter dem `confidence`-Key.
+
+**Beispiele**:
+- Member im Energy-Committee, Trade in NEE (Utilities/Utilities-Regulated Electric): kein Sektor-Match → **0**
+- Rick Larsen (Transportation) + WAB (Industrials/Railroads): Sektor matcht über Subcommittee → **33**
+- Jennifer McClellan (Energy & Commerce) + VZ (Communication Services/Telecom Services): Sektor + Industry matchen → **66**
+- Chairman des Energy-Committees + ENPH (Technology/Solar): Sektor + Industry matchen, ex officio → **(33+33) × 1.5 = 99**
 
 ---
 
@@ -772,9 +948,11 @@ Erzeugt:
 - **Gewichtung**: Alle Ex Officio Rollen bekommen 1.5x Multiplier
 
 ### 4. JSON in CSV
-- `Relevant_Sectors` ist JSON-String in CSV
-- **Beim Lesen**: `json.loads(row['Relevant_Sectors'])`
-- **Beim Schreiben**: `json.dumps(sectors_list)`
+- `Insider_Sectors`, `Relevant_Sectors` und `Vote_Timing_Hits` sind JSON-Strings in CSV
+- **Beim Lesen**: `json.loads(row['Insider_Sectors'])` / `json.loads(row['Vote_Timing_Hits'])`
+- **Beim Schreiben**: `json.dumps(list_or_dict)`
+- `Vote_Timing_Hits` enthaelt **alle** Treffer im Fenster (frueher nur der naechstgelegene
+  Vote). Anzahl liegt in `Vote_Timing_Hit_Count`.
 
 ---
 
@@ -911,15 +1089,20 @@ Erweiterung durch AI-Agent geplant (analysiert bill_title + summary fuer unmappe
 - `apply(trades_df, votes_df)` → reichert DataFrame mit Vote_Timing_* Spalten an
 
 **Matching-Logik**:
-1. Trade-Sektoren aus `Relevant_Sectors` (JSON aus Modul 4) extrahieren
+1. Trade-Sektoren aus `Relevant_Sectors` (Intersection Insider × Ticker aus Modul 4) extrahieren
 2. Votes mit uebereinstimmendem `mapped_sectors` finden
 3. Zeitfenster: `trade_date ZWISCHEN (vote_date - AFTER) UND (vote_date + BEFORE)`
-4. Bei mehreren Treffern: naechstgelegenen Vote waehlen (abs(days_diff) minimal)
+4. **Alle** Treffer im Fenster werden in `Vote_Timing_Hits` (JSON-Liste) gesammelt,
+   `Vote_Timing_Hit_Count` enthaelt die Anzahl. Pro Treffer:
+   `{date, bill_title, policy_area, days_to_vote, konfidenz}`.
 
 **Parameter** (aus settings.py):
 - `VOTE_TIMING_WINDOW_BEFORE = 30` — max Tage VOR der Abstimmung
 - `VOTE_TIMING_WINDOW_AFTER = 5` — max Tage NACH der Abstimmung (Toleranz)
-- `VOTE_TIMING_SCORE = 25` — Bonus-Score bei Treffer
+- `VOTE_DATA_TTL_HOURS = 24` — Auto-Refresh-Schwelle fuer bill_actions/bill_subjects
+
+Hinweis: `Vote_Timing_Score`/`Vote_Date`/`Vote_Bill_Title`/`Vote_Policy_Area`/`Days_To_Vote`
+existieren nicht mehr — alle Treffer liegen jetzt in `Vote_Timing_Hits`.
 
 ---
 
@@ -947,4 +1130,27 @@ Erweiterung durch AI-Agent geplant (analysiert bill_title + summary fuer unmappe
 ---
 
 Erstellt: 2026-02-20
-Letzte Aktualisierung: 2026-03-13 (House PDF Extractor v2 hinzugefuegt)
+Letzte Aktualisierung: 2026-05-14 (Spalten-Refactoring: API-Provider-Suffixe)
+
+### Aenderungs-Historie
+
+- **2026-05-14** — Provider-Suffixe an externe-API-Spalten:
+  - OpenFIGI-Spalten bekommen Suffix `_figi`:
+    `canonical_ticker → ticker_figi`,
+    `canonical_name → name_figi`,
+    `security_type → security_type_figi`,
+    `market_sector → market_sector_figi`.
+    Die ID-Spalte `figi` selbst bleibt unveraendert.
+  - yfinance-Spalten bekommen Suffix `_yf`:
+    `Ticker_Sector → sector_yf`,
+    `Ticker_Industry → industry_yf`,
+    `quote_type → quote_type_yf`.
+  - Konsistent auf drei Ebenen: CSV-Output, Python-Dataclasses
+    (`NormalizedTicker`, `SectorInfo`), SQLite-Tabelle `ticker_normalizer`
+    (DROP+CREATE-Migration; Backup liegt in `data/cache/`).
+  - Curated-Schema (`settings.CURATED_COLUMNS` + `CURATED_COALESCE`)
+    referenziert die neuen Namen.
+  - Geaendert: `utils/ticker_normalizer.py`, `utils/ticker_sector.py`,
+    `scripts/import_trades.py`, `config/settings.py`,
+    `tests/test_ticker_*.py` (98 Tests gruen).
+- **2026-03-13** — House PDF Extractor v2 hinzugefuegt.

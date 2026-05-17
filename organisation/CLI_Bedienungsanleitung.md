@@ -101,41 +101,130 @@ python scrapers/senate_pdf_extractor.py --headless False
 
 ---
 
-## 3. Import Pipeline
+## 3. Import Pipeline (8 Stages, Rebuild Teil 3)
 
 **Datei:** `scripts/import_trades.py`
-**Zweck:** Liest house_trades.csv + senate_trades.csv, matcht Member-Namen (4-Tier: Alias → Exakt → Former → Fuzzy), reichert mit Committee-Daten an
+**Zweck:** Liest Quiver-Snapshot (`congress-trading-all.xlsx`), matcht Member-Namen (Alias→Exakt→Former→Fuzzy), klassifiziert Tickers offline, normalisiert via OpenFIGI, reichert via yfinance an, wendet Filter an.
+
+**Spalten-Namenskonvention** (seit 2026-05-14): Externe-API-Outputs tragen
+Provider-Suffixe — `_figi` (OpenFIGI: `ticker_figi`, `name_figi`,
+`security_type_figi`, `market_sector_figi`), `_yf` (yfinance: `sector_yf`,
+`industry_yf`, `quote_type_yf`). Die ID-Spalte `figi` selbst behaelt keinen
+Suffix. Details siehe `organisation/DATA_STRUCTURE.md`.
 
 ```bash
-# Standard: vollständige Pipeline (alle 7 Stages sequenziell)
+# Standard: vollständige Pipeline (alle 8 Stages sequenziell)
 python scripts/import_trades.py
 
-# Delta-Modus: nur neue Trades seit letztem Lauf anreichern und anhängen
+# Delta-Modus: nur neue Trades (via trade_id) anreichern und mergen
 python scripts/import_trades.py --delta
+
+# Dry-Run: alle Stages, Output in trades_stage.csv (kein Master-Touch)
+python scripts/import_trades.py --dry_run
 ```
 
-**Output:** `data/processed/trades_master.csv`, `data/processed/trades_new.csv`, `data/processed/unmatched_names.csv`
+**Output:**
+- `data/processed/trades_master_complete.csv` — vollstaendige Spalten
+- `data/processed/trades_master.csv` — kuratierte Sicht (settings.CURATED_COLUMNS)
+- `data/processed/manual_review_tickers.csv` — Diagnose-Output
+- `data/processed/unmatched_names.csv`, `data/processed/unmatched_preferred.csv` (bei Bedarf)
+
+**Migration vor erstem Lauf** (einmalig, vergibt trade_id auf Bestand):
+```bash
+python scripts/migrate_add_trade_ids.py [--dry-run] [--force]
+```
 
 ### Einzelne Pipeline-Stages (Debug / Repair)
 
-Nur **ein** `--stage_*` Flag gleichzeitig erlaubt. Kombination mit `--delta` möglich.
+Nur **ein** `--stage_*` Flag gleichzeitig erlaubt. Kombination mit `--delta` und `--dry_run` möglich.
 
 ```bash
-python scripts/import_trades.py --stage_rename        # Stage 1: CSV laden + Spalten umbenennen
-python scripts/import_trades.py --stage_date          # Stage 2: Datum normalisieren
-python scripts/import_trades.py --stage_committees    # Stage 3: Committee-Enrichment
-python scripts/import_trades.py --stage_tickertype    # Stage 4: ticker_type ableiten
-python scripts/import_trades.py --stage_tickerindustry  # Stage 5: yfinance Sector/Industry Lookup
-python scripts/import_trades.py --stage_votetiming    # Stage 6: Vote-Timing Filter
-python scripts/import_trades.py --stage_save          # Stage 7: In trades_master.csv speichern
+python scripts/import_trades.py --stage_rename          # Stage 1: laden + Rename + trade_id
+python scripts/import_trades.py --stage_date            # Stage 2: Datum normalisieren
+python scripts/import_trades.py --stage_committees      # Stage 3: Committee-Enrichment
+python scripts/import_trades.py --stage_tickerclassify  # Stage 4: Offline-Klassifikation (Regex)
+python scripts/import_trades.py --stage_tickeropenfigi  # Stage 5: OpenFIGI-Normalisierung
+python scripts/import_trades.py --stage_tickeryfinance  # Stage 6: yfinance Sector/Industry
+python scripts/import_trades.py --stage_filter          # Stage 7: Scoring + Filter 0/4
+python scripts/import_trades.py --stage_save            # Stage 8: trades_stage.csv -> Master
 
 # Kombination mit Delta:
 python scripts/import_trades.py --delta --stage_rename
 ```
 
+### Bonus-Flags (kein Master-Touch ausser Curated, exklusiv)
+
+```bash
+python scripts/import_trades.py --manual_review_only   # NUR review aus complete
+python scripts/import_trades.py --regenerate_curated   # NUR curated aus complete
+```
+
+#### Hintergrund: "complete" vs. "curated" Master
+
+Die Pipeline schreibt **zwei** Master-Dateien:
+
+| Datei | Spalten | Zweck |
+|---|---|---|
+| `data/processed/trades_master_complete.csv` | **alle** Pipeline-Spalten (~50+, inkl. interner Felder wie `MatchScore`, `MatchSource`, `Member_Committees_Full`, `figi`, `ticker_figi`, `manual_review_flag`, `classification_reason`) | "Quelle der Wahrheit", verlustfrei — daraus wird alles andere abgeleitet |
+| `data/processed/trades_master.csv` (**curated**) | nur die ~25 Spalten aus `settings.CURATED_COLUMNS` | **kuratierte Sicht** für Analyse / Dashboard / LibreOffice — schmaler, lesbarer |
+
+"Curated" = englisch *kuratiert / handverlesen* — die für den Endbenutzer relevante Spaltenauswahl.
+
+#### Wozu `--regenerate_curated`?
+
+Aus Performance-Gründen schreibt **nicht jede Stage** den curated Master neu:
+
+- Single-Stage-Runs (`--stage_filter`, `--stage_committees`, …) ohne `--delta`/`--dry_run` schreiben **nur** ins `trades_master_complete.csv` (`_write_stage_output` in `scripts/import_trades.py`).
+- Das curated wird sonst nur am Ende der vollständigen Pipeline durch `--stage_save` regeneriert.
+
+→ Wer also nur eine einzelne Stage neu rechnet (z.B. Filter-Logik geändert), aktualisiert das `complete`. LibreOffice öffnet aber das `curated` und sieht weiterhin alte Werte. **`--regenerate_curated`** liest das `complete` und projiziert die kuratierten Spalten neu raus, ohne sonst etwas anzufassen — schneller als ein vollständiger Pipeline-Lauf, weil Scoring/Enrichment nicht erneut berechnet werden.
+
+**Typischer Workflow nach Filter-Änderung:**
+```bash
+python scripts/import_trades.py --stage_filter         # neu berechnen → complete
+python scripts/import_trades.py --regenerate_curated   # Sicht-Refresh → curated
+```
+
+#### Wozu `--manual_review_only`?
+
+Schreibt die **Diagnose-CSV** `data/processed/manual_review_tickers.csv` neu — ein Aggregat aller Trades, deren Ticker der Classifier nicht eindeutig zuordnen konnte (`manual_review_flag=True`). Pro Ticker werden Trade-Anzahl, erstes/letztes Trade-Datum und ein Beispiel-Member ausgegeben (`_write_manual_review_subset` in `scripts/import_trades.py`).
+
+**Anwendungsfall:** Du hast `data/mappings/ignored_tickers.csv` erweitert oder den Classifier verbessert und willst die Review-Liste schnell neu erzeugen, ohne die volle Pipeline zu laufen. Der Master selbst wird dabei **nicht** angefasst, nur die Diagnose-CSV wird neu geschrieben (oder gelöscht, wenn keine Reviews mehr offen sind).
+
+#### Merksatz
+
+| Flag | Liest aus | Schreibt | Berührt Master? |
+|---|---|---|---|
+| `--stage_*` (single) | stage-Input bzw. complete | complete (oder `trades_stage.csv` bei `--delta`/`--dry_run`) | ja (complete) |
+| `--regenerate_curated` | complete | curated (`trades_master.csv`) | nein, nur Sicht-Refresh |
+| `--manual_review_only` | complete | `manual_review_tickers.csv` | nein, nur Diagnose |
+
+### Komplette Flag-Matrix
+
+| Aufruf | Wirkung |
+|---|---|
+| `import_trades.py` | Full-Run, schreibt complete + curated + review |
+| `--dry_run` | Full-Run, alles in `trades_stage.csv` + review |
+| `--delta` | Delta-Detect via trade_id, merge in complete + curated |
+| `--delta --dry_run` | Delta in Stage-CSV, kein Master-Touch |
+| `--stage_<X>` | Einzel-Stage gegen complete-Master |
+| `--stage_<X> --dry_run` | Einzel-Stage in Stage-CSV |
+| `--stage_<X> --delta` | Einzel-Stage auf Delta-Subset |
+| `--stage_<X> --delta --dry_run` | Stage + Delta, kein Master-Touch |
+| `--manual_review_only` | NUR review aus complete |
+| `--regenerate_curated` | NUR curated aus complete |
+
 > **Full Rebuild:** Um alle Trades neu anzureichern (z.B. nach Änderung an Member-CSVs
-> oder former_members.csv), `data/processed/trades_master.csv` löschen und Pipeline
+> oder former_members.csv), `data/processed/trades_master.csv` und
+> `data/processed/trades_master_complete.csv` löschen und Pipeline
 > erneut ausführen. Die Pipeline erkennt den fehlenden Master und behandelt alle Trades als neu.
+
+> **Dedup-Strategie:** `DEDUP_STRATEGY` in `config/settings.py` steuert das Verhalten bei
+> identischer `trade_id`:
+> - `'keep_all'` (Default) — alle Zeilen bleiben; `trade_id` ist KEIN eindeutiger Schlüssel.
+> - `'last_wins'` — nur die letzte Zeile pro `trade_id` wird behalten.
+> Wirkt in `_merge_into_master` (`scripts/import_trades.py`) und in
+> `scripts/migrate_add_trade_ids.py`. Delta-Erkennung zwischen Läufen ist davon unberührt.
 
 ---
 
@@ -354,15 +443,23 @@ python scrapers/house_pdf_extractor.py --doc-id 9115670 --year 2025 --dry-run
 **Zweck:** Lädt alle Bill-Daten aus der Congress.gov API (6 Datentypen pro Bill)
 **Voraussetzung:** `CONGRESS_API_KEY` in `.env` gesetzt (api.data.gov)
 
-```bash
-# Erstlauf: alle 6 Schritte (~7-8h, einmalig pro Kongress)
-python scrapers/fetch_congress_data.py
+**Drei Modi — wichtig zu unterscheiden:**
 
-# Delta-Update: nur neue/geänderte Bills seit letztem Lauf (~5-30 Min, wöchentlich)
+| Modus | Aufruf | Zerstört Daten? | Wann |
+|-------|--------|-----------------|------|
+| **Delta-Update** (empfohlen) | `python scrapers/fetch_congress_data.py --update` | Nein | Wöchentlich. Holt nur Bills die sich seit dem letzten Lauf geändert haben (~5-30 Min). |
+| **Erstlauf / Fortsetzung vom Checkpoint** | `python scrapers/fetch_congress_data.py` | Nein | Einmalig oder nach Abbruch. Liest Checkpoint und fuehrt nur die noch nicht abgeschlossenen Schritte aus. Bei komplett abgeschlossenem Erstlauf tut der Befehl praktisch nichts — fuer einen "neuen Fetch" stattdessen `--update` benutzen. |
+| **Force-Rebuild** (destruktiv, mit Confirmation) | `python scrapers/fetch_congress_data.py --force` | **Ja** | Verschiebt alle 6 Bill-JSONs nach `archive/fetch_congress_data_backup/rebuild_<ts>/` (reversibel) und fetcht alles komplett neu (~7-8h, ~36.000 Requests). Vor Ausfuehrung wird mit getipptem `JA` abgefragt — alles andere bricht ohne Aenderung ab. |
+
+```bash
+# Delta-Update (empfohlen, nicht-destruktiv)
 python scrapers/fetch_congress_data.py --update
 
-# Erstlauf wiederholen (ignoriert Checkpoint, startet von vorne)
-python scrapers/fetch_congress_data.py --force
+# Erstlauf bzw. Fortsetzung (nicht-destruktiv, nutzt Checkpoint)
+python scrapers/fetch_congress_data.py
+
+# Force-Rebuild (DESTRUKTIV mit Confirmation: alle Bill-JSONs werden archiviert + neu gefetcht)
+python scrapers/fetch_congress_data.py --force   # fragt 'JA' zur Bestaetigung ab
 
 # Anderen Kongress fetchen
 python scrapers/fetch_congress_data.py --congress 118
@@ -381,18 +478,55 @@ python scrapers/fetch_congress_data.py --congress 118
 
 **Empfohlener Workflow:**
 ```bash
-# Einmalig (Erstlauf):
+# Einmalig pro Kongress (Erstlauf, nicht-destruktiv, fortsetzbar):
 python scrapers/fetch_congress_data.py          # ~7-8h, Ctrl+C unterbricht sicher
 
-# Wöchentlich (Delta):
+# Wöchentlich (Delta-Update, nicht-destruktiv):
 python scrapers/fetch_congress_data.py --update  # fetcht nur geänderte Bills
 python scripts/import_trades.py                  # Vote-Timing Backfill anwenden
 ```
+
+> **Hinweis:** `import_trades.py` ruft seit Mai 2026 zu Beginn der filter-Stage automatisch
+> `--update` auf, wenn `bill_actions.json`/`bill_subjects.json` älter als
+> `settings.VOTE_DATA_TTL_HOURS` (24h) sind. Der manuelle `--update`-Aufruf bleibt nur
+> nötig wenn man die Vote-Daten **vor** dem Import explizit auffrischen will.
 
 > **Checkpoint-System:** Bei Abbruch (Ctrl+C oder Verbindungsfehler) einfach neu starten —
 > das Script setzt beim letzten abgeschlossenen Schritt fort.
 > `--update` nutzt `fromDateTime` der Congress.gov API — nur wirklich geänderte Bills werden gefetcht.
 > API-Limit: 5.000 Req/h (mit Key) → 0.75s Pause → ~4.800 Bills/h.
+
+> **Trennung von `trades_master`:** `fetch_congress_data.py` schreibt **ausschließlich**
+> die JSON-Dateien unter `data/congress_api/` — `trades_master.csv` /
+> `trades_master_complete.csv` werden nie angefasst. Die beiden Datenflüsse sind
+> getrennt: ein Rebuild der Bill-Daten (`--force`) lässt deine Trades-Master-CSVs
+> unberührt; erst der nächste `python scripts/import_trades.py`-Lauf zieht die
+> aktualisierten Vote-Daten in die Filter-Stage.
+
+> **Wann `--force` nötig ist:** Wenn der Erstlauf bereits abgeschlossen ist
+> (alle 6 Schritte `completed` im `fetch_checkpoint.json`), gibt der Aufruf
+> ohne Args nur `[SKIP]`-Meldungen aus und macht 0 Requests. Für einen
+> vollständigen Re-Fetch aller Bill-Daten ist dann **nur `--force`** der
+> richtige Befehl — `--update` holt nur seit dem letzten Lauf geänderte Bills.
+
+> **Lock-Datei (seit Mai 2026):** Jeder Lauf legt
+> `data/congress_api/.force_in_progress` mit PID + Timestamp + Modus an
+> und entfernt sie am Ende. Verhindert paralleles Schreiben durch zwei
+> Fetcher-Instanzen (z.B. manueller `--force` während ein anderer Tab
+> `--update` ausführt, oder `import_trades.py` den Auto-Refresh ansteuert).
+> Bei vorhandenem Lock bricht der zweite Aufruf ab. Stale Lock (PID nicht
+> mehr aktiv) wird automatisch erkannt und entfernt. `_ensure_fresh_vote_data`
+> in `import_trades.py` skippt den Auto-Refresh wenn Lock vorhanden und
+> nutzt die bestehenden JSONs.
+
+> **Force-Stage-Eintritts-Schutz (seit Mai 2026):** `--force` aktiviert nicht
+> nur das einmalige Archivieren am Anfang, sondern bleibt **die ganze
+> Laufzeit aktiv**: vor jedem Schritt (2-6) prüft der Fetcher, ob die
+> zugehörige JSON inzwischen wieder aufgetaucht ist (paralleler Prozess,
+> Cron, abgebrochener Resume-Lauf), und verschiebt sie ggf. ebenfalls
+> in `archive/fetch_congress_data_backup/rebuild_<ts>/`. Der Rebuild
+> bleibt dadurch garantiert sauber, auch wenn parallel Schreiboperationen
+> stattfinden.
 
 ---
 
@@ -477,6 +611,61 @@ git diff --staged
 
 ---
 
+## 13. Pipeline Reset
+
+**Datei:** `scripts/reset_pipeline.py`
+**Zweck:** Granularer Reset von Logs, Caches, Stage-Files und Processed-Outputs mit
+Defense-in-Depth. Default ist ein reversibler **Move** nach
+`archive/reset_pipeline/reset_<ts>/` (inkl. `_manifest.txt`); kuratierte Mappings
+(12 PROTECTED-Files) bleiben in jedem Fall unangetastet.
+
+```bash
+# Logs (logs/*.log + logs/debug_tesseract/)
+python scripts/reset_pipeline.py --logs
+
+# Stage-Files (*_stage.csv, pipeline_state.json, duplicate_inspection_sample.csv)
+python scripts/reset_pipeline.py --stage-files
+
+# Ticker-Caches (ticker_type_cache.db, ticker_industry_cache.json, ticker_0_cache.json)
+python scripts/reset_pipeline.py --ticker-caches
+
+# Processed-Outputs (trades_master[_complete].csv, manual_review_tickers.csv,
+# unmatched_*.csv, delisted_trades.csv, ticker_liste_index.csv)
+python scripts/reset_pipeline.py --processed
+
+# Congress-API JSONs (bills_list, bill_details, bill_actions, bill_committees,
+# bill_summaries, bill_subjects, fetch_checkpoint, fetch_log, votes_*)
+# Hinweis: nach Reset ist ein vollstaendiger ~7-8h Re-Fetch via fetch_congress_data.py noetig
+python scripts/reset_pipeline.py --congress-api
+
+# Alle fünf Gruppen
+python scripts/reset_pipeline.py --all
+
+# Vorschau ohne Aktion
+python scripts/reset_pipeline.py --all --dry-run
+
+# Echtes rm statt Move (irreversibel, doppelte Confirmation)
+python scripts/reset_pipeline.py --processed --purge
+```
+
+**Confirmation-Stufen:**
+
+| Flag-Kombination | Prompt |
+|------------------|--------|
+| `--logs`, `--stage-files`, `--ticker-caches` | einfach `[j/N]` |
+| `--processed`, `--congress-api`, `--all` | getipptes `JA` |
+| zusätzlich `--purge` | getipptes `PURGE` |
+
+**Output:** Pro Datei `[OK]` / `[X]` / `[SKIP]` mit Größe und Dauer, Zwischensummen
+pro Gruppe, finale Zusammenfassung. Bei Default-Move zusätzlich `_manifest.txt`
+im Archiv-Ordner für Wiederherstellung.
+
+**Geschützte Mappings (nie betroffen):** `name_aliases.csv`, `Vorzugsaktien_mapping.csv`,
+House/Senate Member-CSVs, Subcommittee-Mappings, `yf_sectors_with_industries.csv`,
+`vote_sector_mapping.py`, `logs/house_pdf_extractor_done.csv` (State).
+
+---
+
 ## Schnellreferenz
 
 | Script | Befehl | Zweck |
@@ -490,6 +679,8 @@ git diff --staged
 | Senate Committee Parser | `python scrapers/senate_pdf_parsing_tool/parse_us_senate_committee_pdf.py --pdf ...` | Senate Committee PDF |
 | House Scraper | `python scrapers/house_scraper.py` | House PTR-Trades scrapen |
 | House PDF Extractor | `python scrapers/house_pdf_extractor.py` | Hand-Delivered PDFs via OCR |
-| Congress Data Fetcher | `python scrapers/fetch_congress_data.py` | Erstlauf: alle 6 Datentypen (~7-8h) |
-| Congress Data Fetcher (Update) | `python scrapers/fetch_congress_data.py --update` | Delta: nur geänderte Bills (~5-30 Min) |
+| Congress Data Fetcher (Delta) | `python scrapers/fetch_congress_data.py --update` | **Empfohlen**: nur geänderte Bills (~5-30 Min, nicht-destruktiv) |
+| Congress Data Fetcher (Erstlauf/Resume) | `python scrapers/fetch_congress_data.py` | Erstlauf bzw. Checkpoint-Fortsetzung (~7-8h, nicht-destruktiv) |
+| Congress Data Fetcher (Force-Rebuild) | `python scrapers/fetch_congress_data.py --force` | **DESTRUKTIV** (mit `JA`-Confirmation): JSONs archivieren + von 0 neu fetchen (~7-8h) |
 | Tests | `pytest tests/ -v` | Alle Unit-Tests |
+| Pipeline Reset | `python scripts/reset_pipeline.py --all --dry-run` | Logs/Caches/Stage/Processed reversibel zurücksetzen |

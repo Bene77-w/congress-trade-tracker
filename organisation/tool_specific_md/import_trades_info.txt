@@ -1,53 +1,192 @@
-❯ Ich möchte alle spaltennamen folgender datei, @data/processed/trades_master.csv  , ausgegeben bekommen. schreibe dazu ein python skript und führe es aus.                                                                                   
+● Hier die vollständige, aktuelle Dokumentation:
 
-● Write(/home/bene/Nextcloud/backup_l9520/bmb_trdprg/congress_tracker/print_columns.py)
-  ⎿  Wrote 10 lines to /home/bene/Nextcloud/backup_l9520/bmb_trdprg/congress_tracker/print_columns.py
+  ---
+  trades_master.csv — Kuratierte Ansicht (23 Spalten)
+  
+  Ausgabedatei für Analysen. Spalten definiert in settings.CURATED_COLUMNS, zwei davon per Coalesce-Logik befüllt.
 
-● Bash(source venv/bin/activate && python print_columns.py)
-  ⎿  Spaltennamen in trades_master.csv:
+  ┌─────┬───────────────────────┬──────────────────┬─────────────────────────────────────────────────────────────────────────────────┬──────────────────────────────────────────────────────────────────────────────────────────────┐
+  │  #  │        Spalte         │ Erzeugt in Stage │                                 Quelle / Logik                                  │                                            Zweck                                             │
+  ├─────┼───────────────────────┼──────────────────┼─────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ 1   │ trade_id              │ rename           │ SHA-256-Hash über Trade-Inhalt (utils/trade_id.py)                              │ Stabile eindeutige ID — ermöglicht Delta-Erkennung (neu vs. bekannt)                         │
+  ├─────┼───────────────────────┼──────────────────┼─────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ 2   │ name                  │ rename           │ Quiver Name                                                                     │ Name des Kongressmitglieds                                                                   │
+  ├─────┼───────────────────────┼──────────────────┼─────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ 3   │ chamber               │ rename           │ Quiver Chamber                                                                  │ House oder Senate                                                                            │
+  ├─────┼───────────────────────┼──────────────────┼─────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ 4   │ Member_Party          │ committees       │ NameMatcher → Committee-CSV                                                     │ Partei: R, D, I                                                                              │
+  ├─────┼───────────────────────┼──────────────────┼─────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ 5   │ Member_State          │ committees       │ NameMatcher → Committee-CSV                                                     │ US-Bundesstaat (2-Buchstaben)                                                                │
+  ├─────┼───────────────────────┼──────────────────┼─────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ 6   │ Member_ExOfficio      │ committees       │ NameMatcher → Committee-CSV                                                     │ Führungsrolle (Chairman, Ranking Member …) → 1,5× Scoring-Multiplikator                      │
+  ├─────┼───────────────────────┼──────────────────┼─────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ 7   │ ticker                │ rename           │ Quiver Ticker, unverändert                                                      │ Rohes Ticker-Symbol wie im PTR gemeldet                                                      │
+  ├─────┼───────────────────────┼──────────────────┼─────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ 8   │ asset_name            │ save             │ Coalesce: name_figi (OpenFIGI) → asset_name (Quiver Company)                    │ Firmenname — bevorzugt den normalisierten Namen aus OpenFIGI                                 │
+  ├─────┼───────────────────────┼──────────────────┼─────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ 9   │ security_type_figi    │ save             │ Coalesce: security_type_figi (OpenFIGI) → ticker_type (Regex)                   │ Asset-Typ z.B. Common Stock, ETF, Option — bevorzugt OpenFIGI-Klassifikation                 │
+  ├─────┼───────────────────────┼──────────────────┼─────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ 10  │ sector_yf             │ tickeryfinance   │ yfinance-Lookup, gecacht in ticker_industry_cache.json                          │ Wirtschaftssektor (z.B. Technology, Healthcare)                                              │
+  ├─────┼───────────────────────┼──────────────────┼─────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ 11  │ industry_yf           │ tickeryfinance   │ yfinance-Lookup (wie oben)                                                      │ Spezifische Branche (z.B. Semiconductors, Biotechnology)                                     │
+  ├─────┼───────────────────────┼──────────────────┼─────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ 12  │ transaction_date      │ date             │ Quiver Traded; Fallback auf disclosure_date wenn fehlt oder > disclosure_date   │ Datum des tatsächlichen Trades                                                               │
+  ├─────┼───────────────────────┼──────────────────┼─────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ 13  │ transaction_type      │ rename           │ Quiver Transaction                                                              │ Purchase oder Sale                                                                           │
+  ├─────┼───────────────────────┼──────────────────┼─────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ 14  │ amount                │ rename           │ Quiver Trade_Size_USD                                                           │ Transaktionsgröße in USD (oft als Bereich)                                                   │
+  ├─────┼───────────────────────┼──────────────────┼─────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ 15  │ disclosure_date       │ date             │ Quiver Filed                                                                    │ Datum der Pflichtmeldung (bis zu 45 Tage nach Trade)                                         │
+  ├─────┼───────────────────────┼──────────────────┼─────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ 16  │ Member_Committees     │ committees       │ Komprimierter Auszug aus Member_Committees_Full                                 │ Ausschussmitgliedschaften des Mitglieds (lesbare Kurzform)                                   │
+  ├─────┼───────────────────────┼──────────────────┼─────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ 17  │ Insider_Sectors       │ filter           │ filters/committee_filter.py — alle Sektoren der Ausschüsse                      │ Alle Sektoren, in denen das Mitglied durch Ausschusstätigkeit Insiderwissen hat (JSON-Array) │
+  ├─────┼───────────────────────┼──────────────────┼─────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ 18  │ Relevant_Sectors      │ filter           │ Schnittmenge Insider_Sectors ∩ sector_yf/industry_yf                            │ Sektoren wo Ausschuss-Wissen und gehandelter Ticker überlappen — Kern des Insider-Signals    │
+  ├─────┼───────────────────────┼──────────────────┼─────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ 19  │ Relevance_Score       │ filter           │ base_score(rank) × confidence_mult × role_mult (max 100)                        │ Numerische Stärke des Ausschuss-Relevanz-Signals                                             │
+  ├─────┼───────────────────────┼──────────────────┼─────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ 20  │ asset_class_excluded  │ filter           │ filters/asset_class_filter.py (Filter 0)                                        │ True wenn Asset-Klasse irrelevant (Bonds, Immobilien, Krypto)                                │
+  ├─────┼───────────────────────┼──────────────────┼─────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ 21  │ Vote_Timing_Hit       │ filter           │ filters/vote_timing_filter.py — Vergleich transaction_date mit Abstimmungsdaten │ True wenn Trade zeitnah zu einer Abstimmung (Filter-4-Signal)                                │
+  ├─────┼───────────────────────┼──────────────────┼─────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ 22  │ Vote_Timing_Hits      │ filter           │ Alle Treffer im Zeitfenster (wie oben)                                          │ JSON-Array mit Details aller zeitnahen Abstimmungen                                          │
+  ├─────┼───────────────────────┼──────────────────┼─────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ 23  │ Vote_Timing_Hit_Count │ filter           │ Wie oben                                                                        │ Anzahl der Abstimmungs-Treffer im Fenster                                                    │
+  └─────┴───────────────────────┴──────────────────┴─────────────────────────────────────────────────────────────────────────────────┴──────────────────────────────────────────────────────────────────────────────────────────────┘
 
-      1. ticker
-      2. TickerType
-      3. asset_name
-      4. transaction_date
-      5. transaction_type
-      6. amount
-      7. status
-      8. subholding
-      9. description
-     10. name
-     11. bio_guide_id
-     12. disclosure_date
-     13. Member_Party
-     14. district
-     15. chamber
-     16. comment
-     17. csv_upload_time
-     18. excess_return
-     19. Member_State
-     20. last_modified
-     21. Member_Committees
-     22. Member_ExOfficio
-     23. Member_Chamber
-     24. MatchScore
-     25. MatchSource
-     26. Member_Committees_Full
-     27. Relevant_Sectors
-     28. Relevance_Score
-     29. Confidence_Level
-     30. ticker_type
-     31. asset_class_excluded
-     32. Ticker_Sector
-     33. Ticker_Industry
-     34. Vote_Timing_Hit
-     35. Vote_Date
-     36. Vote_Bill_Title
-     37. Vote_Policy_Area
-     38. Vote_Timing_Score
-     39. Days_To_Vote
-     40. ImportDate
+  ---
+  trades_master_complete.csv — Vollständige Daten (51 Spalten)
 
-     Gesamt: 40 Spalten
+  Enthält alle Rohdaten und Zwischenergebnisse. Aus ihr wird die kuratierte Datei erzeugt. Hier nur die zusätzlichen Spalten (nicht in trades_master.csv):
+
+  ┌─────┬───────────────────────────┬──────────────────┬─────────────────────────────────────────────┬─────────────────────────────────────────────────────────────────────┐
+  │  #  │          Spalte           │ Erzeugt in Stage │               Quelle / Logik                │                                Zweck                                │
+  ├─────┼───────────────────────────┼──────────────────┼─────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────┤
+  │ —   │ tickertype_org            │ rename           │ Quiver TickerType                           │ Originaler Ticker-Typ laut Quiver (unverarbeitet, zum Vergleich)    │
+  ├─────┼───────────────────────────┼──────────────────┼─────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────┤
+  │ —   │ subholding                │ rename           │ Quiver Subholding                           │ Unterposition (z.B. bei Fonds mit Einzelpositionen)                 │
+  ├─────┼───────────────────────────┼──────────────────┼─────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────┤
+  │ —   │ comment                   │ rename           │ Quiver Comments                             │ Freitext-Kommentar aus dem PTR                                      │
+  ├─────┼───────────────────────────┼──────────────────┼─────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────┤
+  │ —   │ description               │ rename           │ Quiver Description                          │ Beschreibungstext des Assets                                        │
+  ├─────┼───────────────────────────┼──────────────────┼─────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────┤
+  │ —   │ bio_guide_id              │ rename           │ Quiver BioGuideID                           │ Offizieller Congress-Identifier des Mitglieds                       │
+  ├─────┼───────────────────────────┼──────────────────┼─────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────┤
+  │ —   │ district                  │ rename           │ Quiver District                             │ Wahlkreis (nur House)                                               │
+  ├─────┼───────────────────────────┼──────────────────┼─────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────┤
+  │ —   │ status                    │ rename           │ Quiver Status                               │ Status des PTR-Eintrags                                             │
+  ├─────┼───────────────────────────┼──────────────────┼─────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────┤
+  │ —   │ csv_upload_time           │ rename           │ Quiver Quiver_Upload_Time                   │ Zeitstempel des Quiver-Uploads                                      │
+  ├─────┼───────────────────────────┼──────────────────┼─────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────┤
+  │ —   │ excess_return             │ rename           │ Quiver excess_return                        │ Quiver-eigene Renditeberechnung                                     │
+  ├─────┼───────────────────────────┼──────────────────┼─────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────┤
+  │ —   │ last_modified             │ rename           │ Quiver last_modified                        │ Letzter Änderungszeitstempel in Quiver                              │
+  ├─────┼───────────────────────────┼──────────────────┼─────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────┤
+  │ —   │ Member_Chamber            │ committees       │ NameMatcher                                 │ Kammer laut Committee-Datei (Kreuzvalidierung zu chamber)           │
+  ├─────┼───────────────────────────┼──────────────────┼─────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────┤
+  │ —   │ Member_Committees_Full    │ committees       │ NameMatcher                                 │ Vollständiger Ausschuss-String im internen Format (| und ; kodiert) │
+  ├─────┼───────────────────────────┼──────────────────┼─────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────┤
+  │ —   │ ticker_type               │ tickerclassify   │ utils/ticker_classifier.py (Regex-Baum)     │ Klassifizierter Typ: stock, etf, option, bond, crypto etc.          │
+  ├─────┼───────────────────────────┼──────────────────┼─────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────┤
+  │ —   │ ticker_base               │ tickerclassify   │ Wie oben                                    │ Bereinigter Basis-Ticker (ohne Suffix, Serienbuchstaben etc.)       │
+  ├─────┼───────────────────────────┼──────────────────┼─────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────┤
+  │ —   │ classification_reason     │ tickerclassify   │ Wie oben                                    │ Welche Regex-Regel hat zugeschlagen (für Debugging)                 │
+  ├─────┼───────────────────────────┼──────────────────┼─────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────┤
+  │ —   │ classification_confidence │ tickerclassify   │ Wie oben                                    │ high, medium, low                                                   │
+  ├─────┼───────────────────────────┼──────────────────┼─────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────┤
+  │ —   │ api_strategy              │ tickerclassify   │ Wie oben                                    │ Routing für nächste Stage: openfigi, yfinance, skip etc.            │
+  ├─────┼───────────────────────────┼──────────────────┼─────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────┤
+  │ —   │ exch_code                 │ tickerclassify   │ Wie oben                                    │ Börsencode aus Ticker-Syntax (z.B. US, UN)                          │
+  ├─────┼───────────────────────────┼──────────────────┼─────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────┤
+  │ —   │ series_letter             │ tickerclassify   │ Wie oben                                    │ Serienzeichen bei Preferred Stocks (z.B. A, B)                      │
+  ├─────┼───────────────────────────┼──────────────────┼─────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────┤
+  │ —   │ status_suffix             │ tickerclassify   │ Wie oben                                    │ Sondersuffix (z.B. W für Warrants)                                  │
+  ├─────┼───────────────────────────┼──────────────────┼─────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────┤
+  │ —   │ manual_review_flag        │ tickerclassify   │ Wie oben                                    │ True wenn Ticker manuell geprüft werden sollte                      │
+  ├─────┼───────────────────────────┼──────────────────┼─────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────┤
+  │ —   │ figi                      │ tickeropenfigi   │ OpenFIGI-API via utils/ticker_normalizer.py │ Globale FIGI-Kennnummer des Instruments                             │
+  ├─────┼───────────────────────────┼──────────────────┼─────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────┤
+  │ —   │ ticker_figi               │ tickeropenfigi   │ OpenFIGI-API                                │ Normalisiertes Ticker-Symbol laut OpenFIGI                          │
+  ├─────┼───────────────────────────┼──────────────────┼─────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────┤
+  │ —   │ name_figi                 │ tickeropenfigi   │ OpenFIGI-API                                │ Offizieller Firmenname laut OpenFIGI                                │
+  ├─────┼───────────────────────────┼──────────────────┼─────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────┤
+  │ —   │ market_sector_figi        │ tickeropenfigi   │ OpenFIGI-API                                │ Marktsektor laut OpenFIGI (z.B. Equity, Fixed Income)               │
+  ├─────┼───────────────────────────┼──────────────────┼─────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────┤
+  │ —   │ quote_type_yf             │ tickeryfinance   │ yfinance-Lookup                             │ Asset-Kategorie laut yfinance (EQUITY, ETF, MUTUALFUND)             │
+  ├─────┼───────────────────────────┼──────────────────┼─────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────┤
+  │ —   │ MatchScore                │ filter           │ NameMatcher in filter-Stage                 │ Fuzzy-Match-Score beim Namen-Matching (0–100)                       │
+  ├─────┼───────────────────────────┼──────────────────┼─────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────┤
+  │ —   │ MatchSource               │ filter           │ Wie oben                                    │ Welche Methode hat gematcht (alias, exact, fuzzy)                   │
+  ├─────┼───────────────────────────┼──────────────────┼─────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────┤
+  │ —   │ ImportDate                │ save             │ datetime.now()                              │ Zeitstempel des letzten Import-Laufs                                │
+  └─────┴───────────────────────────┴──────────────────┴─────────────────────────────────────────────┴─────────────────────────────────────────────────────────────────────┘
+
+
+● Hier die strukturierte Übersicht aller Output-Dateien aus scripts/import_trades.py:                                                                                                                                                         
+                                                                                                                                                                                                                                              
+  1️⃣  Master-/Hauptergebnisse (bleiben als Overwrite — sind selbst die Wahrheit)                                                                                                                                                               
+                                                                                                                                                                                                                                              
+  ┌────────────────────────────┬──────────────────────────────────────────────────────────┐                                                                                                                                                   
+  │           Datei            │                          Zweck                           │                                                                                                                                                   
+  ├────────────────────────────┼──────────────────────────────────────────────────────────┤                                                                                                                                                   
+  │ trades_master_complete.csv │ Vollständiger angereicherter Datensatz, alle Spalten     │                                                                                                                                                   
+  ├────────────────────────────┼──────────────────────────────────────────────────────────┤                                                                                                                                                   
+  │ trades_master.csv          │ Kuratierte Sicht (nur ausgewählte Spalten für Dashboard) │                                                                                                                                                   
+  └────────────────────────────┴──────────────────────────────────────────────────────────┘                                                                                                                                                   
+                                                                                                                                                                                                                                              
+  2️⃣  Stage-Zwischenergebnisse (Overwrite ist korrekt — repräsentieren aktuellen Pipeline-Stand)                                                                                                                                               
+                                                                                                                                                                                                                                            
+  ┌───────────────────────────────────┬─────────────────────────────────────────────────────────────────┐                                                                                                                                     
+  │               Datei               │                              Zweck                              │                                                                                                                                   
+  ├───────────────────────────────────┼─────────────────────────────────────────────────────────────────┤
+  │ trades_stage.csv                  │ Output der aktuellen Stage; bei --dry_run oder einzelnen Stages │
+  ├───────────────────────────────────┼─────────────────────────────────────────────────────────────────┤
+  │ pipeline_state.json               │ Tracking welche Stages durchlaufen sind                         │                                                                                                                                     
+  ├───────────────────────────────────┼─────────────────────────────────────────────────────────────────┤
+  │ .enrichment_checkpoint.pkl        │ Pickle-Checkpoint alle 5000 Trades (Crash-Recovery)             │                                                                                                                                     
+  ├───────────────────────────────────┼─────────────────────────────────────────────────────────────────┤                                                                                                                                     
+  │ Backup-Master in archive/backups/ │ Sicherung vor _stage_save                                       │
+  └───────────────────────────────────┴─────────────────────────────────────────────────────────────────┘                                                                                                                                     
+                                                                                                                                                                                                                                            
+  3️⃣  Problem-/Review-Outputs ⚠️  Kandidaten für kumulatives Schreiben                                                                                                                                                                          
+                                                                                                                                                                                                                                            
+  ┌─────────────────────────────────────────────────┬───────────────────────────────────────────────────────────────┬────────────────────────────────────────────┐                                                                            
+  │                      Datei                      │                             Zweck                             │                   Heute                    │
+  ├─────────────────────────────────────────────────┼───────────────────────────────────────────────────────────────┼────────────────────────────────────────────┤                                                                            
+  │ manual_review_tickers.csv                       │ Ticker, die der Klassifikator nicht eindeutig zuordnen konnte │ Overwrite (effektiv kumulativ über Master) │                                                                          
+  ├─────────────────────────────────────────────────┼───────────────────────────────────────────────────────────────┼────────────────────────────────────────────┤
+  │ unmatched_names_stage.csv / unmatched_names.csv │ Politiker-Namen ohne Match in Member-CSV                      │ Overwrite (nur aktueller Run)              │                                                                            
+  ├─────────────────────────────────────────────────┼───────────────────────────────────────────────────────────────┼────────────────────────────────────────────┤                                                                            
+  │ unmatched_preferred.csv                         │ Preferred Stocks ohne Mapping in Vorzugsaktien_mapping.csv    │ Overwrite (nur aktueller Run)              │                                                                            
+  ├─────────────────────────────────────────────────┼───────────────────────────────────────────────────────────────┼────────────────────────────────────────────┤                                                                            
+  │ delisted_trades_stage.csv                       │ Ticker, die yfinance als delisted/unbekannt meldet            │ Overwrite (nur aktueller Run)              │                                                                          
+  ├─────────────────────────────────────────────────┼───────────────────────────────────────────────────────────────┼────────────────────────────────────────────┤                                                                            
+  │ delisted_trades.csv                             │ Persistente Variante (bei Live-Run via shutil.copy)           │ Overwrite                                  │                                                                          
+  └─────────────────────────────────────────────────┴───────────────────────────────────────────────────────────────┴────────────────────────────────────────────┘                                                                            
+                                                                                                                                                                                                                                            
+  4️⃣  Cache-Dateien (Overwrite ist korrekt — das ist Cache)                                                                                                                                                                                    
+                                                                                                                                                                                                                                            
+  ┌──────────────────────────────────────────┬──────────────────────────────────────────┐                                                                                                                                                     
+  │                  Datei                   │                  Zweck                   │                                                                                                                                                   
+  ├──────────────────────────────────────────┼──────────────────────────────────────────┤
+  │ data/mappings/ticker_industry_cache.json │ yfinance-Cache (positive Hits, TTL)      │
+  ├──────────────────────────────────────────┼──────────────────────────────────────────┤
+  │ data/mappings/ticker_0_cache.json        │ yfinance-Cache (negative/null-Hits, TTL) │                                                                                                                                                     
+  ├──────────────────────────────────────────┼──────────────────────────────────────────┤                                                                                                                                                     
+  │ data/cache/ticker_type_cache.db (SQLite) │ OpenFIGI-Normalizer-Cache                │                                                                                                                                                     
+  └──────────────────────────────────────────┴──────────────────────────────────────────┘                                                                                                                                                     
+                                                                                                                                                                                                                                            
+  5️⃣  Logs/Checkpoints                                                                                                                                                                                                                         
+                                                                                                                                                                                                                                            
+  ┌───────────────────────────────┬──────────────────────────────────┐                                                                                                                                                                        
+  │             Datei             │              Zweck               │                                                                                                                                                                      
+  ├───────────────────────────────┼──────────────────────────────────┤
+  │ Logger-Output (stdout/stderr) │ keine eigene Datei standardmäßig │
+  └───────────────────────────────┴──────────────────────────────────┘
+
+
+
 
 ● Fertig! Die trades_master.csv hat 40 Spalten:
 

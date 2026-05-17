@@ -33,6 +33,10 @@ Python + Streamlit App die US-Kongress-Mitglieder Stock-Trades trackt, analysier
 | 9 | OFFEN | Streamlit Dashboard |
 | 10 | OFFEN | Email-Benachrichtigungen |
 | 11 | OFFEN | Automatisierung & Scheduler |
+| Rebuild T1 | FERTIG (25.04.2026) | Foundation: `utils/trade_id.py` (Hash-basierte Trade-ID, 13 Tests) + `utils/ticker_classifier.py` (Offline-Regex-Klassifikator, 67 Tests) |
+| Rebuild T2 | FERTIG (25.04.2026) | Network-Wrapper: `utils/ticker_normalizer.py` (OpenFIGI, 6 Tests) + `utils/ticker_sector.py` (yfinance, 6 Tests). Defensiv-Mechanismen §11 vollständig. NICHT integriert in import_trades.py. |
+| Rebuild T3 | OFFEN | Integration der Rebuild-Module in `scripts/import_trades.py` (ersetzt `_stage_tickertype` und `_stage_tickerindustry` durch neue Stages) |
+| Rebuild T4 | OFFEN | Migration: alte Caches → neue Schema-Form, alte Module entfernen |
 
 ---
 
@@ -43,6 +47,11 @@ Python + Streamlit App die US-Kongress-Mitglieder Stock-Trades trackt, analysier
 
 ### Utils
 - `utils/name_matcher.py` - Fuzzy-Matching mit rapidfuzz (80% Threshold)
+- `utils/trade_id.py` - Hash-basierte stabile Trade-ID (16-Hex-SHA256, Rebuild Teil 1)
+- `utils/ticker_classifier.py` - Offline-Klassifikator (Regex-Entscheidungsbaum, liefert TickerClassification mit ticker_type/api_strategy/confidence; Rebuild Teil 1)
+- `utils/ticker_normalizer.py` - OpenFIGI-Wrapper, gibt NormalizedTicker zurück; SQLite-Cache (Tabelle `ticker_normalizer`), 429-Backoff, Network-Resilience (Rebuild Teil 2)
+- `utils/ticker_sector.py` - yfinance-Wrapper, gibt SectorInfo zurück; JSON-Split-Cache (positiv/null), Vorzugsaktien-Mapping, Hyphen-Fallback BRK-B→BRK/B (Rebuild Teil 2)
+- `utils/openfigi_client.py` - LEGACY (wird in Rebuild T3/T4 durch ticker_normalizer ersetzt)
 
 ### Config
 - `config/settings.py` - Alle konfigurierbaren Parameter
@@ -132,6 +141,74 @@ python scrapers/house_pdf_extractor_v2.py --dry-run  # Trockenlauf
 
 ---
 
+## Rebuild Teil 1 + 2 — Foundation & Network-Wrapper (ABGESCHLOSSEN 25.04.2026)
+
+Spezifikation: `rebuild_pitch.md` (Sektionen 4–7, 11, 14, 16). Ziel: 293-Zeilen-
+Monolith `enrich_with_ticker_industry()` durch saubere, austauschbare,
+testbare Module ersetzen. Provider-Wechsel berührt später nur eine Klasse.
+
+### Teil 1 — Foundation (offline, deterministisch)
+
+| Modul | Tests | Zweck |
+|-------|-------|-------|
+| `utils/trade_id.py` | 13 | Hash-basierte stabile Trade-ID (`sha256[:16]`). Spalten-Reihenfolge ist Teil der Semantik (siehe Modul-Docstring). Ersetzt `_create_dup_key`. |
+| `utils/ticker_classifier.py` | 67 | Regex-Entscheidungsbaum. Liefert `TickerClassification` (frozen) mit `ticker_type` (17 Werte) + `api_strategy` (6 Werte). 0% UNKNOWN-Quote durch Long-Alpha-Suspect + Manual-Review-Pfad. |
+
+### Teil 2 — Network-Wrapper (mit Defensiv-Mechanismen §11)
+
+| Modul | Tests | Zweck |
+|-------|-------|-------|
+| `utils/ticker_normalizer.py` | 6 | OpenFIGI-Wrapper. Returnt `NormalizedTicker` mit FIGI/canonical_name/security_type. Type-Korrektur STOCK→ETF bei `securityType2='ETP'`. Mapping→Search-Fallback. |
+| `utils/ticker_sector.py` | 6 | yfinance-Wrapper. Returnt `SectorInfo` mit sector/industry/quote_type. Vorzugsaktien-Mapping (EP$C → KMI), Hyphen-Fallback (BRK-B → BRK/B), Delisted-Tracking. |
+
+### Defensiv-Mechanismen (Pitch §11) — vollständig implementiert
+
+- §11.1 Network-Resilience (3→Pause, 5→RuntimeError, Retry-Queue, NICHT cachen)
+- §11.2 Cache-Checkpoints alle 100 Lookups
+- §11.3 Cache-Split positiv/null (separate JSON-Dateien) — nur sector
+- §11.5 Confirmation-Prompt bei ≥100 neuen Tickern (callback-injizierbar) — nur sector
+- §11.6 yfinance-Logger CRITICAL während Loop, danach restore — nur sector
+- §11.7 Delisted-Tracking → `delisted_trades_stage.csv` — nur sector
+- §11.8 Vorzugsaktien-Mapping aus `Vorzugsaktien_mapping.csv` — nur sector
+- §11.9 OpenFIGI 429 Backoff 2^n max 60s, 3 consecutive → RuntimeError — nur normalizer
+- §11.10 Lazy Init (DB/Caches erst bei Bedarf)
+- §11.4 (Pickle-Checkpoint Member-Enrichment) — nicht angefasst
+
+### Architektur-Entscheidungen
+
+- **SQLite**: neue Tabelle `ticker_normalizer` in derselben DB-Datei
+  (`data/cache/ticker_type_cache.db`). Alte Tabelle `ticker_types` bleibt
+  parallel — `OpenFigiClient` weiter lauffähig.
+- **Cache-Toleranz**: `ticker_industry_cache.json`-Bestand ohne `cached_at`
+  wird als ewig gültig akzeptiert (kein API-Sturm beim ersten Run).
+- **Helper-Modul vermieden**: Network-Error-Pattern bewusst in beide Module
+  dupliziert (Pitch §16, vereinfacht Provider-Wechsel).
+- **Detaillierte Terminal-Ausgabe**: Jeder Defensiv-Mechanismus loggt
+  per `print(...)` mit Ticker, Counter und nächstem Schritt — siehe
+  Plan-File für vollständige Tabelle.
+
+### Neue Konstante in settings.py
+
+```python
+TICKER_SECTOR_CACHE_TTL_DAYS = 30  # TTL fuer ticker_industry_cache (positive Eintraege)
+```
+
+### Tests-Status
+
+```
+pytest tests/test_trade_id.py            13 passed
+pytest tests/test_ticker_classifier.py   67 passed
+pytest tests/test_ticker_normalizer.py    6 passed (alle gemockt, keine API-Calls)
+pytest tests/test_ticker_sector.py        6 passed (alle gemockt, keine API-Calls)
+                                       ──────────
+Total Foundation+Rebuild               92 passed, 0 failed
+```
+
+(Pre-existing 2 Failures in `test_house_scraper`/`test_senate_scraper` betreffen
+`DUPLICATE_CHECK_COLUMNS`-Sync — out of scope, nicht durch Rebuild verursacht.)
+
+---
+
 ## Modul 4 - Committee-Sektor-Mapping (ABGESCHLOSSEN 20.02.2026)
 
 **Implementierte Komponenten:**
@@ -139,7 +216,9 @@ python scrapers/house_pdf_extractor_v2.py --dry-run  # Trockenlauf
 - ✅ `filters/committee_filter.py` - CommitteeParser + CommitteeFilter (Relevanz-Scoring 0-100)
 - ✅ `config/settings.py` - Scoring Weights (Rank, Confidence, Role)
 - ✅ `scripts/import_trades.py` - Integration in enrich_with_committees()
-- ✅ Neue Spalten in trades_master.csv: Member_Committees_Full, Relevant_Sectors, Relevance_Score, Confidence_Level
+- ✅ Neue Spalten in trades_master.csv: Member_Committees_Full, Insider_Sectors (alle Member-Sektoren), Relevant_Sectors (Intersection mit Ticker), Relevance_Score
+- ✅ Match-Mode konfigurierbar in settings.RELEVANT_SECTORS_MATCH_MODE (Default 'sector_or_industry')
+- ✅ Filter 4 (Vote-Timing) sammelt jetzt **alle** Treffer im Fenster in Vote_Timing_Hits (JSON), Anzahl in Vote_Timing_Hit_Count — frueher: nur naechstgelegener Treffer (Vote_Date/Vote_Bill_Title/Vote_Policy_Area/Days_To_Vote/Vote_Timing_Score entfernt)
 
 **Scoring-Formel**: `score = base_score(rank) × confidence_mult × role_mult` (max 100)
 - Rank Weights: 1=100%, 2=75%, 3=50%, 4=25%
@@ -151,6 +230,15 @@ python scrapers/house_pdf_extractor_v2.py --dry-run  # Trockenlauf
 ---
 
 ## Naechster Schritt
+
+**Rebuild Teil 3: Integration in `scripts/import_trades.py`**
+- `_stage_tickertype` und `_stage_tickerindustry` durch zwei neue Stages mit
+  `TickerNormalizer` und `TickerSectorEnricher` ersetzen.
+- Strategie-Routing: Classifier liefert `api_strategy`, Pipeline routet darüber.
+- Bestehende `OpenFigiClient`-Aufrufe entfernen (in Teil 4).
+- Lazy-Init beachten: erste Instanziierung kostet keinen API-Call.
+- Cache-Pfade siehe Plan-File: `cache_db_path`, `cache_dir`,
+  `preferred_mapping_path`, `delisted_output_path`, `unmatched_preferred_path`.
 
 **Modul 7: Filter-Logik (Filter 1, 2, 4, 6, 7)**
 - Filter 5 (Contrarian) vorerst übersprungen

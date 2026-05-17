@@ -34,6 +34,7 @@ Output:
 import argparse
 import json
 import os
+import shutil
 import sys
 import time
 from datetime import datetime, timezone
@@ -53,6 +54,7 @@ CONGRESS = 119  # 119th Congress (2025-2027)
 BASE_URL = "https://api.congress.gov/v3"
 OUTPUT_DIR = Path("data/congress_api")
 CHECKPOINT_FILE = OUTPUT_DIR / "fetch_checkpoint.json"
+LOCK_FILE = OUTPUT_DIR / ".force_in_progress"  # Schutz vor parallelen Fetcher-Instanzen
 
 # Rate Limit: 5000/Stunde = ~1.38/Sekunde → 0.75s Pause = sicher
 REQUEST_DELAY = 0.75  # Sekunden zwischen Requests
@@ -75,6 +77,12 @@ class CongressFetcher:
         self.request_count = 0
         self.errors = []
         self.checkpoint = self._load_checkpoint()
+        # Force-Modus + Archiv-Verzeichnis werden in main() nach --force gesetzt.
+        # Im force_mode ignoriert _resume_load existing JSONs (archiviert sie stattdessen),
+        # damit ein paralleler Prozess (zweite Fetcher-Instanz, Cron, ...) den Rebuild
+        # nicht durch zwischenzeitlich neu geschriebene Dateien kontaminieren kann.
+        self.force_mode: bool = False
+        self.force_archive_dir: Path | None = None
 
     def _load_checkpoint(self) -> dict:
         if CHECKPOINT_FILE.exists():
@@ -103,14 +111,22 @@ class CongressFetcher:
     def _is_step_done(self, step: str) -> bool:
         return step in self.checkpoint.get("completed_steps", [])
 
-    def _fetch(self, endpoint: str, params: dict = None) -> dict | None:
-        """Einzelner API Request mit Retry-Logik."""
+    def _fetch(self, endpoint: str, params: dict = None,
+               strict: bool = False) -> dict | None:
+        """Einzelner API Request mit Retry-Logik.
+
+        strict=True: bei finalen HTTP-Fehlern oder Netzwerk-Fehlern wird
+        RuntimeError geraist statt None zurueckgegeben. Wird von
+        _fetch_paginated benutzt, weil Listen-Endpoints systemisch sind.
+        """
         if params is None:
             params = {}
         params["api_key"] = self.api_key
         params["format"] = "json"
 
         url = f"{BASE_URL}{endpoint}"
+        last_status = None
+        last_body = None
 
         for attempt in range(MAX_RETRIES):
             try:
@@ -125,14 +141,24 @@ class CongressFetcher:
                     wait = 60 * (attempt + 1)
                     print(f"  [RATE LIMIT] Warte {wait}s...")
                     time.sleep(wait)
+                    last_status = 429
+                    last_body = resp.text[:200]
                 else:
                     print(f"  [HTTP {resp.status_code}] {endpoint}")
+                    last_status = resp.status_code
+                    last_body = resp.text[:200]
                     if attempt == MAX_RETRIES - 1:
                         self.errors.append({
                             "endpoint": endpoint,
                             "status": resp.status_code,
                             "time": datetime.now(timezone.utc).isoformat()
                         })
+                        if strict:
+                            raise RuntimeError(
+                                f"Listen-Endpoint {endpoint} antwortete mit "
+                                f"HTTP {resp.status_code} nach {MAX_RETRIES} "
+                                f"Versuchen. Body: {last_body}"
+                            )
                         return None
 
             except requests.RequestException as e:
@@ -145,13 +171,29 @@ class CongressFetcher:
                         "error": str(e),
                         "time": datetime.now(timezone.utc).isoformat()
                     })
+                    if strict:
+                        raise RuntimeError(
+                            f"Listen-Endpoint {endpoint} unerreichbar nach "
+                            f"{MAX_RETRIES} Versuchen: {e}"
+                        ) from e
                     return None
 
+        # Alle Retries erschoepft (kein expliziter Return) - nur bei strict relevant
+        if strict:
+            raise RuntimeError(
+                f"Listen-Endpoint {endpoint} lieferte nach {MAX_RETRIES} "
+                f"Retries kein 200 (letzter Status: {last_status})"
+            )
         return None
 
     def _fetch_paginated(self, endpoint: str, result_key: str,
                          params: dict = None, max_pages: int = 100) -> list:
-        """Paginiert durch alle Ergebnisse eines Endpoints."""
+        """Paginiert durch alle Ergebnisse eines Endpoints.
+
+        Listen-Endpoints werden strict=True abgefragt: HTTP-Fehler
+        propagieren als RuntimeError statt still als 'leere Seite' zu
+        erscheinen.
+        """
         all_results = []
         offset = 0
 
@@ -160,7 +202,7 @@ class CongressFetcher:
             p["offset"] = offset
             p["limit"] = PAGE_LIMIT
 
-            data = self._fetch(endpoint, p)
+            data = self._fetch(endpoint, p, strict=True)
             if data is None:
                 break
 
@@ -220,6 +262,73 @@ class CongressFetcher:
         print(f"  → Gespeichert: {filepath} ({size_mb:.1f} MB)")
 
     # =================================================================
+    # LOCK-FILE: schuetzt vor parallelen Fetcher-Instanzen
+    # =================================================================
+
+    @staticmethod
+    def _read_lock() -> dict | None:
+        if not LOCK_FILE.exists():
+            return None
+        try:
+            with open(LOCK_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError):
+            return None
+
+    def _acquire_lock(self):
+        """Schreibt Lock-File mit aktueller PID. Wird in run()/run_update() vor
+        dem ersten Schritt aufgerufen, in finally wieder entfernt."""
+        LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(LOCK_FILE, "w", encoding="utf-8") as f:
+            json.dump({
+                "pid": os.getpid(),
+                "started_at": datetime.now(timezone.utc).isoformat(),
+                "mode": "force" if self.force_mode else "normal",
+            }, f, indent=2)
+
+    @staticmethod
+    def _release_lock():
+        try:
+            LOCK_FILE.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    # =================================================================
+    # RESUME-LOAD: respektiert force_mode (archiviert statt zu lesen)
+    # =================================================================
+
+    def _resume_load(self, filename: str, key_func) -> tuple[dict, int]:
+        """Laedt existing-Records aus JSON in ein Dict via key_func.
+
+        Im force_mode wird eine ggf. vorhandene Datei (etwa durch parallelen
+        Prozess oder alten Restbestand) ZUERST ins force_archive_dir verschoben
+        und dann ein leeres Dict zurueckgegeben. So bleibt der Rebuild sauber,
+        selbst wenn zwischen --force-Archive und Stage-Eintritt eine fremde
+        Schreiboperation stattfand.
+        """
+        filepath = OUTPUT_DIR / filename
+
+        if self.force_mode and filepath.exists():
+            assert self.force_archive_dir is not None, "force_archive_dir nicht gesetzt"
+            self.force_archive_dir.mkdir(parents=True, exist_ok=True)
+            ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+            dst = self.force_archive_dir / f"{filepath.stem}.stage-rescue.{ts}.json"
+            size_mb = filepath.stat().st_size / 1024 / 1024
+            shutil.move(str(filepath), str(dst))
+            print(f"  [FORCE] {filepath.name} ({size_mb:.1f} MB) bei Stage-Eintritt "
+                  f"vorgefunden — verschoben → {dst}")
+            print(f"  [FORCE] Vermutliche Ursache: parallele Fetcher-Instanz / Cron / "
+                  f"abgebrochener Resume-Lauf. Rebuild startet trotzdem leer.")
+            return {}, 0
+
+        existing = {}
+        if filepath.exists():
+            with open(filepath, "r", encoding="utf-8") as f:
+                for r in json.load(f):
+                    existing[key_func(r)] = r
+        return existing, len(existing)
+
+    # =================================================================
     # SCHRITT 1: BILLS (Übersicht)
     # =================================================================
 
@@ -250,7 +359,7 @@ class CongressFetcher:
                                   {"bills_fetched": len(all_bills)})
 
         self._save_json("bills_list.json", all_bills)
-        print(f"\n  Total: {len(all_bills)} Bills gefetcht")
+        print(f"\n  Total: {len(all_bills)} Bills in der Übersicht (Schritt 1/6 abgeschlossen)")
 
         self._mark_step_done(step)
 
@@ -278,16 +387,18 @@ class CongressFetcher:
         with open(bills_file, "r", encoding="utf-8") as f:
             bills = json.load(f)
 
-        # Bereits gefetchte Details laden (für Resume)
-        details_file = OUTPUT_DIR / "bill_details.json"
-        existing_details = {}
-        if details_file.exists():
-            with open(details_file, "r", encoding="utf-8") as f:
-                for d in json.load(f):
-                    key = f"{d.get('bill_type', '')}-{d.get('number', '')}"
-                    existing_details[key] = d
+        # Bereits gefetchte Details laden (force_mode: ggf. vorhandene Datei archivieren)
+        existing_details, initial_count = self._resume_load(
+            "bill_details.json",
+            lambda d: f"{d.get('bill_type', '')}-{d.get('number', '')}",
+        )
+        stage_request_start = self.request_count
 
-        print(f"  {len(bills)} Bills total, {len(existing_details)} bereits gefetcht")
+        if self.force_mode:
+            print(f"  [FORCE-Modus] Stage startet leer — {len(bills)} Bills zu fetchen")
+        else:
+            print(f"  Resume: {initial_count}/{len(bills)} bereits in JSON, "
+                  f"{len(bills) - initial_count} muessen gefetcht werden")
 
         details = list(existing_details.values())
         save_interval = 100  # Alle 100 Bills zwischenspeichern
@@ -334,11 +445,19 @@ class CongressFetcher:
                 self._save_json("bill_details.json", details)
                 self._save_checkpoint(f"bill_details_{i+1}",
                                       {"details_fetched": len(details)})
-                print(f"  Fortschritt: {i+1}/{len(bills)} "
-                      f"({len(details)} Details, Request #{self.request_count})")
+                fetched = len(details) - initial_count
+                skipped = (i + 1) - fetched
+                stage_reqs = self.request_count - stage_request_start
+                print(f"  Fortschritt: {i+1}/{len(bills)} verarbeitet "
+                      f"({fetched} gefetcht, {skipped} schon vorhanden) — "
+                      f"Stage-Requests: {stage_reqs}, gesamt: {self.request_count}")
 
         self._save_json("bill_details.json", details)
-        print(f"\n  Total: {len(details)} Bill Details gefetcht")
+        fetched = len(details) - initial_count
+        stage_reqs = self.request_count - stage_request_start
+        print(f"\n  Total: {len(details)} Bill Details verfuegbar "
+              f"({fetched} in dieser Stage neu, "
+              f"Stage-Requests: {stage_reqs}, gesamt: {self.request_count})")
 
         self._mark_step_done(step)
 
@@ -366,15 +485,18 @@ class CongressFetcher:
         with open(details_file, "r", encoding="utf-8") as f:
             bills = json.load(f)
 
-        # Bereits gefetchte Actions laden (für Resume)
-        actions_file = OUTPUT_DIR / "bill_actions.json"
-        existing_actions = {}
-        if actions_file.exists():
-            with open(actions_file, "r", encoding="utf-8") as f:
-                for a in json.load(f):
-                    existing_actions[a.get("bill_id", "")] = a
+        # Bereits gefetchte Actions laden (force_mode: ggf. vorhandene Datei archivieren)
+        existing_actions, initial_count = self._resume_load(
+            "bill_actions.json",
+            lambda a: a.get("bill_id", ""),
+        )
+        stage_request_start = self.request_count
 
-        print(f"  {len(bills)} Bills total, {len(existing_actions)} Actions bereits gefetcht")
+        if self.force_mode:
+            print(f"  [FORCE-Modus] Stage startet leer — {len(bills)} Bills zu fetchen")
+        else:
+            print(f"  Resume: {initial_count}/{len(bills)} bereits in JSON, "
+                  f"{len(bills) - initial_count} muessen gefetcht werden")
 
         all_actions = list(existing_actions.values())
         save_interval = 100
@@ -426,11 +548,19 @@ class CongressFetcher:
                 self._save_json("bill_actions.json", all_actions)
                 self._save_checkpoint(f"bill_actions_{i+1}",
                                       {"actions_fetched": len(all_actions)})
-                print(f"  Fortschritt: {i+1}/{len(bills)} "
-                      f"({len(all_actions)} Actions, Request #{self.request_count})")
+                fetched = len(all_actions) - initial_count
+                skipped = (i + 1) - fetched
+                stage_reqs = self.request_count - stage_request_start
+                print(f"  Fortschritt: {i+1}/{len(bills)} verarbeitet "
+                      f"({fetched} gefetcht, {skipped} schon vorhanden) — "
+                      f"Stage-Requests: {stage_reqs}, gesamt: {self.request_count}")
 
         self._save_json("bill_actions.json", all_actions)
-        print(f"\n  Total: {len(all_actions)} Bill Actions gefetcht")
+        fetched = len(all_actions) - initial_count
+        stage_reqs = self.request_count - stage_request_start
+        print(f"\n  Total: {len(all_actions)} Bill Actions verfuegbar "
+              f"({fetched} in dieser Stage neu, "
+              f"Stage-Requests: {stage_reqs}, gesamt: {self.request_count})")
 
         self._mark_step_done(step)
 
@@ -457,15 +587,18 @@ class CongressFetcher:
         with open(details_file, "r", encoding="utf-8") as f:
             bills = json.load(f)
 
-        # Resume
-        committees_file = OUTPUT_DIR / "bill_committees.json"
-        existing = {}
-        if committees_file.exists():
-            with open(committees_file, "r", encoding="utf-8") as f:
-                for c in json.load(f):
-                    existing[c.get("bill_id", "")] = c
+        # Resume (force_mode: ggf. vorhandene Datei archivieren)
+        existing, initial_count = self._resume_load(
+            "bill_committees.json",
+            lambda c: c.get("bill_id", ""),
+        )
+        stage_request_start = self.request_count
 
-        print(f"  {len(bills)} Bills total, {len(existing)} bereits gefetcht")
+        if self.force_mode:
+            print(f"  [FORCE-Modus] Stage startet leer — {len(bills)} Bills zu fetchen")
+        else:
+            print(f"  Resume: {initial_count}/{len(bills)} bereits in JSON, "
+                  f"{len(bills) - initial_count} muessen gefetcht werden")
 
         all_committees = list(existing.values())
         save_interval = 200
@@ -514,11 +647,19 @@ class CongressFetcher:
                 self._save_json("bill_committees.json", all_committees)
                 self._save_checkpoint(f"bill_committees_{i+1}",
                                       {"committees_fetched": len(all_committees)})
-                print(f"  Fortschritt: {i+1}/{len(bills)} "
-                      f"(Request #{self.request_count})")
+                fetched = len(all_committees) - initial_count
+                skipped = (i + 1) - fetched
+                stage_reqs = self.request_count - stage_request_start
+                print(f"  Fortschritt: {i+1}/{len(bills)} verarbeitet "
+                      f"({fetched} gefetcht, {skipped} schon vorhanden) — "
+                      f"Stage-Requests: {stage_reqs}, gesamt: {self.request_count}")
 
         self._save_json("bill_committees.json", all_committees)
-        print(f"\n  Total: {len(all_committees)} Bill Committee-Zuweisungen")
+        fetched = len(all_committees) - initial_count
+        stage_reqs = self.request_count - stage_request_start
+        print(f"\n  Total: {len(all_committees)} Bill Committee-Zuweisungen verfuegbar "
+              f"({fetched} in dieser Stage neu, "
+              f"Stage-Requests: {stage_reqs}, gesamt: {self.request_count})")
 
         self._mark_step_done(step)
 
@@ -545,15 +686,28 @@ class CongressFetcher:
         with open(details_file, "r", encoding="utf-8") as f:
             bills = json.load(f)
 
-        # Resume
-        summaries_file = OUTPUT_DIR / "bill_summaries.json"
-        existing = {}
-        if summaries_file.exists():
-            with open(summaries_file, "r", encoding="utf-8") as f:
-                for s in json.load(f):
-                    existing[s.get("bill_id", "")] = s
+        # Resume (force_mode: ggf. vorhandene Datei archivieren)
+        existing, initial_count = self._resume_load(
+            "bill_summaries.json",
+            lambda s: s.get("bill_id", ""),
+        )
+        stage_request_start = self.request_count
 
-        print(f"  {len(bills)} Bills total, {len(existing)} Summaries bereits gefetcht")
+        # Schema-Migrate: Alt-Eintraege ohne 'has_summary' nachruesten (Feld nachtraeglich
+        # eingefuehrt, sonst KeyError im Progress-Print)
+        migrated = 0
+        for s in existing.values():
+            if "has_summary" not in s:
+                s["has_summary"] = bool(s.get("summaries"))
+                migrated += 1
+        if migrated:
+            print(f"  [Schema-Migrate] {migrated} Alt-Eintraege ohne 'has_summary' nachgeruestet")
+
+        if self.force_mode:
+            print(f"  [FORCE-Modus] Stage startet leer — {len(bills)} Bills zu fetchen")
+        else:
+            print(f"  Resume: {initial_count}/{len(bills)} bereits in JSON, "
+                  f"{len(bills) - initial_count} muessen gefetcht werden")
 
         all_summaries = list(existing.values())
         save_interval = 100
@@ -597,13 +751,22 @@ class CongressFetcher:
                 self._save_json("bill_summaries.json", all_summaries)
                 self._save_checkpoint(f"bill_summaries_{i+1}",
                                       {"summaries_fetched": len(all_summaries)})
-                print(f"  Fortschritt: {i+1}/{len(bills)} "
-                      f"({sum(1 for s in all_summaries if s['has_summary'])} mit Summary, "
-                      f"Request #{self.request_count})")
+                fetched = len(all_summaries) - initial_count
+                skipped = (i + 1) - fetched
+                stage_reqs = self.request_count - stage_request_start
+                with_summary = sum(1 for s in all_summaries if s["has_summary"])
+                print(f"  Fortschritt: {i+1}/{len(bills)} verarbeitet "
+                      f"({fetched} gefetcht, {skipped} schon vorhanden, "
+                      f"{with_summary} mit Summary) — "
+                      f"Stage-Requests: {stage_reqs}, gesamt: {self.request_count}")
 
         self._save_json("bill_summaries.json", all_summaries)
+        fetched = len(all_summaries) - initial_count
+        stage_reqs = self.request_count - stage_request_start
         with_summary = sum(1 for s in all_summaries if s["has_summary"])
-        print(f"\n  Total: {len(all_summaries)} Bills, {with_summary} mit Summary")
+        print(f"\n  Total: {len(all_summaries)} Bills verfuegbar, {with_summary} mit Summary "
+              f"({fetched} in dieser Stage neu, "
+              f"Stage-Requests: {stage_reqs}, gesamt: {self.request_count})")
 
         self._mark_step_done(step)
 
@@ -630,15 +793,27 @@ class CongressFetcher:
         with open(details_file, "r", encoding="utf-8") as f:
             bills = json.load(f)
 
-        # Resume
-        subjects_file = OUTPUT_DIR / "bill_subjects.json"
-        existing = {}
-        if subjects_file.exists():
-            with open(subjects_file, "r", encoding="utf-8") as f:
-                for s in json.load(f):
-                    existing[s.get("bill_id", "")] = s
+        # Resume (force_mode: ggf. vorhandene Datei archivieren)
+        existing, initial_count = self._resume_load(
+            "bill_subjects.json",
+            lambda s: s.get("bill_id", ""),
+        )
+        stage_request_start = self.request_count
 
-        print(f"  {len(bills)} Bills total, {len(existing)} Subjects bereits gefetcht")
+        # Schema-Migrate: Alt-Eintraege ohne 'subject_count' nachruesten
+        migrated = 0
+        for s in existing.values():
+            if "subject_count" not in s:
+                s["subject_count"] = len(s.get("legislative_subjects", []))
+                migrated += 1
+        if migrated:
+            print(f"  [Schema-Migrate] {migrated} Alt-Eintraege ohne 'subject_count' nachgeruestet")
+
+        if self.force_mode:
+            print(f"  [FORCE-Modus] Stage startet leer — {len(bills)} Bills zu fetchen")
+        else:
+            print(f"  Resume: {initial_count}/{len(bills)} bereits in JSON, "
+                  f"{len(bills) - initial_count} muessen gefetcht werden")
 
         all_subjects = list(existing.values())
         save_interval = 200
@@ -669,14 +844,22 @@ class CongressFetcher:
                 self._save_json("bill_subjects.json", all_subjects)
                 self._save_checkpoint(f"bill_subjects_{i+1}",
                                       {"subjects_fetched": len(all_subjects)})
+                fetched = len(all_subjects) - initial_count
+                skipped = (i + 1) - fetched
+                stage_reqs = self.request_count - stage_request_start
                 with_subjects = sum(1 for s in all_subjects if s["subject_count"] > 0)
-                print(f"  Fortschritt: {i+1}/{len(bills)} "
-                      f"({with_subjects} mit Subjects, "
-                      f"Request #{self.request_count})")
+                print(f"  Fortschritt: {i+1}/{len(bills)} verarbeitet "
+                      f"({fetched} gefetcht, {skipped} schon vorhanden, "
+                      f"{with_subjects} mit Subjects) — "
+                      f"Stage-Requests: {stage_reqs}, gesamt: {self.request_count}")
 
         self._save_json("bill_subjects.json", all_subjects)
+        fetched = len(all_subjects) - initial_count
+        stage_reqs = self.request_count - stage_request_start
         with_subjects = sum(1 for s in all_subjects if s["subject_count"] > 0)
-        print(f"\n  Total: {len(all_subjects)} Bills, {with_subjects} mit Subjects")
+        print(f"\n  Total: {len(all_subjects)} Bills verfuegbar, {with_subjects} mit Subjects "
+              f"({fetched} in dieser Stage neu, "
+              f"Stage-Requests: {stage_reqs}, gesamt: {self.request_count})")
 
         self._mark_step_done(step)
 
@@ -845,14 +1028,26 @@ class CongressFetcher:
     # DELTA UPDATE
     # =================================================================
 
+    @staticmethod
+    def _to_api_datetime(iso_str: str) -> str:
+        """Wandelt einen ISO-Timestamp (mit/ohne Mikrosekunden, mit Offset oder Z) in
+        das von der Congress.gov-API verlangte Format 'YYYY-MM-DDTHH:MM:SSZ' (UTC)."""
+        s = iso_str.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is not None:
+            dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+        return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
     def run_update(self):
         """Delta-Update: Fetcht nur Bills die seit dem letzten Lauf geändert wurden."""
-        from_dt = (self.checkpoint.get("last_update_run")
-                   or self.checkpoint.get("last_full_run"))
-        if not from_dt:
+        from_dt_raw = (self.checkpoint.get("last_update_run")
+                       or self.checkpoint.get("last_full_run"))
+        if not from_dt_raw:
             print("[ERROR] Kein abgeschlossener Erstlauf gefunden.")
             print("  Erst ohne --update starten: python scrapers/fetch_congress_data.py")
             sys.exit(1)
+
+        from_dt = self._to_api_datetime(from_dt_raw)
 
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         start = datetime.now()
@@ -861,6 +1056,8 @@ class CongressFetcher:
         print(f"Congress: {CONGRESS}")
         print(f"Geändert seit: {from_dt[:19]}")
         print(f"{'='*60}")
+
+        self._acquire_lock()
 
         # Geänderte Bills über fromDateTime fetchen
         changed_bills = []
@@ -883,6 +1080,7 @@ class CongressFetcher:
             self.checkpoint["last_update_run"] = datetime.now(timezone.utc).isoformat()
             self.checkpoint["update_count"] = self.checkpoint.get("update_count", 0) + 1
             self._save_checkpoint("update_complete")
+            self._release_lock()
             return
 
         # Pro Bill alle 6 Typen neu fetchen
@@ -929,6 +1127,7 @@ class CongressFetcher:
         self.checkpoint["last_update_run"] = datetime.now(timezone.utc).isoformat()
         self.checkpoint["update_count"] = self.checkpoint.get("update_count", 0) + 1
         self._save_checkpoint("update_complete")
+        self._release_lock()
 
         elapsed = datetime.now() - start
         print(f"\n{'='*60}")
@@ -956,6 +1155,7 @@ class CongressFetcher:
         all_steps = ["bills_list", "bill_details", "bill_actions",
                      "bill_committees", "bill_summaries", "bill_subjects"]
 
+        self._acquire_lock()
         try:
             self.fetch_bills()           # Schritt 1: ~30 Min
             self.fetch_bill_details()    # Schritt 2: ~1.5-2 Std
@@ -967,6 +1167,7 @@ class CongressFetcher:
             print(f"\n\n[ABBRUCH] Checkpoint gespeichert. Erneut starten zum Fortsetzen.")
             self._save_checkpoint("interrupted")
         finally:
+            self._release_lock()
             # last_full_run nur setzen wenn alle Schritte abgeschlossen
             completed = self.checkpoint.get("completed_steps", [])
             if all(s in completed for s in all_steps):
@@ -1043,11 +1244,73 @@ def main():
 
     fetcher = CongressFetcher(api_key=api_key)
 
+    # Lock-Check: blockiert parallele Fetcher-Instanzen (egal ob normal/update/force)
+    existing_lock = CongressFetcher._read_lock()
+    if existing_lock:
+        try:
+            os.kill(existing_lock["pid"], 0)  # PID-Check (signal 0 testet nur)
+            still_alive = True
+        except (OSError, KeyError, TypeError):
+            still_alive = False
+        if still_alive:
+            print(f"[ABBRUCH] Anderer fetch_congress_data-Prozess laeuft bereits "
+                  f"(PID {existing_lock.get('pid')}, gestartet "
+                  f"{existing_lock.get('started_at', '?')}, Modus "
+                  f"{existing_lock.get('mode', '?')}).")
+            print(f"  Datei: {LOCK_FILE}")
+            print(f"  Wenn der Prozess wirklich tot ist, Lock-Datei manuell loeschen.")
+            sys.exit(1)
+        else:
+            print(f"[WARN] Lock-Datei vorhanden, aber PID {existing_lock.get('pid')} "
+                  f"existiert nicht mehr — entferne stale Lock.")
+            CongressFetcher._release_lock()
+
     if args.force:
+        # Echter Rebuild: archiviert vorhandene Bill-JSONs und setzt Checkpoint zurueck.
+        bill_jsons = [
+            "bills_list.json", "bill_details.json", "bill_actions.json",
+            "bill_committees.json", "bill_summaries.json", "bill_subjects.json",
+        ]
+        existing_jsons = [p for p in (OUTPUT_DIR / f for f in bill_jsons) if p.exists()]
+
+        print()
+        print("=" * 60)
+        print("[FORCE] Vollstaendiger Rebuild der Bill-Daten")
+        print("=" * 60)
+        if existing_jsons:
+            total_mb = sum(p.stat().st_size for p in existing_jsons) / 1024 / 1024
+            print(f"  Werden archiviert: {len(existing_jsons)} JSON-Dateien ({total_mb:.1f} MB)")
+            for p in existing_jsons:
+                print(f"    - {p.name} ({p.stat().st_size / 1024 / 1024:.1f} MB)")
+        else:
+            print("  Keine bestehenden Bill-JSONs gefunden — nur Checkpoint-Reset.")
+        print(f"  Anschliessend: ~7-8h Re-Fetch, ~36.000 API-Requests.")
+        print()
+        answer = input("  Tippe JA, um fortzufahren: ").strip()
+        if answer != "JA":
+            print("[ABBRUCH] Keine Aenderungen vorgenommen.")
+            sys.exit(0)
+
+        ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+        archive_dir = Path("archive") / "fetch_congress_data_backup" / f"rebuild_{ts}"
+        if existing_jsons:
+            archive_dir.mkdir(parents=True, exist_ok=True)
+            for p in existing_jsons:
+                shutil.move(str(p), str(archive_dir / p.name))
+            print(f"[FORCE] {len(existing_jsons)} JSONs verschoben nach {archive_dir}")
+
+        # Force-Modus aktivieren: jede Stage ignoriert ggf. neu auftauchende JSONs
+        # (paralleler Prozess, abgebrochener Re-Run ohne --force, ...)
+        fetcher.force_mode = True
+        fetcher.force_archive_dir = archive_dir
+
         fetcher.checkpoint["completed_steps"] = []
         fetcher.checkpoint.pop("last_full_run", None)
         fetcher._save_checkpoint("force_reset")
-        print("[FORCE] Checkpoint zurückgesetzt — Erstlauf wird wiederholt.")
+        print("[FORCE] Checkpoint zurückgesetzt — Erstlauf startet von 0.")
+        print(f"[FORCE] Stage-Eintritts-Schutz aktiv: spaeter neu auftauchende JSONs "
+              f"werden in {archive_dir} verschoben statt eingelesen.")
+        print()
 
     if args.update:
         fetcher.run_update()

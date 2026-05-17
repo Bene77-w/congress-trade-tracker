@@ -22,12 +22,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # ticker_type-Werte die als "handelbare Einzel-Aktie" gelten und weiter
 # verarbeitet werden. Alle uebrigen ticker_type-Werte werden ausgeschlossen
 # (asset_class_excluded=True).
+# Werte sind kleinbuchstabige TickerType-Enums (utils/ticker_classifier.py).
+# ADR/REIT/MLP/Common Stock sind im neuen Classifier alle unter 'stock' subsummiert.
 FILTER_0_KEEP_TYPES = {
-    'Stock',
-    'Stock (Delisted)',      # Legacy-Label fuer akquirierte/delisted Aktien
-    'Depositary Receipt',    # ADRs (BABA, TSM, ASML) - OpenFIGI-Label
-    'Partnership Shares',    # MLPs (EPD, MMP, ET) - OpenFIGI-Label
-    'Foreign Stock',         # Auslaendische Aktien ohne ADR-Struktur
+    'stock',           # TickerType.STOCK (inkl. ADR, REIT, MLP, Common)
+    'foreign_stock',   # TickerType.FOREIGN_STOCK
+    'shareclass',      # TickerType.SHARECLASS (BRK-B, GOOGL etc.)
 }
 
 # =============================================================================
@@ -80,8 +80,25 @@ COMMITTEE_ROLE_WEIGHTS = {
     '': 1.0                    # Regular member
 }
 
+# Relevance-Score-Formel (neu):
+#   sector_match   = Committee-Sektor   == sector_yf
+#   industry_match = Committee-Industry == industry_yf
+#   raw   = (33 if sector_match) + (33 if industry_match)
+#   score = round(raw * (1.5 if ex_officio else 1.0))
+# Mögliche Werte: 0, 33, 50, 66, 99
+COMMITTEE_SECTOR_MATCH_POINTS = 33
+COMMITTEE_INDUSTRY_MATCH_POINTS = 33
+COMMITTEE_EX_OFFICIO_MULTIPLIER = 1.5
+COMMITTEE_EX_OFFICIO_ROLES = ['Chairman', 'Ranking Member', 'Vice Chairman', 'Cochairman', 'EXOfficio']
+
 # Minimum relevance score to consider committee-relevant (0-100)
 COMMITTEE_RELEVANCE_THRESHOLD =  1 # wird nicht im code verwebdet, da Committee-Filter als Auto-Flag (kein Score) implementiert ist
+
+# Match-Modus fuer Relevant_Sectors (Intersection Insider × Ticker):
+# 'sector_or_industry'  — Eintrag matcht, wenn sector ODER industry zum Ticker passen (Default)
+# 'sector_and_industry' — Eintrag matcht nur, wenn sector UND industry passen
+# 'hybrid'              — bevorzuge sector+industry-Matches, sonst Fallback auf sector_or_industry
+RELEVANT_SECTORS_MATCH_MODE = 'sector_or_industry'
 
 # =============================================================================
 # FILTER 4: VOTE TIMING (Congress.gov API)
@@ -90,13 +107,13 @@ COMMITTEE_RELEVANCE_THRESHOLD =  1 # wird nicht im code verwebdet, da Committee-
 CONGRESS_API_KEY = os.getenv('CONGRESS_API_KEY', '')
 VOTE_TIMING_WINDOW_BEFORE = 30     # Trade max X Tage VOR Abstimmung
 VOTE_TIMING_WINDOW_AFTER  = 5      # Trade max X Tage NACH Abstimmung
-VOTE_TIMING_SCORE         = 25     # Bonus-Score bei Treffer (0-100)
 VOTE_MIN_POLICY_CONFIDENCE = 0.7   # Min-Konfidenz fuer Sektor-Match
 VOTE_CONGRESS_NUMBER      = 119    # Ab welchem Kongress Daten laden (119th = 2025-2027)
 LEGISLATIVE_SUBJECT_MAPPING_FILE = 'legislative_subject_mapping_complete.csv'
 BILL_SUBJECTS_FILE = 'bill_subjects.json'
-# Konfidenz-Multiplikatoren fuer Legislative Subject Mapping (analog Committee-Scoring)
-VOTE_KONFIDENZ_MULTIPLIERS = {'Hoch': 1.0, 'Mittel': 0.7, 'Niedrig': 0.4}
+# Auto-Refresh: bill_actions.json/bill_subjects.json werden zu Beginn der filter-Stage
+# per Delta-Update aktualisiert, sofern eine der Dateien aelter als TTL ist.
+VOTE_DATA_TTL_HOURS       = 24     # Skip-Schwelle fuer Auto-Refresh in Stunden
 
 # =============================================================================
 # FILTER 5: CONTRARIAN
@@ -219,53 +236,17 @@ TICKER_LOOKUP_RETRY_ATTEMPTS = 3     # Wiederholungsversuche bei Fehler
 TICKER_LOOKUP_RETRY_DELAY = 5.0      # Wartezeit (Sekunden) zwischen Retries, verdoppelt sich
 TICKER_LOOKUP_CONFIRM_THRESHOLD = 100 # Ab dieser Anzahl neuer Ticker: User-Bestaetigung
 TICKER_LOOKUP_CACHE_INTERVAL = 100    # Cache alle N Ticker zwischenspeichern
-TICKER_LOOKUP_NET_ERROR_PAUSE = 30    # Pause (Sek.) nach 3 Netzwerk-Fehlern in Folge
+TICKER_LOOKUP_NET_ERROR_PAUSE = 30    # Pause (Sek.) nach Pause-Threshold Netzwerk-Fehlern
+TICKER_LOOKUP_NET_ERROR_PAUSE_THRESHOLD = 3  # Ab N consecutive Net-Errors -> Pause ausloesen
 TICKER_LOOKUP_NET_ERROR_ABORT = 5     # Abbruch nach N Netzwerk-Fehlern in Folge
+TICKER_SECTOR_CACHE_TTL_DAYS = 30     # TTL fuer ticker_industry_cache (positive Eintraege)
 
 # Vorzugsaktien-Mapping (Preferred → Stammaktie)
 PREFERRED_TICKER_MAPPING_FILE = 'Vorzugsaktien_mapping.csv'
 
-# Ticker Pre-Filter: Non-Standard-Ticker werden VOR yfinance-Lookup erkannt
-# und direkt in ticker_0_cache.json gecacht (keine API-Abfrage).
-# Dict-Struktur: Kategorie-Label -> [Regex-Patterns]. First match wins.
-# Reihenfolge wichtig: spezifische Patterns vor Catch-All (Other).
-TICKER_WHITELIST = {'BRK-A', 'BRK-B', 'STZ-B', 'LEN-B', 'LGF-A', 'LGF-B'}
-TICKER_TYPE_PATTERNS = {
-    # Pre-Filter: Formate die OpenFIGI nicht erkennen kann.
-    # Reihenfolge wichtig: spezifische Patterns vor Catch-All (Other).
-    'Warrant': [
-        r'^[A-Z]+-W[DS]?[A-Z]*$',       # -W, -WD, -WSA, -WSB
-        r'^[A-Z]+-WS[-]?[A-Z]?$',       # C-WS-A, STI-WSB, GM-WSA
-        r'^BACWSA$',                     # Einziger Warrant ohne Bindestrich
-        r'^[A-Z]+w$',                    # lowercase w Suffix
-    ],
-    'Bond/CUSIP': [
-        r'^9\d{8}[A-Z0-9]*$',           # US Treasury CUSIPs (912...)
-        r'^\d{5}[A-Z0-9]{4,5}$',        # Andere CUSIPs (37045XEF9, 40056FN84)
-    ],
-    'SEDOL': [r'^B(?=[A-Z0-9]*\d)[A-Z0-9]{6}\d?$'],  # B + 6 alnum (mind. 1 Ziffer)
-    'Bond (Maturity)': [r'.*\d{2}/\d{2}/\d{2,4}'],
-    'T-Bill': [r'.*(WEEK|MONTH|MATUR)'],
-    'Mutual Fund': [r'^SYMBOL\s*:'],    # Quiver-spezifisches Prefix
-    'Foreign Stock': [
-        r'^(NYSE|NASDAQ)\s*:',           # "NYSE: COV", "NASDAQ:WLTW"
-        r'^[A-Z0-9]+\.(MI|SG|TI|DE|PA|IL|L)$',  # 1AMT.MI, FL4.SG
-    ],
-    'Crypto': [
-        r'^CRYPTO\s*:',                  # CRYPTO:BTC
-        r'^(BITCOIN|SOLANA|RIPPLE)$',    # Krypto-Eigennamen
-    ],
-    'Index': [r'^\^'],                   # ^MWE, ^RGP
-    'Option': [r'^[A-Z]{1,5}\d{6}[PC]\d{8}$'],  # SPY160219P00180000
-    'Other': [
-        r'^\d+$',                        # Reine Zahlen (44, 3305779)
-        r'.*[#_,%/+]',                   # Sonderzeichen
-        r'.* .*',                        # Leerzeichen im Ticker
-    ],
-}
-
-# Backward-kompatible Flat-List (fuer _classify_ticker in enrich_with_ticker_industry)
-TICKER_FILTER_PATTERNS = [p for patterns in TICKER_TYPE_PATTERNS.values() for p in patterns]
+# Ticker-Pattern-Konstanten (TICKER_TYPE_PATTERNS, TICKER_FILTER_PATTERNS,
+# TICKER_WHITELIST) wurden im Rebuild Teil 3 entfernt — die Klassifikation
+# liegt jetzt in utils/ticker_classifier.py (Regex-Entscheidungsbaum).
 
 # OpenFIGI securityType -> ticker_type Mapping (primaer, wird zuerst geprueft)
 # Wichtig: securityType "ETP" identifiziert ETFs korrekt, waehrend securityType2
@@ -293,7 +274,47 @@ TICKER_TYPE_CACHE_TTL_DAYS = 90
 TICKER_TYPE_UNKNOWN_TTL_DAYS = 7
 TICKER_TYPE_CACHE_DB = 'ticker_type_cache.db'
 DATA_CACHE_PATH = 'data/cache'
-OPENFIGI_BATCH_ABORT_THRESHOLD = 3  # Abbruch nach N fehlgeschlagenen Batches in Folge
+OPENFIGI_BATCH_ABORT_THRESHOLD = 6  # Abbruch nach N fehlgeschlagenen Batches/429 in Folge
+                                    # (war 3 — zu strikt; 6 erlaubt 2+4+8+16+32+64s ≈ 2 min Backoff)
+
+# OpenFIGI HTTP / Tuning (utils/ticker_normalizer.py)
+# WICHTIG: /v3/mapping und /v3/search haben UNTERSCHIEDLICHE Rate-Limits!
+#   - /v3/mapping mit Key: 250 Requests / 6 Sekunden (~42/sec)
+#   - /v3/search  mit Key:  20 Requests / 6 Sekunden (~3.3/sec)  → 12× strenger
+#   - /v3/mapping ohne Key: 25 Requests / Minute
+#   - /v3/search  ohne Key:  5 Requests / Minute                  → 5× strenger
+OPENFIGI_API_URL = 'https://api.openfigi.com/v3/mapping'
+OPENFIGI_SEARCH_URL = 'https://api.openfigi.com/v3/search'
+OPENFIGI_REQUEST_TIMEOUT = 30          # HTTP-Timeout pro Call (Sekunden)
+OPENFIGI_BATCH_SIZE_WITH_KEY = 100     # Max Ticker pro /v3/mapping-Call (mit API-Key)
+OPENFIGI_BATCH_SIZE_WITHOUT_KEY = 10   # ohne API-Key
+# Pausen pro Endpoint (separater Wert für Mapping vs. Search)
+OPENFIGI_MAPPING_PAUSE_WITH_KEY = 0.3       # Sek. zwischen Mapping-Batches (mit Key)
+OPENFIGI_MAPPING_PAUSE_WITHOUT_KEY = 3.5    # ohne Key (war 2.5 — zu knapp am 25/min-Limit)
+OPENFIGI_SEARCH_PAUSE_WITH_KEY = 0.4        # ~150/min, 25% Puffer zum 200/min-Limit
+OPENFIGI_SEARCH_PAUSE_WITHOUT_KEY = 13.0    # ohne Key: 5 req/min → 1 alle 12s
+# Legacy-Aliase (rückwärtskompatibel; werden nicht mehr direkt genutzt)
+OPENFIGI_REQUEST_PAUSE_WITH_KEY = OPENFIGI_MAPPING_PAUSE_WITH_KEY
+OPENFIGI_REQUEST_PAUSE_WITHOUT_KEY = OPENFIGI_MAPPING_PAUSE_WITHOUT_KEY
+OPENFIGI_RATE_LIMIT_BACKOFF_BASE = 2.0   # 429-Backoff Basis (2^n Sek.)
+OPENFIGI_RATE_LIMIT_BACKOFF_MAX = 90.0   # 429-Backoff Cap (Sek.) — war 60
+
+# =============================================================================
+# TRADE-ID (utils/trade_id.py)
+# WARNUNG: Aenderung von TRADE_ID_HASH_LENGTH bricht ALLE bestehenden trade_ids
+# in trades_master.csv. Nur via bewusste Migration aendern.
+# =============================================================================
+TRADE_ID_HASH_LENGTH = 16              # Hex-Zeichen aus SHA256 (16 = 64 Bit Entropie)
+
+# Strategie fuer trade_id-Duplikate innerhalb eines Imports / einer Migration:
+#   'keep_all'  - alle Zeilen behalten, auch wenn trade_id identisch ist.
+#                 trade_id ist dann KEIN eindeutiger Schluessel mehr im Master.
+#   'last_wins' - bei gleicher trade_id nur die zuletzt erscheinende Zeile behalten
+#                 (frueheres Standardverhalten).
+# Delta-Imports zwischen Laeufen (detect_new_trades via isin) sind hiervon
+# unberuehrt — bereits im Master vorhandene trade_ids werden weiterhin nicht
+# erneut hinzugefuegt.
+DEDUP_STRATEGY = 'keep_all'
 
 # =============================================================================
 # ALLGEMEINE EINSTELLUNGEN
@@ -323,11 +344,51 @@ HOUSE_COMMITTEES_FILE = 'house_member&(sub)committees.csv'
 SENATE_COMMITTEES_FILE = 'senate_member&(sub)committees.csv'
 NAME_ALIASES_FILE = 'name_aliases.csv'
 COMMITTEE_MAPPING_FILE = 'subcommittee_sector_industry_mapping.csv'
+IGNORED_TICKERS_FILE = 'ignored_tickers.csv'
 
 # Trade-Daten
 QUIVER_TRADES_FILE = 'congress-trading-all.xlsx'  # Quiver-Daten (primaere Quelle, xlsx)
 HOUSE_TRADES_FILE = 'house_trades.csv'            # Eigene House-Scraper-Daten (Ergaenzung)
 SENATE_TRADES_FILE = 'senate_trades.csv'          # Eigene Senate-Scraper-Daten (Ergaenzung)
+
+# Output-Dateien (Rebuild Teil 3): vollstaendige + kuratierte Master-Sicht
+TRADES_MASTER_COMPLETE_CSV = 'trades_master_complete.csv'  # alle Spalten persistiert
+MANUAL_REVIEW_CSV = 'manual_review_tickers.csv'            # Diagnose-Output
+
+# Kuratierte Spalten fuer trades_master.csv (userrelevante Sicht).
+# Spalten in CURATED_COALESCE werden per Fallback-Logik befuellt (erstes nicht-leeres gewinnt).
+CURATED_COLUMNS = [
+    'trade_id',
+    'name',
+    'chamber',
+    'Member_Party',
+    'Member_State',
+    'Member_ExOfficio',
+    'ticker',
+    'asset_name',          # Coalesce: name_figi || asset_name
+    'security_type_figi',   # Coalesce: security_type_figi || ticker_type
+    'sector_yf',
+    'industry_yf',
+    'transaction_date',
+    'transaction_type',
+    'amount',
+    'disclosure_date',
+    'Member_Committees',
+    'Insider_Sectors',
+    'Relevant_Sectors',
+    'Relevance_Score',
+    'asset_class_excluded',
+    'Vote_Timing_Hit',
+    'Vote_Timing_Hits',
+    'Vote_Timing_Hit_Count',
+]
+
+# Coalesce-Logik: erstes nicht-leeres Element der Liste gewinnt.
+# Key = Spaltenname in trades_master.csv, Value = geordnete Quellspalten.
+CURATED_COALESCE = {
+    'asset_name':         ['name_figi',          'asset_name'],
+    'security_type_figi': ['security_type_figi', 'ticker_type'],
+}
 
 # Backup-Verzeichnis fuer automatische Master-Backups vor destruktiven Aenderungen
 ARCHIVE_BACKUP_PATH = 'archive/trades_master_backup'

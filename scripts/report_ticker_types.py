@@ -1,11 +1,16 @@
 """
-Reporting: Verteilung der ticker_type-Kategorien in trades_master.csv.
+Reporting: Verteilung der ticker_type-Kategorien in trades_master_complete.csv.
 
-Liest die bereits via derive_ticker_types() klassifizierte Spalte aus
-data/processed/trades_master.csv und zeigt:
+Liest die via Stage `tickerclassify` (utils/ticker_classifier.classify)
+klassifizierte Spalte aus data/processed/trades_master_complete.csv und zeigt:
   1. Verteilung pro Kategorie (Anzahl, Anteil, Beispiel-Ticker)
-  2. Top 20 "Unknown"-Ticker nach Haeufigkeit (Kandidaten fuer Regex-Luecken)
-  3. OpenFIGI-Cache-Statistiken (Gesamtgroesse, Top-Typen, Source-Verteilung)
+  2. Top 20 'unknown'-Ticker nach Haeufigkeit (Kandidaten fuer Regex-Luecken)
+  3. OpenFIGI-Cache-Statistiken (alte ticker_types-Tabelle, Legacy)
+
+WICHTIG (Rebuild Teil 3): ticker_type-Werte sind jetzt kleinbuchstabig
+(TickerType-Enum-Values, z.B. 'stock', 'etf', 'unknown') statt der
+frueheren Großbuchstaben-Strings. Manual-Review-Tickers liegen
+zusaetzlich in manual_review_tickers.csv.
 """
 
 import os
@@ -20,7 +25,7 @@ sys.path.insert(0, str(BASE_DIR))
 from config import settings
 from utils.openfigi_client import OpenFigiClient
 
-TRADES_MASTER = BASE_DIR / settings.DATA_PROCESSED_PATH / 'trades_master.csv'
+TRADES_MASTER = BASE_DIR / settings.DATA_PROCESSED_PATH / settings.TRADES_MASTER_COMPLETE_CSV
 
 
 def report_trades_distribution():

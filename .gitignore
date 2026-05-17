@@ -40,3 +40,28 @@ data/processed/delisted_trades.csv
 #  git add filters/committee_filter.py config/settings.py
 #  git commit -m "Add volume filter"
 #  git pus
+
+# Archiv-Ordner und Quiver-Rohdaten
+archive/
+data/raw/congress-trading-all.xlsx
+
+# API-Fetch-Outputs (regenerierbar via fetch_congress_data.py)
+data/congress_api/bill_actions.json
+data/congress_api/bill_committees.json
+data/congress_api/bill_details.json
+data/congress_api/bills_list.json
+data/congress_api/bill_subjects.json
+data/congress_api/bill_summaries.json
+data/congress_api/fetch_checkpoint.json
+data/congress_api/fetch_log.json
+
+# yfinance/OpenFIGI-Caches (regenerierbar via Pipeline)
+data/mappings/ticker_industry_cache.json
+data/mappings/ticker_0_cache.json
+
+# IDE-Einstellungen (lokale Claude Code Permissions)
+data/raw/.claude/
+
+# Temporäre DB-Backups
+data/cache/*.db.bak*
+data/congress_api/.force_in_progress

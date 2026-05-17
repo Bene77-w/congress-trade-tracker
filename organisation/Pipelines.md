@@ -182,80 +182,164 @@ PDF_EXTRACTOR_ROW_BATCH_SIZE = 5
 
 ---
 
-## Pipeline 5: Import-Pipeline (Hauptpipeline)
+## Pipeline 5: Import-Pipeline (Hauptpipeline, 8 Stages)
 
 **Script:** `scripts/import_trades.py`
-**Input:** `data/raw/congress-trading-all.csv` (Quiver-Snapshot, vollständiger Datensatz)
-**Output:** `data/processed/trades_master.csv`, `data/processed/unmatched_names.csv`, `data/processed/unmatched_preferred.csv` (bei Bedarf)
+**Input:** `data/raw/congress-trading-all.xlsx` (Quiver-Snapshot)
+**Output:**
+  - `data/processed/trades_master_complete.csv` (vollstaendige Spalten, Rebuild T3)
+  - `data/processed/trades_master.csv` (kuratierte Sicht via `settings.CURATED_COLUMNS`)
+  - `data/processed/manual_review_tickers.csv` (Diagnose-Output)
+  - `data/processed/unmatched_names.csv`, `data/processed/unmatched_preferred.csv` (bei Bedarf)
 
 **Modi:**
-- `python scripts/import_trades.py` — Full Rebuild (trades_master.csv komplett neu schreiben, mit Backup)
-- `python scripts/import_trades.py --delta` — Delta-Import (nur neue Trades anreichern + merge in Master)
-- `python scripts/import_trades.py --dry_run` — Alle Stages → trades_stage.csv (Master unberührt)
+- `python scripts/import_trades.py` — Full Rebuild (alle 8 Stages, schreibt complete + curated + review)
+- `python scripts/import_trades.py --delta` — Delta-Import via `trade_id` (nur neue Trades, merge)
+- `python scripts/import_trades.py --dry_run` — Alle Stages → trades_stage.csv (Master unberuehrt)
 
-**Stage-Pipeline (einzelne Schritte, unabhängig re-runnable):**
-```
---stage_rename       # Quiver laden, Spalten umbenennen → Master/Stage
---stage_date         # Datum normalisieren
---stage_committees   # Committee-Member-Enrichment (nur Member-Spalten, kein Scoring)
---stage_tickertype   # ticker_type via OpenFIGI ableiten
---stage_tickerindustry  # yfinance Sector/Industry Lookup
---stage_filter       # Scoring + Filter 0 (Asset-Klasse) + Filter 4 (Vote-Timing)
---stage_save         # trades_stage.csv → trades_master.csv (replace/delta-merge)
+**Migration vor erstem Rebuild-T3-Lauf:**
+```bash
+python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splittet complete/curated
 ```
 
-**Flag-Matrix: Was wird gelesen/geschrieben?**
+**Stage-Pipeline (8 Schritte, unabhaengig re-runnable):**
+```
+--stage_rename          # Quiver laden + Spalten umbenennen + trade_id
+--stage_date            # Datum normalisieren
+--stage_committees      # Committee-Member-Enrichment
+--stage_tickerclassify  # Offline-Klassifikation (Regex, utils/ticker_classifier.py)
+--stage_tickeropenfigi  # OpenFIGI-Normalisierung (FIGI, ticker_figi)
+--stage_tickeryfinance  # yfinance Sector/Industry-Anreicherung
+--stage_filter          # Scoring + Filter 0 (Asset-Klasse) + Filter 4 (Vote-Timing)
+--stage_save            # trades_stage.csv → complete + curated Master
+```
+
+**Bonus-Flags (kein Master-Touch, exklusiv):**
+- `--manual_review_only` — regeneriert `manual_review_tickers.csv` aus complete-Master
+- `--regenerate_curated` — regeneriert `trades_master.csv` aus complete-Master
+
+**Flag-Matrix:**
 | Aufruf | Input | Output | Master-Backup |
 |--------|-------|--------|---------------|
-| `--stage_X` | trades_master.csv | trades_master.csv | ✅ |
-| `--stage_X --dry_run` | trades_master.csv | trades_stage.csv | ❌ |
+| `--stage_X` | trades_master_complete.csv | trades_master_complete.csv | ✅ |
+| `--stage_X --dry_run` | trades_master_complete.csv | trades_stage.csv | ❌ |
 | `--stage_X --delta` | trades_stage.csv | trades_stage.csv | ❌ |
-| `--stage_save` | trades_stage.csv | trades_master.csv (replace) | ✅ |
-| `--delta --stage_save` | trades_stage.csv | trades_master.csv (merge) | ✅ |
-| `--dry_run` (kein Stage) | Quiver | trades_stage.csv | ❌ |
-| `--delta` (kein Stage) | Quiver+Master | trades_master.csv (merge) | ✅ |
+| `--stage_save` | trades_stage.csv | complete + curated (replace) | ✅ |
+| `--delta --stage_save` | trades_stage.csv | complete + curated (merge via trade_id) | ✅ |
+| `--dry_run` (kein Stage) | Quiver | trades_stage.csv + review | ❌ |
+| `--delta` (kein Stage) | Quiver+complete | complete + curated (merge) | ✅ |
+| `--manual_review_only` | complete | review (only) | ❌ |
+| `--regenerate_curated` | complete | curated (only) | ✅ |
 
 **Ablauf Full Rebuild:**
 ```
-[1] Lade Quiver-Trades + Datum normalisieren
-    → Quiver-CSV einlesen (Spalten-Rename via QUIVER_COLUMN_MAP)
+[1] Lade Quiver-Trades
+    → Spalten-Rename via QUIVER_COLUMN_MAP
+         ↓
+[2] Datum normalisieren + trade_id vergeben
     → Datum-Fallback: fehlende/future transaction_date ← disclosure_date
+    → trade_id = sha256(content_columns)[:16] (utils/trade_id.compute_trade_ids)
          ↓
-[2] Committee-Member-Enrichment (enrich_member_data)
-    → Checkpoint-Support: alle 5.000 Trades als Pickle (Abbruch-sicher)
+[3] Committee-Member-Enrichment (enrich_member_data)
+    → Checkpoint-Support: alle 5.000 Trades als Pickle
     → 3-Stufen Matching: Alias → Exakt → Fuzzy (85%)
-    → Neue Spalten: Member_Party, Member_State, Member_Committees,
-      Member_ExOfficio, Member_Chamber, Member_Committees_Full
-    (KEIN Scoring in dieser Stage → kommt in [4])
+    → Neue Spalten: Member_*
          ↓
-[3] Ticker-Type Klassifikation (OpenFIGI API + Regex)
-    → ticker_type Spalte setzen
+[4] Ticker-Klassifikation (offline, Rebuild T3)
+    → utils/ticker_classifier.classify(ticker, asset_name)
+    → Neue Spalten: ticker_type, ticker_base, classification_*, api_strategy,
+      exch_code, series_letter, status_suffix, manual_review_flag
+    → Schreibt manual_review_tickers.csv (aggregiert, sortiert nach Häufigkeit)
          ↓
-[4] Ticker-Industry Lookup (yfinance)
-    → Ticker_Sector, Ticker_Industry Spalten setzen
+[5] OpenFIGI-Normalisierung (Rebuild T3)
+    → utils/ticker_normalizer.TickerNormalizer.normalize_batch()
+    → Neue Spalten (Suffix _figi): figi, ticker_figi, name_figi,
+      security_type_figi, market_sector_figi
+    → Type-Korrektur: STOCK + securityType2='ETP' → ETF
          ↓
-[5] Filter-Logik (_apply_filter_logic)
-    → MatchScore, MatchSource (via NameMatcher erneut, schnell)
-    → Relevant_Sectors, Relevance_Score, Confidence_Level (via CommitteeFilter)
-    → asset_class_excluded (Filter 0: Asset-Klasse)
-    → Vote_Timing_Hit, Vote_Date, Vote_Bill_Title, Vote_Policy_Area,
-      Vote_Timing_Score, Days_To_Vote (Filter 4: Vote-Timing)
-    → TODO: Filter 1/2/6/7 (Volumen, Schwarm, Long/Short, Position)
+[6] yfinance Sector/Industry (Rebuild T3)
+    → utils/ticker_sector.TickerSectorEnricher.enrich_batch()
+    → Neue Spalten (Suffix _yf): sector_yf, industry_yf, quote_type_yf
+    → Vorzugsaktien-Mapping (EP$C → KMI), Hyphen-Fallback (BRK-B → BRK/B)
          ↓
-[6] Speichern
-    → Backup: archive/trades_master_backup/trades_master_{YYYYMMDD-HHMMSS}.csv
-    → trades_master.csv (komplett neu geschrieben)
-    → unmatched_names.csv
+[7] Filter-Logik (_apply_filter_logic)
+    → Pre-Hook _ensure_fresh_vote_data() prueft Alter von bill_actions.json/
+      bill_subjects.json. Liegt eine Datei aelter als settings.VOTE_DATA_TTL_HOURS
+      (Default 24h), wird scrapers/fetch_congress_data.CongressFetcher.run_update()
+      programmatisch ausgeloest. Fehler (kein API-Key, Netzwerk, fehlender Erstlauf)
+      werden geloggt, die Pipeline laeuft mit dem letzten bekannten Stand weiter.
+      Lock-Schutz: Liegt data/congress_api/.force_in_progress vor (anderer Fetcher-
+      Prozess laeuft, z.B. manueller --force in einem zweiten Terminal), wird der
+      Auto-Refresh komplett uebersprungen — Filter 4 nutzt die vorhandene JSON.
+      Schema-Migrate: Beim Resume-Laden der bill_summaries.json/bill_subjects.json
+      werden Alt-Eintraege ohne 'has_summary'/'subject_count' (Felder nachtraeglich
+      eingefuehrt) automatisch nachgeruestet — verhindert KeyError im Progress-Print.
+    → MatchScore/MatchSource (NameMatcher)
+    → Insider_Sectors / Relevant_Sectors / Relevance_Score (CommitteeFilter)
+      Insider_Sectors  = JSON-Liste ALLER (sub)committee-Sektoren des Members
+      Relevant_Sectors = Intersection Insider × sector_yf/industry_yf
+                         (Match-Mode via settings.RELEVANT_SECTORS_MATCH_MODE,
+                          Default: sector_or_industry)
+      Score-Formel: sector_match (33) + industry_match (33), * 1.5 wenn ex officio
+      Vergleich Mapping.Sector/Industry == sector_yf/industry_yf → 0/33/50/66/99
+    → asset_class_excluded (Filter 0: prueft FILTER_0_KEEP_TYPES = {stock, foreign_stock, shareclass})
+    → Vote_Timing_Hit / Vote_Timing_Hits / Vote_Timing_Hit_Count (Filter 4)
+      Quelle der Trade-Sektoren ist Relevant_Sectors (Intersection!), damit
+      Sektor-Treffer am Ticker haengen, nicht nur am Committee. Alle Treffer
+      im Fenster werden als JSON-Liste gespeichert.
+         ↓
+[8] Speichern
+    → Backup: archive/trades_master_backup/trades_master[_complete]_{ts}.csv
+    → trades_master_complete.csv (alle Spalten, neu geschrieben)
+    → trades_master.csv (kuratiert via settings.CURATED_COLUMNS)
+    → manual_review_tickers.csv (falls Tickers mit manual_review_flag)
+    → _promote_problem_outputs(delta) — siehe Abschnitt unten
+        - unmatched_names.csv
+        - unmatched_preferred.csv
+        - delisted_trades.csv
 ```
 
+### Problem-Output-Promotion (Mai 2026)
+
+`_promote_problem_outputs(delta)` (in `scripts/import_trades.py`) kümmert sich um drei Diagnose-Dateien einheitlich:
+
+| Lauf-Typ | Verhalten |
+|----------|-----------|
+| **Full-Run** (kein `--delta`) | Stage → Live overwrite. Stage fehlt/leer → Live wird gelöscht (Auto-Purge). |
+| **Delta-Run** (`--delta`) | Alte Live-Datei + neue Stage-Datei werden gemerged via natürlichem Schlüssel; anschließend re-validiert (gefixte Einträge fallen raus). |
+| **Dry-Run** | Schreibt nur `*_stage.csv`. Live-Dateien bleiben unangetastet. |
+
+**Re-Validation-Quellen** (Delta-Modus):
+- `unmatched_names.csv` ↔ `NameMatcher.match()` (lädt aktuelle `name_aliases.csv` + Member-CSVs)
+- `unmatched_preferred.csv` ↔ `Vorzugsaktien_mapping.csv` + `ignored_tickers.csv`
+- `delisted_trades.csv` ↔ positiver `ticker_industry_cache.json` (cache-only, kein API-Call)
+
+**`manual_review_tickers.csv`** wird im Live-Pfad immer aus dem vollen gemergten Master aggregiert (Re-Validation läuft implizit über Filter `ticker_type!='ignored'` + `manual_review_flag=True`). Im Delta-Dry-Run zeigt die Datei eine Vorschau des Endzustands (`existing-master ∪ delta_enriched`).
+
+Stage-Dateien (`unmatched_names_stage.csv`, `unmatched_preferred_stage.csv`, `delisted_trades_stage.csv`) werden nach Promotion automatisch entfernt.
+
 **Hinweis:** Die Pipeline ist ein reiner Enrichment-Durchlauf — es werden keine Zeilen entfernt.
+
+**Dedup-Strategie (`DEDUP_STRATEGY` in settings.py):**
+- `'keep_all'` (Default): Bei mehreren Zeilen mit gleicher `trade_id` innerhalb eines Imports
+  bleiben alle erhalten (z.B. Splits, identische Ticker am gleichen Tag). `trade_id` ist dann
+  KEIN eindeutiger Schlüssel im Master.
+- `'last_wins'`: Nur die letzte Zeile pro `trade_id` wird behalten.
+- Wirkt in `_merge_into_master` (`scripts/import_trades.py`) und `scripts/migrate_add_trade_ids.py`.
+- Delta-Erkennung zwischen Läufen (`detect_new_trades`) ist davon nicht betroffen.
 
 **Delta-Modus** (`--delta`): Lädt aktuelle Quiver-CSV, vergleicht per Key-Dedup gegen bestehende
 trades_master.csv, reichert nur neue Trades an und mergt sie (mit Dedup) in Master.
 
 **Einzelstage re-runnen (Beispiele):**
 ```bash
-# Filter-Stage nach Mapping-Änderung neu berechnen (mit Backup):
+# Klassifikation nach Regex-Update neu berechnen (mit Backup):
+python scripts/import_trades.py --stage_tickerclassify
+
+# OpenFIGI-Cache nutzen (refresh_ticker_types.py wurde in T3 entfernt):
+python scripts/import_trades.py --stage_tickeropenfigi
+
+# Filter-Stage nach Mapping-Änderung neu berechnen:
 python scripts/import_trades.py --stage_filter
 
 # Dry-Run: komplette Pipeline ohne Master-Touch:
@@ -267,7 +351,11 @@ python scripts/import_trades.py --stage_save
 # Delta stage-weise:
 python scripts/import_trades.py --delta --stage_rename    # neue Trades → stage.csv
 python scripts/import_trades.py --delta --stage_filter    # filter auf stage.csv
-python scripts/import_trades.py --delta --stage_save      # merge in Master
+python scripts/import_trades.py --delta --stage_save      # merge in complete-Master
+
+# Bonus-Flags (kein Master-Touch ausser Curated):
+python scripts/import_trades.py --manual_review_only      # review aus complete
+python scripts/import_trades.py --regenerate_curated      # curated aus complete
 ```
 
 **Abhaengigkeiten:**
@@ -305,6 +393,169 @@ Senate-Besonderheit: Zwei Lookup-Keys pro Senator ("Last, First" + "First Last")
 | `data/mappings/subcommittee_sector_industry_mapping_v3.xlsx` | Region_Mapping | `data/mappings/subcommittee_region_mapping.csv` |
 
 Nur ausfuehren wenn xlsx-Dateien geaendert wurden.
+
+---
+
+## Pipeline 8: Foundation- & Network-Module (Rebuild Teil 1+2, in Vorbereitung)
+
+**Status:** Module fertig + getestet (25.04.2026), aber **noch nicht** in
+`import_trades.py` integriert. Integration erfolgt in Rebuild Teil 3.
+
+**Spezifikation:** `rebuild_pitch.md` (Sektionen 4–7, 11, 14, 16).
+
+### Übersicht
+
+| Modul | Rolle | Tests |
+|-------|-------|-------|
+| `utils/trade_id.py` | Hash-basierte stabile Trade-ID, ersetzt `_create_dup_key` | 13 |
+| `utils/ticker_classifier.py` | Offline-Regex-Klassifikator, liefert `TickerClassification` | 67 |
+| `utils/ticker_normalizer.py` | OpenFIGI-Wrapper, liefert `NormalizedTicker` | 6 |
+| `utils/ticker_sector.py` | yfinance-Wrapper, liefert `SectorInfo` | 6 |
+
+### Datenfluss (geplant)
+
+```
+DataFrame (raw_ticker, company_name, ...)
+        ↓
+[1] ticker_classifier.classify(ticker, company_name)
+        → TickerClassification (frozen):
+          ticker_type ∈ {STOCK, ETF, PREFERRED, WARRANT, OPTION, BOND, ...}
+          api_strategy ∈ {SKIP, FIGI_MAPPING, FIGI_SEARCH, CUSIP_LOOKUP,
+                          YFINANCE_DIRECT, MANUAL_REVIEW}
+          confidence ∈ {HIGH, MEDIUM, LOW}
+        ↓
+[2] TickerNormalizer.normalize_batch(classifications)
+        → NormalizedTicker (frozen):
+          figi, ticker_figi, name_figi, security_type_figi, market_sector_figi
+        Routing nach api_strategy:
+          SKIP/MANUAL_REVIEW   → kein Call
+          FIGI_MAPPING         → /v3/mapping (Batches à 100)
+          FIGI_SEARCH          → /v3/search (einzeln, Name+Ticker)
+          CUSIP_LOOKUP         → /v3/mapping mit idType=ID_CUSIP
+          YFINANCE_DIRECT      → durchreichen (kein OpenFIGI-Call)
+        Type-Korrektur: STOCK + securityType2='ETP' → ETF
+        ↓
+[3] TickerSectorEnricher.enrich_batch(normalized)
+        → SectorInfo (frozen): sector_yf, industry_yf, quote_type_yf
+        Routing nach ticker_type:
+          STOCK/SHARECLASS/FOREIGN_STOCK/ETF/NUMERIC_SUFFIX → yfinance
+          PREFERRED                                          → via Mapping (Vorzugsaktien_mapping.csv)
+          WARRANT/OPTION/BOND/CRYPTO/...                     → kein Call
+        Hyphen-Fallback: yfinance(BRK-B) leer → yfinance(BRK/B)
+```
+
+### Caches
+
+| Cache | Pfad | TTL | Hinweis |
+|-------|------|-----|---------|
+| OpenFIGI SQLite | `data/cache/ticker_type_cache.db` (Tabelle `ticker_normalizer`) | 90 Tage / 7 Tage Unknown | Neue Tabelle parallel zur alten `ticker_types` |
+| yfinance positiv | `data/mappings/ticker_industry_cache.json` | `TICKER_SECTOR_CACHE_TTL_DAYS=30` | Bestand ohne `cached_at` = ewig gültig |
+| yfinance null | `data/mappings/ticker_0_cache.json` | ∞ (delisted bleibt delisted) | Sortierte Liste |
+
+### Defensiv-Mechanismen (Pitch §11)
+
+Jeder Mechanismus ist Resultat eines echten Bugs — keine Vereinfachung.
+
+| § | Implementiert in | Verhalten |
+|---|------------------|-----------|
+| 11.1 | beide | 3 Net-Errors → 30s Pause; 5 → RuntimeError; Retry-Queue |
+| 11.2 | beide | Cache-Checkpoint alle 100 Lookups |
+| 11.3 | sector | JSON-Split positiv/null in 2 Dateien |
+| 11.5 | sector | Confirm-Prompt bei ≥100 neuen Tickern (callback-injizierbar) |
+| 11.6 | sector | yfinance-Logger CRITICAL während Loop |
+| 11.7 | sector | Delisted → `data/processed/delisted_trades_stage.csv`; Terminal-Report nach Jahr aggregiert (`enrich_batch(normalized, transaction_dates=...)`) |
+| 11.8 | sector | Vorzugsaktien-Mapping aus `Vorzugsaktien_mapping.csv` + Terminal-Report `Preferred-Mapping: matched=X, unmatched=Y` nach Batch-Ende |
+| 11.9 | normalizer | OpenFIGI 429 Backoff 2^n max 90s, 6 → RuntimeError; getrennte Pausen pro Endpoint (Mapping/Search) |
+| 11.10 | beide | Lazy Init (DB/Caches erst bei Bedarf) |
+
+### Terminal-Ausgabe bei Fehlern
+
+Pro Defensiv-Mechanismus ein klarer `print(...)`:
+
+```
+[!] Netzwerk-Fehler 1/5: Could not resolve host …
+[!] 3 Netzwerk-Fehler in Folge → 30s Pause...
+[!!] 5 Netzwerk-Fehler in Folge → STAGE-ABBRUCH (12 Ticker in Retry-Queue)
+[!] OpenFIGI 429 (Versuch 1/3) → Backoff 2.0s
+[i] Kein Mapping-Hit für OBSCURE → Fallback /v3/search
+[i] SPY: Type-Korrektur STOCK → ETF (securityType2=ETP)
+[i] BRK-B ohne Sektor → Retry mit Slash-Variante BRK/B
+[i] Cache-Checkpoint: 100 Lookups gespeichert
+[!] Preferred-Ticker XYZ$A ohne Mapping
+[i] Delisted/Unbekannte Ticker: 3 Eintraege → …/delisted_trades_stage.csv
+```
+
+### Tests
+
+```
+pytest tests/test_trade_id.py            13 passed
+pytest tests/test_ticker_classifier.py   67 passed
+pytest tests/test_ticker_normalizer.py    6 passed   alle gemockt
+pytest tests/test_ticker_sector.py        6 passed   alle gemockt
+```
+
+### Abhängigkeiten
+
+- `requests` (OpenFIGI-Calls)
+- `yfinance` (Sektor-Lookups)
+- `config/settings.py`: `OPENFIGI_API_KEY`, `TICKER_LOOKUP_*`,
+  `TICKER_TYPE_CACHE_TTL_DAYS`, `TICKER_TYPE_UNKNOWN_TTL_DAYS`,
+  `TICKER_SECTOR_CACHE_TTL_DAYS` (NEU), `OPENFIGI_BATCH_ABORT_THRESHOLD` (6),
+  `OPENFIGI_RATE_LIMIT_BACKOFF_BASE/MAX` (umbenannt von `OPENFIGI_BACKOFF_*`),
+  `OPENFIGI_MAPPING_PAUSE_WITH_KEY`/`_WITHOUT_KEY` (0.3 / 3.5),
+  `OPENFIGI_SEARCH_PAUSE_WITH_KEY`/`_WITHOUT_KEY` (0.4 / 13.0),
+  Legacy-Aliase `OPENFIGI_REQUEST_PAUSE_*` weiter gültig,
+  `PREFERRED_TICKER_MAPPING_FILE`, `TICKER_INDUSTRY_CACHE_FILE`,
+  `TICKER_0_CACHE_FILE`, `DEDUP_STRATEGY` (`'keep_all'` | `'last_wins'`).
+
+**OpenFIGI Rate-Limit-Hintergrund:** `/v3/mapping` erlaubt 250 Req/6s, `/v3/search`
+nur 20 Req/6s. Da der Mapping→Search-Fallback in `_process_mapping` direkt nach einem
+Mapping-Burst auf das engere Search-Limit trifft, war 429 dort Standardfehler.
+`TickerNormalizer` hält jetzt zwei separate Pausen (`mapping_pause`, `search_pause`)
+und schiebt vor dem Fallback eine `search_pause` ein. Backoff: 2^n max 90s,
+6 aufeinanderfolgende 429 → RuntimeError (vorher 3 → 60s).
+
+### Nicht in Rebuild T1+T2
+
+- Touch an `scripts/import_trades.py` (kommt in T3)
+- Touch an `OpenFigiClient` (kommt in T4)
+- Stage-Code, Member-Enrichment-Pickle-Checkpoint (§11.4)
+
+---
+
+## Pipeline 9: Wartung & Reset
+
+**Script:** `scripts/reset_pipeline.py`
+**Zweck:** Granularer Reset von Logs, Caches, Stage-Files und Processed-Outputs.
+Default-Verhalten: reversibler **Move** nach `archive/reset_pipeline/reset_<ts>/` mit
+`_manifest.txt`. Kuratierte Mapping-Dateien (12 PROTECTED-Files) werden niemals angefasst.
+
+**CLI:**
+```
+--logs              logs/*.log + logs/debug_tesseract/
+--stage-files       *_stage.csv, pipeline_state.json, duplicate_inspection_sample.csv
+--ticker-caches     ticker_type_cache.db, ticker_industry_cache.json, ticker_0_cache.json
+--processed         trades_master[_complete].csv, manual_review_tickers.csv,
+                    unmatched_*.csv, delisted_trades.csv, ticker_liste_index.csv
+--all               alle vier Gruppen kombiniert
+--dry-run           keine Aktion, nur Vorschau
+--purge             echtes rm statt Move (irreversibel, doppelte Confirmation)
+```
+
+**Confirmation-Stufen:**
+| Flag | Prompt |
+|------|--------|
+| `--logs`, `--stage-files`, `--ticker-caches` | einfach `[j/N]` |
+| `--processed`, `--all` | getipptes `JA` |
+| `--purge` (zusätzlich) | getipptes `PURGE` |
+
+**Geschützt (nie verschoben/gelöscht):** `name_aliases.csv`, `Vorzugsaktien_mapping.csv`,
+`house_member&(sub)committees.csv`, `senate_member&(sub)committees.csv`,
+`subcommittee_sector_industry_mapping*.csv`, `yf_sectors_with_industries.csv`,
+`vote_sector_mapping.py`, `logs/house_pdf_extractor_done.csv` (State).
+
+**Terminal-Output:** Pro Datei `[OK]`/`[X]`/`[SKIP]` mit Größe und Dauer,
+Zwischensummen pro Gruppe, finale Zusammenfassung.
 
 ---
 
@@ -381,6 +632,7 @@ Diese Dateien werden nicht durch Pipelines erzeugt, sondern manuell gepflegt:
 | `data/mappings/house_member&(sub)committees.csv` | Alle 2 Jahre (Wahlen) | 437 House-Mitglieder + Committees (inkl. 5 Leadership ex officio) |
 | `data/mappings/senate_member&(sub)committees.csv` | Alle 2 Jahre (Wahlen) | 100 Senatoren + Committees |
 | `data/mappings/name_aliases.csv` | Bei Bedarf (neue Varianten) | Manuelle Namenskorrekturen (11 Eintraege) |
+| `data/mappings/ignored_tickers.csv` | Bei Bedarf | Manuelle Ignore-Liste fuer raw_ticker (z.B. private Funds ohne oeffentlichen Ticker). Wird in Stage `tickerclassify` ausgewertet → setzt `ticker_type=ignored`, `api_strategy=skip`, kein Manual-Review-Eintrag |
 | `data/mappings/subcommittee_sector_industry_mapping.csv` | Bei Bedarf | Subcommittee→Sektor/Industry (861 Zeilen) |
 | `data/mappings/vote_sector_mapping.py` | Bei Bedarf | Policy Area→YF-Sektoren (Python, 12 Mappings) |
 | `data/raw/former_members.csv` | Bei Bedarf (Congresswechsel) | Ehemalige Politiker mit Trades (6 Eintraege) |
@@ -389,3 +641,15 @@ Diese Dateien werden nicht durch Pipelines erzeugt, sondern manuell gepflegt:
 ---
 
 Erstellt: 2026-03-07
+Letzte Aktualisierung: 2026-05-14 (Spalten-Refactoring: API-Provider-Suffixe _figi / _yf)
+
+### Aenderungs-Historie
+
+- **2026-05-14** — Spalten-Refactoring in Stage 5 (OpenFIGI) und Stage 6
+  (yfinance). Output-Spalten der externen-API-Stages bekommen Provider-Suffixe:
+  `_figi` fuer OpenFIGI-Felder (`ticker_figi`, `name_figi`,
+  `security_type_figi`, `market_sector_figi`), `_yf` fuer yfinance-Felder
+  (`sector_yf`, `industry_yf`, `quote_type_yf`). Die ID-Spalte `figi` selbst
+  bleibt unveraendert. Filter-Stage liest jetzt `sector_yf`/`industry_yf` statt
+  `Ticker_Sector`/`Ticker_Industry`. SQLite-Cache-Tabelle `ticker_normalizer`
+  wurde mit DROP+CREATE auf neues Schema migriert (Backup in `data/cache/`).
