@@ -126,17 +126,20 @@ class CommitteeParser:
         return name, role
 
 
-class CommitteeFilter:
+class CommitteeTag:
     """
-    Filters trades based on committee-sector relevance.
+    Tagger: annotiert Trades mit Committee-Sector-Relevanzinfo.
 
-    Combines CommitteeParser and CommitteeMapper to determine
-    if a politician's committees are relevant to a trade.
+    Schreibt Insider_Sectors, Relevant_Sectors und Relevance_Score in den
+    Master. Kombiniert CommitteeParser und CommitteeMapper, um zu bestimmen,
+    ob die Committee-Zugehoerigkeit eines Politikers thematisch zum Trade passt.
+
+    In der User-Sprache entspricht dieser Tag dem historischen "Filter 3".
     """
 
     def __init__(self, mapper: Optional[CommitteeMapper] = None):
         """
-        Initialize filter.
+        Initialize tag.
 
         Args:
             mapper: CommitteeMapper instance (creates default if None)

@@ -123,6 +123,46 @@
   └─────┴───────────────────────────┴──────────────────┴─────────────────────────────────────────────┴─────────────────────────────────────────────────────────────────────┘
 
 
+
+● Erweiterte api_strategy-Tabelle mit betroffenen Assets
+
+  Quelle: trades_master_complete.csv nach dem aktuellen P5/P5.5-Run (111.986 Trades).
+
+  ┌─────────────────┬───────────────────────────────────────────────────┬────────────────────────────────────────────────────────────────┬────────────────────────────────────────────────────────────────────────────────────────────────┐
+  │  api_strategy   │                ticker_types darin                 │                        yfinance-Lookup?                        │                                    Reale sector_yf-Coverage                                    │
+  ├─────────────────┼───────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ FIGI_MAPPING    │ preferred (164), foreign_stock (33)               │ JA: preferred via Vorzugsaktien-Mapping, foreign_stock direkt  │ 33,0 % (65/197) — Rest sind Preferreds ohne CSV-Mapping bzw. ausländische Listings, die        │
+  │                 │                                                   │                                                                │ yfinance nicht kennt                                                                           │
+  ├─────────────────┼───────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ FIGI_SEARCH     │ warrant (36), misc (1), unit (1)                  │ NEIN — alle drei Typen sind außerhalb der Whitelist            │ 0,0 %                                                                                          │
+  ├─────────────────┼───────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ CUSIP_LOOKUP    │ bond (43)                                         │ NEIN — Bonds haben bei yfinance keine sinnvollen               │ 0,0 %                                                                                          │
+  │                 │                                                   │ Sector/Industry-Daten                                          │                                                                                                │
+  ├─────────────────┼───────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ YFINANCE_DIRECT │ stock (109.962), shareclass (872), numeric_suffix │ JA — alle drei in der Whitelist                                │ 79,5 % (88.605/111.385)                                                                        │
+  │                 │  (551)                                            │                                                                │                                                                                                │
+  ├─────────────────┼───────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ MANUAL_REVIEW   │ unknown (132), long_alpha_suspect (25)            │ NEIN — keine in der Whitelist                                  │ 0,0 %                                                                                          │
+  ├─────────────────┼───────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ SKIP            │ invalid, when_issued, bond, unknown, option       │ NEIN                                                           │ 0,0 %                                                                                          │
+  └─────────────────┴───────────────────────────────────────────────────┴────────────────────────────────────────────────────────────────┴────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+  * SKIP/bond, SKIP/unknown: Edge-Cases (z. B. fehlende CUSIP bei bond,
+    leerer ticker bei unknown) — die normalerweise nach CUSIP_LOOKUP /
+    MANUAL_REVIEW gehen würden, aber wegen leerer Pflichtfelder gar nicht
+    klassifizierbar sind und deshalb SKIP bekommen.
+
+  Beobachtungen:
+
+  - YFINANCE_DIRECT dominiert mit 99,5 % der Trades. Das ist der einzige Pfad mit messbarem Volumen, und genau hier wirkt die P5-Erweiterung am stärksten (109.962 STOCK-Trades bekommen nun durchgängig FIGIs).
+  - MANUAL_REVIEW ist ein Long-Tail (157 Trades). Niedrige FIGI-Coverage (4,5 %) ist erwartungsgemäß: unknown und long_alpha_suspect sind oft Cash-Konten, geschlossene Securities oder Tippfehler — der Negativ-Cache fängt diese ein und
+  verhindert wiederholte API-Calls.
+  - FIGI_SEARCH mit nur 38 Trades zeigt: Warrants sind selten, aber wenn sie auftauchen, ist Search der einzige zuverlässige Pfad (Mapping schlägt fehl, weil Warrant-Ticker keine Standard-Identifier sind).
+  - CUSIP_LOOKUP = 100 % Bonds — ist also faktisch der „Bond-Pfad" mit Pflicht-CUSIP. Die 19 Bond-Trades in SKIP sind solche ohne verfügbare CUSIP.
+  - SKIP trägt nur 0,15 % bei und ist nach Design unverändert — keine sinnvolle API-Antwort möglich (invalid, when_issued, option).
+
+
+
 ● Hier die strukturierte Übersicht aller Output-Dateien aus scripts/import_trades.py:                                                                                                                                                         
                                                                                                                                                                                                                                               
   1️⃣  Master-/Hauptergebnisse (bleiben als Overwrite — sind selbst die Wahrheit)                                                                                                                                                               

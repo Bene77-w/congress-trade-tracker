@@ -468,7 +468,7 @@ class TickerSectorEnricher:
         )
         return NormalizedTicker(
             classification=cls, figi=None, ticker_figi=None,
-            name_figi=None, security_type_figi=None, market_sector_figi=None,
+            asset_name_figi=None, security_type_figi=None, market_sector_figi=None,
             normalization_errors=[],
         )
 

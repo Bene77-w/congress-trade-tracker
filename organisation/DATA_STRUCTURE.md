@@ -140,7 +140,7 @@ House,Agriculture,"Commodity Markets, Digital Assets, And Rural Development",Tec
 - `Mittel` = Medium confidence (0.7x Multiplier)
 - `Niedrig` = Low confidence (0.4x Multiplier)
 
-**Verwendung**: Wird von `config/committee_mapping.py` geladen → Lookup in `filters/committee_filter.py`
+**Verwendung**: Wird von `config/committee_mapping.py` geladen → Lookup in `tags/committee_tag.py`
 
 #### Sheet 3: Region_Mapping (238 Zeilen)
 Geografische Relevanz von Committees
@@ -281,7 +281,7 @@ CREATE TABLE ticker_normalizer (
     classification_type TEXT NOT NULL,      -- "TICKER" | "SEARCH" | "ID_CUSIP"
     figi                TEXT,               -- FIGI (Bloomberg, z.B. "BBG000B9XRY4")
     ticker_figi         TEXT,               -- Canonical Ticker laut OpenFIGI
-    name_figi           TEXT,               -- Canonical Name laut OpenFIGI
+    asset_name_figi           TEXT,               -- Canonical Name laut OpenFIGI
     security_type_figi  TEXT,               -- OpenFIGI securityType
     raw_security_type   TEXT,               -- OpenFIGI securityType (Roh-Spiegel)
     raw_security_type2  TEXT,               -- OpenFIGI securityType2 (z.B. "ETP" → Type-Korrektur)
@@ -307,7 +307,7 @@ CREATE TABLE ticker_types (
 
 **TTL**: Normale Eintraege 90 Tage, "Unknown"/"empty" 7 Tage. Bei Offline: alle Cache-Eintraege gueltig.
 
-**Verwendung**: `ticker_normalizer` ist die aktive Quelle der OpenFIGI-Felder im Master (Spalten `figi`, `ticker_figi`, `name_figi`, `security_type_figi`, `market_sector_figi`). `ticker_types` ist Legacy und wird nicht mehr beschrieben.
+**Verwendung**: `ticker_normalizer` ist die aktive Quelle der OpenFIGI-Felder im Master (Spalten `figi`, `ticker_figi`, `asset_name_figi`, `security_type_figi`, `market_sector_figi`). `ticker_types` ist Legacy und wird nicht mehr beschrieben.
 
 ### `data/mappings/Vorzugsaktien_mapping.csv`
 **Quelle**: Manuell gepflegt
@@ -466,11 +466,26 @@ die Pipeline immer aus `trades_master_complete.csv`.
 **Kuratierte Spalten** (Default in `settings.CURATED_COLUMNS`, vom
 User erweiterbar):
 - `trade_id` — 16-Hex Hash-ID (utils/trade_id.compute_trade_ids)
-- `name`, `ticker`, `ticker_base`, `asset_name`
+- `name`, `ticker`, `issuer_ticker`, `issuer_group_key`, `ticker_type`, `asset_name`
 - `transaction_date`, `transaction_type`, `amount`
 - `chamber`, `Member_Party`, `Member_State`
 - `security_type_figi`, `sector_yf`, `industry_yf`
 - `MatchScore`, `Vote_Timing_Hit`
+
+`issuer_ticker` (P5.5): Fallback-Kette `share_class_figi → ticker_base
+→ ticker`. Garantiert 100% gefuellt solange mindestens eine der drei
+Quellen gesetzt ist. Wird als Gruppierungs-Key in Sequenz-Signalen
+(Stage 10) und Suspicious-Asset-Aggregation (Stage 12) verwendet
+(Share-Class-Level).
+Hinweis: shareClassFIGI gruppiert Exchange-Listings derselben
+Aktienklasse, jedoch NICHT Cross-Class wie GOOGL+GOOG (separate
+Class-A/Class-C-FIGIs).
+
+`issuer_group_key` (P5.6): Issuer-Level (Cross-Class) via SEC EDGAR
+CIK. Praefix-Konvention `CIK:<cik>` / `TICKER:<id>` / `SKIP:<type>`.
+Wird als SWARM_GROUPING_KEY verwendet. GOOGL und GOOG bekommen
+denselben `CIK:1652044`. Vollstaendige Architektur und
+Design-Entscheidungen: `organisation/Ticker_Architektur.md`.
 
 **adj_-Prefix-Regel**: Spalten mit `adj_X` lesen den Wert aus der
 Quellspalte `X` der complete-Datei und schreiben ihn unter dem
@@ -520,16 +535,38 @@ Relevance_Score,        # 0-100 (Committee-Sektor Relevanz, basierend auf Sector
 asset_class_excluded,   # True = Nicht-Aktie (ETF/Option/Bond/Crypto/...) -> wird von Scoring ignoriert
 
 # Anreicherung durch OpenFIGI (Stage tickeropenfigi) — Suffix _figi
-figi,                   # FIGI-ID (z.B. "BBG000B9XRY4")
+figi,                   # FIGI-ID Security-Ebene (z.B. "BBG000B9XRY4")
 ticker_figi,            # Canonical Ticker laut OpenFIGI (Bloomberg-Form, z.B. "WRB 7.375 PERP +A")
-name_figi,              # Canonical Name laut OpenFIGI (z.B. "W.R. BERKLEY CORPORATION")
+asset_name_figi,        # Canonical Name laut OpenFIGI (z.B. "W.R. BERKLEY CORPORATION")
 security_type_figi,     # OpenFIGI securityType (z.B. "Common Stock", "PUBLIC", "FIXED, OID")
 market_sector_figi,     # OpenFIGI marketSector (z.B. "Equity", "Pfd", "Corp", "Muni", "Govt")
+share_class_figi,       # FIGI-ID auf Issuer x Aktienklassen-Ebene (z.B. "BBG009S39JY5" GOOGL Class A).
+                        # P5: Coverage 82.67% gesamt / 83.1% YFINANCE_DIRECT.
+                        # WICHTIG: shareClassFIGI = Issuer x SHARE-CLASS, NICHT reiner Issuer.
+                        # GOOGL Class A und GOOG Class C bekommen UNTERSCHIEDLICHE share_class_figi
+                        # (BBG009S39JY5 vs BBG009S3NB21). FIGI gruppiert Exchange-Listings derselben
+                        # Aktienklasse, NICHT Cross-Class. Cross-Class-Mapping ist offenes Paket.
+
+issuer_ticker,          # Abgeleitete Spalte (P5.5): share_class_figi -> ticker_base -> ticker.
+                        # Garantiert 100% nicht-leer. Share-Class-Level. Wird als Gruppierungs-Key
+                        # fuer Sequenz-Signale (Contrarian, Accumulative) und Suspicious-Asset-
+                        # Aggregation verwendet. Auch in kuratierter trades_master.csv.
+
+issuer_group_key,       # Abgeleitete Spalte (P5.6): Issuer-Level via SEC EDGAR CIK.
+                        # Praefix-Konvention: CIK:<cik>, TICKER:<id>, SKIP:<type>.
+                        # GOOGL und GOOG bekommen denselben CIK:1652044 (Cross-Class).
+                        # ETFs/Foreign-Stocks bypassen den CIK-Lookup -> TICKER:<issuer_ticker>.
+                        # Wird als SWARM_GROUPING_KEY verwendet.
+                        # Doku: organisation/Ticker_Architektur.md
 
 # Anreicherung durch yfinance (Stage tickeryfinance) — Suffix _yf
 sector_yf,              # YF Sector (z.B. "Technology") — leer bei ETFs/Bonds/unbekannten Tickern
 industry_yf,            # YF Industry (z.B. "Consumer Electronics") — leer bei ETFs/Bonds/unbekannten Tickern
 quote_type_yf,          # YF quoteType (z.B. "EQUITY", "ETF", "MUTUALFUND")
+
+# Anreicherung durch Branch-1 Signale (Stage branch1_signals)
+signal_count,           # int 0-4: Anzahl ausgeloester Branch-1 Signale pro Trade
+signals_triggered,      # str ";"-getrennt: Liste der Signal-Typen (z.B. "committee;floor_action")
 
 # Metadata
 ImportDate              # YYYY-MM-DD HH:MM:SS
@@ -553,12 +590,45 @@ Die ID-Spalte `figi` selbst behält keinen Suffix (Eigenname/Akronym).
 - `exch_code`, `series_letter`, `status_suffix`
 - `manual_review_flag` — bool
 
-**Stage `tickeropenfigi` (Rebuild Teil 3) ergaenzt zusaetzliche Spalten**:
-- `figi`, `ticker_figi`, `name_figi`
+**Stage `tickeropenfigi` (Rebuild T3 + T5/P5) ergaenzt zusaetzliche Spalten**:
+- `figi`, `ticker_figi`, `asset_name_figi`
 - `security_type_figi`, `market_sector_figi`
+- `share_class_figi` (P5) — FIGI auf Issuer-Ebene (Cross-Share-Class-Anker)
+
+**P5 — Router-Erweiterung (2026-05-18)**: Im Gegensatz zur urspruenglichen
+Implementierung gehen jetzt auch `api_strategy=YFINANCE_DIRECT` (ETFs,
+NUMERIC_SUFFIX, manche SHARECLASS) und `api_strategy=MANUAL_REVIEW`
+(UNKNOWN, LONG_ALPHA_SUSPECT) durch einen optimistischen OpenFIGI-Mapping-
+Versuch, damit ihre `share_class_figi`-Spalte gefuellt werden kann. Bei Miss
+wird ein Negativ-Cache-Eintrag mit `source='empty'` geschrieben (verhindert
+Wiederholungen). `api_strategy=SKIP` bleibt unveraendert ohne API-Call
+(OPTION, TREASURY, CRYPTO, WHEN_ISSUED, INVALID).
 
 **Stage `tickeryfinance` ergaenzt**:
 - `sector_yf`, `industry_yf`, `quote_type_yf`
+
+**Stage `branch1_signals` (P2) ergaenzt**:
+- `signal_count` — int (0-4): Anzahl ausgeloester Branch-1 Signale pro Trade
+- `signals_triggered` — str (";"-getrennt): Liste der Signal-Typen pro Trade
+- Schreibt parallel die Datei `data/processed/branch1_events_stage.csv`
+  (siehe Abschnitt unten) — wird in P4 (`_stage_suspicious_export`) in
+  `suspicious_events.csv` promoted.
+
+**Stage `sequence_signals` (P3) ergaenzt**:
+- Akkumuliert `signal_count` und `signals_triggered` additiv: Sequenz-Signale
+  (`contrarian`, `accumulative`) werden zu den bestehenden Branch-1-Werten
+  hinzugefuegt. Pro Trade wird ein Signal-Typ nur einmal gezaehlt
+  (Deduplikation), auch wenn er mehrfach getriggert wuerde.
+- Schreibt parallel die Datei `data/processed/sequence_events_stage.csv`
+  (gleiche 21-Spalten-Form wie `branch1_events_stage.csv` ab P6, inkl. `issuer_group_key`).
+
+**Bekannter Bestand:** Master enthaelt nicht-unique `trade_id`s
+(99.706 unique vs. 111.986 Rows, Stand Mai 2026). Ursache liegt im
+Hash-Schema `utils.trade_id.compute_trade_ids` und ist ausserhalb des
+Signal-Scopes. In `branch1_events_stage.csv` tauchen diese Duplikate als
+mehrfache Events mit identischer `(signal_event_id, trade_id)` auf.
+Der Duplikat-Schutz in P4 reduziert das beim Promoten auf unique
+Eintraege.
 
 **ticker_type Werte** (Rebuild Teil 3 — neue Enum-Werte aus `utils.ticker_classifier.TickerType`,
 kleinbuchstabig statt der alten Großbuchstaben-Strings):
@@ -583,9 +653,119 @@ kleinbuchstabig statt der alten Großbuchstaben-Strings):
 | `invalid` | Classifier (Datenmuell, leer) | Nicht klassifizierbar | |
 | `unknown` | Fallback | Kein Pattern getroffen | |
 
-**Filter 0 (Asset-Klasse, `asset_class_excluded`)**: Setzt `True` fuer alle `ticker_type`-Werte **ausser** `stock`, `foreign_stock`, `shareclass` (siehe `config/settings.py::FILTER_0_KEEP_TYPES`). Ausgefilterte Trades bleiben in der Datei, werden aber vom VoteTimingFilter und nachgelagerten Scoring-Modulen uebersprungen.
+**Asset-Class-Gate** (User-Sicht „Filter 0", Spalte `asset_class_excluded`): Setzt `True` fuer alle `ticker_type`-Werte **ausser** `stock`, `foreign_stock`, `shareclass` (siehe `config/settings.py::ASSET_CLASS_KEEP_TYPES`). Ausgefilterte Trades bleiben in der Datei, werden aber vom VoteTimingTag und nachgelagerten Scoring-Modulen uebersprungen.
 
 **Verwendung**: Hauptdatenbank fuer Analyse, Filter und Scoring
+
+---
+
+### `data/processed/branch1_events_stage.csv` (Stage-Zwischen-Output, P2)
+
+**Quelle**: `scripts/import_trades.py::_apply_branch1_signals` (Stage `branch1_signals`)
+**Format**: CSV (UTF-8)
+**Update**: Wird bei jedem Lauf der Stage komplett neu geschrieben.
+
+**Zweck**: Snapshot aller Branch-1 Signal-Auslösungen eines Pipeline-Laufs.
+Eine spaetere Suspicious-Export-Stage (P4) liest diese Datei ein, schreibt
+sie append-only nach `suspicious_events.csv` und entfernt diese Stage-Datei.
+Bis P4 fertig ist, dient sie auch der manuellen Inspektion.
+
+**Spalten** (21 ab P6): `signal_event_id`, `trade_id`, `signal_type`,
+`triggering_date`, `scope_key`, `member_id`, `member_name`, `chamber`,
+`ticker`, `issuer_ticker`, `issuer_group_key`, `asset_name_figi`, `transaction_date`,
+`disclosure_date`, `transaction_amount`, `direction`, `is_ex_officio`,
+`relevance_score`, `vote_timing_hit_count`, `committee_subcommittee`,
+`relevant_sectors`.
+
+`issuer_ticker` wird über `utils/issuer_ticker.resolve_issuer_ticker`
+aufgelöst (Fallback-Kette `share_class_figi → ticker_base → ticker`).
+`asset_name_figi` fällt auf `asset_name` zurück, falls leer.
+
+Detailbeschreibung pro Spalte: `organisation/tool_specific_md/signal_info.md`.
+
+---
+
+### `data/processed/sequence_events_stage.csv` (Stage-Zwischen-Output, P3)
+
+**Quelle**: `scripts/import_trades.py::_apply_sequence_signals` (Stage `sequence_signals`)
+**Format**: CSV (UTF-8)
+**Update**: Wird bei jedem Lauf der Stage komplett neu geschrieben.
+
+**Zweck**: Snapshot aller Sequenz-Signal-Auslösungen (`contrarian`,
+`accumulative`) eines Pipeline-Laufs. Jede Auslösung erzeugt mehrere Event-
+Zeilen mit identischer `signal_event_id` (eine pro beteiligtem Trade), um
+die Gruppen-Zugehoerigkeit ueber den Hash zu transportieren. P4 promoted
+sie zusammen mit `branch1_events_stage.csv` nach `suspicious_events.csv`.
+
+**Spalten:** identisch zu `branch1_events_stage.csv` (21 Spalten ab P6,
+inkl. `issuer_group_key`; `SIGNAL_EVENT_COLUMNS` in `scripts/import_trades.py`).
+
+---
+
+### `data/processed/swarm_events_stage.csv` (Stage-Zwischen-Output, P6)
+
+**Quelle**: `scripts/import_trades.py::_apply_swarm_signals` (Stage `swarm_signals`)
+**Format**: CSV (UTF-8)
+**Update**: Wird bei jedem Lauf der Stage komplett neu geschrieben.
+
+**Zweck**: Snapshot aller Schwarm-Signal-Auslösungen (`swarm_buy`,
+`swarm_sell`, `swarm_conflict`, `swarm_paradox`). Gruppiert auf
+**Issuer-Group-Ebene** (`issuer_group_key` aus P5.6 — CIK-basiert,
+Cross-Class). Eine `signal_event_id` pro Cluster bzw. Paradox-Auslösung,
+alle beteiligten Trades als Event-Zeilen. P4 promoted die Datei zusammen
+mit `branch1_events_stage.csv` und `sequence_events_stage.csv` nach
+`suspicious_events.csv`.
+
+**Spalten:** identisch zu den anderen Event-Stage-CSVs (21 Spalten,
+inkl. `issuer_group_key`). Vollständige Spalten-Doku siehe
+`organisation/tool_specific_md/signal_info.md`.
+
+**Smoke-Run-Beispiel (Mai 2026, 111.986 Trades):**
+- 4.950 Issuer-Group-Buckets, davon 3.779 mit ≥ 2 Trades evaluiert
+- 24.926 Event-Zeilen: `swarm_buy` 10.267 / `swarm_sell` 10.105 /
+  `swarm_paradox` 3.214 / `swarm_conflict` 1.340
+- Cross-Class-Beispiel: GOOGL und GOOG teilen sich `signal_event_id`s
+  im Alphabet-Bucket (`CIK:1652044`).
+
+---
+
+### `data/processed/suspicious_events.csv` (Master, append-only, P4)
+
+**Quelle**: `scripts/import_trades.py::_stage_suspicious_export` (Stage `suspicious_export`)
+**Format**: CSV (UTF-8)
+**Update**: Append-only. Dedup-Schlüssel `(signal_event_id, trade_id)` — Re-Runs sind idempotent.
+
+**Zweck**: Master-Liste aller Signal-Auslösungen über die gesamte Historie. Aus dieser Datei werden die beiden Views `suspicious_assets.csv` und `suspicious_members.csv` bei jedem Pipeline-Lauf komplett neu materialisiert.
+
+**Spalten** (21 ab P6): identisch zu `branch1_events_stage.csv` / `sequence_events_stage.csv` / `swarm_events_stage.csv`, inkl. `issuer_group_key`. Vollständige Spalten-Doku: `organisation/tool_specific_md/signal_info.md`.
+
+---
+
+### `data/processed/suspicious_assets.csv` (View, regeneriert, Y-Tage-Verfall, P4)
+
+**Quelle**: `scripts/import_trades.py::_materialize_suspicious_assets`
+**Format**: CSV (UTF-8)
+**Update**: Wird bei jedem Lauf komplett überschrieben. Filter: `last_event_date >= today - settings.SUSPICIOUS_ASSET_PERSISTENCE_DAYS` (Default 30 Tage).
+
+**Zweck**: Asset-Aggregat aller aktuell verdächtigen Werte. Ein Asset, dessen jüngste Auslösung älter als 30 Tage ist, fällt aus dieser View, bleibt aber in `suspicious_events.csv` historisch erhalten.
+
+**Spalten** (10): `issuer_ticker`, `asset_name_figi`, `event_count`, `member_count`, `signal_types`, `last_event_date`, `first_event_date`, `directions`, `chambers`, `last_signal_type`.
+
+Counter-Spalten (`signal_types`, `directions`, `chambers`) als String-Format `"committee:5,accumulative:2"` (sortiert nach Count desc, Tie-Break alphabetisch). Detail-Doku: `organisation/tool_specific_md/signal_info.md`.
+
+---
+
+### `data/processed/suspicious_members.csv` (View, regeneriert, dauerhaft, P4)
+
+**Quelle**: `scripts/import_trades.py::_materialize_suspicious_members`
+**Format**: CSV (UTF-8)
+**Update**: Wird bei jedem Lauf komplett überschrieben. Kein Verfallfilter.
+
+**Zweck**: Member-Aggregat aller je in einem Signal aufgetauchten Politiker, mit Rückverweis-Liste auf alle auslösenden Trades.
+
+**Spalten** (10): `member_id`, `member_name`, `chamber`, `event_count`, `asset_count`, `signal_types`, `last_event_date`, `first_event_date`, `is_ex_officio_ever`, `event_trade_pairs`.
+
+`event_trade_pairs` ist eine JSON-encodierte Liste `[["signal_event_id","trade_id"], ...]` mit allen Events des Members. Detail-Doku: `organisation/tool_specific_md/signal_info.md`.
 
 ---
 
@@ -836,17 +1016,17 @@ Chamber, Committee, Subcommittee, Region, Konfidenz
    + OpenFIGI API (Stage tickeropenfigi, Suffix _figi)
    + yfinance (Stage tickeryfinance, Suffix _yf)
    ↓
-   [ticker_type, figi, ticker_figi, name_figi, security_type_figi,
+   [ticker_type, figi, ticker_figi, asset_name_figi, security_type_figi,
     market_sector_figi, sector_yf, industry_yf, quote_type_yf]
 
-4. FILTER-LOGIK (--stage_filter / _apply_filter_logic)
-   + subcommittee_sector_industry_mapping.csv (CommitteeFilter)
-   + bill_actions.json + bill_subjects.json (VoteTimingFilter)
+4. GATES + TAGS (--stage_gates_tags / _apply_gates_and_tags)
+   + subcommittee_sector_industry_mapping.csv (CommitteeTag)
+   + bill_actions.json + bill_subjects.json (VoteTimingTag)
    ↓
    _apply_match_scores → [MatchScore, MatchSource]
    _apply_committee_relevance → [Insider_Sectors, Relevant_Sectors, Relevance_Score]
-   AssetClassFilter → [asset_class_excluded]
-   VoteTimingFilter → [Vote_Timing_Hit, Vote_Timing_Hits, Vote_Timing_Hit_Count]
+   AssetClassGate → [asset_class_excluded]
+   VoteTimingTag → [Vote_Timing_Hit, Vote_Timing_Hits, Vote_Timing_Hit_Count]
 
 5. OUTPUT
    ↓
@@ -958,12 +1138,12 @@ Erzeugt:
 
 ## 8. Dokumentation
 
-### `organisation/FILTER_PARAMETER.md`
-**Quelle**: Zusammenstellung aus config/settings.py, Aufgaben_Uebersicht, CLAUDE.md
+### `organisation/Filter_Instanz_Parameter.md`
+**Quelle**: Zusammenstellung aus config/settings.py
 **Format**: Markdown
-**Erstellt**: 2026-02-20
+**Erstellt**: 2026-02-20 (umbenannt 2026-05-17)
 
-**Zweck**: Zentrale Übersicht aller Filter-Parameter, Multiplikatoren und Punktesysteme
+**Zweck**: Dokumentation der konkreten Filter-Instanzen (Gates / Tags / Signals) mit Parametern, Schwellen und Implementierungsstatus
 
 **Inhalt**:
 - Filter 1-7: Alle Parameter mit Implementierungsstatus
@@ -1081,8 +1261,8 @@ Erweiterung durch AI-Agent geplant (analysiert bill_title + summary fuer unmappe
 
 ---
 
-### `filters/vote_timing_filter.py`
-**Klasse**: `VoteTimingFilter`
+### `tags/vote_timing_tag.py`
+**Klasse**: `VoteTimingTag` (User-Sicht „Filter 4")
 
 **Methoden**:
 - `load_votes()` → laedt congress_votes.csv
@@ -1123,7 +1303,7 @@ existieren nicht mehr — alle Treffer liegen jetzt in `Vote_Timing_Hits`.
 **Benoetigt**:
 - yfinance Integration ODER
 - Pre-built ticker→sector mapping CSV
-- Erweiterung von `CommitteeFilter.filter_by_ticker_sector()`
+- Erweiterung von `CommitteeTag.filter_by_ticker_sector()`
 
 **Ziel**: Filter `Relevant_Sectors` auf tatsaechlichen Ticker-Sector → Boost bei Exact Match
 
@@ -1137,7 +1317,7 @@ Letzte Aktualisierung: 2026-05-14 (Spalten-Refactoring: API-Provider-Suffixe)
 - **2026-05-14** — Provider-Suffixe an externe-API-Spalten:
   - OpenFIGI-Spalten bekommen Suffix `_figi`:
     `canonical_ticker → ticker_figi`,
-    `canonical_name → name_figi`,
+    `canonical_name → asset_name_figi`,
     `security_type → security_type_figi`,
     `market_sector → market_sector_figi`.
     Die ID-Spalte `figi` selbst bleibt unveraendert.

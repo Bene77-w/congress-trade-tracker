@@ -182,7 +182,7 @@ PDF_EXTRACTOR_ROW_BATCH_SIZE = 5
 
 ---
 
-## Pipeline 5: Import-Pipeline (Hauptpipeline, 8 Stages)
+## Pipeline 5: Import-Pipeline (Hauptpipeline, 13 Stages)
 
 **Script:** `scripts/import_trades.py`
 **Input:** `data/raw/congress-trading-all.xlsx` (Quiver-Snapshot)
@@ -193,7 +193,7 @@ PDF_EXTRACTOR_ROW_BATCH_SIZE = 5
   - `data/processed/unmatched_names.csv`, `data/processed/unmatched_preferred.csv` (bei Bedarf)
 
 **Modi:**
-- `python scripts/import_trades.py` — Full Rebuild (alle 8 Stages, schreibt complete + curated + review)
+- `python scripts/import_trades.py` — Full Rebuild (alle 13 Stages, schreibt complete + curated + review)
 - `python scripts/import_trades.py --delta` — Delta-Import via `trade_id` (nur neue Trades, merge)
 - `python scripts/import_trades.py --dry_run` — Alle Stages → trades_stage.csv (Master unberuehrt)
 
@@ -202,16 +202,21 @@ PDF_EXTRACTOR_ROW_BATCH_SIZE = 5
 python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splittet complete/curated
 ```
 
-**Stage-Pipeline (8 Schritte, unabhaengig re-runnable):**
+**Stage-Pipeline (13 Schritte, unabhaengig re-runnable):**
 ```
---stage_rename          # Quiver laden + Spalten umbenennen + trade_id
---stage_date            # Datum normalisieren
---stage_committees      # Committee-Member-Enrichment
---stage_tickerclassify  # Offline-Klassifikation (Regex, utils/ticker_classifier.py)
---stage_tickeropenfigi  # OpenFIGI-Normalisierung (FIGI, ticker_figi)
---stage_tickeryfinance  # yfinance Sector/Industry-Anreicherung
---stage_filter          # Scoring + Filter 0 (Asset-Klasse) + Filter 4 (Vote-Timing)
---stage_save            # trades_stage.csv → complete + curated Master
+--stage_rename            # Quiver laden + Spalten umbenennen + trade_id
+--stage_date              # Datum normalisieren
+--stage_committees        # Committee-Member-Enrichment
+--stage_tickerclassify    # Offline-Klassifikation (Regex, utils/ticker_classifier.py)
+--stage_tickeropenfigi    # OpenFIGI-Normalisierung (FIGI, ticker_figi)
+--stage_issuer_group      # Cross-Class Issuer Mapping (SEC EDGAR CIK, P5.6)
+--stage_tickeryfinance    # yfinance Sector/Industry-Anreicherung
+--stage_gates_tags        # Gates + Tags (Asset-Class, Committee, Vote-Timing) + Scoring
+--stage_branch1_signals   # Branch-1 Signale (committee, ex_officio, floor_action, extreme_report)
+--stage_sequence_signals  # Sequenz-Signale (contrarian, accumulative)
+--stage_swarm_signals     # Schwarm-Signale (swarm_buy/sell/conflict/paradox, P6)
+--stage_suspicious_export # Suspicious-Events → suspicious_*.csv promoten
+--stage_save              # trades_stage.csv → complete + curated Master
 ```
 
 **Bonus-Flags (kein Master-Touch, exklusiv):**
@@ -251,18 +256,44 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
       exch_code, series_letter, status_suffix, manual_review_flag
     → Schreibt manual_review_tickers.csv (aggregiert, sortiert nach Häufigkeit)
          ↓
-[5] OpenFIGI-Normalisierung (Rebuild T3)
+[5] OpenFIGI-Normalisierung (Rebuild T3 + T5/P5 + P5.5)
     → utils/ticker_normalizer.TickerNormalizer.normalize_batch()
-    → Neue Spalten (Suffix _figi): figi, ticker_figi, name_figi,
-      security_type_figi, market_sector_figi
+    → Neue Spalten (Suffix _figi): figi, ticker_figi, asset_name_figi,
+      security_type_figi, market_sector_figi, share_class_figi
+    → P5.5: zusaetzliche abgeleitete df-Spalte `issuer_ticker` (vektorisiert) =
+      share_class_figi → ticker_base → ticker. Garantiert 100% nicht-leer
+      solange mindestens eine der drei Quellen gesetzt ist. Wird in Stage [10]
+      Sequenz-Grouping und Stage [12] Asset-Aggregation als Gruppen-Key
+      verwendet (Share-Class-Level). Liegt sowohl in trades_master_complete.csv
+      als auch (direkt nach `ticker`) in trades_master.csv (kuratiert).
     → Type-Korrektur: STOCK + securityType2='ETP' → ETF
+    → P5-Router-Erweiterung: YFINANCE_DIRECT und MANUAL_REVIEW gehen jetzt durch
+      einen optimistischen /v3/mapping-Versuch (vorher: kein OpenFIGI-Call).
+      Negativ-Cache via source='empty' verhindert Wiederholungen.
+      SKIP (OPTION, TREASURY, CRYPTO, WHEN_ISSUED, INVALID) bleibt unveraendert.
+    → P5-Cache-Migration: alte Cache-Hits mit figi NOT NULL aber NULL
+      share_class_figi werden als Cache-Miss behandelt → einmaliger Re-Fetch
+      fuellt das fehlende Feld nach.
          ↓
-[6] yfinance Sector/Industry (Rebuild T3)
+[6] Cross-Class Issuer Mapping (P5.6, neue Stage)
+    → utils/issuer_group_mapper.IssuerGroupMapper.resolve_issuer_group_key()
+    → Neue Spalte: issuer_group_key (Issuer-Level, Cross-Class via SEC EDGAR CIK)
+    → Entscheidungsbaum:
+        SKIP-Klassen (option/bond/...) → "SKIP:<type>"
+        ETF/Foreign-Stock              → "TICKER:<issuer_ticker>"  (Bypass)
+        EDGAR-Treffer                  → "CIK:<cik>"               (Cross-Class)
+        Fallback                       → "TICKER:<ticker_base>"
+    → GOOGL und GOOG bekommen denselben CIK:1652044 (Alphabet).
+    → Cache: data/cache/edgar_cik_map.json, TTL 7 Tage.
+    → Bei API-Failure: strikter Abbruch (kein Fallback auf veralteten Cache).
+    → Doku: organisation/Ticker_Architektur.md
+         ↓
+[7] yfinance Sector/Industry (Rebuild T3)
     → utils/ticker_sector.TickerSectorEnricher.enrich_batch()
     → Neue Spalten (Suffix _yf): sector_yf, industry_yf, quote_type_yf
     → Vorzugsaktien-Mapping (EP$C → KMI), Hyphen-Fallback (BRK-B → BRK/B)
          ↓
-[7] Filter-Logik (_apply_filter_logic)
+[8] Filter-Logik (_apply_filter_logic)
     → Pre-Hook _ensure_fresh_vote_data() prueft Alter von bill_actions.json/
       bill_subjects.json. Liegt eine Datei aelter als settings.VOTE_DATA_TTL_HOURS
       (Default 24h), wird scrapers/fetch_congress_data.CongressFetcher.run_update()
@@ -275,23 +306,80 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
       werden Alt-Eintraege ohne 'has_summary'/'subject_count' (Felder nachtraeglich
       eingefuehrt) automatisch nachgeruestet — verhindert KeyError im Progress-Print.
     → MatchScore/MatchSource (NameMatcher)
-    → Insider_Sectors / Relevant_Sectors / Relevance_Score (CommitteeFilter)
+    → Insider_Sectors / Relevant_Sectors / Relevance_Score (CommitteeTag — User-Sicht „Filter 3")
       Insider_Sectors  = JSON-Liste ALLER (sub)committee-Sektoren des Members
       Relevant_Sectors = Intersection Insider × sector_yf/industry_yf
                          (Match-Mode via settings.RELEVANT_SECTORS_MATCH_MODE,
                           Default: sector_or_industry)
       Score-Formel: sector_match (33) + industry_match (33), * 1.5 wenn ex officio
       Vergleich Mapping.Sector/Industry == sector_yf/industry_yf → 0/33/50/66/99
-    → asset_class_excluded (Filter 0: prueft FILTER_0_KEEP_TYPES = {stock, foreign_stock, shareclass})
-    → Vote_Timing_Hit / Vote_Timing_Hits / Vote_Timing_Hit_Count (Filter 4)
+    → asset_class_excluded (AssetClassGate — User-Sicht „Filter 0": prueft ASSET_CLASS_KEEP_TYPES = {stock, foreign_stock, shareclass})
+    → Vote_Timing_Hit / Vote_Timing_Hits / Vote_Timing_Hit_Count (VoteTimingTag — User-Sicht „Filter 4")
       Quelle der Trade-Sektoren ist Relevant_Sectors (Intersection!), damit
       Sektor-Treffer am Ticker haengen, nicht nur am Committee. Alle Treffer
       im Fenster werden als JSON-Liste gespeichert.
          ↓
-[8] Speichern
+[9] Branch-1 Signale (_apply_branch1_signals)
+    → Vier Per-Trade-Signale: committee, committee_ex_officio,
+      floor_action, extreme_report (signals/*.py)
+    → Schwellwerte aus settings.py: COMMITTEE_THRESHOLD,
+      VOTE_TIMING_HIT_THRESHOLD, EXTREME_REPORT_DAYS
+    → Neue Trade-Spalten: signal_count (int 0-4), signals_triggered (str, ";"-getrennt)
+    → Auslöse-Events werden in data/processed/branch1_events_stage.csv
+      geschrieben (Snapshot pro Auslösung, 21 Spalten inkl. issuer_ticker,
+      issuer_group_key und asset_name_figi; siehe
+      organisation/tool_specific_md/signal_info.md).
+      Diese Datei wird in einer spaeteren Suspicious-Export-Stage (P4) in
+      suspicious_events.csv promoted.
+         ↓
+[10] Sequenz-Signale (_apply_sequence_signals)
+    → Zwei Gruppen-Signale: contrarian, accumulative (signals/*.py)
+    → Gruppierung: (bio_guide_id, issuer_ticker) via
+      utils/issuer_ticker.resolve_issuer_ticker — Fallback-Kette
+      share_class_figi → ticker_base → ticker (vektorisiert in Stage 5
+      bereits als df-Spalte materialisiert)
+    → Parameter aus settings.py: CONTRARIAN_WINDOW_DAYS,
+      ACCUMULATIVE_WINDOW_DAYS, ACCUMULATIVE_MIN_COUNT
+    → Aggregiert additiv in signal_count + signals_triggered pro Trade
+      (dedupliziert pro Trade — ein Typ wird nur einmal gezaehlt, auch wenn
+      er in mehreren Fenstern desselben Trades getriggert wuerde)
+    → Events nach data/processed/sequence_events_stage.csv (gleiche
+      21-Spalten-Form wie branch1_events_stage.csv, inkl. issuer_group_key)
+         ↓
+[11] Schwarm-Signale (_apply_swarm_signals)  -- P6, Branch 2
+    → Vier Issuer-Group-Signale: swarm_buy, swarm_sell, swarm_conflict,
+      swarm_paradox (signals/swarm_*.py)
+    → Gruppierung: settings.SWARM_GROUPING_KEY (= 'issuer_group_key',
+      Issuer-Level via SEC EDGAR CIK, Cross-Class — GOOGL+GOOG sind
+      ein Schwarm). SKIP-Buckets (Options/Bonds/Cash) werden gebypassed.
+    → Parameter aus settings.py: SWARM_WINDOW_DAYS, SWARM_MIN_MEMBERS,
+      SWARM_CONFLICT_WINDOW_DAYS_BEFORE/_AFTER, SWARM_PARADOX_MIN_CONFLICTS
+    → swarm_buy/_sell: Cluster aus >=N distinct Members im Rolling-Window;
+      eine signal_event_id pro Cluster, alle beteiligten Trades als Zeilen
+    → swarm_conflict: GENAU 1 Gegen-Trade im erweiterten Fenster
+      [first_swarm - BEFORE, last_swarm + AFTER] -> 1 Event-Zeile
+    → swarm_paradox: >= PARADOX_MIN_CONFLICTS Gegen-Trades
+      (mutually exclusive zu conflict) -> 1 signal_event_id mit N Zeilen
+    → Aggregiert additiv in signal_count + signals_triggered (dedupliziert)
+    → Events nach data/processed/swarm_events_stage.csv (21 Spalten)
+         ↓
+[12] Suspicious-Export (_stage_suspicious_export)
+    → Liest branch1_events_stage.csv + sequence_events_stage.csv +
+      swarm_events_stage.csv
+    → Append nach data/processed/suspicious_events.csv mit
+      (signal_event_id, trade_id)-Dedup (Idempotenz)
+    → Materialisiert suspicious_assets.csv (Y-Tage-Verfall via
+      settings.SUSPICIOUS_ASSET_PERSISTENCE_DAYS, Default 30)
+    → Materialisiert suspicious_members.csv (kein Filter)
+    → dry_run: schreibt nichts, gibt nur Vorschau-Counts aus
+    → Mutiert trades_stage.csv NICHT (signal_count/signals_triggered
+      werden bereits in Stage [9]/[10] gesetzt)
+         ↓
+[12] Speichern
     → Backup: archive/trades_master_backup/trades_master[_complete]_{ts}.csv
     → trades_master_complete.csv (alle Spalten, neu geschrieben)
-    → trades_master.csv (kuratiert via settings.CURATED_COLUMNS)
+    → trades_master.csv (kuratiert via settings.CURATED_COLUMNS — inkl.
+      signal_count + signals_triggered)
     → manual_review_tickers.csv (falls Tickers mit manual_review_flag)
     → _promote_problem_outputs(delta) — siehe Abschnitt unten
         - unmatched_names.csv
@@ -360,9 +448,9 @@ python scripts/import_trades.py --regenerate_curated      # curated aus complete
 
 **Abhaengigkeiten:**
 - `utils/name_matcher.py` — 3-Tier Matching (Alias/Exakt/Fuzzy)
-- `filters/committee_filter.py` — Committee-Relevanz-Scoring
-- `filters/asset_class_filter.py` — Filter 0: Nicht-Aktien flaggen (asset_class_excluded)
-- `filters/vote_timing_filter.py` — Filter 4: Vote-Timing (respektiert asset_class_excluded)
+- `tags/committee_tag.py` — CommitteeTag (User-Sicht „Filter 3"): Committee-Relevanz-Scoring
+- `gates/asset_class_gate.py` — AssetClassGate (User-Sicht „Filter 0"): Nicht-Aktien flaggen (asset_class_excluded)
+- `tags/vote_timing_tag.py` — VoteTimingTag (User-Sicht „Filter 4"): Vote-Timing (respektiert asset_class_excluded)
 - `config/committee_mapping.py` — O(1) Subcommittee→Sektor Lookup
 - `config/settings.py` — Alle Schwellenwerte und Pfade
 - `data/mappings/Vorzugsaktien_mapping.csv` — Preferred→Stammaktien-Ticker (16 Mappings)
@@ -411,6 +499,14 @@ Nur ausfuehren wenn xlsx-Dateien geaendert wurden.
 | `utils/ticker_classifier.py` | Offline-Regex-Klassifikator, liefert `TickerClassification` | 67 |
 | `utils/ticker_normalizer.py` | OpenFIGI-Wrapper, liefert `NormalizedTicker` | 6 |
 | `utils/ticker_sector.py` | yfinance-Wrapper, liefert `SectorInfo` | 6 |
+| `utils/signal_event_id.py` | Hash-basierte Signal-Event-ID (SHA256[:16]) für Signal-Auslösungen (gruppiert Trades bei Schwärmen) — Konvention siehe `organisation/tool_specific_md/signal_info.md` | 14 |
+| `utils/issuer_ticker.py` | `resolve_issuer_ticker(row)` — Cross-Share-Class-Aufloesung mit Fallback-Kette `share_class_figi → ticker_base → ticker`. share_class_figi (OpenFIGI shareClassFIGI) ist der Erstkandidat, faellt bei Miss zurueck auf ticker_base, dann ticker. Aufrufer (alle Signal-Module + sequence-stage Grouping) erhalten garantiert nicht-leeren Identifier solange mindestens eine der drei Quellen gesetzt ist. | 17 |
+| `signals/committee_signal.py` | Branch-1 Per-Trade-Signal: triggert bei `Relevance_Score >= COMMITTEE_THRESHOLD` | 8 (in `test_branch1_signals.py`) |
+| `signals/committee_ex_officio_signal.py` | Branch-1 Per-Trade-Signal: triggert wenn CommitteeSignal + `Member_ExOfficio` | 4 |
+| `signals/floor_action_signal.py` | Branch-1 Per-Trade-Signal: triggert bei `Vote_Timing_Hit_Count >= VOTE_TIMING_HIT_THRESHOLD` | 4 |
+| `signals/extreme_report_signal.py` | Branch-1 Per-Trade-Signal: triggert bei `disclosure_date - transaction_date > EXTREME_REPORT_DAYS` | 5 |
+| `signals/contrarian_signal.py` | Branch-1 Sequenz-Signal: triggert bei Buy↔Sell-Wende eines Members auf demselben issuer_ticker innerhalb `CONTRARIAN_WINDOW_DAYS` | 8 (in `test_sequence_signals.py`) |
+| `signals/accumulative_signal.py` | Branch-1 Sequenz-Signal: triggert bei `>= ACCUMULATIVE_MIN_COUNT` gleichgerichteten Trades eines Members innerhalb `ACCUMULATIVE_WINDOW_DAYS` | 8 |
 
 ### Datenfluss (geplant)
 
@@ -426,13 +522,17 @@ DataFrame (raw_ticker, company_name, ...)
         ↓
 [2] TickerNormalizer.normalize_batch(classifications)
         → NormalizedTicker (frozen):
-          figi, ticker_figi, name_figi, security_type_figi, market_sector_figi
+          figi, ticker_figi, asset_name_figi, security_type_figi,
+          market_sector_figi, share_class_figi
         Routing nach api_strategy:
-          SKIP/MANUAL_REVIEW   → kein Call
+          SKIP                 → kein Call (OPTION, TREASURY, CRYPTO, WHEN_ISSUED, INVALID)
           FIGI_MAPPING         → /v3/mapping (Batches à 100)
           FIGI_SEARCH          → /v3/search (einzeln, Name+Ticker)
           CUSIP_LOOKUP         → /v3/mapping mit idType=ID_CUSIP
-          YFINANCE_DIRECT      → durchreichen (kein OpenFIGI-Call)
+          YFINANCE_DIRECT      → /v3/mapping optimistisch (P5), danach
+                                 yfinance Sector/Industry in [3]
+          MANUAL_REVIEW        → /v3/mapping optimistisch (P5),
+                                 Negativ-Cache bei Miss
         Type-Korrektur: STOCK + securityType2='ETP' → ETF
         ↓
 [3] TickerSectorEnricher.enrich_batch(normalized)
@@ -606,7 +706,7 @@ Zwischensummen pro Gruppe, finale Zusammenfassung.
          │        (Pipeline 5)                 │
          │                                     │
          │  NameMatcher ← Member-CSVs + Aliases│
-         │  CommitteeFilter ← Mapping-CSV      │
+         │  CommitteeTag    ← Mapping-CSV      │
          └──────────────┬──────────────────────┘
                         │
                         ↓
@@ -647,7 +747,7 @@ Letzte Aktualisierung: 2026-05-14 (Spalten-Refactoring: API-Provider-Suffixe _fi
 
 - **2026-05-14** — Spalten-Refactoring in Stage 5 (OpenFIGI) und Stage 6
   (yfinance). Output-Spalten der externen-API-Stages bekommen Provider-Suffixe:
-  `_figi` fuer OpenFIGI-Felder (`ticker_figi`, `name_figi`,
+  `_figi` fuer OpenFIGI-Felder (`ticker_figi`, `asset_name_figi`,
   `security_type_figi`, `market_sector_figi`), `_yf` fuer yfinance-Felder
   (`sector_yf`, `industry_yf`, `quote_type_yf`). Die ID-Spalte `figi` selbst
   bleibt unveraendert. Filter-Stage liest jetzt `sector_yf`/`industry_yf` statt

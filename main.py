@@ -48,8 +48,8 @@ def main():
     # TODO: Modul 6 - Abstimmungsdaten laden
     # from data_sources import voting_data
 
-    # TODO: Modul 7 - Filter anwenden
-    # from filters import apply_all_filters
+    # TODO: Modul 7 - Signals anwenden (Volumen / Schwarm / Long/Short / Position+)
+    # from signals import apply_all_signals
 
     # TODO: Modul 8 - Scoring berechnen
     # from scoring import calculate_scores

@@ -5,6 +5,7 @@ __pycache__/
 .pytest_cache/
 data/processed/
 data/cache/*.db
+data/cache/*.json
 data/raw/congress_trading_data_quiver.xlsx
 logs/
 archive/trades_master_backup
@@ -37,7 +38,7 @@ data/processed/delisted_trades.csv
 #  git push
 #
 #  Oder nur einzelne Dateien:
-#  git add filters/committee_filter.py config/settings.py
+#  git add tags/committee_tag.py config/settings.py
 #  git commit -m "Add volume filter"
 #  git pus
 

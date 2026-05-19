@@ -1,13 +1,15 @@
 """
-Congress Trade Tracker - Filter 0: Asset-Klasse
+Congress Trade Tracker - Gate: Asset Class
 
 Markiert Trades die keine handelbare Einzel-Aktie sind (ETFs, Options,
 Bonds, Crypto, Warrants, Mutual Funds etc.) als asset_class_excluded=True.
 Diese Trades bleiben in trades_master.csv erhalten, werden aber von
-nachfolgenden Filtern (Committee, Vote-Timing) und vom Scoring ignoriert.
+nachfolgenden Tags (Committee, Vote-Timing) und vom Scoring ignoriert.
 
 Grundlage: Die via OpenFIGI befuellte ticker_type-Spalte.
-Konfiguration: settings.FILTER_0_KEEP_TYPES.
+Konfiguration: settings.ASSET_CLASS_KEEP_TYPES.
+
+In der User-Sprache entspricht dieses Gate dem historischen "Filter 0".
 """
 
 import logging
@@ -21,21 +23,21 @@ logger = logging.getLogger(__name__)
 ASSET_CLASS_COLUMNS = ['asset_class_excluded']
 
 
-class AssetClassFilter:
+class AssetClassGate:
     """
-    Filter 0: Schliesst Nicht-Aktien von weiterer Verarbeitung aus.
+    Gate: Schliesst Nicht-Aktien von weiterer Verarbeitung aus.
 
     Input:  DataFrame mit Spalte 'ticker_type' (erzeugt von derive_ticker_types).
     Output: DataFrame mit zusaetzlicher bool-Spalte 'asset_class_excluded'.
     """
 
     def __init__(self):
-        self.keep_types = set(settings.FILTER_0_KEEP_TYPES)
+        self.keep_types = set(settings.ASSET_CLASS_KEEP_TYPES)
 
     def apply(self, df: pd.DataFrame) -> pd.DataFrame:
         if 'ticker_type' not in df.columns:
             raise ValueError(
-                "AssetClassFilter.apply() benoetigt die Spalte 'ticker_type'. "
+                "AssetClassGate.apply() benoetigt die Spalte 'ticker_type'. "
                 "derive_ticker_types() muss vorher laufen."
             )
 
@@ -45,7 +47,7 @@ class AssetClassFilter:
         excluded = int(df['asset_class_excluded'].sum())
         kept = len(df) - excluded
         logger.info(
-            f"Filter 0 (Asset-Klasse): {kept:,} behalten, {excluded:,} ausgefiltert "
+            f"Gate Asset-Klasse: {kept:,} behalten, {excluded:,} ausgefiltert "
             f"({excluded / len(df) * 100:.2f}%)"
         )
 

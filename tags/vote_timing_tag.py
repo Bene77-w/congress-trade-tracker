@@ -1,5 +1,7 @@
 """
-Congress Trade Tracker - Filter 4: Vote Timing
+Congress Trade Tracker - Tag: Vote Timing
+
+In der User-Sprache entspricht dieser Tag dem historischen "Filter 4".
 
 Erkennt Trades die kurz vor/nach einer relevanten Kongress-Abstimmung
 stattfanden. Nutzt Legislative Subjects → YF-Sektor Mapping fuer
@@ -47,9 +49,10 @@ VOTE_TIMING_COLUMNS = [
 ]
 
 
-class VoteTimingFilter:
+class VoteTimingTag:
     """
-    Filter 4: Vote Timing - erkennt Trades nahe an Abstimmungen.
+    Tagger: erkennt Trades nahe an Abstimmungen und annotiert sie mit
+    Vote_Timing_Hit*-Spalten.
 
     Nutzt legislative_subject_mapping_complete.csv fuer Subject → Sektor Mapping
     statt des groben Policy Area Mappings.
@@ -323,7 +326,7 @@ class VoteTimingFilter:
         total = len(df)
 
         for idx, trade in df.iterrows():
-            # Filter 0: Nicht-Aktien ueberspringen
+            # Asset-Class-Gate hat Nicht-Aktien bereits markiert — ueberspringen
             if bool(trade.get('asset_class_excluded', False)):
                 continue
 

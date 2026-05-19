@@ -14,85 +14,40 @@ load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # =============================================================================
-# FILTER 0: ASSET-KLASSE
+# GATE: ASSET CLASS
 # Nicht-Aktien (ETFs, Options, Bonds, Crypto etc.) aus nachfolgenden
-# Filtern und Scoring ausschliessen. Der Filter setzt nur eine Flag-Spalte;
+# Tags und Scoring ausschliessen. Das Gate setzt nur eine Flag-Spalte;
 # die Trades bleiben in trades_master.csv erhalten.
+# Code: gates/asset_class_gate.py (AssetClassGate)
+# In der User-Sprache: "Filter 0".
 # =============================================================================
 # ticker_type-Werte die als "handelbare Einzel-Aktie" gelten und weiter
 # verarbeitet werden. Alle uebrigen ticker_type-Werte werden ausgeschlossen
 # (asset_class_excluded=True).
 # Werte sind kleinbuchstabige TickerType-Enums (utils/ticker_classifier.py).
 # ADR/REIT/MLP/Common Stock sind im neuen Classifier alle unter 'stock' subsummiert.
-FILTER_0_KEEP_TYPES = {
+ASSET_CLASS_KEEP_TYPES = {
     'stock',           # TickerType.STOCK (inkl. ADR, REIT, MLP, Common)
     'foreign_stock',   # TickerType.FOREIGN_STOCK
     'shareclass',      # TickerType.SHARECLASS (BRK-B, GOOGL etc.)
 }
 
 # =============================================================================
-# FILTER 1: HANDELSVOLUMEN
-# Punkte basierend auf Trade-Größe
-# =============================================================================
-VOLUME_THRESHOLDS = {
-    0: 15_000,      # < $15k = 0 Punkte
-    1: 50_000,      # $15k - $50k = 1 Punkt
-    2: 100_000,     # $50k - $100k = 2 Punkte
-    3: 250_000,     # $100k - $250k = 3 Punkte
-    4: float('inf') # > $250k = 4 Punkte
-}
-
-# =============================================================================
-# FILTER 2: SCHWARM-VERHALTEN
-# Mehrere Politiker kaufen dieselbe Aktie
-# =============================================================================
-SWARM_DAYS = 21           # Zeitraum in Tagen (nach transaction_date)
-SWARM_MIN_POLITICIANS = 3  # Mindestanzahl Politiker
-
-# =============================================================================
-# FILTER 3: COMMITTEE-SECTOR MAPPING
+# TAG: COMMITTEE-SECTOR MAPPING
 # Politiker handelt in Sektor, der zu seinen Ausschüssen gehört
+# Code: tags/committee_tag.py (CommitteeTag)
+# In der User-Sprache: "Filter 3".
 # =============================================================================
-# Committee relevance scoring weights
-# Sector_Rank aus subcommittee_sector_industry_mapping.csv:
-# - Rank 1 = Primärer Sektor (höchste Relevanz)
-# - Rank 2 = Sekundärer Sektor
-# - Rank 3-4 = Tertiäre Sektoren
-COMMITTEE_RANK_WEIGHTS = {
-    1: 1.00,  # Rank 1 sectors: 100% weight (primär)
-    2: 0.75,  # Rank 2 sectors: 75% weight (sekundär)
-    3: 0.50,  # Rank 3 sectors: 50% weight (tertiär)
-    4: 0.25   # Rank 4+ sectors: 25% weight (weitere)
-}
-
-COMMITTEE_CONFIDENCE_WEIGHTS = {
-    'Hoch': 1.0,      # High confidence mapping
-    'Mittel': 0.7,    # Medium confidence mapping
-    'Niedrig': 0.4    # Low confidence mapping
-}
-
-COMMITTEE_ROLE_WEIGHTS = {
-    'Chairman': 1.5,           # Ex Officio
-    'Ranking Member': 1.5,     # Ex Officio
-    'Vice Chairman': 1.5,      # Ex Officio (angepasst: alle Ex Officio gleich behandeln)
-    'Cochairman': 1.5,         # Ex Officio
-    'EXOfficio': 1.5,          # Explizit Ex Officio markiert
-    '': 1.0                    # Regular member
-}
-
-# Relevance-Score-Formel (neu):
+# Relevance-Score-Formel (aktiv im Code):
 #   sector_match   = Committee-Sektor   == sector_yf
 #   industry_match = Committee-Industry == industry_yf
-#   raw   = (33 if sector_match) + (33 if industry_match)
-#   score = round(raw * (1.5 if ex_officio else 1.0))
-# Mögliche Werte: 0, 33, 50, 66, 99
+#   raw   = (sector_points if sector_match) + (industry_points if industry_match)
+#   score = round(raw * (ex_officio_mult if ex_officio else 1.0))
+# Mögliche Werte mit Default-Konstanten: 0, 33, 50, 66, 99
 COMMITTEE_SECTOR_MATCH_POINTS = 33
 COMMITTEE_INDUSTRY_MATCH_POINTS = 33
 COMMITTEE_EX_OFFICIO_MULTIPLIER = 1.5
 COMMITTEE_EX_OFFICIO_ROLES = ['Chairman', 'Ranking Member', 'Vice Chairman', 'Cochairman', 'EXOfficio']
-
-# Minimum relevance score to consider committee-relevant (0-100)
-COMMITTEE_RELEVANCE_THRESHOLD =  1 # wird nicht im code verwebdet, da Committee-Filter als Auto-Flag (kein Score) implementiert ist
 
 # Match-Modus fuer Relevant_Sectors (Intersection Insider × Ticker):
 # 'sector_or_industry'  — Eintrag matcht, wenn sector ODER industry zum Ticker passen (Default)
@@ -101,8 +56,10 @@ COMMITTEE_RELEVANCE_THRESHOLD =  1 # wird nicht im code verwebdet, da Committee-
 RELEVANT_SECTORS_MATCH_MODE = 'sector_or_industry'
 
 # =============================================================================
-# FILTER 4: VOTE TIMING (Congress.gov API)
+# TAG: VOTE TIMING (Congress.gov API)
 # Trade kurz vor/nach relevanter Abstimmung
+# Code: tags/vote_timing_tag.py (VoteTimingTag)
+# In der User-Sprache: "Filter 4".
 # =============================================================================
 CONGRESS_API_KEY = os.getenv('CONGRESS_API_KEY', '')
 VOTE_TIMING_WINDOW_BEFORE = 30     # Trade max X Tage VOR Abstimmung
@@ -111,74 +68,111 @@ VOTE_MIN_POLICY_CONFIDENCE = 0.7   # Min-Konfidenz fuer Sektor-Match
 VOTE_CONGRESS_NUMBER      = 119    # Ab welchem Kongress Daten laden (119th = 2025-2027)
 LEGISLATIVE_SUBJECT_MAPPING_FILE = 'legislative_subject_mapping_complete.csv'
 BILL_SUBJECTS_FILE = 'bill_subjects.json'
-# Auto-Refresh: bill_actions.json/bill_subjects.json werden zu Beginn der filter-Stage
+# Auto-Refresh: bill_actions.json/bill_subjects.json werden zu Beginn der gates_tags-Stage
 # per Delta-Update aktualisiert, sofern eine der Dateien aelter als TTL ist.
 VOTE_DATA_TTL_HOURS       = 24     # Skip-Schwelle fuer Auto-Refresh in Stunden
 
 # =============================================================================
-# FILTER 5: CONTRARIAN
-# Kauf bei gefallener / Verkauf bei gestiegener Aktie
+# SIGNAL: COMMITTEE (Branch 1)
+# Trade triggert wenn Relevance_Score >= Schwelle.
+# Code: signals/committee_signal.py (CommitteeSignal)
+# In der User-Sprache: "Filter 3" als Signal-Variante.
 # =============================================================================
-CONTRARIAN_BUY_THRESHOLD = -0.15   # -15% in 12 Monaten = Kauf-Signal
-CONTRARIAN_SELL_THRESHOLD = 0.30   # +30% in 12 Monaten = Verkauf-Signal
-CONTRARIAN_LOOKBACK_MONTHS = 12    # Betrachtungszeitraum
+COMMITTEE_THRESHOLD = 33                # Relevance_Score >= X triggert
 
 # =============================================================================
-# FILTER 6: LONG/SHORT WECHSEL
-# Richtungswechsel innerhalb kurzer Zeit
+# SIGNAL: COMMITTEE EX OFFICIO (Branch 1)
+# Zweites Signal das zusaetzlich zum committee-Signal triggert wenn der
+# Politiker eine Fuehrungsrolle (Chairman, Ranking Member etc.) hat. Bewirkt
+# einen +1-Boost im signal_count fuer Ex-Officio-Trades ohne die ganzzahlige
+# Count-Semantik zu brechen.
+# Code: signals/committee_ex_officio_signal.py (CommitteeExOfficioSignal)
 # =============================================================================
-LONG_SHORT_MONTHS = 6  # Zeitraum in Monaten
+# (keine zusaetzlichen Variablen — nutzt COMMITTEE_THRESHOLD + is_ex_officio)
 
 # =============================================================================
-# FILTER 7: POSITION VERGRÖSSERT
-# Wiederholtes Nachkaufen derselben Aktie
+# SIGNAL: FLOOR ACTION (Branch 1)
+# Trade triggert wenn Vote_Timing_Hit_Count >= Schwelle (Politiker handelt
+# zeitnah zu einer Abstimmung im passenden Policy-Sektor).
+# Code: signals/floor_action_signal.py (FloorActionSignal)
 # =============================================================================
-POSITION_INCREASE_MONTHS = 4  # Zeitraum in Monaten
-POSITION_INCREASE_MIN_BUYS = 2  # Mindestanzahl Käufe
+VOTE_TIMING_HIT_THRESHOLD = 1           # Vote_Timing_Hit_Count >= X triggert
 
 # =============================================================================
-# GEWICHTUNGEN (Summe = 100%)
-# Filter 3 (Committee) = Auto-Flag (kein Gewicht)
-# Filter 5 (Contrarian) übersprungen
+# SIGNAL: CONTRARIAN (Branch 1, Sequenz)
+# Derselbe Politiker handelt entgegengerichtet (Buy <-> Sell) auf dasselbe
+# Asset innerhalb des Fensters.
+# Code: signals/contrarian_signal.py (ContrarianSignal)
 # =============================================================================
-WEIGHTS = {
-    'volume': 0.075,           # 7.5% - Handelsvolumen
-    'swarm': 0.35,             # 35% - Schwarm-Verhalten
-    'timing': 0.35,            # 35% - Timing vor Abstimmung
-    'long_short': 0.075,       # 7.5% - Long/Short Wechsel
-    'position_increase': 0.15  # 15% - Position vergrößert
-}
-# Filter 3 (Committee) = Auto-Flag: kein Scoring-Gewicht, Trade automatisch verdächtig
-# Filter 5 (Contrarian) übersprungen
+CONTRARIAN_WINDOW_DAYS = 30
 
 # =============================================================================
-# SCORE-SCHWELLEN
+# SIGNAL: ACCUMULATIVE (Branch 1, Sequenz)
+# Derselbe Politiker handelt mehrfach dasselbe Asset (gleiche Richtung) im
+# Fenster.
+# Code: signals/accumulative_signal.py (AccumulativeSignal)
 # =============================================================================
-SCORE_THRESHOLDS = {
-    'strong': 75,      # 75-100: Starke Empfehlung
-    'interesting': 50,  # 50-74: Interessant
-    'watch': 30,       # 30-49: Beobachten
-    'none': 0          # 0-29: Kein Signal
-}
-
-SCORE_LABELS = {
-    'strong': '⭐⭐⭐ Starke Empfehlung',
-    'interesting': '⭐⭐ Interessant',
-    'watch': '⭐ Beobachten',
-    'none': 'Kein Signal'
-}
+ACCUMULATIVE_WINDOW_DAYS = 30
+ACCUMULATIVE_MIN_COUNT   = 2            # Mindest-Trade-Zahl im Fenster fuer Trigger
 
 # =============================================================================
-# EMAIL-BENACHRICHTIGUNG
+# SIGNAL: EXTREME REPORT (Branch 1)
+# Ungewoehnlich grosse Verzoegerung zwischen transaction_date und
+# disclosure_date (Pflicht-Frist ist 45 Tage).
+# Code: signals/extreme_report_signal.py (ExtremeReportSignal)
 # =============================================================================
-EMAIL_ALERT_THRESHOLD = 50  # Email senden ab diesem Score
+EXTREME_REPORT_DAYS = 60                # disclosure_date - transaction_date > X (45 = Pflicht, 60 = mit Toleranz)
 
-# SMTP-Konfiguration aus Umgebungsvariablen
-SMTP_SERVER = os.getenv('SMTP_SERVER', '')
-SMTP_PORT = int(os.getenv('SMTP_PORT', 587))
-EMAIL_USER = os.getenv('EMAIL_USER', '')
-EMAIL_PASSWORD = os.getenv('EMAIL_PASSWORD', '')
-EMAIL_RECIPIENT = os.getenv('EMAIL_RECIPIENT', '')
+# =============================================================================
+# SIGNAL: SWARM (Branch 2)
+# Mehrere Politiker handeln dasselbe Asset im rollenden Fenster. Buy- und
+# Sell-Schwaerme werden separat getrackt; widerspruechliche Trades bekommen
+# zusaetzlich ein Konflikt-Signal.
+# Code: signals/swarm_buy_signal.py, swarm_sell_signal.py, swarm_conflict_signal.py
+# Voraussetzung: issuer_group_key in trades_master (P5.6, CIK-basiert mit
+# Cross-Class-Aufloesung GOOGL+GOOG, BRK.A+BRK.B).
+# =============================================================================
+SWARM_WINDOW_DAYS      = 7                       # rollendes Fenster (Tage)
+SWARM_MIN_MEMBERS      = 2                       # f - Anzahl distinkter Politiker fuer Trigger
+SWARM_GROUPING_KEY     = 'issuer_group_key'      # P5.6: Issuer-Level (CIK), Cross-Class
+SWARM_TRACK_DIRECTIONS = ['buy', 'sell']         # welche Richtungen werden getrackt
+SWARM_FLAG_CONFLICTS   = True                    # widerspruechliche Trades zusaetzlich flaggen
+
+# Schwarm-Konflikt (P6) -- erweitertes Fenster relativ zum Schwarm
+# Gegen-Trade muss innerhalb [first_swarm_trade - BEFORE, last_swarm_trade + AFTER]
+# liegen, damit er als Konflikt zaehlt. Erfasst Front-Running (BEFORE) und
+# Nach-Reaktion (AFTER) asymmetrisch konfigurierbar.
+# Selbst-Umkehr (Member im Schwarm dreht spaeter) zaehlt gleichbehandelt wie externer Konflikt.
+SWARM_CONFLICT_WINDOW_DAYS_BEFORE = 3            # Tage vor erstem Schwarm-Trade
+SWARM_CONFLICT_WINDOW_DAYS_AFTER  = 3            # Tage nach letztem Schwarm-Trade
+SWARM_PARADOX_MIN_CONFLICTS       = 2            # ab N Gegen-Trades: swarm_paradox statt swarm_conflict
+
+# =============================================================================
+# SEC EDGAR (P5.6) — Cross-Class Issuer Mapping
+# CIK (Central Index Key) ist der einzige stabile, regulatorisch verankerte
+# Issuer-Level-Identifier. EDGAR liefert die komplette Mapping-Tabelle
+# (~12.000 US-Listings) in einer einzigen JSON. Cache 7 Tage TTL; bei
+# API-Failure strikter Abbruch (kein silent Fallback auf veralteten Cache).
+# Code: utils/issuer_group_mapper.py
+# Doku: organisation/Ticker_Architektur.md
+# =============================================================================
+SEC_EDGAR_USER_AGENT = 'Congress Trade Tracker <kontakt@example.com>'  # Pflicht, sonst 403
+SEC_EDGAR_URL        = 'https://www.sec.gov/files/company_tickers_exchange.json'
+SEC_EDGAR_CACHE_FILE = 'edgar_cik_map.json'      # unter data/cache/
+SEC_EDGAR_TTL_DAYS   = 7
+
+# =============================================================================
+# SUSPICIOUS PERSISTENCE
+# Y-Tage-Verfall fuer suspicious_assets.csv. suspicious_events.csv und
+# suspicious_members.csv bleiben dauerhaft.
+# =============================================================================
+SUSPICIOUS_ASSET_PERSISTENCE_DAYS = 30           # Y - Asset-Verfall-Fenster (Tage)
+
+# Dateinamen unter data/processed/. Pfade werden in scripts/import_trades.py
+# aus PROCESSED_DIR zusammengesetzt.
+SUSPICIOUS_EVENTS_FILE  = 'suspicious_events.csv'    # Append-only Master
+SUSPICIOUS_ASSETS_FILE  = 'suspicious_assets.csv'    # View, Y-Tage-Verfall
+SUSPICIOUS_MEMBERS_FILE = 'suspicious_members.csv'   # View, dauerhaft
 
 # =============================================================================
 # SCRAPER-EINSTELLUNGEN
@@ -356,7 +350,6 @@ TRADES_MASTER_COMPLETE_CSV = 'trades_master_complete.csv'  # alle Spalten persis
 MANUAL_REVIEW_CSV = 'manual_review_tickers.csv'            # Diagnose-Output
 
 # Kuratierte Spalten fuer trades_master.csv (userrelevante Sicht).
-# Spalten in CURATED_COALESCE werden per Fallback-Logik befuellt (erstes nicht-leeres gewinnt).
 CURATED_COLUMNS = [
     'trade_id',
     'name',
@@ -365,8 +358,12 @@ CURATED_COLUMNS = [
     'Member_State',
     'Member_ExOfficio',
     'ticker',
-    'asset_name',          # Coalesce: name_figi || asset_name
-    'security_type_figi',   # Coalesce: security_type_figi || ticker_type
+    'issuer_ticker',
+    'issuer_group_key',
+    'ticker_type',
+    'asset_name',
+    'asset_name_figi',
+    'security_type_figi',
     'sector_yf',
     'industry_yf',
     'transaction_date',
@@ -381,14 +378,9 @@ CURATED_COLUMNS = [
     'Vote_Timing_Hit',
     'Vote_Timing_Hits',
     'Vote_Timing_Hit_Count',
+    'signal_count',
+    'signals_triggered',
 ]
-
-# Coalesce-Logik: erstes nicht-leeres Element der Liste gewinnt.
-# Key = Spaltenname in trades_master.csv, Value = geordnete Quellspalten.
-CURATED_COALESCE = {
-    'asset_name':         ['name_figi',          'asset_name'],
-    'security_type_figi': ['security_type_figi', 'ticker_type'],
-}
 
 # Backup-Verzeichnis fuer automatische Master-Backups vor destruktiven Aenderungen
 ARCHIVE_BACKUP_PATH = 'archive/trades_master_backup'

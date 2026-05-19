@@ -127,9 +127,10 @@ class NormalizedTicker:
     classification: TickerClassification
     figi: Optional[str]
     ticker_figi: Optional[str]
-    name_figi: Optional[str]
+    asset_name_figi: Optional[str]
     security_type_figi: Optional[str]
     market_sector_figi: Optional[str]
+    share_class_figi: Optional[str]
     normalization_errors: list[str]
 
 
@@ -243,8 +244,10 @@ class TickerNormalizer:
                 processed = self._process_search([c for _, c in items])
             elif strategy == ApiStrategy.CUSIP_LOOKUP:
                 processed = self._process_cusip([c for _, c in items])
-            elif strategy in (ApiStrategy.YFINANCE_DIRECT, ApiStrategy.MANUAL_REVIEW):
-                processed = self._process_yfinance_or_manual([c for _, c in items])
+            elif strategy == ApiStrategy.YFINANCE_DIRECT:
+                processed = self._process_yfinance_direct([c for _, c in items])
+            elif strategy == ApiStrategy.MANUAL_REVIEW:
+                processed = self._process_manual_review([c for _, c in items])
             else:
                 # Unbekannte Strategie — defensiv leeres Result.
                 processed = [self._empty_result(c, [f"unknown_strategy:{strategy}"])
@@ -282,11 +285,105 @@ class TickerNormalizer:
     ) -> list[NormalizedTicker]:
         return [self._empty_result(c, []) for c in items]
 
-    def _process_yfinance_or_manual(
+    def _process_yfinance_direct(
         self, items: list[TickerClassification]
     ) -> list[NormalizedTicker]:
-        # Kein OpenFIGI-Call — durchreichen.
-        return [self._empty_result(c, []) for c in items]
+        """YFINANCE_DIRECT (ETFs, NUMERIC_SUFFIX, manche SHARECLASS).
+
+        P5: optimistischer /v3/mapping-Versuch fuer share_class_figi-Coverage.
+        yfinance Sector/Industry wird unveraendert in der naechsten Stage gezogen.
+        """
+        return self._process_optimistic_mapping(items)
+
+    def _process_manual_review(
+        self, items: list[TickerClassification]
+    ) -> list[NormalizedTicker]:
+        """MANUAL_REVIEW (UNKNOWN, LONG_ALPHA_SUSPECT, INVALID).
+
+        P5: optimistischer /v3/mapping-Versuch. Negativ-Cache verhindert Wiederholungen.
+        """
+        # Leere ticker_base -> kein sinnvoller Mapping-Versuch moeglich (Cash etc.).
+        candidates = [c for c in items if c.ticker_base]
+        skipped = [c for c in items if not c.ticker_base]
+        result_map: dict[str, NormalizedTicker] = {}
+
+        if candidates:
+            for cls, res in zip(candidates, self._process_optimistic_mapping(candidates)):
+                result_map[id(cls)] = res
+        for cls in skipped:
+            result_map[id(cls)] = self._empty_result(cls, ["manual_review_no_ticker"])
+
+        return [result_map[id(c)] for c in items]
+
+    def _process_optimistic_mapping(
+        self, items: list[TickerClassification]
+    ) -> list[NormalizedTicker]:
+        """Optimistischer /v3/mapping-Versuch (kein Search-Fallback).
+
+        Verwendet die existierende Mapping-Batch-Logik mit Cache + Negativ-Cache.
+        Treffer -> vollwertiger NormalizedTicker mit share_class_figi.
+        Miss    -> _empty_result + Cache-Eintrag mit source='empty'.
+        Logging gedaempft (kein per-Miss print, da typischerweise Misses zu erwarten sind).
+        """
+        results: list[NormalizedTicker] = []
+
+        for batch_start in range(0, len(items), self.batch_size):
+            batch = items[batch_start:batch_start + self.batch_size]
+
+            uncached: list[TickerClassification] = []
+            payloads: dict[str, Optional[dict]] = {}
+            for cls in batch:
+                key = self._cache_key(cls, "TICKER")
+                cached = self._cache_lookup(key)
+                if cached is not None:
+                    payloads[cls.raw_ticker] = cached
+                else:
+                    uncached.append(cls)
+
+            if uncached:
+                jobs = [self._build_mapping_job(c) for c in uncached]
+                response, error_kind = self._api_post(self.api_url, jobs)
+
+                if error_kind == "network":
+                    for cls in uncached:
+                        payloads[cls.raw_ticker] = None
+                        if cls not in self._retry_queue:
+                            self._retry_queue.append(cls)
+                elif error_kind in ("429", "abort"):
+                    for cls in uncached:
+                        payloads[cls.raw_ticker] = None
+                else:
+                    for cls, resp_item in zip(uncached, response or []):
+                        parsed = self._parse_mapping_response(resp_item)
+                        # Misses zu explizitem empty-Payload normalisieren,
+                        # damit der Negativ-Cache greift.
+                        if parsed is None:
+                            parsed = {
+                                "figi": None, "ticker_figi": None,
+                                "asset_name_figi": None, "security_type_figi": None,
+                                "raw_security_type": None, "raw_security_type2": None,
+                                "market_sector_figi": None, "share_class_figi": None,
+                                "source": "empty",
+                            }
+                        payloads[cls.raw_ticker] = parsed
+                        self._cache_write(self._cache_key(cls, "TICKER"), parsed)
+                        self._lookups_since_checkpoint += 1
+
+                if batch_start + self.batch_size < len(items):
+                    time.sleep(self.mapping_pause)
+
+            for cls in batch:
+                payload = payloads.get(cls.raw_ticker)
+                if payload is None or not payload.get("figi"):
+                    results.append(self._empty_result(cls, []))
+                    continue
+                results.append(self._build_normalized(cls, payload, []))
+
+            if self._lookups_since_checkpoint >= self.cache_checkpoint_interval:
+                self._cache_flush()
+                self._lookups_since_checkpoint = 0
+
+        return results
 
     def _process_mapping(
         self, items: list[TickerClassification]
@@ -435,9 +532,10 @@ class TickerNormalizer:
                 print(f"      [!] Kein passender Treffer für {cls.raw_ticker} "
                       f"({cls.company_name}) — {reason}")
                 empty_payload = {
-                    "figi": None, "ticker_figi": None, "name_figi": None,
+                    "figi": None, "ticker_figi": None, "asset_name_figi": None,
                     "security_type_figi": None, "raw_security_type": None,
                     "raw_security_type2": None, "market_sector_figi": None,
+                    "share_class_figi": None,
                     "source": "search_empty",
                 }
                 self._cache_write(key, empty_payload)
@@ -632,9 +730,10 @@ class TickerNormalizer:
             return None
         if "warning" in resp_item or "data" not in resp_item:
             return {
-                "figi": None, "ticker_figi": None, "name_figi": None,
+                "figi": None, "ticker_figi": None, "asset_name_figi": None,
                 "security_type_figi": None, "raw_security_type": None,
                 "raw_security_type2": None, "market_sector_figi": None,
+                "share_class_figi": None,
                 "source": "empty",
             }
         data = resp_item["data"]
@@ -648,11 +747,12 @@ class TickerNormalizer:
         return {
             "figi": item.get("figi"),
             "ticker_figi": item.get("ticker"),
-            "name_figi": item.get("name"),
+            "asset_name_figi": item.get("name"),
             "security_type_figi": item.get("securityType"),
             "raw_security_type": item.get("securityType"),
             "raw_security_type2": item.get("securityType2"),
             "market_sector_figi": item.get("marketSector"),
+            "share_class_figi": item.get("shareClassFIGI"),
             "source": source,
         }
 
@@ -671,15 +771,27 @@ class TickerNormalizer:
                     classification_type TEXT NOT NULL,
                     figi                TEXT,
                     ticker_figi         TEXT,
-                    name_figi           TEXT,
+                    asset_name_figi     TEXT,
                     security_type_figi  TEXT,
                     raw_security_type   TEXT,
                     raw_security_type2  TEXT,
                     market_sector_figi  TEXT,
+                    share_class_figi    TEXT,
                     source              TEXT NOT NULL,
                     checked_date        TEXT NOT NULL
                 )
             """)
+            # Migration: Spalte name_figi → asset_name_figi (SQLite ≥ 3.25)
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(ticker_normalizer)")}
+            if "name_figi" in cols:
+                conn.execute(
+                    "ALTER TABLE ticker_normalizer RENAME COLUMN name_figi TO asset_name_figi"
+                )
+                cols.add("asset_name_figi")
+                cols.discard("name_figi")
+            # Migration P5: Spalte share_class_figi nachziehen
+            if "share_class_figi" not in cols:
+                conn.execute("ALTER TABLE ticker_normalizer ADD COLUMN share_class_figi TEXT")
         self._db_initialized = True
 
     @staticmethod
@@ -710,14 +822,24 @@ class TickerNormalizer:
         if now - checked > ttl:
             return None
 
+        # P5-Migration: alter Hit mit erfolgreichem FIGI aber fehlendem
+        # share_class_figi → als Cache-Miss behandeln, damit der API-Call das
+        # Feld nachzieht. Negative Cache-Eintraege ('empty', 'search_empty')
+        # bleiben gueltig — fehlender share_class_figi ist dort erwartet.
+        if (row["figi"] is not None
+                and row["share_class_figi"] is None
+                and row["source"] not in ("empty", "search_empty")):
+            return None
+
         return {
             "figi": row["figi"],
             "ticker_figi": row["ticker_figi"],
-            "name_figi": row["name_figi"],
+            "asset_name_figi": row["asset_name_figi"],
             "security_type_figi": row["security_type_figi"],
             "raw_security_type": row["raw_security_type"],
             "raw_security_type2": row["raw_security_type2"],
             "market_sector_figi": row["market_sector_figi"],
+            "share_class_figi": row["share_class_figi"],
             "source": row["source"],
         }
 
@@ -727,18 +849,19 @@ class TickerNormalizer:
         with sqlite3.connect(self.cache_db_path) as conn:
             conn.execute("""
                 INSERT INTO ticker_normalizer
-                    (cache_key, classification_type, figi, ticker_figi, name_figi,
+                    (cache_key, classification_type, figi, ticker_figi, asset_name_figi,
                      security_type_figi, raw_security_type, raw_security_type2,
-                     market_sector_figi, source, checked_date)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     market_sector_figi, share_class_figi, source, checked_date)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(cache_key) DO UPDATE SET
                     figi = excluded.figi,
                     ticker_figi = excluded.ticker_figi,
-                    name_figi = excluded.name_figi,
+                    asset_name_figi = excluded.asset_name_figi,
                     security_type_figi = excluded.security_type_figi,
                     raw_security_type = excluded.raw_security_type,
                     raw_security_type2 = excluded.raw_security_type2,
                     market_sector_figi = excluded.market_sector_figi,
+                    share_class_figi = excluded.share_class_figi,
                     source = excluded.source,
                     checked_date = excluded.checked_date
             """, (
@@ -746,11 +869,12 @@ class TickerNormalizer:
                 payload.get("source", "unknown"),
                 payload.get("figi"),
                 payload.get("ticker_figi"),
-                payload.get("name_figi"),
+                payload.get("asset_name_figi"),
                 payload.get("security_type_figi"),
                 payload.get("raw_security_type"),
                 payload.get("raw_security_type2"),
                 payload.get("market_sector_figi"),
+                payload.get("share_class_figi"),
                 payload.get("source", "unknown"),
                 now_iso,
             ))
@@ -829,9 +953,10 @@ class TickerNormalizer:
             classification=cls,
             figi=payload.get("figi"),
             ticker_figi=payload.get("ticker_figi"),
-            name_figi=payload.get("name_figi"),
+            asset_name_figi=payload.get("asset_name_figi"),
             security_type_figi=payload.get("security_type_figi"),
             market_sector_figi=payload.get("market_sector_figi"),
+            share_class_figi=payload.get("share_class_figi"),
             normalization_errors=list(errors),
         )
 
@@ -842,8 +967,9 @@ class TickerNormalizer:
             classification=classification,
             figi=None,
             ticker_figi=None,
-            name_figi=None,
+            asset_name_figi=None,
             security_type_figi=None,
             market_sector_figi=None,
+            share_class_figi=None,
             normalization_errors=list(errors),
         )

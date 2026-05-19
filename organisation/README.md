@@ -6,17 +6,17 @@ Python + Streamlit Anwendung zur Analyse von US-Kongress-Aktienhandel. Scrapt of
 
 ---
 
-## Modul-Status (Stand: April 2026)
+## Modul-Status (Stand: Mai 2026)
 
 | Modul | Status | Beschreibung |
 |-------|--------|--------------|
 | 1 | ✅ Fertig | Projektstruktur, Config, venv |
 | 2 | ✅ Fertig | House Scraper (ZIP + XML + PDF) + PDF Extractor v2 (OpenCV Grid + Vision API, 4 Formulartypen, 126 Tests) |
 | 3 | ✅ Fertig | Senate Scraper (Playwright + DataTables API) |
-| 4 | ✅ Fertig | Ausschuss-Sektor-Mapping (CommitteeMapper + CommitteeFilter, 861 Mappings, Rank/Confidence/Role-Gewichtung) |
+| 4 | ✅ Fertig | Ausschuss-Sektor-Mapping (CommitteeMapper + CommitteeTag, 861 Mappings, sector/industry-Match × ex-officio-Multiplikator) |
 | 5 | ⏸️ Übersprungen | Kursdaten (Yahoo Finance) — vorerst nicht benötigt |
-| 6 | ⚠️ Unvollständig | Congress.gov API funktioniert (12.135 Bills, 409 Roll-Calls), aber vote-Extraktion → votes.json fehlt → Filter 4 Code vorhanden, aber inaktiv |
-| 7 | 🔧 Offen | Filter-Logik: Filter 3 ✅, Filter 4 Code ✅/Daten ❌, Filter 1/2/6/7 fehlen, Filter 5 übersprungen |
+| 6 | ⚠️ Unvollständig | Congress.gov API funktioniert (12.135 Bills, 409 Roll-Calls), aber vote-Extraktion → votes.json fehlt → Vote-Timing-Tag Code vorhanden, aber inaktiv |
+| 7 | ✅ Fertig (außer P7 Doku-Finalisierung) | Signal-Architektur (Gate/Tag/Signal): Gates+Tags ✅, Branch-1 Signale ✅ (P2+P3+P3.5), Suspicious-Export ✅ (P4), OpenFIGI-Coverage + `share_class_figi` ✅ (P5), `issuer_ticker` Share-Class-Level ✅ (P5.5), Cross-Class Issuer Mapping via SEC EDGAR CIK ✅ (P5.6), **Schwarm-Signale ✅ (P6)** — 4 Signale auf Issuer-Group-Ebene: `swarm_buy`/`swarm_sell` (Greedy-Cluster), `swarm_conflict` (1 Gegen-Trade im erweiterten Fenster), `swarm_paradox` (≥2 Gegen-Trades, mutually exclusive). Cross-Class via `issuer_group_key` (GOOGL+GOOG → CIK:1652044). Smoke-Run: 24.926 Schwarm-Events auf 111.986 Trades. |
 | 8 | 🔧 Offen | Scoring-System (gewichteter Calculator + Empfehlungs-Mapping) |
 | 9 | 🔧 Offen | Streamlit Dashboard (sortierbare Tabelle, Filter-UI) |
 | 10 | 🔧 Offen | E-Mail-Benachrichtigungen (SMTP) |
@@ -39,14 +39,22 @@ house_trades.csv + senate_trades.csv  →  scripts/import_trades.py  →  data/p
 data/mappings/*.xlsx          →  scripts/convert_xlsx_to_csv.py  →  data/mappings/*.csv
 ```
 
-**Import-Pipeline (7 Stufen):**
-1. CSV laden + Spalten umbenennen
+**Import-Pipeline (13 Stages):**
+1. CSV laden + Spalten umbenennen + trade_id vergeben
 2. Datumsvalidierung & Normalisierung
 3. Name-Matching (4-Tier: Alias → Exact → Former Members → Fuzzy ≥85%) + Committee-Anreicherung
-4. Ticker-Typ-Klassifikation (OpenFIGI API + SQLite-Cache, 90-Tage-TTL)
-5. Ticker-Sektor/Industry-Lookup (yfinance + Cache)
-6. Vote-Timing-Filter (bill_actions.json + Policy-Area-Mapping)
-7. trades_master.csv speichern + unmatched_names.csv
+4. Ticker-Typ-Klassifikation (Offline-Regex, `utils/ticker_classifier.py`)
+5. OpenFIGI-Normalisierung (FIGI, ticker_figi, asset_name_figi, share_class_figi, issuer_ticker)
+6. Cross-Class Issuer Mapping (SEC EDGAR CIK → `issuer_group_key`, P5.6)
+7. Ticker-Sektor/Industry-Lookup (yfinance + Cache)
+8. Gates + Tags: AssetClassGate, CommitteeTag, VoteTimingTag (+ Scoring)
+9. Branch-1 Signale: committee, committee_ex_officio, floor_action, extreme_report → `branch1_events_stage.csv`
+10. Sequenz-Signale: contrarian, accumulative → `sequence_events_stage.csv`
+11. Schwarm-Signale (P6): swarm_buy, swarm_sell, swarm_conflict, swarm_paradox → `swarm_events_stage.csv` (gruppiert nach `issuer_group_key`, Cross-Class)
+12. Suspicious-Export: append-only `suspicious_events.csv` + Y-Tage-View `suspicious_assets.csv` + Member-View `suspicious_members.csv`
+13. trades_master[_complete].csv speichern + unmatched_names.csv
+
+Details und CLI-Flags: `Pipelines.md`, `CLI_Bedienungsanleitung.md`.
 
 ---
 
@@ -71,7 +79,7 @@ data/mappings/*.xlsx          →  scripts/convert_xlsx_to_csv.py  →  data/map
 | `config/committee_mapping.py` | CommitteeMapper — O(1) Subcommittee-Lookup |
 | `utils/name_matcher.py` | 4-Tier Fuzzy Name Matching (rapidfuzz ≥85%) |
 | `utils/openfigi_client.py` | Ticker-Klassifikation via OpenFIGI API + SQLite-Cache |
-| `filters/committee_filter.py` | CommitteeParser + CommitteeFilter (Relevanz-Score 0–100) |
+| `tags/committee_tag.py` | CommitteeParser + CommitteeTag (Relevanz-Score 0–99) |
 
 ### Daten & Mappings
 | Datei | Beschreibung |
@@ -167,7 +175,7 @@ Vollständige CLI-Referenz: siehe [CLI_Bedienungsanleitung.md](CLI_Bedienungsanl
 |-------|--------|
 | [DATA_STRUCTURE.md](DATA_STRUCTURE.md) | Vollständige Spalten-Definitionen aller CSV/JSON/xlsx-Dateien |
 | [Pipelines.md](Pipelines.md) | Ausführungsreihenfolge und Abhängigkeiten aller 7 Pipelines |
-| [FILTER_PARAMETER.md](FILTER_PARAMETER.md) | Filter-Parameter, Gewichte, Schwellen und Implementierungsstatus |
+| [Filter_Instanz_Parameter.md](Filter_Instanz_Parameter.md) | Gate/Tag/Signal-Instanzen mit Parametern, Schwellen und Implementierungsstatus |
 | [CLI_Bedienungsanleitung.md](CLI_Bedienungsanleitung.md) | Alle CLI-Befehle mit Flags und Beispielen |
 | [Aufgaben_Uebersicht](Aufgaben_Uebersicht) | Detaillierter Entwicklungsplan für alle Module |
 | [DEDUP_PROBLEM_PITCH.md](DEDUP_PROBLEM_PITCH.md) | Bekannte Deduplizierungs-Problematik |

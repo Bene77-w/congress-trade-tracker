@@ -76,8 +76,9 @@ def make_normalized():
         )
         return NormalizedTicker(
             classification=cls,
-            figi=None, ticker_figi=None, name_figi=None,
+            figi=None, ticker_figi=None, asset_name_figi=None,
             security_type_figi=None, market_sector_figi=None,
+            share_class_figi=None,
             normalization_errors=[],
         )
     return _make

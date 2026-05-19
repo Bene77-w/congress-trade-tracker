@@ -1,22 +1,27 @@
 """
-Congress Trade Tracker - Trade Import Pipeline (8 Stages, Rebuild Teil 3)
+Congress Trade Tracker - Trade Import Pipeline (10 Stages, Rebuild Teil 3)
 Importiert Trades, reichert mit Committee-Daten, Ticker-Klassifikation,
 OpenFIGI/yfinance-Sektor und Filter-Logik an.
 
 Modi:
-  python scripts/import_trades.py                    # Full Rebuild (alle 8 Stages)
+  python scripts/import_trades.py                    # Full Rebuild (alle 10 Stages)
   python scripts/import_trades.py --delta            # Nur neue Trades (via trade_id)
   python scripts/import_trades.py --dry_run          # Alle Stages -> trades_stage.csv
 
 Stage-Pipeline (einzelne Schritte, re-runnable):
-  --stage_rename          # CSV laden + Spalten umbenennen + trade_id
-  --stage_date            # Datum normalisieren
-  --stage_committees      # Committee-Member-Enrichment (Fuzzy-Match)
-  --stage_tickerclassify  # Offline-Klassifikation (Regex-Entscheidungsbaum)
-  --stage_tickeropenfigi  # OpenFIGI-Normalisierung (FIGI, ticker_figi)
-  --stage_tickeryfinance  # yfinance Sector/Industry-Anreicherung
-  --stage_filter          # Scoring + Filter 0/4
-  --stage_save            # trades_stage.csv -> complete + curated Master
+  --stage_rename            # CSV laden + Spalten umbenennen + trade_id
+  --stage_date              # Datum normalisieren
+  --stage_committees        # Committee-Member-Enrichment (Fuzzy-Match)
+  --stage_tickerclassify    # Offline-Klassifikation (Regex-Entscheidungsbaum)
+  --stage_tickeropenfigi    # OpenFIGI-Normalisierung (FIGI, ticker_figi)
+  --stage_issuer_group      # Cross-Class Issuer Mapping (SEC EDGAR CIK, P5.6)
+  --stage_tickeryfinance    # yfinance Sector/Industry-Anreicherung
+  --stage_gates_tags        # Pipeline-Gates + Tags (Asset-Class, Committee, Vote-Timing)
+  --stage_branch1_signals   # Branch-1 Signale (committee, ex_officio, floor_action, extreme_report)
+  --stage_sequence_signals  # Sequenz-Signale (contrarian, accumulative)
+  --stage_swarm_signals     # Schwarm-Signale (swarm_buy/sell/conflict/paradox, P6)
+  --stage_suspicious_export # Promote Stage-Events nach suspicious_events.csv
+  --stage_save              # trades_stage.csv -> complete + curated Master
 
 Bonus-Flags (kein Master-Touch, exklusiv):
   --manual_review_only    # Regeneriert manual_review_tickers.csv aus complete
@@ -59,8 +64,19 @@ from utils.ticker_classifier import (
 )
 from utils.ticker_normalizer import TickerNormalizer, NormalizedTicker
 from utils.ticker_sector import TickerSectorEnricher
-from filters.vote_timing_filter import VoteTimingFilter, VOTE_TIMING_COLUMNS
-from filters.asset_class_filter import AssetClassFilter, ASSET_CLASS_COLUMNS
+from utils.issuer_group_mapper import IssuerGroupMapper
+from tags.vote_timing_tag import VoteTimingTag, VOTE_TIMING_COLUMNS
+from gates.asset_class_gate import AssetClassGate, ASSET_CLASS_COLUMNS
+from signals.committee_signal import CommitteeSignal
+from signals.committee_ex_officio_signal import CommitteeExOfficioSignal
+from signals.floor_action_signal import FloorActionSignal
+from signals.extreme_report_signal import ExtremeReportSignal
+from signals.contrarian_signal import ContrarianSignal
+from signals.accumulative_signal import AccumulativeSignal
+from signals.swarm_buy_signal import SwarmBuySignal
+from signals.swarm_sell_signal import SwarmSellSignal
+from signals.swarm_conflict_signal import SwarmConflictSignal
+from signals.swarm_paradox_signal import SwarmParadoxSignal
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +103,67 @@ PIPELINE_STATE_PATH = os.path.join(PROCESSED_DIR, 'pipeline_state.json')
 UNMATCHED_STAGE_PATH = os.path.join(PROCESSED_DIR, 'unmatched_names_stage.csv')
 DELISTED_STAGE_PATH = os.path.join(PROCESSED_DIR, 'delisted_trades_stage.csv')
 UNMATCHED_PREFERRED_STAGE_PATH = os.path.join(PROCESSED_DIR, 'unmatched_preferred_stage.csv')
+BRANCH1_EVENTS_STAGE_PATH = os.path.join(PROCESSED_DIR, 'branch1_events_stage.csv')
+SEQUENCE_EVENTS_STAGE_PATH = os.path.join(PROCESSED_DIR, 'sequence_events_stage.csv')
+SWARM_EVENTS_STAGE_PATH = os.path.join(PROCESSED_DIR, 'swarm_events_stage.csv')
+SUSPICIOUS_EVENTS_PATH  = os.path.join(PROCESSED_DIR, settings.SUSPICIOUS_EVENTS_FILE)
+SUSPICIOUS_ASSETS_PATH  = os.path.join(PROCESSED_DIR, settings.SUSPICIOUS_ASSETS_FILE)
+SUSPICIOUS_MEMBERS_PATH = os.path.join(PROCESSED_DIR, settings.SUSPICIOUS_MEMBERS_FILE)
+
+# Spalten die der Branch-1-Signal-Aggregator pro Trade in den Stage-CSV schreibt
+BRANCH1_AGGREGATE_COLUMNS = ['signal_count', 'signals_triggered']
+
+# Spalten-Schema fuer Signal-Event-Snapshots (branch1 + sequence + swarm)
+# P6: +issuer_group_key (Issuer-Level, CIK-basiert) direkt nach issuer_ticker
+SIGNAL_EVENT_COLUMNS = [
+    'signal_event_id', 'trade_id', 'signal_type', 'triggering_date',
+    'scope_key', 'member_id', 'member_name', 'chamber',
+    'ticker', 'issuer_ticker', 'issuer_group_key', 'asset_name_figi',
+    'transaction_date', 'disclosure_date',
+    'transaction_amount', 'direction', 'is_ex_officio',
+    'relevance_score', 'vote_timing_hit_count',
+    'committee_subcommittee', 'relevant_sectors',
+]
+
+# View-Spalten fuer suspicious_assets.csv (P4)
+ASSETS_VIEW_COLUMNS = [
+    'issuer_ticker', 'asset_name_figi', 'event_count', 'member_count',
+    'signal_types', 'last_event_date', 'first_event_date',
+    'directions', 'chambers', 'last_signal_type',
+]
+
+# View-Spalten fuer suspicious_members.csv (P4)
+MEMBERS_VIEW_COLUMNS = [
+    'member_id', 'member_name', 'chamber', 'event_count', 'asset_count',
+    'signal_types', 'last_event_date', 'first_event_date',
+    'is_ex_officio_ever', 'event_trade_pairs',
+]
+
+
+def _counter_string(series: pd.Series) -> str:
+    """Counter-String fuer Aggregat-Spalten in den View-CSVs.
+
+    Format: 'committee:5,accumulative:2' — sortiert nach Count desc,
+    Tie-Break nach Wert ascending.
+
+    Args:
+        series: pandas Series mit Strings (oder Werten, die zu Strings
+            konvertierbar sind). NaN und leere Strings werden uebersprungen.
+
+    Returns:
+        Kommagetrennter Counter-String. Leerer String wenn nichts zu zaehlen.
+    """
+    if series is None or len(series) == 0:
+        return ''
+    cleaned = (
+        series.dropna().astype(str).str.strip()
+    )
+    cleaned = cleaned[cleaned != '']
+    if cleaned.empty:
+        return ''
+    counts = cleaned.value_counts()
+    items = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+    return ','.join(f'{k}:{v}' for k, v in items)
 
 STAGE_DEPS = {
     'rename': {
@@ -114,19 +191,62 @@ STAGE_DEPS = {
     },
     'tickeropenfigi': {
         'input_cols': ['ticker_type', 'ticker_base', 'api_strategy'],
-        'output_cols': ['figi', 'ticker_figi', 'name_figi',
-                        'security_type_figi', 'market_sector_figi'],
+        'output_cols': ['figi', 'ticker_figi', 'asset_name_figi',
+                        'security_type_figi', 'market_sector_figi',
+                        'share_class_figi', 'issuer_ticker'],
+    },
+    'issuer_group': {
+        # P5.6: Cross-Class Issuer Mapping via SEC EDGAR CIK.
+        # ticker_type entscheidet Branch (SKIP/ETF-Foreign/CIK/Fallback);
+        # issuer_ticker als Fallback fuer ETF/Foreign-Branch.
+        'input_cols': ['ticker', 'ticker_base', 'ticker_type'],
+        'output_cols': ['issuer_group_key'],
     },
     'tickeryfinance': {
         'input_cols': ['ticker_base', 'ticker_type'],
         'output_cols': ['sector_yf', 'industry_yf', 'quote_type_yf'],
     },
-    'filter': {
+    'gates_tags': {
         'input_cols': ['name', 'chamber', 'Member_Committees_Full', 'ticker',
                        'ticker_type', 'transaction_date'],
         'output_cols': ['MatchScore', 'MatchSource', 'Insider_Sectors', 'Relevant_Sectors',
                         'Relevance_Score', 'asset_class_excluded',
                         'Vote_Timing_Hit', 'Vote_Timing_Hits', 'Vote_Timing_Hit_Count'],
+    },
+    'branch1_signals': {
+        # asset_name_figi ist optional (Fallback asset_name); ticker_base ist
+        # optional (Fallback ticker via resolve_issuer_ticker). Beides wird im
+        # Code defensiv aufgeloest, deshalb hier nicht hart required.
+        'input_cols': ['trade_id', 'name', 'chamber', 'ticker', 'asset_name',
+                       'transaction_date', 'disclosure_date',
+                       'transaction_type', 'amount',
+                       'Member_ExOfficio', 'Member_Committees_Full',
+                       'Relevance_Score', 'Vote_Timing_Hit_Count',
+                       'Relevant_Sectors'],
+        'output_cols': ['signal_count', 'signals_triggered'],
+    },
+    'sequence_signals': {
+        # ticker_base + asset_name_figi optional (siehe branch1_signals).
+        'input_cols': ['trade_id', 'bio_guide_id', 'ticker', 'asset_name',
+                       'transaction_date', 'transaction_type',
+                       'signal_count', 'signals_triggered'],
+        'output_cols': ['signal_count', 'signals_triggered'],
+    },
+    'swarm_signals': {
+        # P6: Schwarm-Signale gruppieren nach issuer_group_key (Issuer-Level
+        # via CIK, Cross-Class). asset_name_figi/issuer_ticker als optionale
+        # Snapshot-Felder werden im Code defensiv aufgeloest.
+        'input_cols': ['trade_id', 'bio_guide_id', 'ticker', 'asset_name',
+                       'transaction_date', 'transaction_type',
+                       'issuer_group_key',
+                       'signal_count', 'signals_triggered'],
+        'output_cols': ['signal_count', 'signals_triggered'],
+    },
+    'suspicious_export': {
+        # Stage liest direkt branch1_events_stage.csv + sequence_events_stage.csv,
+        # nicht trades_stage.csv. df wird durchgereicht, nicht mutiert.
+        'input_cols': [],
+        'output_cols': [],
     },
     'save': {
         'input_cols': [],
@@ -313,7 +433,7 @@ class TradeImporter:
     def enrich_member_data(self, df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
         Reichert Trades mit Committee-Member-Daten an (kein Scoring).
-        Scoring-Spalten (MatchScore, Insider_Sectors, Relevant_Sectors etc.) werden in _stage_filter gesetzt.
+        Scoring-Spalten (MatchScore, Insider_Sectors, Relevant_Sectors etc.) werden in _stage_gates_tags gesetzt.
         Unterstuetzt Checkpoint-basiertes Resuming bei Abbruch.
 
         Args:
@@ -449,9 +569,10 @@ class TradeImporter:
                 classification=cls,
                 figi=_val('figi'),
                 ticker_figi=_val('ticker_figi'),
-                name_figi=_val('name_figi'),
+                asset_name_figi=_val('asset_name_figi'),
                 security_type_figi=_val('security_type_figi'),
                 market_sector_figi=_val('market_sector_figi'),
+                share_class_figi=_val('share_class_figi'),
                 normalization_errors=[],
             ))
         return out
@@ -778,8 +899,8 @@ class TradeImporter:
         Returns:
             DataFrame mit Vote_Timing_* Spalten
         """
-        vote_filter = VoteTimingFilter()
-        votes_df = vote_filter.load_votes()
+        vote_tag = VoteTimingTag()
+        votes_df = vote_tag.load_votes()
 
         if votes_df.empty:
             logger.info("Keine Vote-Daten, ueberspringe Vote-Timing")
@@ -795,7 +916,7 @@ class TradeImporter:
                     df[col] = defaults.get(col, '')
             return df
 
-        result = vote_filter.apply(df, votes_df)
+        result = vote_tag.apply(df, votes_df)
 
         hits = result['Vote_Timing_Hit'].sum()
         print(f"      {hits} Trades mit Vote-Timing-Hit")
@@ -826,8 +947,8 @@ class TradeImporter:
     def _apply_committee_relevance(self, df: pd.DataFrame) -> pd.DataFrame:
         """Berechnet Insider_Sectors (alle Committee-Sektoren), Relevant_Sectors
         (Intersection mit sector_yf/industry_yf) und Relevance_Score."""
-        from filters.committee_filter import CommitteeFilter
-        committee_filter = CommitteeFilter()
+        from tags.committee_tag import CommitteeTag
+        committee_tag = CommitteeTag()
 
         df = df.copy()
         df['Insider_Sectors'] = ''
@@ -843,7 +964,7 @@ class TradeImporter:
             ticker_sector = row.get('sector_yf', '') or ''
             ticker_industry = row.get('industry_yf', '') or ''
             try:
-                relevance = committee_filter.calculate_relevance(
+                relevance = committee_tag.calculate_relevance(
                     committees_string=committees_full,
                     chamber=chamber,
                     ticker=ticker,
@@ -923,26 +1044,558 @@ class TradeImporter:
             print(f"      [Vote-Data] WARN: Fetch fehlgeschlagen "
                   f"({type(e).__name__}: {e}) - nutze vorhandene JSON")
 
-    def _apply_filter_logic(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Wendet alle Filter an: Scoring, Filter 0 (Asset-Klasse), Filter 4 (Vote-Timing)."""
-        # Pre-Hook: Vote-Daten frisch halten (Filter 4)
+    def _apply_gates_and_tags(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Wendet alle Pipeline-internen Gates und Tags an.
+
+        Reihenfolge:
+          1. Match-Scoring (interner Diagnose-Score)
+          2. Committee-Tag    (Filter 3 in der User-Sprache)
+          3. Asset-Class-Gate (Filter 0 in der User-Sprache)
+          4. Vote-Timing-Tag  (Filter 4 in der User-Sprache)
+
+        Signals (User-Filter 1/2/6/7: Volumen, Schwarm, Long/Short, Position+)
+        werden hier spaeter angedockt, sobald implementiert.
+        """
+        # Pre-Hook: Vote-Daten frisch halten (fuer Vote-Timing-Tag)
         self._ensure_fresh_vote_data()
 
         # 1. MatchScore + MatchSource
         df = self._apply_match_scores(df)
 
-        # 2. Committee-Relevance-Scoring
+        # 2. Committee-Tag
         df = self._apply_committee_relevance(df)
 
-        # 3. Filter 0: Asset-Klasse
-        df = AssetClassFilter().apply(df)
+        # 3. Asset-Class-Gate
+        df = AssetClassGate().apply(df)
 
-        # 4. Filter 4: Vote-Timing
+        # 4. Vote-Timing-Tag
         df = self.enrich_with_vote_timing(df)
 
-        # TODO: Filter 1/2/6/7 (Volumen, Schwarm, Long/Short, Position)
+        # TODO: Signals (Volumen, Schwarm, Long/Short, Position+) anbinden, sobald implementiert.
 
         return df
+
+    def _apply_branch1_signals(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Wendet die vier Branch-1 Per-Trade-Signale an.
+
+        Signale: committee, committee_ex_officio, floor_action, extreme_report.
+
+        Schreibt pro Trade zwei aggregierte Spalten in den DataFrame:
+          - signal_count        : Anzahl ausgeloester Signale (0-4)
+          - signals_triggered   : Semikolon-getrennte Liste der Signal-Typen
+
+        Die einzelnen Auslöse-Events werden in eine CSV-Datei geschrieben
+        (BRANCH1_EVENTS_STAGE_PATH), damit die spaetere Suspicious-Export-Stage
+        (P4) sie einsammeln und in suspicious_events.csv promoten kann.
+        """
+        signals = [
+            CommitteeSignal(),
+            CommitteeExOfficioSignal(),
+            FloorActionSignal(),
+            ExtremeReportSignal(),
+        ]
+
+        df = df.copy()
+        signal_count = []
+        signals_triggered = []
+        events: list = []
+
+        for _, row in df.iterrows():
+            row_events = [s.evaluate_row(row) for s in signals]
+            row_events = [e for e in row_events if e is not None]
+            signal_count.append(len(row_events))
+            signals_triggered.append(';'.join(e['signal_type'] for e in row_events))
+            events.extend(row_events)
+
+        df['signal_count'] = signal_count
+        df['signals_triggered'] = signals_triggered
+
+        self._write_branch1_events(events)
+
+        n_triggered = sum(1 for c in signal_count if c > 0)
+        print(f"      {n_triggered:,} / {len(df):,} Trades mit mindestens einem Signal")
+        print(f"      {len(events):,} Branch-1-Events insgesamt -> {BRANCH1_EVENTS_STAGE_PATH}")
+        return df
+
+    def _write_branch1_events(self, events: list):
+        """Schreibt die gesammelten Branch-1-Events in eine CSV-Stage-Datei.
+
+        Wird in P4 (`_stage_suspicious_export`) wieder eingelesen und in
+        suspicious_events.csv promoted. Bei leerer Liste wird eine
+        Header-only Datei geschrieben, damit Folge-Stages die Datei
+        konsistent lesen koennen.
+        """
+        self._ensure_directories()
+        df_events = pd.DataFrame(events, columns=SIGNAL_EVENT_COLUMNS)
+        df_events.to_csv(BRANCH1_EVENTS_STAGE_PATH, index=False, encoding='utf-8')
+
+    def _apply_sequence_signals(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Wendet die Sequenz-Signale (contrarian, accumulative) an.
+
+        Gruppiert Trades nach (bio_guide_id, issuer_ticker) und evaluiert
+        jede Gruppe mit beiden Signal-Klassen. Die resultierenden Events
+        werden in sequence_events_stage.csv geschrieben und ihre
+        Signal-Typen in signal_count + signals_triggered pro Trade
+        akkumuliert (additiv zu den Branch-1-Werten aus der vorhergehenden
+        Stage).
+        """
+        from signals.committee_signal import _direction_from_transaction_type
+
+        signals = [ContrarianSignal(), AccumulativeSignal()]
+
+        df = df.copy()
+        # Pre-compute _td (Timestamp) und _dir (buy/sell/other) einmalig
+        # global — pro-Gruppen-Conversion in evaluate_group ist sonst der
+        # dominante Kostenpunkt (50k+ Gruppen).
+        df['_td'] = pd.to_datetime(df['transaction_date'], errors='coerce')
+        df['_dir'] = df['transaction_type'].map(_direction_from_transaction_type)
+        # Gruppierungs-Key = issuer_ticker (share_class_figi -> ticker_base ->
+        # ticker), in _stage_tickeropenfigi vektorisiert befuellt. Im
+        # Defensiv-Fallback (Stage-Single-Run ohne tickeropenfigi) rekonstruieren
+        # wir die Kette inline.
+        if 'issuer_ticker' in df.columns:
+            df['_grp_ticker'] = df['issuer_ticker'].fillna('').astype(str).str.strip()
+        else:
+            t_str = df['ticker'].fillna('').astype(str).str.strip()
+            if 'ticker_base' in df.columns:
+                tb_str = df['ticker_base'].fillna('').astype(str).str.strip()
+                df['_grp_ticker'] = tb_str.where(tb_str != '', t_str)
+            else:
+                df['_grp_ticker'] = t_str
+        df['_grp_member'] = df['bio_guide_id'].fillna('').astype(str)
+
+        # signal_count / signals_triggered sicher initialisieren
+        if 'signal_count' not in df.columns:
+            df['signal_count'] = 0
+        else:
+            df['signal_count'] = pd.to_numeric(
+                df['signal_count'], errors='coerce'
+            ).fillna(0).astype(int)
+        if 'signals_triggered' not in df.columns:
+            df['signals_triggered'] = ''
+        else:
+            df['signals_triggered'] = df['signals_triggered'].fillna('').astype(str)
+
+        events: list = []
+        # Mapping trade_id -> Liste neuer Signal-Typen
+        per_trade_new: dict = {}
+        # Nur Gruppen mit nicht-leerer member_id UND ticker — Trades ohne
+        # diese Felder koennen keinen Sequenz-Bezug haben.
+        mask = (df['_grp_member'] != '') & (df['_grp_ticker'] != '')
+        candidate_df = df[mask]
+        groups = candidate_df.groupby(['_grp_member', '_grp_ticker'],
+                                       sort=False, dropna=False)
+        n_groups = groups.ngroups
+        n_qualifying = 0
+        for (mid, tkr), group_df in groups:
+            if len(group_df) < 2:
+                continue
+            n_qualifying += 1
+            for sig in signals:
+                sig_events = sig.evaluate_group(group_df)
+                events.extend(sig_events)
+                for ev in sig_events:
+                    tid = ev.get('trade_id', '')
+                    if tid == '' or tid is None:
+                        continue
+                    per_trade_new.setdefault(tid, []).append(ev['signal_type'])
+        print(f"      {n_groups:,} Member×Asset-Gruppen, {n_qualifying:,} mit >=2 Trades evaluiert")
+
+        # Aggregat-Spalten pro Trade aktualisieren — dedupliziert pro Trade,
+        # damit zwei Sequenz-Auslösungen desselben Typs nur einmal gezaehlt
+        # werden. Direktes Index-Update statt df.apply (~100x schneller fuer
+        # ~100k-Zeilen-Master).
+        if per_trade_new:
+            tid_to_unique = {tid: sorted(set(types))
+                             for tid, types in per_trade_new.items()}
+            # Index-Lookup: trade_id -> list of DataFrame-Indices
+            tid_to_indices: dict = {}
+            for idx, tid in df['trade_id'].items():
+                if tid in tid_to_unique:
+                    tid_to_indices.setdefault(tid, []).append(idx)
+
+            for tid, new_types in tid_to_unique.items():
+                indices = tid_to_indices.get(tid, [])
+                for idx in indices:
+                    existing = [t for t in
+                                str(df.at[idx, 'signals_triggered']).split(';')
+                                if t]
+                    merged = existing + [t for t in new_types if t not in existing]
+                    df.at[idx, 'signals_triggered'] = ';'.join(merged)
+                    df.at[idx, 'signal_count'] = len(merged)
+
+        # Cleanup interner Gruppierungs-/Hilfsspalten
+        df = df.drop(columns=['_grp_ticker', '_grp_member', '_td', '_dir'])
+
+        self._write_sequence_events(events)
+
+        n_events = len(events)
+        n_trades_touched = len(per_trade_new)
+        print(f"      {n_events:,} Sequenz-Events, "
+              f"{n_trades_touched:,} Trades davon betroffen "
+              f"-> {SEQUENCE_EVENTS_STAGE_PATH}")
+        return df
+
+    def _write_sequence_events(self, events: list):
+        """Schreibt Sequenz-Signal-Events in eine CSV-Stage-Datei.
+
+        Wird in P4 zusammen mit branch1_events_stage.csv in
+        suspicious_events.csv promoted.
+        """
+        self._ensure_directories()
+        df_events = pd.DataFrame(events, columns=SIGNAL_EVENT_COLUMNS)
+        df_events.to_csv(SEQUENCE_EVENTS_STAGE_PATH, index=False, encoding='utf-8')
+
+    # =========================================================================
+    # P6 — Schwarm-Signale (Branch 2): asset-zentrierte Gruppierung nach
+    # issuer_group_key (Issuer-Level, CIK-basiert, Cross-Class).
+    # =========================================================================
+
+    def _apply_swarm_signals(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Wendet die Schwarm-Signale an (swarm_buy/sell/conflict/paradox).
+
+        Gruppiert Trades nach `settings.SWARM_GROUPING_KEY` (=issuer_group_key)
+        und evaluiert jede Gruppe mit allen 4 Signal-Klassen. Conflict und
+        Paradox sind mutually exclusive pro Schwarm-Auslösung (genau 1
+        Gegen-Trade -> conflict; >= PARADOX_MIN_CONFLICTS -> paradox).
+
+        Die signal_count + signals_triggered-Spalten werden additiv zu den
+        Werten aus Branch-1 + Sequenz erweitert (pro Trade Dedup).
+        SKIP-Buckets (issuer_group_key startet mit "SKIP:") werden im
+        Signal-Code uebersprungen.
+        """
+        from signals.committee_signal import _direction_from_transaction_type
+
+        signals = [
+            SwarmBuySignal(), SwarmSellSignal(),
+            SwarmConflictSignal(), SwarmParadoxSignal(),
+        ]
+        grouping_key = getattr(settings, 'SWARM_GROUPING_KEY', 'issuer_group_key')
+
+        df = df.copy()
+        df['_td'] = pd.to_datetime(df['transaction_date'], errors='coerce')
+        df['_dir'] = df['transaction_type'].map(_direction_from_transaction_type)
+
+        if grouping_key not in df.columns:
+            # Defensive: ohne Issuer-Group-Key keine Schwarm-Auswertung.
+            df = df.drop(columns=['_td', '_dir'])
+            self._write_swarm_events([])
+            print(f"      [SKIP] Spalte '{grouping_key}' fehlt -> 0 Schwarm-Events")
+            return df
+
+        df['_grp_swarm'] = df[grouping_key].fillna('').astype(str)
+
+        # signal_count / signals_triggered defensiv initialisieren
+        if 'signal_count' not in df.columns:
+            df['signal_count'] = 0
+        else:
+            df['signal_count'] = pd.to_numeric(
+                df['signal_count'], errors='coerce'
+            ).fillna(0).astype(int)
+        if 'signals_triggered' not in df.columns:
+            df['signals_triggered'] = ''
+        else:
+            df['signals_triggered'] = df['signals_triggered'].fillna('').astype(str)
+
+        events: list = []
+        per_trade_new: dict = {}
+
+        # Nur Gruppen mit nicht-leerem grouping_key (SKIP-Buckets werden im
+        # Signal-Code zusaetzlich aussortiert -- hier sparen wir uns das
+        # Iterieren).
+        mask = (df['_grp_swarm'] != '') & (~df['_grp_swarm'].str.startswith('SKIP:'))
+        candidate_df = df[mask]
+        groups = candidate_df.groupby('_grp_swarm', sort=False, dropna=False)
+        n_groups = groups.ngroups
+        n_qualifying = 0
+        for grp_key, group_df in groups:
+            if len(group_df) < 2:
+                continue
+            n_qualifying += 1
+            for sig in signals:
+                sig_events = sig.evaluate_group(group_df)
+                events.extend(sig_events)
+                for ev in sig_events:
+                    tid = ev.get('trade_id', '')
+                    if tid == '' or tid is None:
+                        continue
+                    per_trade_new.setdefault(tid, []).append(ev['signal_type'])
+        print(f"      {n_groups:,} Issuer-Group-Buckets, "
+              f"{n_qualifying:,} mit >=2 Trades evaluiert")
+
+        # Aggregat-Spalten pro Trade aktualisieren (dedupliziert pro Trade)
+        if per_trade_new:
+            tid_to_unique = {tid: sorted(set(types))
+                             for tid, types in per_trade_new.items()}
+            tid_to_indices: dict = {}
+            for idx, tid in df['trade_id'].items():
+                if tid in tid_to_unique:
+                    tid_to_indices.setdefault(tid, []).append(idx)
+
+            for tid, new_types in tid_to_unique.items():
+                indices = tid_to_indices.get(tid, [])
+                for idx in indices:
+                    existing = [t for t in
+                                str(df.at[idx, 'signals_triggered']).split(';')
+                                if t]
+                    merged = existing + [t for t in new_types if t not in existing]
+                    df.at[idx, 'signals_triggered'] = ';'.join(merged)
+                    df.at[idx, 'signal_count'] = len(merged)
+
+        df = df.drop(columns=['_grp_swarm', '_td', '_dir'])
+
+        self._write_swarm_events(events)
+
+        n_events = len(events)
+        n_trades_touched = len(per_trade_new)
+        print(f"      {n_events:,} Schwarm-Events, "
+              f"{n_trades_touched:,} Trades davon betroffen "
+              f"-> {SWARM_EVENTS_STAGE_PATH}")
+        return df
+
+    def _write_swarm_events(self, events: list):
+        """Schreibt Schwarm-Signal-Events in swarm_events_stage.csv.
+
+        Wird in P4 zusammen mit branch1_events_stage.csv und
+        sequence_events_stage.csv in suspicious_events.csv promoted.
+        """
+        self._ensure_directories()
+        df_events = pd.DataFrame(events, columns=SIGNAL_EVENT_COLUMNS)
+        df_events.to_csv(SWARM_EVENTS_STAGE_PATH, index=False, encoding='utf-8')
+
+    # =========================================================================
+    # P4 — Suspicious-Export: promotet Stage-Events nach suspicious_events.csv
+    # und materialisiert assets/members-Views.
+    # =========================================================================
+
+    def _load_event_stages(self) -> pd.DataFrame:
+        """Konkateniert branch1_events_stage.csv + sequence_events_stage.csv.
+
+        Returns:
+            DataFrame mit SIGNAL_EVENT_COLUMNS-Schema. Leer (0 Zeilen) wenn
+            keine Stage-Datei existiert.
+        """
+        frames = []
+        for path in (BRANCH1_EVENTS_STAGE_PATH, SEQUENCE_EVENTS_STAGE_PATH,
+                     SWARM_EVENTS_STAGE_PATH):
+            if not os.path.isfile(path):
+                continue
+            df = pd.read_csv(path, low_memory=False)
+            if not df.empty:
+                frames.append(df)
+        if not frames:
+            return pd.DataFrame(columns=SIGNAL_EVENT_COLUMNS)
+        return pd.concat(frames, ignore_index=True)
+
+    def _migrate_suspicious_events_schema(self) -> bool:
+        """Migriert suspicious_events.csv auf das aktuelle SIGNAL_EVENT_COLUMNS-
+        Schema. Insbesondere P6: fuegt fehlendes `issuer_group_key` ein.
+
+        Robust gegenueber gemischten Zeilenlaengen (falls die Datei bereits
+        durch fehlgeschlagene Appends inkonsistent ist): alte Zeilen werden
+        auf das neue Schema gemappt, bereits 21-spaltige Zeilen unveraendert
+        uebernommen, malformed Zeilen verworfen.
+
+        Returns: True wenn migriert (Datei neu geschrieben), False wenn nichts
+        zu tun (Schema bereits aktuell oder Datei fehlt).
+        """
+        import csv
+        if not os.path.isfile(SUSPICIOUS_EVENTS_PATH):
+            return False
+        with open(SUSPICIOUS_EVENTS_PATH, 'r', encoding='utf-8', newline='') as f:
+            old_header = next(csv.reader(f), None)
+        if old_header is None:
+            return False
+        if old_header == SIGNAL_EVENT_COLUMNS:
+            return False
+
+        expected_old_len = len(old_header)
+        expected_new_len = len(SIGNAL_EVENT_COLUMNS)
+        print(f"      Schema-Migration: suspicious_events.csv "
+              f"({expected_old_len} -> {expected_new_len} Spalten)...")
+
+        # Positions-Mapping alte Spaltennamen -> neuer Spaltenindex
+        new_index_by_name = {c: i for i, c in enumerate(SIGNAL_EVENT_COLUMNS)}
+        unknown_old_cols = [c for c in old_header if c not in new_index_by_name]
+        if unknown_old_cols:
+            print(f"        WARN: alte Spalten ohne Mapping (werden verworfen): "
+                  f"{unknown_old_cols}")
+
+        temp_path = SUSPICIOUS_EVENTS_PATH + '.migrating'
+        n_old, n_new, n_bad = 0, 0, 0
+        with open(SUSPICIOUS_EVENTS_PATH, 'r', encoding='utf-8', newline='') as fin, \
+             open(temp_path, 'w', encoding='utf-8', newline='') as fout:
+            reader = csv.reader(fin)
+            writer = csv.writer(fout)
+            next(reader)  # alten Header skippen
+            writer.writerow(SIGNAL_EVENT_COLUMNS)
+            for row in reader:
+                if len(row) == expected_old_len:
+                    # Map alte Spalten an neue Positionen, fehlende Spalten leer
+                    new_row = [''] * expected_new_len
+                    for i, val in enumerate(row):
+                        col_name = old_header[i]
+                        new_idx = new_index_by_name.get(col_name)
+                        if new_idx is not None:
+                            new_row[new_idx] = val
+                    writer.writerow(new_row)
+                    n_old += 1
+                elif len(row) == expected_new_len:
+                    # Bereits im neuen Schema (aus fehlgeschlagenem Append)
+                    writer.writerow(row)
+                    n_new += 1
+                else:
+                    n_bad += 1
+        os.replace(temp_path, SUSPICIOUS_EVENTS_PATH)
+        print(f"        {n_old:,} alte Zeilen migriert, "
+              f"{n_new:,} bereits {expected_new_len}-spaltig, "
+              f"{n_bad:,} malformed verworfen "
+              f"-> {SUSPICIOUS_EVENTS_PATH}")
+        return True
+
+    def _append_suspicious_events(self, new_df: pd.DataFrame) -> int:
+        """Hängt neue (signal_event_id, trade_id)-Paare an suspicious_events.csv.
+
+        Idempotent: Paare die schon in der Datei stehen werden uebersprungen.
+
+        Returns:
+            Anzahl neu angehaengter Zeilen.
+        """
+        if new_df.empty:
+            return 0
+
+        self._ensure_directories()
+        # P6: Schema-Migration falls die alte Datei noch das 20-Spalten-Schema hat
+        self._migrate_suspicious_events_schema()
+
+        if os.path.isfile(SUSPICIOUS_EVENTS_PATH):
+            existing = pd.read_csv(
+                SUSPICIOUS_EVENTS_PATH,
+                usecols=['signal_event_id', 'trade_id'],
+                low_memory=False,
+            )
+            existing_keys = set(
+                zip(existing['signal_event_id'].astype(str),
+                    existing['trade_id'].astype(str))
+            )
+        else:
+            existing_keys = set()
+
+        new_keys = list(zip(new_df['signal_event_id'].astype(str),
+                            new_df['trade_id'].astype(str)))
+        mask = [k not in existing_keys for k in new_keys]
+        to_append = new_df[mask]
+        if to_append.empty:
+            return 0
+
+        # Spaltenreihenfolge konsistent zum Master halten.
+        to_append = to_append.reindex(columns=SIGNAL_EVENT_COLUMNS)
+
+        write_header = not os.path.isfile(SUSPICIOUS_EVENTS_PATH)
+        to_append.to_csv(
+            SUSPICIOUS_EVENTS_PATH,
+            mode='a',
+            header=write_header,
+            index=False,
+            encoding='utf-8',
+        )
+        return len(to_append)
+
+    def _materialize_suspicious_assets(self) -> int:
+        """Aggregiert suspicious_events.csv pro issuer_ticker mit Y-Tage-Verfall.
+
+        Returns:
+            Anzahl Zeilen in suspicious_assets.csv.
+        """
+        if not os.path.isfile(SUSPICIOUS_EVENTS_PATH):
+            return 0
+
+        events = pd.read_csv(SUSPICIOUS_EVENTS_PATH, low_memory=False)
+        if events.empty:
+            # Datei evtl. nur mit Header — leere View schreiben und gehen.
+            pd.DataFrame(columns=ASSETS_VIEW_COLUMNS).to_csv(
+                SUSPICIOUS_ASSETS_PATH, index=False, encoding='utf-8')
+            return 0
+
+        events['_td'] = pd.to_datetime(events['triggering_date'],
+                                       errors='coerce').dt.date
+        cutoff = (datetime.now().date()
+                  - timedelta(days=settings.SUSPICIOUS_ASSET_PERSISTENCE_DAYS))
+        active = events[events['_td'].notna() & (events['_td'] >= cutoff)]
+        if active.empty:
+            pd.DataFrame(columns=ASSETS_VIEW_COLUMNS).to_csv(
+                SUSPICIOUS_ASSETS_PATH, index=False, encoding='utf-8')
+            return 0
+
+        active = active.sort_values('_td')  # _td ascending → 'last' = jüngstes
+        grp = active.groupby('issuer_ticker', sort=False, dropna=False)
+
+        rows = []
+        for issuer_ticker, g in grp:
+            last_row = g.iloc[-1]
+            rows.append({
+                'issuer_ticker':     issuer_ticker,
+                'asset_name_figi':   last_row.get('asset_name_figi', ''),
+                'event_count':       len(g),
+                'member_count':      g['member_id'].nunique(),
+                'signal_types':      _counter_string(g['signal_type']),
+                'last_event_date':   g['_td'].max().isoformat(),
+                'first_event_date':  g['_td'].min().isoformat(),
+                'directions':        _counter_string(g['direction']),
+                'chambers':          _counter_string(g['chamber']),
+                'last_signal_type':  last_row.get('signal_type', ''),
+            })
+
+        result = pd.DataFrame(rows, columns=ASSETS_VIEW_COLUMNS)
+        result.to_csv(SUSPICIOUS_ASSETS_PATH, index=False, encoding='utf-8')
+        return len(result)
+
+    def _materialize_suspicious_members(self) -> int:
+        """Aggregiert suspicious_events.csv pro member_id (kein Verfall).
+
+        Returns:
+            Anzahl Zeilen in suspicious_members.csv.
+        """
+        if not os.path.isfile(SUSPICIOUS_EVENTS_PATH):
+            return 0
+
+        events = pd.read_csv(SUSPICIOUS_EVENTS_PATH, low_memory=False)
+        if events.empty:
+            pd.DataFrame(columns=MEMBERS_VIEW_COLUMNS).to_csv(
+                SUSPICIOUS_MEMBERS_PATH, index=False, encoding='utf-8')
+            return 0
+
+        events['_td'] = pd.to_datetime(events['triggering_date'],
+                                       errors='coerce').dt.date
+        events = events.sort_values('_td')  # ascending → iloc[-1] = jüngstes
+        grp = events.groupby('member_id', sort=False, dropna=False)
+
+        rows = []
+        for member_id, g in grp:
+            last_row = g.iloc[-1]
+            pairs = list(zip(g['signal_event_id'].astype(str),
+                             g['trade_id'].astype(str)))
+            rows.append({
+                'member_id':         member_id,
+                'member_name':       last_row.get('member_name', ''),
+                'chamber':           last_row.get('chamber', ''),
+                'event_count':       len(g),
+                'asset_count':       g['issuer_ticker'].nunique(),
+                'signal_types':      _counter_string(g['signal_type']),
+                'last_event_date':   g['_td'].max().isoformat(),
+                'first_event_date':  g['_td'].min().isoformat(),
+                'is_ex_officio_ever': bool(
+                    g['is_ex_officio'].astype(str).str.lower().isin(
+                        ['true', '1', 'yes']).any()
+                ),
+                'event_trade_pairs': json.dumps(
+                    [[s, t] for s, t in pairs], ensure_ascii=False
+                ),
+            })
+
+        result = pd.DataFrame(rows, columns=MEMBERS_VIEW_COLUMNS)
+        result.to_csv(SUSPICIOUS_MEMBERS_PATH, index=False, encoding='utf-8')
+        return len(result)
 
     # =========================================================================
     # Stage-Pipeline: Backup, IO-Helpers, State-Management, Stage-Methoden
@@ -1146,11 +1799,22 @@ class TradeImporter:
         normalized = normalizer.normalize_batch(classifications)
 
         df = df.copy()
-        df['figi']             = [n.figi for n in normalized]
-        df['ticker_figi'] = [n.ticker_figi for n in normalized]
-        df['name_figi']   = [n.name_figi for n in normalized]
-        df['security_type_figi']    = [n.security_type_figi for n in normalized]
-        df['market_sector_figi']    = [n.market_sector_figi for n in normalized]
+        df['figi']               = [n.figi for n in normalized]
+        df['ticker_figi']        = [n.ticker_figi for n in normalized]
+        df['asset_name_figi']    = [n.asset_name_figi for n in normalized]
+        df['security_type_figi'] = [n.security_type_figi for n in normalized]
+        df['market_sector_figi'] = [n.market_sector_figi for n in normalized]
+        df['share_class_figi']   = [n.share_class_figi for n in normalized]
+
+        # issuer_ticker (vektorisiert): share_class_figi -> ticker_base -> ticker.
+        # Garantiert nicht-leer solange mindestens einer der drei Werte gesetzt
+        # ist. Gleiche Fallback-Kette wie utils.issuer_ticker.resolve_issuer_ticker
+        # — die df-Spalte ist die schnelle Variante fuer Gruppierung in den
+        # Signal-Stages.
+        scf = df['share_class_figi'].fillna('').astype(str).str.strip()
+        tb  = df['ticker_base'].fillna('').astype(str).str.strip()
+        tk  = df['ticker'].fillna('').astype(str).str.strip()
+        df['issuer_ticker'] = scf.where(scf != '', tb.where(tb != '', tk))
 
         # Type-Korrektur (z.B. STOCK -> ETF) zurueckspielen
         n_corrected = 0
@@ -1165,6 +1829,41 @@ class TradeImporter:
             print(f"      Type-Korrektur: {n_corrected} (z.B. STOCK -> ETF)")
 
         self._write_stage_output(df, 'tickeropenfigi', delta, dry_run)
+
+    def _stage_issuer_group(self, delta: bool = False, dry_run: bool = False):
+        """Stage: Cross-Class Issuer Mapping via SEC EDGAR CIK (P5.6).
+
+        Setzt issuer_group_key fuer jeden Trade. Entscheidungsbaum:
+          SKIP-Types     -> SKIP:<type>
+          ETF/Foreign    -> TICKER:<issuer_ticker>
+          EDGAR-Treffer  -> CIK:<cik>
+          Fallback       -> TICKER:<ticker_base>
+
+        Cache: data/cache/edgar_cik_map.json (TTL 7 Tage). Bei API-Failure
+        wird IssuerGroupMapperUnreachableError geworfen (strikter Abbruch).
+        Doku: organisation/Ticker_Architektur.md
+        """
+        print(f"\n[Stage: issuer_group] Cross-Class Issuer Mapping (EDGAR CIK)...")
+        df = self._read_stage_input('issuer_group', delta, dry_run)
+        self._check_stage_inputs('issuer_group', df)
+
+        mapper = IssuerGroupMapper()
+        df = df.copy()
+        df['issuer_group_key'] = df.apply(mapper.resolve_issuer_group_key, axis=1)
+
+        # Coverage-Report (CIK/TICKER/SKIP-Verteilung).
+        prefix = df['issuer_group_key'].str.split(':').str[0]
+        counts = prefix.value_counts().to_dict()
+        cik_n     = counts.get('CIK', 0)
+        ticker_n  = counts.get('TICKER', 0)
+        skip_n    = counts.get('SKIP', 0)
+        total     = len(df)
+        if total:
+            print(f"      CIK:    {cik_n:>6,}  ({cik_n/total:6.1%})")
+            print(f"      TICKER: {ticker_n:>6,}  ({ticker_n/total:6.1%})  (ETF + Foreign + Fallback)")
+            print(f"      SKIP:   {skip_n:>6,}  ({skip_n/total:6.1%})  (Option/Bond/Cash/etc.)")
+
+        self._write_stage_output(df, 'issuer_group', delta, dry_run)
 
     def _stage_tickeryfinance(self, delta: bool = False, dry_run: bool = False):
         """Stage: yfinance Sector/Industry-Anreicherung."""
@@ -1194,13 +1893,102 @@ class TradeImporter:
         print(f"      {n_sector:,}/{len(df):,} mit Sektor angereichert")
         self._write_stage_output(df, 'tickeryfinance', delta, dry_run)
 
-    def _stage_filter(self, delta: bool = False, dry_run: bool = False):
-        """Stage: Scoring + Filter 0 (Asset-Klasse) + Filter 4 (Vote-Timing)."""
-        print(f"\n[Stage: filter] Filter + Scoring-Spalten berechnen...")
-        df = self._read_stage_input('filter', delta, dry_run)
-        self._check_stage_inputs('filter', df)
-        df = self._apply_filter_logic(df)
-        self._write_stage_output(df, 'filter', delta, dry_run)
+    def _stage_gates_tags(self, delta: bool = False, dry_run: bool = False):
+        """Stage: wendet alle Pipeline-internen Gates und Tags an
+        (Asset-Class-Gate, Committee-Tag, Vote-Timing-Tag) plus Match-Scoring."""
+        print(f"\n[Stage: gates_tags] Gates + Tags + Scoring-Spalten berechnen...")
+        df = self._read_stage_input('gates_tags', delta, dry_run)
+        self._check_stage_inputs('gates_tags', df)
+        df = self._apply_gates_and_tags(df)
+        self._write_stage_output(df, 'gates_tags', delta, dry_run)
+
+    def _stage_branch1_signals(self, delta: bool = False, dry_run: bool = False):
+        """Stage: wendet die Branch-1 Per-Trade-Signale an (committee,
+        committee_ex_officio, floor_action, extreme_report). Schreibt
+        signal_count + signals_triggered pro Trade in den Stage-CSV und
+        sammelt die Auslöse-Events in branch1_events_stage.csv (fuer P4)."""
+        print(f"\n[Stage: branch1_signals] Branch-1 Signale auswerten...")
+        df = self._read_stage_input('branch1_signals', delta, dry_run)
+        self._check_stage_inputs('branch1_signals', df)
+        df = self._apply_branch1_signals(df)
+        self._write_stage_output(df, 'branch1_signals', delta, dry_run)
+
+    def _stage_sequence_signals(self, delta: bool = False, dry_run: bool = False):
+        """Stage: wendet die Sequenz-Signale an (contrarian, accumulative).
+        Aggregiert signal_count + signals_triggered additiv zu den
+        Branch-1-Werten und schreibt die Events in sequence_events_stage.csv."""
+        print(f"\n[Stage: sequence_signals] Sequenz-Signale auswerten...")
+        df = self._read_stage_input('sequence_signals', delta, dry_run)
+        self._check_stage_inputs('sequence_signals', df)
+        df = self._apply_sequence_signals(df)
+        self._write_stage_output(df, 'sequence_signals', delta, dry_run)
+
+    def _stage_swarm_signals(self, delta: bool = False, dry_run: bool = False):
+        """Stage: wendet die Schwarm-Signale an (swarm_buy/sell/conflict/paradox).
+        Gruppiert nach issuer_group_key (Issuer-Level, CIK-basiert) und
+        schreibt die Events in swarm_events_stage.csv. P6."""
+        print(f"\n[Stage: swarm_signals] Schwarm-Signale auswerten...")
+        df = self._read_stage_input('swarm_signals', delta, dry_run)
+        self._check_stage_inputs('swarm_signals', df)
+        df = self._apply_swarm_signals(df)
+        self._write_stage_output(df, 'swarm_signals', delta, dry_run)
+
+    def _stage_suspicious_export(self, delta: bool = False, dry_run: bool = False):
+        """Stage: promotet Stage-Events nach suspicious_events.csv
+        (append-only mit (signal_event_id, trade_id)-Dedup), materialisiert
+        suspicious_assets.csv (Y-Tage-Verfall) und suspicious_members.csv
+        (dauerhaft).
+
+        Mutiert trades_stage.csv nicht — signal_count/signals_triggered sind
+        bereits aus P2/P3 in der Stage-Datei und werden vom unveraenderten
+        _stage_save uebernommen.
+
+        dry_run=True: Counts werden gemeldet, aber Live-Dateien werden NICHT
+        geschrieben (analog zur Stage-CSV-Konvention).
+        """
+        print(f"\n[Stage: suspicious_export] Promote Events + materialisiere Views...")
+
+        # P6: Schema-Migration der suspicious_events.csv, falls noch im
+        # alten 20-Spalten-Schema (idempotent: no-op wenn bereits aktuell).
+        self._migrate_suspicious_events_schema()
+
+        new_df = self._load_event_stages()
+        if new_df.empty:
+            print("      0 Events in Stage-Dateien — keine Aktion.")
+            return
+
+        if dry_run:
+            # Vorschau: Anzahl neuer Events, die in Live-Lauf appended wuerden.
+            if os.path.isfile(SUSPICIOUS_EVENTS_PATH):
+                existing = pd.read_csv(
+                    SUSPICIOUS_EVENTS_PATH,
+                    usecols=['signal_event_id', 'trade_id'],
+                    low_memory=False,
+                )
+                existing_keys = set(
+                    zip(existing['signal_event_id'].astype(str),
+                        existing['trade_id'].astype(str))
+                )
+            else:
+                existing_keys = set()
+            new_keys = list(zip(new_df['signal_event_id'].astype(str),
+                                new_df['trade_id'].astype(str)))
+            n_new = sum(1 for k in new_keys if k not in existing_keys)
+            print(f"      [dry_run] {n_new:,} neue Events wuerden nach "
+                  f"{SUSPICIOUS_EVENTS_PATH} appended")
+            print(f"      [dry_run] {len(new_df):,} Stage-Events gesamt; "
+                  f"Live-Dateien bleiben unangetastet")
+            return
+
+        n_appended = self._append_suspicious_events(new_df)
+        n_assets = self._materialize_suspicious_assets()
+        n_members = self._materialize_suspicious_members()
+
+        print(f"      {n_appended:,} neue Events -> {SUSPICIOUS_EVENTS_PATH}")
+        print(f"      {n_assets:,} aktive Assets "
+              f"(<= {settings.SUSPICIOUS_ASSET_PERSISTENCE_DAYS}d) "
+              f"-> {SUSPICIOUS_ASSETS_PATH}")
+        print(f"      {n_members:,} Members (gesamt) -> {SUSPICIOUS_MEMBERS_PATH}")
 
     def _stage_save(self, delta: bool = False, dry_run: bool = False):
         """Stage: trades_stage.csv -> complete + curated Master (replace oder delta-merge)."""
@@ -1278,12 +2066,12 @@ class TradeImporter:
         print("=" * 60)
 
         # 1. Laden + Umbenennen + trade_id
-        print("\n[1/8] Lade Quiver-Trades...")
+        print("\n[1/13] Lade Quiver-Trades...")
         input_df = self.load_and_rename()
         print(f"      Gesamt: {len(input_df)} Trades in Quiver-Datei")
 
         # 2. Datum normalisieren
-        print("\n[2/8] Normalisiere Datumsspalten...")
+        print("\n[2/13] Normalisiere Datumsspalten...")
         input_df = self.normalize_dates(input_df)
         input_df['trade_id'] = compute_trade_ids(input_df)
         n_fallback = self.stats.get('date_fallback', 0)
@@ -1294,7 +2082,7 @@ class TradeImporter:
             print(f"      Fallback: {n_future} future-dates korrigiert")
 
         # 3. Master laden + Delta erkennen via trade_id
-        print("\n[3/8] Lade Master + erkenne neue Trades...")
+        print("\n[3/13] Lade Master + erkenne neue Trades...")
         if not os.path.exists(MASTER_COMPLETE_CSV_PATH):
             print(f"      [!] {MASTER_COMPLETE_CSV_PATH} nicht vorhanden.")
             print("          Bitte zuerst Migration: python scripts/migrate_add_trade_ids.py")
@@ -1317,12 +2105,12 @@ class TradeImporter:
             return self.stats
 
         # 4. Committee-Member-Enrichment
-        print(f"\n[4/8] Reichere {len(new_trades):,} neue Trades an...")
+        print(f"\n[4/13] Reichere {len(new_trades):,} neue Trades an...")
         enriched_df, unmatched_df = self.enrich_member_data(new_trades)
         print(f"      {self.stats['matched']} gematcht, {self.stats['unmatched']} unmatched")
 
         # 5. Ticker-Klassifikation (offline)
-        print("\n[5/8] Ticker-Klassifikation (offline)...")
+        print("\n[5/13] Ticker-Klassifikation (offline)...")
         classifications = [
             classify(row.get('ticker', ''), row.get('asset_name', '') or '')
             for _, row in enriched_df.iterrows()
@@ -1340,7 +2128,7 @@ class TradeImporter:
         enriched_df = self._apply_ignore_list(enriched_df)
 
         # 6. OpenFIGI-Normalisierung
-        print("\n[6/8] OpenFIGI-Normalisierung...")
+        print("\n[6/13] OpenFIGI-Normalisierung...")
         cache_db = os.path.join(BASE_DIR, settings.DATA_CACHE_PATH,
                                 settings.TICKER_TYPE_CACHE_DB)
         normalizer = TickerNormalizer(cache_db_path=cache_db,
@@ -1348,9 +2136,10 @@ class TradeImporter:
         normalized = normalizer.normalize_batch(classifications)
         enriched_df['figi']             = [n.figi for n in normalized]
         enriched_df['ticker_figi'] = [n.ticker_figi for n in normalized]
-        enriched_df['name_figi']   = [n.name_figi for n in normalized]
+        enriched_df['asset_name_figi']   = [n.asset_name_figi for n in normalized]
         enriched_df['security_type_figi']    = [n.security_type_figi for n in normalized]
         enriched_df['market_sector_figi']    = [n.market_sector_figi for n in normalized]
+        enriched_df['share_class_figi']  = [n.share_class_figi for n in normalized]
         # Type-Korrektur in-place
         indices = enriched_df.index.tolist()
         for pos, idx in enumerate(indices):
@@ -1358,9 +2147,20 @@ class TradeImporter:
             if n.classification.ticker_type.value != enriched_df.at[idx, 'ticker_type']:
                 enriched_df.at[idx, 'ticker_type']           = n.classification.ticker_type.value
                 enriched_df.at[idx, 'classification_reason'] = n.classification.classification_reason
+        # issuer_ticker vektorisiert (P5.5): share_class_figi -> ticker_base -> ticker
+        scf = enriched_df['share_class_figi'].fillna('').astype(str).str.strip()
+        tb  = enriched_df['ticker_base'].fillna('').astype(str).str.strip()
+        tk  = enriched_df['ticker'].fillna('').astype(str).str.strip()
+        enriched_df['issuer_ticker'] = scf.where(scf != '', tb.where(tb != '', tk))
 
-        # 7. yfinance Sector/Industry
-        print("\n[7/8] yfinance Sector/Industry-Anreicherung...")
+        # 7. Cross-Class Issuer Mapping via SEC EDGAR CIK (P5.6)
+        print("\n[7/13] Cross-Class Issuer Mapping (EDGAR CIK)...")
+        issuer_mapper = IssuerGroupMapper()
+        enriched_df['issuer_group_key'] = enriched_df.apply(
+            issuer_mapper.resolve_issuer_group_key, axis=1)
+
+        # 8. yfinance Sector/Industry
+        print("\n[8/13] yfinance Sector/Industry-Anreicherung...")
         mappings_dir = os.path.join(BASE_DIR, settings.DATA_MAPPINGS_PATH)
         enricher = TickerSectorEnricher(
             cache_dir=mappings_dir,
@@ -1375,9 +2175,25 @@ class TradeImporter:
         enriched_df['industry_yf'] = [s.industry_yf for s in sector_infos]
         enriched_df['quote_type_yf']      = [s.quote_type_yf for s in sector_infos]
 
-        # 8. Filter-Logik (Scoring + Filter 0 + Filter 4)
-        print("\n[8/8] Filter-Logik (Scoring, Asset-Klasse, Vote-Timing)...")
-        enriched_df = self._apply_filter_logic(enriched_df)
+        # 9. Filter-Logik (Scoring + Filter 0 + Filter 4)
+        print("\n[9/13] Filter-Logik (Scoring, Asset-Klasse, Vote-Timing)...")
+        enriched_df = self._apply_gates_and_tags(enriched_df)
+
+        # 10. Branch-1 Signale (committee, ex_officio, floor_action, extreme_report)
+        print("\n[10/13] Branch-1 Signale auswerten...")
+        enriched_df = self._apply_branch1_signals(enriched_df)
+
+        # 11. Sequenz-Signale (contrarian, accumulative)
+        print("\n[11/13] Sequenz-Signale auswerten...")
+        enriched_df = self._apply_sequence_signals(enriched_df)
+
+        # 12. Schwarm-Signale (swarm_buy/sell/conflict/paradox, P6)
+        print("\n[12/13] Schwarm-Signale auswerten...")
+        enriched_df = self._apply_swarm_signals(enriched_df)
+
+        # 13. Suspicious-Export (promote Stage-Events nach suspicious_*.csv)
+        print("\n[13/13] Suspicious-Export...")
+        self._stage_suspicious_export(delta=True, dry_run=dry_run)
 
         # Speichern
         enriched_df = enriched_df.copy()
@@ -1469,7 +2285,7 @@ class TradeImporter:
 
     def run(self, dry_run: bool = False) -> dict:
         """
-        Fuehrt den kompletten Import durch (alle 8 Stages im Speicher).
+        Fuehrt den kompletten Import durch (alle 9 Stages im Speicher).
 
         Args:
             dry_run: Wenn True, schreibt Ergebnis in trades_stage.csv statt Master
@@ -1478,16 +2294,16 @@ class TradeImporter:
             dict mit Statistiken
         """
         print("=" * 60)
-        print("CONGRESS TRADE TRACKER - Import Pipeline (8 Stages)")
+        print("CONGRESS TRADE TRACKER - Import Pipeline (13 Stages)")
         print("=" * 60)
 
         # 1. Laden + Umbenennen + trade_id
-        print("\n[1/8] Lade Quiver-Trades...")
+        print("\n[1/13] Lade Quiver-Trades...")
         df = self.load_and_rename()
         print(f"      Gesamt: {len(df)} Trades geladen")
 
         # 2. Datum normalisieren + trade_id
-        print("\n[2/8] Normalisiere Datumsspalten + trade_id...")
+        print("\n[2/13] Normalisiere Datumsspalten + trade_id...")
         df = self.normalize_dates(df)
         df['trade_id'] = compute_trade_ids(df)
         n_fallback = self.stats.get('date_fallback', 0)
@@ -1499,13 +2315,13 @@ class TradeImporter:
         print(f"      {len(df):,} trade_ids vergeben")
 
         # 3. Committee-Member-Enrichment
-        print("\n[3/8] Reichere mit Committee-Member-Daten an...")
+        print("\n[3/13] Reichere mit Committee-Member-Daten an...")
         df, unmatched_df = self.enrich_member_data(df)
         print(f"      {self.stats['matched']} erfolgreich gematcht")
         print(f"      {self.stats['unmatched']} nicht gefunden")
 
         # 4. Ticker-Klassifikation (offline)
-        print("\n[4/8] Ticker-Klassifikation (offline Regex)...")
+        print("\n[4/13] Ticker-Klassifikation (offline Regex)...")
         classifications = [
             classify(row.get('ticker', ''), row.get('asset_name', '') or '')
             for _, row in df.iterrows()
@@ -1525,7 +2341,7 @@ class TradeImporter:
         print(f"      {len(df):,} klassifiziert, {n_review} fuer manual_review markiert")
 
         # 5. OpenFIGI-Normalisierung
-        print("\n[5/8] OpenFIGI-Normalisierung...")
+        print("\n[5/13] OpenFIGI-Normalisierung...")
         cache_db = os.path.join(BASE_DIR, settings.DATA_CACHE_PATH,
                                 settings.TICKER_TYPE_CACHE_DB)
         normalizer = TickerNormalizer(
@@ -1535,9 +2351,10 @@ class TradeImporter:
         normalized = normalizer.normalize_batch(classifications)
         df['figi']             = [n.figi for n in normalized]
         df['ticker_figi'] = [n.ticker_figi for n in normalized]
-        df['name_figi']   = [n.name_figi for n in normalized]
+        df['asset_name_figi']   = [n.asset_name_figi for n in normalized]
         df['security_type_figi']    = [n.security_type_figi for n in normalized]
         df['market_sector_figi']    = [n.market_sector_figi for n in normalized]
+        df['share_class_figi']  = [n.share_class_figi for n in normalized]
         # Type-Korrektur (z.B. STOCK -> ETF)
         n_corrected = 0
         indices = df.index.tolist()
@@ -1549,9 +2366,19 @@ class TradeImporter:
                 n_corrected += 1
         if n_corrected:
             print(f"      Type-Korrektur: {n_corrected} (z.B. STOCK -> ETF)")
+        # issuer_ticker vektorisiert (P5.5): share_class_figi -> ticker_base -> ticker
+        scf = df['share_class_figi'].fillna('').astype(str).str.strip()
+        tb  = df['ticker_base'].fillna('').astype(str).str.strip()
+        tk  = df['ticker'].fillna('').astype(str).str.strip()
+        df['issuer_ticker'] = scf.where(scf != '', tb.where(tb != '', tk))
 
-        # 6. yfinance Sector/Industry-Anreicherung
-        print("\n[6/8] yfinance Sector/Industry-Anreicherung...")
+        # 6. Cross-Class Issuer Mapping via SEC EDGAR CIK (P5.6)
+        print("\n[6/13] Cross-Class Issuer Mapping (EDGAR CIK)...")
+        issuer_mapper = IssuerGroupMapper()
+        df['issuer_group_key'] = df.apply(issuer_mapper.resolve_issuer_group_key, axis=1)
+
+        # 7. yfinance Sector/Industry-Anreicherung
+        print("\n[7/13] yfinance Sector/Industry-Anreicherung...")
         mappings_dir = os.path.join(BASE_DIR, settings.DATA_MAPPINGS_PATH)
         enricher = TickerSectorEnricher(
             cache_dir=mappings_dir,
@@ -1566,12 +2393,28 @@ class TradeImporter:
         df['industry_yf'] = [s.industry_yf for s in sector_infos]
         df['quote_type_yf']      = [s.quote_type_yf for s in sector_infos]
 
-        # 7. Filter-Logik (Scoring + Filter 0 + Filter 4)
-        print("\n[7/8] Filter-Logik (Scoring, Asset-Klasse, Vote-Timing)...")
-        df = self._apply_filter_logic(df)
+        # 8. Filter-Logik (Scoring + Filter 0 + Filter 4)
+        print("\n[8/13] Filter-Logik (Scoring, Asset-Klasse, Vote-Timing)...")
+        df = self._apply_gates_and_tags(df)
 
-        # 8. Speichern
-        print("\n[8/8] Speichere Ergebnisse...")
+        # 9. Branch-1 Signale (committee, ex_officio, floor_action, extreme_report)
+        print("\n[9/13] Branch-1 Signale auswerten...")
+        df = self._apply_branch1_signals(df)
+
+        # 10. Sequenz-Signale (contrarian, accumulative)
+        print("\n[10/13] Sequenz-Signale auswerten...")
+        df = self._apply_sequence_signals(df)
+
+        # 11. Schwarm-Signale (swarm_buy/sell/conflict/paradox, P6)
+        print("\n[11/13] Schwarm-Signale auswerten...")
+        df = self._apply_swarm_signals(df)
+
+        # 12. Suspicious-Export (promote Stage-Events nach suspicious_*.csv)
+        print("\n[12/13] Suspicious-Export...")
+        self._stage_suspicious_export(delta=False, dry_run=dry_run)
+
+        # 13. Speichern
+        print("\n[13/13] Speichere Ergebnisse...")
         if dry_run:
             self._ensure_directories()
             df_out = df.copy()
@@ -1657,10 +2500,20 @@ def main():
                         help='Stage: Offline-Klassifikation via Regex-Entscheidungsbaum')
     parser.add_argument('--stage_tickeropenfigi', action='store_true',
                         help='Stage: OpenFIGI-Normalisierung (FIGI, ticker_figi)')
+    parser.add_argument('--stage_issuer_group', action='store_true',
+                        help='Stage: Cross-Class Issuer Mapping (SEC EDGAR CIK, P5.6)')
     parser.add_argument('--stage_tickeryfinance', action='store_true',
                         help='Stage: yfinance Sector/Industry-Anreicherung')
-    parser.add_argument('--stage_filter', action='store_true',
-                        help='Stage: Scoring + Filter 0 (Asset-Klasse) + Filter 4 (Vote-Timing)')
+    parser.add_argument('--stage_gates_tags', action='store_true',
+                        help='Stage: Gates + Tags (Asset-Class-Gate, Committee-Tag, Vote-Timing-Tag) + Scoring')
+    parser.add_argument('--stage_branch1_signals', action='store_true',
+                        help='Stage: Branch-1 Per-Trade-Signale (committee, ex_officio, floor_action, extreme_report)')
+    parser.add_argument('--stage_sequence_signals', action='store_true',
+                        help='Stage: Sequenz-Signale (contrarian, accumulative)')
+    parser.add_argument('--stage_swarm_signals', action='store_true',
+                        help='Stage: Schwarm-Signale (swarm_buy/sell/conflict/paradox, P6)')
+    parser.add_argument('--stage_suspicious_export', action='store_true',
+                        help='Stage: Promote Stage-Events nach suspicious_events.csv + Views materialisieren')
     parser.add_argument('--stage_save', action='store_true',
                         help='Stage: trades_stage.csv -> complete + curated Master')
 
@@ -1683,8 +2536,13 @@ def main():
         'committees': args.stage_committees,
         'tickerclassify': args.stage_tickerclassify,
         'tickeropenfigi': args.stage_tickeropenfigi,
+        'issuer_group': args.stage_issuer_group,
         'tickeryfinance': args.stage_tickeryfinance,
-        'filter': args.stage_filter,
+        'gates_tags': args.stage_gates_tags,
+        'branch1_signals': args.stage_branch1_signals,
+        'sequence_signals': args.stage_sequence_signals,
+        'swarm_signals': args.stage_swarm_signals,
+        'suspicious_export': args.stage_suspicious_export,
         'save': args.stage_save,
     }
     active_stages = [name for name, flag in stage_flags.items() if flag]

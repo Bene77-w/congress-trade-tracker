@@ -101,19 +101,19 @@ python scrapers/senate_pdf_extractor.py --headless False
 
 ---
 
-## 3. Import Pipeline (8 Stages, Rebuild Teil 3)
+## 3. Import Pipeline (13 Stages, Rebuild Teil 3)
 
 **Datei:** `scripts/import_trades.py`
 **Zweck:** Liest Quiver-Snapshot (`congress-trading-all.xlsx`), matcht Member-Namen (Alias→Exakt→Former→Fuzzy), klassifiziert Tickers offline, normalisiert via OpenFIGI, reichert via yfinance an, wendet Filter an.
 
 **Spalten-Namenskonvention** (seit 2026-05-14): Externe-API-Outputs tragen
-Provider-Suffixe — `_figi` (OpenFIGI: `ticker_figi`, `name_figi`,
+Provider-Suffixe — `_figi` (OpenFIGI: `ticker_figi`, `asset_name_figi`,
 `security_type_figi`, `market_sector_figi`), `_yf` (yfinance: `sector_yf`,
 `industry_yf`, `quote_type_yf`). Die ID-Spalte `figi` selbst behaelt keinen
 Suffix. Details siehe `organisation/DATA_STRUCTURE.md`.
 
 ```bash
-# Standard: vollständige Pipeline (alle 8 Stages sequenziell)
+# Standard: vollständige Pipeline (alle 13 Stages sequenziell)
 python scripts/import_trades.py
 
 # Delta-Modus: nur neue Trades (via trade_id) anreichern und mergen
@@ -139,14 +139,19 @@ python scripts/migrate_add_trade_ids.py [--dry-run] [--force]
 Nur **ein** `--stage_*` Flag gleichzeitig erlaubt. Kombination mit `--delta` und `--dry_run` möglich.
 
 ```bash
-python scripts/import_trades.py --stage_rename          # Stage 1: laden + Rename + trade_id
-python scripts/import_trades.py --stage_date            # Stage 2: Datum normalisieren
-python scripts/import_trades.py --stage_committees      # Stage 3: Committee-Enrichment
-python scripts/import_trades.py --stage_tickerclassify  # Stage 4: Offline-Klassifikation (Regex)
-python scripts/import_trades.py --stage_tickeropenfigi  # Stage 5: OpenFIGI-Normalisierung
-python scripts/import_trades.py --stage_tickeryfinance  # Stage 6: yfinance Sector/Industry
-python scripts/import_trades.py --stage_filter          # Stage 7: Scoring + Filter 0/4
-python scripts/import_trades.py --stage_save            # Stage 8: trades_stage.csv -> Master
+python scripts/import_trades.py --stage_rename             # Stage 1: laden + Rename + trade_id
+python scripts/import_trades.py --stage_date               # Stage 2: Datum normalisieren
+python scripts/import_trades.py --stage_committees         # Stage 3: Committee-Enrichment
+python scripts/import_trades.py --stage_tickerclassify     # Stage 4: Offline-Klassifikation (Regex)
+python scripts/import_trades.py --stage_tickeropenfigi     # Stage 5: OpenFIGI-Normalisierung
+python scripts/import_trades.py --stage_issuer_group       # Stage 6: Cross-Class Issuer Mapping (SEC EDGAR CIK, P5.6)
+python scripts/import_trades.py --stage_tickeryfinance     # Stage 7: yfinance Sector/Industry
+python scripts/import_trades.py --stage_gates_tags         # Stage 8: Gates + Tags (Asset-Class, Committee, Vote-Timing) + Scoring
+python scripts/import_trades.py --stage_branch1_signals    # Stage 9: Branch-1 Signale (committee, ex_officio, floor_action, extreme_report)
+python scripts/import_trades.py --stage_sequence_signals   # Stage 10: Sequenz-Signale (contrarian, accumulative)
+python scripts/import_trades.py --stage_swarm_signals      # Stage 11: Schwarm-Signale (swarm_buy/sell/conflict/paradox, P6)
+python scripts/import_trades.py --stage_suspicious_export  # Stage 12: Promote Events nach suspicious_*.csv + Views materialisieren
+python scripts/import_trades.py --stage_save               # Stage 13: trades_stage.csv -> Master
 
 # Kombination mit Delta:
 python scripts/import_trades.py --delta --stage_rename
@@ -174,14 +179,14 @@ Die Pipeline schreibt **zwei** Master-Dateien:
 
 Aus Performance-Gründen schreibt **nicht jede Stage** den curated Master neu:
 
-- Single-Stage-Runs (`--stage_filter`, `--stage_committees`, …) ohne `--delta`/`--dry_run` schreiben **nur** ins `trades_master_complete.csv` (`_write_stage_output` in `scripts/import_trades.py`).
+- Single-Stage-Runs (`--stage_gates_tags`, `--stage_committees`, …) ohne `--delta`/`--dry_run` schreiben **nur** ins `trades_master_complete.csv` (`_write_stage_output` in `scripts/import_trades.py`).
 - Das curated wird sonst nur am Ende der vollständigen Pipeline durch `--stage_save` regeneriert.
 
 → Wer also nur eine einzelne Stage neu rechnet (z.B. Filter-Logik geändert), aktualisiert das `complete`. LibreOffice öffnet aber das `curated` und sieht weiterhin alte Werte. **`--regenerate_curated`** liest das `complete` und projiziert die kuratierten Spalten neu raus, ohne sonst etwas anzufassen — schneller als ein vollständiger Pipeline-Lauf, weil Scoring/Enrichment nicht erneut berechnet werden.
 
 **Typischer Workflow nach Filter-Änderung:**
 ```bash
-python scripts/import_trades.py --stage_filter         # neu berechnen → complete
+python scripts/import_trades.py --stage_gates_tags     # neu berechnen → complete
 python scripts/import_trades.py --regenerate_curated   # Sicht-Refresh → curated
 ```
 
