@@ -101,7 +101,7 @@ python scrapers/senate_pdf_extractor.py --headless False
 
 ---
 
-## 3. Import Pipeline (13 Stages, Rebuild Teil 3)
+## 3. Import Pipeline (16 Stages)
 
 **Datei:** `scripts/import_trades.py`
 **Zweck:** Liest Quiver-Snapshot (`congress-trading-all.xlsx`), matcht Member-Namen (Alias→Exakt→Former→Fuzzy), klassifiziert Tickers offline, normalisiert via OpenFIGI, reichert via yfinance an, wendet Filter an.
@@ -113,7 +113,7 @@ Provider-Suffixe — `_figi` (OpenFIGI: `ticker_figi`, `asset_name_figi`,
 Suffix. Details siehe `organisation/DATA_STRUCTURE.md`.
 
 ```bash
-# Standard: vollständige Pipeline (alle 13 Stages sequenziell)
+# Standard: vollständige Pipeline (alle 16 Stages sequenziell)
 python scripts/import_trades.py
 
 # Delta-Modus: nur neue Trades (via trade_id) anreichern und mergen
@@ -139,23 +139,28 @@ python scripts/migrate_add_trade_ids.py [--dry-run] [--force]
 Nur **ein** `--stage_*` Flag gleichzeitig erlaubt. Kombination mit `--delta` und `--dry_run` möglich.
 
 ```bash
-python scripts/import_trades.py --stage_rename             # Stage 1: laden + Rename + trade_id
-python scripts/import_trades.py --stage_date               # Stage 2: Datum normalisieren
-python scripts/import_trades.py --stage_committees         # Stage 3: Committee-Enrichment
-python scripts/import_trades.py --stage_tickerclassify     # Stage 4: Offline-Klassifikation (Regex)
-python scripts/import_trades.py --stage_tickeropenfigi     # Stage 5: OpenFIGI-Normalisierung
-python scripts/import_trades.py --stage_issuer_group       # Stage 6: Cross-Class Issuer Mapping (SEC EDGAR CIK, P5.6)
-python scripts/import_trades.py --stage_tickeryfinance     # Stage 7: yfinance Sector/Industry
-python scripts/import_trades.py --stage_gates_tags         # Stage 8: Gates + Tags (Asset-Class, Committee, Vote-Timing) + Scoring
-python scripts/import_trades.py --stage_branch1_signals    # Stage 9: Branch-1 Signale (committee, ex_officio, floor_action, extreme_report)
-python scripts/import_trades.py --stage_sequence_signals   # Stage 10: Sequenz-Signale (contrarian, accumulative)
-python scripts/import_trades.py --stage_swarm_signals      # Stage 11: Schwarm-Signale (swarm_buy/sell/conflict/paradox, P6)
-python scripts/import_trades.py --stage_suspicious_export  # Stage 12: Promote Events nach suspicious_*.csv + Views materialisieren
-python scripts/import_trades.py --stage_save               # Stage 13: trades_stage.csv -> Master
+python scripts/import_trades.py --stage_rename            # laden + Rename + trade_id
+python scripts/import_trades.py --stage_date              # Datum normalisieren
+python scripts/import_trades.py --stage_committees        # Committee-Enrichment
+python scripts/import_trades.py --stage_tickerclassify    # Offline-Klassifikation (Regex)
+python scripts/import_trades.py --stage_tickeropenfigi    # OpenFIGI-Normalisierung
+python scripts/import_trades.py --stage_issuer_group      # Cross-Class Issuer Mapping (SEC EDGAR CIK)
+python scripts/import_trades.py --stage_tickeryfinance    # yfinance Sector/Industry
+python scripts/import_trades.py --stage_trade_volume      # trade_volume_usd aus Amount-Range
+python scripts/import_trades.py --stage_asset_volume      # Cross-Class Asset-Tradingvolume rolling-window
+python scripts/import_trades.py --stage_gates_tags        # Gates + Tags (Asset-Class, Committee, Vote-Timing)
+python scripts/import_trades.py --stage_branch1_signals   # Branch-1 Signale
+python scripts/import_trades.py --stage_sequence_signals  # Sequenz-Signale (contrarian, accumulative)
+python scripts/import_trades.py --stage_swarm_signals     # Schwarm-Signale (P6)
+python scripts/import_trades.py --stage_scoring           # Trade-Score + breakdown + warnings
+python scripts/import_trades.py --stage_suspicious_export # Promote Events + Views (inkl. Score-Aggregate)
+python scripts/import_trades.py --stage_save              # trades_stage.csv -> Master
 
 # Kombination mit Delta:
 python scripts/import_trades.py --delta --stage_rename
 ```
+
+Stage-Reihenfolge + Indizes: siehe [Pipelines.md](Pipelines.md).
 
 ### Bonus-Flags (kein Master-Touch ausser Curated, exklusiv)
 
@@ -671,6 +676,47 @@ House/Senate Member-CSVs, Subcommittee-Mappings, `yf_sectors_with_industries.csv
 
 ---
 
+## 14. Streamlit Dashboard
+
+**Datei:** `app/streamlit_app.py`
+**Zweck:** Interaktive Web-UI zur Exploration von Trades, Assets und Members. Lädt `trades_master.csv`, `suspicious_assets.csv`, `suspicious_members.csv` (gecached).
+
+```bash
+# Linux/Mac
+venv/bin/streamlit run app/streamlit_app.py
+
+# Windows
+venv\Scripts\streamlit run app/streamlit_app.py
+
+# Alternativer Port
+venv/bin/streamlit run app/streamlit_app.py --server.port 8502
+
+# Headless (kein Browser-Fenster)
+venv/bin/streamlit run app/streamlit_app.py --server.headless true
+```
+
+Default-Port: **8501** → im Browser öffnen: `http://localhost:8501`
+
+**Sidebar-Filter (Kurzübersicht):**
+- **Datumsbasis:** `disclosure_date` / `transaction_date` (Default: `disclosure_date`)
+- **Zeitfenster:** 7 / 30 / 365 Tage / Alles (Default: 30 Tage)
+- **Sortierung:** absteigend / aufsteigend nach `trade_score` (Default: absteigend)
+- **Signal-Ausschluss:** Multiselect über alle 9 Signale — löst Voll-Recompute via `app/score_recompute.py` aus
+- **Member-Suche:** Substring-Suche auf `name` (case-insensitive)
+- **Ticker-Suche:** Substring auf `ticker` ODER `issuer_ticker` (uppercase)
+- **Min-Score:** Slider 0 .. max(50, max(trade_score))
+
+**Tabs:** Trades (Standard) | Assets | Members
+
+> **Hinweis:** Signal-Ausschluss löst einen Voll-Recompute auf dem gefilterten Subset aus
+> (via `scoring/trade_score.py`), damit Paradox-Dämpfung und Ex-Officio-Bonus konsistent
+> bleiben. Einfaches String-Filtern würde diese Interaktionen brechen.
+
+> **MVP-Beschränkung:** Datum- und Score-Filter wirken in den Tabs „Assets" und „Members"
+> noch nicht — geplante Iteration.
+
+---
+
 ## Schnellreferenz
 
 | Script | Befehl | Zweck |
@@ -689,3 +735,4 @@ House/Senate Member-CSVs, Subcommittee-Mappings, `yf_sectors_with_industries.csv
 | Congress Data Fetcher (Force-Rebuild) | `python scrapers/fetch_congress_data.py --force` | **DESTRUKTIV** (mit `JA`-Confirmation): JSONs archivieren + von 0 neu fetchen (~7-8h) |
 | Tests | `pytest tests/ -v` | Alle Unit-Tests |
 | Pipeline Reset | `python scripts/reset_pipeline.py --all --dry-run` | Logs/Caches/Stage/Processed reversibel zurücksetzen |
+| Streamlit Dashboard | `venv/bin/streamlit run app/streamlit_app.py` | Web-UI (Trades / Assets / Members) auf Port 8501 |

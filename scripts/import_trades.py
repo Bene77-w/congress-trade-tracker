@@ -1,10 +1,10 @@
 """
-Congress Trade Tracker - Trade Import Pipeline (10 Stages, Rebuild Teil 3)
+Congress Trade Tracker - Trade Import Pipeline (16 Stages)
 Importiert Trades, reichert mit Committee-Daten, Ticker-Klassifikation,
 OpenFIGI/yfinance-Sektor und Filter-Logik an.
 
 Modi:
-  python scripts/import_trades.py                    # Full Rebuild (alle 10 Stages)
+  python scripts/import_trades.py                    # Full Rebuild (alle 16 Stages)
   python scripts/import_trades.py --delta            # Nur neue Trades (via trade_id)
   python scripts/import_trades.py --dry_run          # Alle Stages -> trades_stage.csv
 
@@ -16,6 +16,8 @@ Stage-Pipeline (einzelne Schritte, re-runnable):
   --stage_tickeropenfigi    # OpenFIGI-Normalisierung (FIGI, ticker_figi)
   --stage_issuer_group      # Cross-Class Issuer Mapping (SEC EDGAR CIK, P5.6)
   --stage_tickeryfinance    # yfinance Sector/Industry-Anreicherung
+  --stage_trade_volume      # trade_volume_usd aus Amount-Range (Modul 8.1)
+  --stage_asset_volume      # Cross-Class Asset-Tradingvolume rolling-window (Modul 8.2)
   --stage_gates_tags        # Pipeline-Gates + Tags (Asset-Class, Committee, Vote-Timing)
   --stage_branch1_signals   # Branch-1 Signale (committee, ex_officio, floor_action, extreme_report)
   --stage_sequence_signals  # Sequenz-Signale (contrarian, accumulative)
@@ -53,8 +55,10 @@ sys.path.insert(0, BASE_DIR)
 
 from config import settings
 from utils.name_matcher import NameMatcher
-from utils.openfigi_client import OpenFigiClient  # noqa: F401  (Legacy, parallel verfuegbar)
 from utils.trade_id import compute_trade_ids, detect_new_trades
+from utils.amount_parser import midpoint_usd
+from scoring.asset_volume import compute_asset_tradingvolume
+from scoring.trade_score import compute_trade_scores
 from utils.ticker_classifier import (
     classify,
     TickerType,
@@ -125,18 +129,20 @@ SIGNAL_EVENT_COLUMNS = [
     'committee_subcommittee', 'relevant_sectors',
 ]
 
-# View-Spalten fuer suspicious_assets.csv (P4)
+# View-Spalten fuer suspicious_assets.csv (P4 + Modul 8.4)
 ASSETS_VIEW_COLUMNS = [
     'issuer_ticker', 'asset_name_figi', 'event_count', 'member_count',
     'signal_types', 'last_event_date', 'first_event_date',
     'directions', 'chambers', 'last_signal_type',
+    'score_avg', 'score_max', 'score_total', 'total_volume_usd', 'warnings',
 ]
 
-# View-Spalten fuer suspicious_members.csv (P4)
+# View-Spalten fuer suspicious_members.csv (P4 + Modul 8.4)
 MEMBERS_VIEW_COLUMNS = [
     'member_id', 'member_name', 'chamber', 'event_count', 'asset_count',
     'signal_types', 'last_event_date', 'first_event_date',
     'is_ex_officio_ever', 'event_trade_pairs',
+    'score_avg', 'score_max', 'score_total',
 ]
 
 
@@ -164,6 +170,31 @@ def _counter_string(series: pd.Series) -> str:
     counts = cleaned.value_counts()
     items = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
     return ','.join(f'{k}:{v}' for k, v in items)
+
+
+def _join_distinct_warnings(series: pd.Series) -> str:
+    """;-getrennte distinct-sortierte Warnings-Zusammenfuehrung (Modul 8.4).
+
+    Akzeptiert Series mit Strings, die selbst ';'-getrennte Warnings enthalten
+    koennen (z. B. zukuenftige Mehrfach-Warnings pro Trade). NaN und
+    Leer-Tokens werden ausgefiltert.
+
+    Args:
+        series: pandas Series mit Warnings-Strings.
+
+    Returns:
+        ';'-getrennter String, sortiert, distinct, ohne Leerstrings.
+    """
+    if series is None or len(series) == 0:
+        return ''
+    tokens = {
+        tok
+        for w in series.dropna()
+        for tok in str(w).split(';')
+        if tok
+    }
+    return ';'.join(sorted(tokens))
+
 
 STAGE_DEPS = {
     'rename': {
@@ -206,6 +237,17 @@ STAGE_DEPS = {
         'input_cols': ['ticker_base', 'ticker_type'],
         'output_cols': ['sector_yf', 'industry_yf', 'quote_type_yf'],
     },
+    'trade_volume': {
+        # Phase 8.1: parse 'amount' (Quiver-Range-String) -> Mittelpunkt in USD.
+        'input_cols': ['amount'],
+        'output_cols': ['trade_volume_usd'],
+    },
+    'asset_volume': {
+        # Phase 8.2: Cross-Class rolling-window Sum(trade_volume_usd) ueber
+        # issuer_group_key im Fenster SCORING_VOLUME_WINDOW_DAYS_Z.
+        'input_cols': ['trade_volume_usd', 'issuer_group_key', 'transaction_date'],
+        'output_cols': ['asset_tradingvolume_usd'],
+    },
     'gates_tags': {
         'input_cols': ['name', 'chamber', 'Member_Committees_Full', 'ticker',
                        'ticker_type', 'transaction_date'],
@@ -241,6 +283,14 @@ STAGE_DEPS = {
                        'issuer_group_key',
                        'signal_count', 'signals_triggered'],
         'output_cols': ['signal_count', 'signals_triggered'],
+    },
+    'scoring': {
+        # Modul 8.3: trade_score + breakdown + warnings. Liest signals_triggered
+        # (Branch-1 + Sequenz + Schwarm), Member_ExOfficio, asset_tradingvolume_usd.
+        'input_cols': ['signals_triggered', 'Member_ExOfficio',
+                       'asset_tradingvolume_usd'],
+        'output_cols': ['trade_score', 'trade_score_breakdown',
+                        'trade_warnings'],
     },
     'suspicious_export': {
         # Stage liest direkt branch1_events_stage.csv + sequence_events_stage.csv,
@@ -309,6 +359,12 @@ class TradeImporter:
             'matched': 0,
             'unmatched': 0
         }
+        # Modul 8.4: Lazy-Cache fuer trade_id -> Score-Lookup
+        self._trade_scores_cache = None
+        # Modul 8.4: In-Flight-Override fuer Voll-/Delta-Pipeline. Wird vor
+        # _stage_suspicious_export gesetzt, damit _load_trade_scores nicht
+        # die noch-nicht-geschriebene trades_master_complete.csv lesen muss.
+        self._inflight_trade_scores = None
 
     def _ensure_directories(self):
         """Stellt sicher, dass alle Verzeichnisse existieren."""
@@ -1501,6 +1557,83 @@ class TradeImporter:
         )
         return len(to_append)
 
+    def _load_trade_scores(self) -> pd.DataFrame:
+        """Laedt trade_id -> (trade_score, trade_volume_usd, trade_warnings)
+        aus trades_master_complete.csv (Modul 8.4).
+
+        Lazy-Cache: nur einmal pro Importer-Instanz gelesen. Defensiv gegen
+        fehlende Datei oder Spalten — gibt in dem Fall ein leeres DataFrame
+        mit den vier erwarteten Spalten zurueck.
+
+        Returns:
+            DataFrame mit Spalten ['trade_id', 'trade_score',
+            'trade_volume_usd', 'trade_warnings'].
+        """
+        if self._trade_scores_cache is not None:
+            return self._trade_scores_cache
+
+        cols = ['trade_id', 'trade_score', 'trade_volume_usd', 'trade_warnings']
+        empty = pd.DataFrame({
+            'trade_id': pd.Series(dtype=str),
+            'trade_score': pd.Series(dtype=int),
+            'trade_volume_usd': pd.Series(dtype=int),
+            'trade_warnings': pd.Series(dtype=str),
+        })
+
+        # In-Flight-Override: Voll-/Delta-Pipeline reicht das gescorete df
+        # direkt durch, bevor es persistiert ist.
+        if self._inflight_trade_scores is not None:
+            df = self._inflight_trade_scores
+            missing = [c for c in cols if c not in df.columns]
+            if missing:
+                print(f"      [8.4] In-Flight-Scores fehlen Spalten {missing} — "
+                      f"Aggregate auf 0.")
+                self._trade_scores_cache = empty
+                return empty
+            df = df[cols].copy().fillna({
+                'trade_score': 0,
+                'trade_volume_usd': 0,
+                'trade_warnings': '',
+            })
+            df['trade_score'] = df['trade_score'].astype(int)
+            df['trade_volume_usd'] = df['trade_volume_usd'].astype(int)
+            df['trade_warnings'] = df['trade_warnings'].astype(str)
+            df['trade_id'] = df['trade_id'].astype(str)
+            self._trade_scores_cache = df
+            return df
+
+        if not os.path.isfile(MASTER_COMPLETE_CSV_PATH):
+            print(f"      [8.4] {MASTER_COMPLETE_CSV_PATH} nicht gefunden — "
+                  f"Score-Aggregate fallen auf 0 zurueck.")
+            self._trade_scores_cache = empty
+            return empty
+
+        try:
+            df = pd.read_csv(
+                MASTER_COMPLETE_CSV_PATH,
+                usecols=cols,
+                low_memory=False,
+            )
+        except ValueError as e:
+            # usecols schlaegt fehl, wenn Spalten fehlen (Phase 8.3 nicht durchgelaufen).
+            print(f"      [8.4] trades_master_complete fehlen Score-Spalten "
+                  f"({e}) — Aggregate auf 0.")
+            self._trade_scores_cache = empty
+            return empty
+
+        df = df.fillna({
+            'trade_score': 0,
+            'trade_volume_usd': 0,
+            'trade_warnings': '',
+        })
+        df['trade_score'] = df['trade_score'].astype(int)
+        df['trade_volume_usd'] = df['trade_volume_usd'].astype(int)
+        df['trade_warnings'] = df['trade_warnings'].astype(str)
+        df['trade_id'] = df['trade_id'].astype(str)
+
+        self._trade_scores_cache = df
+        return df
+
     def _materialize_suspicious_assets(self) -> int:
         """Aggregiert suspicious_events.csv pro issuer_ticker mit Y-Tage-Verfall.
 
@@ -1528,11 +1661,49 @@ class TradeImporter:
             return 0
 
         active = active.sort_values('_td')  # _td ascending → 'last' = jüngstes
+
+        # Modul 8.4: Score-Aggregat pro issuer_ticker auf distinct trade_id.
+        scores = self._load_trade_scores()
+        distinct = active[['issuer_ticker', 'trade_id']].copy()
+        distinct['trade_id'] = distinct['trade_id'].astype(str)
+        distinct = distinct.drop_duplicates()
+        joined = distinct.merge(scores, on='trade_id', how='left').fillna({
+            'trade_score': 0,
+            'trade_volume_usd': 0,
+            'trade_warnings': '',
+        })
+        if not joined.empty:
+            score_agg = joined.groupby(
+                'issuer_ticker', sort=False, dropna=False
+            ).agg(
+                score_avg=('trade_score', lambda s: round(float(s.mean()), 1)),
+                score_max=('trade_score', 'max'),
+                score_total=('trade_score', 'sum'),
+                total_volume_usd=('trade_volume_usd', 'sum'),
+                warnings=('trade_warnings', _join_distinct_warnings),
+            )
+        else:
+            score_agg = pd.DataFrame(columns=[
+                'score_avg', 'score_max', 'score_total',
+                'total_volume_usd', 'warnings',
+            ])
+
         grp = active.groupby('issuer_ticker', sort=False, dropna=False)
 
         rows = []
         for issuer_ticker, g in grp:
             last_row = g.iloc[-1]
+            if issuer_ticker in score_agg.index:
+                sa = score_agg.loc[issuer_ticker]
+                score_avg = float(sa['score_avg'])
+                score_max = int(sa['score_max'])
+                score_total = int(sa['score_total'])
+                total_volume_usd = int(sa['total_volume_usd'])
+                warnings_str = str(sa['warnings'])
+            else:
+                score_avg, score_max, score_total = 0.0, 0, 0
+                total_volume_usd, warnings_str = 0, ''
+
             rows.append({
                 'issuer_ticker':     issuer_ticker,
                 'asset_name_figi':   last_row.get('asset_name_figi', ''),
@@ -1544,6 +1715,11 @@ class TradeImporter:
                 'directions':        _counter_string(g['direction']),
                 'chambers':          _counter_string(g['chamber']),
                 'last_signal_type':  last_row.get('signal_type', ''),
+                'score_avg':         score_avg,
+                'score_max':         score_max,
+                'score_total':       score_total,
+                'total_volume_usd':  total_volume_usd,
+                'warnings':          warnings_str,
             })
 
         result = pd.DataFrame(rows, columns=ASSETS_VIEW_COLUMNS)
@@ -1568,6 +1744,28 @@ class TradeImporter:
         events['_td'] = pd.to_datetime(events['triggering_date'],
                                        errors='coerce').dt.date
         events = events.sort_values('_td')  # ascending → iloc[-1] = jüngstes
+
+        # Modul 8.4: Score-Aggregat pro member_id auf distinct trade_id.
+        scores = self._load_trade_scores()
+        distinct = events[['member_id', 'trade_id']].copy()
+        distinct['trade_id'] = distinct['trade_id'].astype(str)
+        distinct = distinct.drop_duplicates()
+        joined = distinct.merge(scores, on='trade_id', how='left').fillna({
+            'trade_score': 0,
+        })
+        if not joined.empty:
+            score_agg = joined.groupby(
+                'member_id', sort=False, dropna=False
+            ).agg(
+                score_avg=('trade_score', lambda s: round(float(s.mean()), 1)),
+                score_max=('trade_score', 'max'),
+                score_total=('trade_score', 'sum'),
+            )
+        else:
+            score_agg = pd.DataFrame(columns=[
+                'score_avg', 'score_max', 'score_total',
+            ])
+
         grp = events.groupby('member_id', sort=False, dropna=False)
 
         rows = []
@@ -1575,6 +1773,14 @@ class TradeImporter:
             last_row = g.iloc[-1]
             pairs = list(zip(g['signal_event_id'].astype(str),
                              g['trade_id'].astype(str)))
+            if member_id in score_agg.index:
+                sa = score_agg.loc[member_id]
+                score_avg = float(sa['score_avg'])
+                score_max = int(sa['score_max'])
+                score_total = int(sa['score_total'])
+            else:
+                score_avg, score_max, score_total = 0.0, 0, 0
+
             rows.append({
                 'member_id':         member_id,
                 'member_name':       last_row.get('member_name', ''),
@@ -1591,6 +1797,9 @@ class TradeImporter:
                 'event_trade_pairs': json.dumps(
                     [[s, t] for s, t in pairs], ensure_ascii=False
                 ),
+                'score_avg':         score_avg,
+                'score_max':         score_max,
+                'score_total':       score_total,
             })
 
         result = pd.DataFrame(rows, columns=MEMBERS_VIEW_COLUMNS)
@@ -1893,6 +2102,72 @@ class TradeImporter:
         print(f"      {n_sector:,}/{len(df):,} mit Sektor angereichert")
         self._write_stage_output(df, 'tickeryfinance', delta, dry_run)
 
+    def _stage_trade_volume(self, delta: bool = False, dry_run: bool = False):
+        """Stage: berechnet trade_volume_usd als Mittelpunkt des Disclosure-
+        Amount-Strings ('$1,001 - $15,000' -> 8000). Vorstufe fuer die
+        asset_tradingvolume_usd-Aggregation (Phase 8.2) und das Volume-Scoring
+        (Phase 8.3). Modul 8."""
+        print(f"\n[Stage: trade_volume] Trade-Volumen aus Amount-Range...")
+        df = self._read_stage_input('trade_volume', delta, dry_run)
+        self._check_stage_inputs('trade_volume', df)
+        df = df.copy()
+        df['trade_volume_usd'] = df['amount'].map(midpoint_usd).astype('int64')
+
+        n_zero    = int((df['trade_volume_usd'] == 0).sum())
+        n_total   = len(df)
+        total_usd = int(df['trade_volume_usd'].sum())
+        print(f"      {n_total:,} Trades, {n_zero:,} mit volume_usd=0 "
+              f"(leerer/unbekannter Amount-String)")
+        print(f"      Gesamt-Volumen: ${total_usd:,}")
+        self._write_stage_output(df, 'trade_volume', delta, dry_run)
+
+    def _stage_asset_volume(self, delta: bool = False, dry_run: bool = False):
+        """Stage: Cross-Class Asset-Tradingvolume retroaktiv ueber
+        SCORING_VOLUME_WINDOW_DAYS_Z Tage, gruppiert nach issuer_group_key
+        (Modul 8, Phase 8.2).
+
+        Im Delta-Mode wird ``trades_master_complete.csv`` als historischer
+        Kontext mitgeladen, das Volumen ueber die Union berechnet und
+        anschliessend nur die Delta-Zeilen zurueckgeschrieben (Option A).
+        """
+        z = settings.SCORING_VOLUME_WINDOW_DAYS_Z
+        print(f"\n[Stage: asset_volume] Asset-Tradingvolume "
+              f"({z}d, Cross-Class via issuer_group_key)...")
+        df = self._read_stage_input('asset_volume', delta, dry_run)
+        self._check_stage_inputs('asset_volume', df)
+        df = df.copy()
+
+        if delta and os.path.isfile(MASTER_COMPLETE_CSV_PATH):
+            history = pd.read_csv(MASTER_COMPLETE_CSV_PATH, low_memory=False)
+            if 'transaction_date' in history.columns:
+                history['transaction_date'] = pd.to_datetime(
+                    history['transaction_date'], errors='coerce')
+            # Nur Spalten halten, die compute_asset_tradingvolume braucht.
+            required = ['trade_id', 'trade_volume_usd', 'issuer_group_key',
+                        'transaction_date']
+            history = history[[c for c in required if c in history.columns]].copy()
+            stage_ids = set(df.get('trade_id', pd.Series(dtype=str)).astype(str))
+            if 'trade_id' in history.columns:
+                history = history[~history['trade_id'].astype(str).isin(stage_ids)]
+            combined = pd.concat([history, df], ignore_index=True, sort=False)
+            print(f"      Delta-Mode: {len(history):,} historische + "
+                  f"{len(df):,} Delta-Trades -> Union {len(combined):,}")
+            combined_vol = compute_asset_tradingvolume(combined, z)
+            combined['asset_tradingvolume_usd'] = combined_vol.values
+            # Slice zurueck: nur die letzten len(df) Zeilen sind Delta.
+            df['asset_tradingvolume_usd'] = combined_vol.iloc[len(history):].values \
+                .astype('int64')
+        else:
+            df['asset_tradingvolume_usd'] = compute_asset_tradingvolume(df, z) \
+                .astype('int64')
+
+        n_zero = int((df['asset_tradingvolume_usd'] == 0).sum())
+        p95    = int(df['asset_tradingvolume_usd'].quantile(0.95))
+        p_max  = int(df['asset_tradingvolume_usd'].max())
+        print(f"      {len(df):,} Trades, {n_zero:,} mit asset_vol=0 (SKIP/Edge)")
+        print(f"      p95 = ${p95:,}, max = ${p_max:,}")
+        self._write_stage_output(df, 'asset_volume', delta, dry_run)
+
     def _stage_gates_tags(self, delta: bool = False, dry_run: bool = False):
         """Stage: wendet alle Pipeline-internen Gates und Tags an
         (Asset-Class-Gate, Committee-Tag, Vote-Timing-Tag) plus Match-Scoring."""
@@ -1932,6 +2207,24 @@ class TradeImporter:
         self._check_stage_inputs('swarm_signals', df)
         df = self._apply_swarm_signals(df)
         self._write_stage_output(df, 'swarm_signals', delta, dry_run)
+
+    def _stage_scoring(self, delta: bool = False, dry_run: bool = False):
+        """Stage: berechnet trade_score, trade_score_breakdown, trade_warnings
+        pro Trade auf Basis von signals_triggered, Member_ExOfficio und
+        asset_tradingvolume_usd. Modul 8.3."""
+        print(f"\n[Stage: scoring] Trade-Score berechnen (Modul 8.3)...")
+        df = self._read_stage_input('scoring', delta, dry_run)
+        self._check_stage_inputs('scoring', df)
+        scored = compute_trade_scores(df, settings)
+        df = df.copy()
+        df['trade_score'] = scored['trade_score'].values
+        df['trade_score_breakdown'] = scored['trade_score_breakdown'].values
+        df['trade_warnings'] = scored['trade_warnings'].values
+        n_positive = int((df['trade_score'] > 0).sum())
+        n_paradox = int((df['trade_warnings'] == settings.SCORING_PARADOX_WARNING_TAG).sum())
+        print(f"  Trades mit trade_score > 0: {n_positive:,}")
+        print(f"  Trades mit paradox-Warning: {n_paradox:,}")
+        self._write_stage_output(df, 'scoring', delta, dry_run)
 
     def _stage_suspicious_export(self, delta: bool = False, dry_run: bool = False):
         """Stage: promotet Stage-Events nach suspicious_events.csv
@@ -2066,12 +2359,12 @@ class TradeImporter:
         print("=" * 60)
 
         # 1. Laden + Umbenennen + trade_id
-        print("\n[1/13] Lade Quiver-Trades...")
+        print("\n[1/16] Lade Quiver-Trades...")
         input_df = self.load_and_rename()
         print(f"      Gesamt: {len(input_df)} Trades in Quiver-Datei")
 
         # 2. Datum normalisieren
-        print("\n[2/13] Normalisiere Datumsspalten...")
+        print("\n[2/16] Normalisiere Datumsspalten...")
         input_df = self.normalize_dates(input_df)
         input_df['trade_id'] = compute_trade_ids(input_df)
         n_fallback = self.stats.get('date_fallback', 0)
@@ -2082,7 +2375,7 @@ class TradeImporter:
             print(f"      Fallback: {n_future} future-dates korrigiert")
 
         # 3. Master laden + Delta erkennen via trade_id
-        print("\n[3/13] Lade Master + erkenne neue Trades...")
+        print("\n[3/16] Lade Master + erkenne neue Trades...")
         if not os.path.exists(MASTER_COMPLETE_CSV_PATH):
             print(f"      [!] {MASTER_COMPLETE_CSV_PATH} nicht vorhanden.")
             print("          Bitte zuerst Migration: python scripts/migrate_add_trade_ids.py")
@@ -2105,12 +2398,12 @@ class TradeImporter:
             return self.stats
 
         # 4. Committee-Member-Enrichment
-        print(f"\n[4/13] Reichere {len(new_trades):,} neue Trades an...")
+        print(f"\n[4/16] Reichere {len(new_trades):,} neue Trades an...")
         enriched_df, unmatched_df = self.enrich_member_data(new_trades)
         print(f"      {self.stats['matched']} gematcht, {self.stats['unmatched']} unmatched")
 
         # 5. Ticker-Klassifikation (offline)
-        print("\n[5/13] Ticker-Klassifikation (offline)...")
+        print("\n[5/16] Ticker-Klassifikation (offline)...")
         classifications = [
             classify(row.get('ticker', ''), row.get('asset_name', '') or '')
             for _, row in enriched_df.iterrows()
@@ -2128,7 +2421,7 @@ class TradeImporter:
         enriched_df = self._apply_ignore_list(enriched_df)
 
         # 6. OpenFIGI-Normalisierung
-        print("\n[6/13] OpenFIGI-Normalisierung...")
+        print("\n[6/16] OpenFIGI-Normalisierung...")
         cache_db = os.path.join(BASE_DIR, settings.DATA_CACHE_PATH,
                                 settings.TICKER_TYPE_CACHE_DB)
         normalizer = TickerNormalizer(cache_db_path=cache_db,
@@ -2154,13 +2447,13 @@ class TradeImporter:
         enriched_df['issuer_ticker'] = scf.where(scf != '', tb.where(tb != '', tk))
 
         # 7. Cross-Class Issuer Mapping via SEC EDGAR CIK (P5.6)
-        print("\n[7/13] Cross-Class Issuer Mapping (EDGAR CIK)...")
+        print("\n[7/16] Cross-Class Issuer Mapping (EDGAR CIK)...")
         issuer_mapper = IssuerGroupMapper()
         enriched_df['issuer_group_key'] = enriched_df.apply(
             issuer_mapper.resolve_issuer_group_key, axis=1)
 
         # 8. yfinance Sector/Industry
-        print("\n[8/13] yfinance Sector/Industry-Anreicherung...")
+        print("\n[8/16] yfinance Sector/Industry-Anreicherung...")
         mappings_dir = os.path.join(BASE_DIR, settings.DATA_MAPPINGS_PATH)
         enricher = TickerSectorEnricher(
             cache_dir=mappings_dir,
@@ -2175,27 +2468,56 @@ class TradeImporter:
         enriched_df['industry_yf'] = [s.industry_yf for s in sector_infos]
         enriched_df['quote_type_yf']      = [s.quote_type_yf for s in sector_infos]
 
-        # 9. Filter-Logik (Scoring + Filter 0 + Filter 4)
-        print("\n[9/13] Filter-Logik (Scoring, Asset-Klasse, Vote-Timing)...")
+        # 9. Trade-Volume (Mittelpunkt der Amount-Range, Modul 8.1)
+        print("\n[9/16] Trade-Volume aus Amount-Range berechnen...")
+        enriched_df['trade_volume_usd'] = enriched_df['amount'].map(midpoint_usd).astype('int64')
+
+        # 10. Asset-Tradingvolume (Cross-Class rolling-window, Modul 8.2).
+        # Im Delta-Mode wird Master-Historie fuer das Fenster-Backfill genutzt.
+        z = settings.SCORING_VOLUME_WINDOW_DAYS_Z
+        print(f"\n[10/16] Asset-Tradingvolume ({z}d, Cross-Class)...")
+        history_cols = ['trade_id', 'trade_volume_usd', 'issuer_group_key',
+                        'transaction_date']
+        history = master_df[[c for c in history_cols if c in master_df.columns]].copy()
+        stage_ids = set(enriched_df['trade_id'].astype(str))
+        if 'trade_id' in history.columns:
+            history = history[~history['trade_id'].astype(str).isin(stage_ids)]
+        combined = pd.concat([history, enriched_df], ignore_index=True, sort=False)
+        combined_vol = compute_asset_tradingvolume(combined, z)
+        enriched_df['asset_tradingvolume_usd'] = \
+            combined_vol.iloc[len(history):].values.astype('int64')
+        print(f"      {len(history):,} historische + {len(enriched_df):,} Delta-Trades")
+
+        # 11. Filter-Logik (Scoring + Filter 0 + Filter 4)
+        print("\n[11/16] Filter-Logik (Scoring, Asset-Klasse, Vote-Timing)...")
         enriched_df = self._apply_gates_and_tags(enriched_df)
 
-        # 10. Branch-1 Signale (committee, ex_officio, floor_action, extreme_report)
-        print("\n[10/13] Branch-1 Signale auswerten...")
+        # 12. Branch-1 Signale (committee, ex_officio, floor_action, extreme_report)
+        print("\n[12/16] Branch-1 Signale auswerten...")
         enriched_df = self._apply_branch1_signals(enriched_df)
 
-        # 11. Sequenz-Signale (contrarian, accumulative)
-        print("\n[11/13] Sequenz-Signale auswerten...")
+        # 13. Sequenz-Signale (contrarian, accumulative)
+        print("\n[13/16] Sequenz-Signale auswerten...")
         enriched_df = self._apply_sequence_signals(enriched_df)
 
-        # 12. Schwarm-Signale (swarm_buy/sell/conflict/paradox, P6)
-        print("\n[12/13] Schwarm-Signale auswerten...")
+        # 14. Schwarm-Signale (swarm_buy/sell/conflict/paradox, P6)
+        print("\n[14/16] Schwarm-Signale auswerten...")
         enriched_df = self._apply_swarm_signals(enriched_df)
 
-        # 13. Suspicious-Export (promote Stage-Events nach suspicious_*.csv)
-        print("\n[13/13] Suspicious-Export...")
-        self._stage_suspicious_export(delta=True, dry_run=dry_run)
+        # 15. Scoring (trade_score + breakdown + warnings, Modul 8.3)
+        print("\n[15/16] Trade-Score berechnen (Modul 8.3)...")
+        scored = compute_trade_scores(enriched_df, settings)
+        enriched_df = enriched_df.copy()
+        enriched_df['trade_score'] = scored['trade_score'].values
+        enriched_df['trade_score_breakdown'] = scored['trade_score_breakdown'].values
+        enriched_df['trade_warnings'] = scored['trade_warnings'].values
+        _n_pos = int((enriched_df['trade_score'] > 0).sum())
+        _n_par = int((enriched_df['trade_warnings'] == settings.SCORING_PARADOX_WARNING_TAG).sum())
+        print(f"  Trades mit trade_score > 0: {_n_pos:,}")
+        print(f"  Trades mit paradox-Warning: {_n_par:,}")
 
-        # Speichern
+        # Speichern (Master vor Suspicious-Export — Modul-8.4-Aggregate brauchen
+        # vollstaendigen Master, da suspicious_events.csv auch alte trade_ids haelt).
         enriched_df = enriched_df.copy()
         enriched_df['ImportDate'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         self._ensure_directories()
@@ -2210,6 +2532,7 @@ class TradeImporter:
             self._write_manual_review_subset(preview_df)
             print(f"\nDry-Run: {len(enriched_df):,} neue Trades -> {STAGE_CSV_PATH}")
             print("(Zum Committen: python scripts/import_trades.py --delta --stage_save)")
+            updated_master = preview_df  # fuer Suspicious-Export Override
         else:
             self._backup_master()
             updated_master = self._merge_into_master(enriched_df, master_df)
@@ -2220,6 +2543,22 @@ class TradeImporter:
             logger.info(f"Master aktualisiert: {len(updated_master):,} Trades "
                         f"({len(enriched_df):,} neu hinzugefuegt)")
             self._promote_problem_outputs(delta=True)
+
+        # 16. Suspicious-Export (promote Stage-Events nach suspicious_*.csv)
+        print("\n[16/16] Suspicious-Export...")
+        # Modul 8.4: updated_master in-memory durchreichen — File-Read waere
+        # redundant, und im Dry-Run gibt es das File ohnehin nicht aktualisiert.
+        score_cols = ['trade_id', 'trade_score', 'trade_volume_usd', 'trade_warnings']
+        if all(c in updated_master.columns for c in score_cols):
+            self._inflight_trade_scores = updated_master[score_cols]
+        else:
+            self._inflight_trade_scores = None
+        self._trade_scores_cache = None
+        try:
+            self._stage_suspicious_export(delta=True, dry_run=dry_run)
+        finally:
+            self._inflight_trade_scores = None
+            self._trade_scores_cache = None
 
         # Zusammenfassung
         print("\n" + "=" * 60)
@@ -2285,7 +2624,7 @@ class TradeImporter:
 
     def run(self, dry_run: bool = False) -> dict:
         """
-        Fuehrt den kompletten Import durch (alle 9 Stages im Speicher).
+        Fuehrt den kompletten Import durch (alle 16 Stages im Speicher).
 
         Args:
             dry_run: Wenn True, schreibt Ergebnis in trades_stage.csv statt Master
@@ -2294,16 +2633,16 @@ class TradeImporter:
             dict mit Statistiken
         """
         print("=" * 60)
-        print("CONGRESS TRADE TRACKER - Import Pipeline (13 Stages)")
+        print("CONGRESS TRADE TRACKER - Import Pipeline (16 Stages)")
         print("=" * 60)
 
         # 1. Laden + Umbenennen + trade_id
-        print("\n[1/13] Lade Quiver-Trades...")
+        print("\n[1/16] Lade Quiver-Trades...")
         df = self.load_and_rename()
         print(f"      Gesamt: {len(df)} Trades geladen")
 
         # 2. Datum normalisieren + trade_id
-        print("\n[2/13] Normalisiere Datumsspalten + trade_id...")
+        print("\n[2/16] Normalisiere Datumsspalten + trade_id...")
         df = self.normalize_dates(df)
         df['trade_id'] = compute_trade_ids(df)
         n_fallback = self.stats.get('date_fallback', 0)
@@ -2315,13 +2654,13 @@ class TradeImporter:
         print(f"      {len(df):,} trade_ids vergeben")
 
         # 3. Committee-Member-Enrichment
-        print("\n[3/13] Reichere mit Committee-Member-Daten an...")
+        print("\n[3/16] Reichere mit Committee-Member-Daten an...")
         df, unmatched_df = self.enrich_member_data(df)
         print(f"      {self.stats['matched']} erfolgreich gematcht")
         print(f"      {self.stats['unmatched']} nicht gefunden")
 
         # 4. Ticker-Klassifikation (offline)
-        print("\n[4/13] Ticker-Klassifikation (offline Regex)...")
+        print("\n[4/16] Ticker-Klassifikation (offline Regex)...")
         classifications = [
             classify(row.get('ticker', ''), row.get('asset_name', '') or '')
             for _, row in df.iterrows()
@@ -2341,7 +2680,7 @@ class TradeImporter:
         print(f"      {len(df):,} klassifiziert, {n_review} fuer manual_review markiert")
 
         # 5. OpenFIGI-Normalisierung
-        print("\n[5/13] OpenFIGI-Normalisierung...")
+        print("\n[5/16] OpenFIGI-Normalisierung...")
         cache_db = os.path.join(BASE_DIR, settings.DATA_CACHE_PATH,
                                 settings.TICKER_TYPE_CACHE_DB)
         normalizer = TickerNormalizer(
@@ -2373,12 +2712,12 @@ class TradeImporter:
         df['issuer_ticker'] = scf.where(scf != '', tb.where(tb != '', tk))
 
         # 6. Cross-Class Issuer Mapping via SEC EDGAR CIK (P5.6)
-        print("\n[6/13] Cross-Class Issuer Mapping (EDGAR CIK)...")
+        print("\n[6/16] Cross-Class Issuer Mapping (EDGAR CIK)...")
         issuer_mapper = IssuerGroupMapper()
         df['issuer_group_key'] = df.apply(issuer_mapper.resolve_issuer_group_key, axis=1)
 
         # 7. yfinance Sector/Industry-Anreicherung
-        print("\n[7/13] yfinance Sector/Industry-Anreicherung...")
+        print("\n[7/16] yfinance Sector/Industry-Anreicherung...")
         mappings_dir = os.path.join(BASE_DIR, settings.DATA_MAPPINGS_PATH)
         enricher = TickerSectorEnricher(
             cache_dir=mappings_dir,
@@ -2393,28 +2732,60 @@ class TradeImporter:
         df['industry_yf'] = [s.industry_yf for s in sector_infos]
         df['quote_type_yf']      = [s.quote_type_yf for s in sector_infos]
 
-        # 8. Filter-Logik (Scoring + Filter 0 + Filter 4)
-        print("\n[8/13] Filter-Logik (Scoring, Asset-Klasse, Vote-Timing)...")
+        # 8. Trade-Volume (Mittelpunkt der Amount-Range, Modul 8.1)
+        print("\n[8/16] Trade-Volume aus Amount-Range berechnen...")
+        df['trade_volume_usd'] = df['amount'].map(midpoint_usd).astype('int64')
+
+        # 9. Asset-Tradingvolume (Cross-Class rolling-window, Modul 8.2)
+        z = settings.SCORING_VOLUME_WINDOW_DAYS_Z
+        print(f"\n[9/16] Asset-Tradingvolume ({z}d, Cross-Class)...")
+        df['asset_tradingvolume_usd'] = \
+            compute_asset_tradingvolume(df, z).astype('int64')
+
+        # 10. Filter-Logik (Scoring + Filter 0 + Filter 4)
+        print("\n[10/16] Filter-Logik (Scoring, Asset-Klasse, Vote-Timing)...")
         df = self._apply_gates_and_tags(df)
 
-        # 9. Branch-1 Signale (committee, ex_officio, floor_action, extreme_report)
-        print("\n[9/13] Branch-1 Signale auswerten...")
+        # 11. Branch-1 Signale (committee, ex_officio, floor_action, extreme_report)
+        print("\n[11/16] Branch-1 Signale auswerten...")
         df = self._apply_branch1_signals(df)
 
-        # 10. Sequenz-Signale (contrarian, accumulative)
-        print("\n[10/13] Sequenz-Signale auswerten...")
+        # 12. Sequenz-Signale (contrarian, accumulative)
+        print("\n[12/16] Sequenz-Signale auswerten...")
         df = self._apply_sequence_signals(df)
 
-        # 11. Schwarm-Signale (swarm_buy/sell/conflict/paradox, P6)
-        print("\n[11/13] Schwarm-Signale auswerten...")
+        # 13. Schwarm-Signale (swarm_buy/sell/conflict/paradox, P6)
+        print("\n[13/16] Schwarm-Signale auswerten...")
         df = self._apply_swarm_signals(df)
 
-        # 12. Suspicious-Export (promote Stage-Events nach suspicious_*.csv)
-        print("\n[12/13] Suspicious-Export...")
-        self._stage_suspicious_export(delta=False, dry_run=dry_run)
+        # 14. Scoring (trade_score + breakdown + warnings, Modul 8.3)
+        print("\n[14/16] Trade-Score berechnen (Modul 8.3)...")
+        scored = compute_trade_scores(df, settings)
+        df = df.copy()
+        df['trade_score'] = scored['trade_score'].values
+        df['trade_score_breakdown'] = scored['trade_score_breakdown'].values
+        df['trade_warnings'] = scored['trade_warnings'].values
+        _n_pos = int((df['trade_score'] > 0).sum())
+        _n_par = int((df['trade_warnings'] == settings.SCORING_PARADOX_WARNING_TAG).sum())
+        print(f"  Trades mit trade_score > 0: {_n_pos:,}")
+        print(f"  Trades mit paradox-Warning: {_n_par:,}")
 
-        # 13. Speichern
-        print("\n[13/13] Speichere Ergebnisse...")
+        # 15. Suspicious-Export (promote Stage-Events nach suspicious_*.csv)
+        print("\n[15/16] Suspicious-Export...")
+        # Modul 8.4: In-Memory-Scores durchreichen, da trades_master_complete
+        # erst in Stage 16 geschrieben wird.
+        self._inflight_trade_scores = df[
+            ['trade_id', 'trade_score', 'trade_volume_usd', 'trade_warnings']
+        ]
+        self._trade_scores_cache = None  # Cache invalidieren
+        try:
+            self._stage_suspicious_export(delta=False, dry_run=dry_run)
+        finally:
+            self._inflight_trade_scores = None
+            self._trade_scores_cache = None
+
+        # 16. Speichern
+        print("\n[16/16] Speichere Ergebnisse...")
         if dry_run:
             self._ensure_directories()
             df_out = df.copy()
@@ -2504,6 +2875,10 @@ def main():
                         help='Stage: Cross-Class Issuer Mapping (SEC EDGAR CIK, P5.6)')
     parser.add_argument('--stage_tickeryfinance', action='store_true',
                         help='Stage: yfinance Sector/Industry-Anreicherung')
+    parser.add_argument('--stage_trade_volume', action='store_true',
+                        help='Stage: trade_volume_usd aus Amount-Range berechnen (Modul 8)')
+    parser.add_argument('--stage_asset_volume', action='store_true',
+                        help='Stage: Cross-Class Asset-Tradingvolume rolling-window (Modul 8.2)')
     parser.add_argument('--stage_gates_tags', action='store_true',
                         help='Stage: Gates + Tags (Asset-Class-Gate, Committee-Tag, Vote-Timing-Tag) + Scoring')
     parser.add_argument('--stage_branch1_signals', action='store_true',
@@ -2512,6 +2887,8 @@ def main():
                         help='Stage: Sequenz-Signale (contrarian, accumulative)')
     parser.add_argument('--stage_swarm_signals', action='store_true',
                         help='Stage: Schwarm-Signale (swarm_buy/sell/conflict/paradox, P6)')
+    parser.add_argument('--stage_scoring', action='store_true',
+                        help='Stage: Trade-Score, Breakdown, Warnings (Modul 8.3)')
     parser.add_argument('--stage_suspicious_export', action='store_true',
                         help='Stage: Promote Stage-Events nach suspicious_events.csv + Views materialisieren')
     parser.add_argument('--stage_save', action='store_true',
@@ -2538,10 +2915,13 @@ def main():
         'tickeropenfigi': args.stage_tickeropenfigi,
         'issuer_group': args.stage_issuer_group,
         'tickeryfinance': args.stage_tickeryfinance,
+        'trade_volume': args.stage_trade_volume,
+        'asset_volume': args.stage_asset_volume,
         'gates_tags': args.stage_gates_tags,
         'branch1_signals': args.stage_branch1_signals,
         'sequence_signals': args.stage_sequence_signals,
         'swarm_signals': args.stage_swarm_signals,
+        'scoring': args.stage_scoring,
         'suspicious_export': args.stage_suspicious_export,
         'save': args.stage_save,
     }

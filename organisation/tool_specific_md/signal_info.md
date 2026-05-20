@@ -114,7 +114,7 @@ Identische 21-Spalten-Struktur in `branch1_events_stage.csv`, `sequence_events_s
 
 ---
 
-## `suspicious_assets.csv` — Asset-View mit Y-Tage-Verfall (10 Spalten)
+## `suspicious_assets.csv` — Asset-View mit Y-Tage-Verfall (15 Spalten, Modul 8.4)
 
 Eine Zeile = **ein Asset, das aktuell verdächtig ist**.
 Filter: `last_event_date >= today - SUSPICIOUS_ASSET_PERSISTENCE_DAYS` (Default 30).
@@ -132,12 +132,17 @@ Veraltete Einträge fallen aus dieser View, bleiben aber in `suspicious_events.c
 | 8 | `directions` | str (Counter) | z. B. `"buy:4,sell:1"` | Hinweis auf Schwarm-/Conflict-Muster |
 | 9 | `chambers` | str (Counter) | z. B. `"House:3,Senate:1"` | Welche Kammer dominant |
 | 10 | `last_signal_type` | str | Signal-Typ des jüngsten Events | „Was war zuletzt los?" |
+| 11 | `score_avg` | float | Modul 8.4 — siehe `organisation/Filter_Instanz_Parameter.md` |  |
+| 12 | `score_max` | int | Modul 8.4 |  |
+| 13 | `score_total` | int | Modul 8.4 |  |
+| 14 | `total_volume_usd` | int | Modul 8.4 |  |
+| 15 | `warnings` | str | Modul 8.4 |  |
 
-**Regenerationslogik:** Wird bei jedem Pipeline-Lauf komplett neu aus `suspicious_events.csv` aggregiert. Datei wird überschrieben.
+**Regenerationslogik:** Wird bei jedem Pipeline-Lauf komplett neu aus `suspicious_events.csv` aggregiert. Score-Spalten werden via `trade_id` aus `trades_master_complete.csv` gejoint. Datei wird überschrieben.
 
 ---
 
-## `suspicious_members.csv` — Member-View, dauerhaft (10 Spalten)
+## `suspicious_members.csv` — Member-View, dauerhaft (13 Spalten, Modul 8.4)
 
 Eine Zeile = **ein Member, der je in einem Signal auftauchte**. Kein Verfall — historisch komplett.
 
@@ -153,6 +158,11 @@ Eine Zeile = **ein Member, der je in einem Signal auftauchte**. Kein Verfall —
 | 8 | `first_event_date` | ISO-Date | ältestes Event | „Wie lange auffällig?" |
 | 9 | `is_ex_officio_ever` | bool | bool-OR über alle Events | Mindestens einmal in Leadership |
 | 10 | `event_trade_pairs` | JSON-Liste | Alle `[signal_event_id, trade_id]`-Paare des Members | Vollständige Rückverfolgung zu den auslösenden Trades |
+| 11 | `score_avg` | float | Modul 8.4 — siehe `organisation/Filter_Instanz_Parameter.md` |  |
+| 12 | `score_max` | int | Modul 8.4 |  |
+| 13 | `score_total` | int | Modul 8.4 |  |
+
+**Hinweis:** Members-View enthält bewusst KEIN `total_volume_usd` und KEIN `warnings` (reiner Score-Indikator).
 
 **Format `event_trade_pairs`:**
 ```json

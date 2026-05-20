@@ -83,8 +83,6 @@ TARGETS: dict[str, list[Path | str]] = {
         DATA_CONGRESS_API / "bill_subjects.json",
         DATA_CONGRESS_API / "fetch_checkpoint.json",
         DATA_CONGRESS_API / "fetch_log.json",
-        DATA_CONGRESS_API / "votes_house.json",
-        DATA_CONGRESS_API / "votes_senate.json",
     ],
 }
 

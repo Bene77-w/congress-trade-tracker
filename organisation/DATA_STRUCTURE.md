@@ -471,6 +471,7 @@ User erweiterbar):
 - `chamber`, `Member_Party`, `Member_State`
 - `security_type_figi`, `sector_yf`, `industry_yf`
 - `MatchScore`, `Vote_Timing_Hit`
+- **Modul 8** (seit 8.3): `trade_volume_usd`, `asset_tradingvolume_usd`, `trade_score`, `trade_score_breakdown`, `trade_warnings`
 
 `issuer_ticker` (P5.5): Fallback-Kette `share_class_figi → ticker_base
 → ticker`. Garantiert 100% gefuellt solange mindestens eine der drei
@@ -564,9 +565,23 @@ sector_yf,              # YF Sector (z.B. "Technology") — leer bei ETFs/Bonds/
 industry_yf,            # YF Industry (z.B. "Consumer Electronics") — leer bei ETFs/Bonds/unbekannten Tickern
 quote_type_yf,          # YF quoteType (z.B. "EQUITY", "ETF", "MUTUALFUND")
 
+# Modul 8 — Volume-Spalten (Phase 8.1/8.2). Edge-Cases siehe tests/test_amount_parser.py
+# und tests/test_asset_volume.py.
+trade_volume_usd,       # int64: Mittelpunkt der Disclosure-Amount-Range (utils/amount_parser.midpoint_usd).
+asset_tradingvolume_usd,# int64: Cross-Class rolling-window Sum(trade_volume_usd) gruppiert nach
+                        # issuer_group_key, Fenster Z = settings.SCORING_VOLUME_WINDOW_DAYS_Z.
+                        # SKIP-Buckets / NaT-Datum -> 0. Delta-Mode liest Master-Historie mit.
+
 # Anreicherung durch Branch-1 Signale (Stage branch1_signals)
 signal_count,           # int 0-4: Anzahl ausgeloester Branch-1 Signale pro Trade
 signals_triggered,      # str ";"-getrennt: Liste der Signal-Typen (z.B. "committee;floor_action")
+
+# Modul 8 — Score-Spalten (Phase 8.3). Formel + Beispiele: organisation/Filter_Instanz_Parameter.md.
+# Edge-Cases: tests/test_trade_score.py (23 Faelle).
+trade_score,            # int: gewichteter Trade-Score (kein Cap). Quelle: scoring/trade_score.compute_trade_scores.
+trade_score_breakdown,  # str ";"-getrennt: deterministische Komponenten-Aufschluesselung in fester Reihenfolge
+                        # (Branch-1 -> Sequenz -> Schwarm -> ex_officio -> volume).
+trade_warnings,         # str ";"-getrennt: Warning-Tags (initial nur "paradox_swarm").
 
 # Metadata
 ImportDate              # YYYY-MM-DD HH:MM:SS
@@ -741,7 +756,7 @@ inkl. `issuer_group_key`). Vollständige Spalten-Doku siehe
 
 ---
 
-### `data/processed/suspicious_assets.csv` (View, regeneriert, Y-Tage-Verfall, P4)
+### `data/processed/suspicious_assets.csv` (View, regeneriert, Y-Tage-Verfall, P4 + Modul 8.4)
 
 **Quelle**: `scripts/import_trades.py::_materialize_suspicious_assets`
 **Format**: CSV (UTF-8)
@@ -749,13 +764,15 @@ inkl. `issuer_group_key`). Vollständige Spalten-Doku siehe
 
 **Zweck**: Asset-Aggregat aller aktuell verdächtigen Werte. Ein Asset, dessen jüngste Auslösung älter als 30 Tage ist, fällt aus dieser View, bleibt aber in `suspicious_events.csv` historisch erhalten.
 
-**Spalten** (10): `issuer_ticker`, `asset_name_figi`, `event_count`, `member_count`, `signal_types`, `last_event_date`, `first_event_date`, `directions`, `chambers`, `last_signal_type`.
+**Spalten** (15): `issuer_ticker`, `asset_name_figi`, `event_count`, `member_count`, `signal_types`, `last_event_date`, `first_event_date`, `directions`, `chambers`, `last_signal_type`, `score_avg`, `score_max`, `score_total`, `total_volume_usd`, `warnings`.
 
-Counter-Spalten (`signal_types`, `directions`, `chambers`) als String-Format `"committee:5,accumulative:2"` (sortiert nach Count desc, Tie-Break alphabetisch). Detail-Doku: `organisation/tool_specific_md/signal_info.md`.
+Counter-Spalten (`signal_types`, `directions`, `chambers`): String-Format `"committee:5,accumulative:2"` (Count desc, Tie-Break alphabetisch).
+
+Score-Aggregat-Spalten (Modul 8.4) joinen `trade_score`/`trade_volume_usd`/`trade_warnings` aus `trades_master_complete.csv` über distinct `trade_id`. Aggregations-Logik + Helper-Beschreibung: `organisation/Filter_Instanz_Parameter.md`. Schema + Beispiele: `organisation/tool_specific_md/signal_info.md`.
 
 ---
 
-### `data/processed/suspicious_members.csv` (View, regeneriert, dauerhaft, P4)
+### `data/processed/suspicious_members.csv` (View, regeneriert, dauerhaft, P4 + Modul 8.4)
 
 **Quelle**: `scripts/import_trades.py::_materialize_suspicious_members`
 **Format**: CSV (UTF-8)
@@ -763,9 +780,11 @@ Counter-Spalten (`signal_types`, `directions`, `chambers`) als String-Format `"c
 
 **Zweck**: Member-Aggregat aller je in einem Signal aufgetauchten Politiker, mit Rückverweis-Liste auf alle auslösenden Trades.
 
-**Spalten** (10): `member_id`, `member_name`, `chamber`, `event_count`, `asset_count`, `signal_types`, `last_event_date`, `first_event_date`, `is_ex_officio_ever`, `event_trade_pairs`.
+**Spalten** (13): `member_id`, `member_name`, `chamber`, `event_count`, `asset_count`, `signal_types`, `last_event_date`, `first_event_date`, `is_ex_officio_ever`, `event_trade_pairs`, `score_avg`, `score_max`, `score_total`.
 
-`event_trade_pairs` ist eine JSON-encodierte Liste `[["signal_event_id","trade_id"], ...]` mit allen Events des Members. Detail-Doku: `organisation/tool_specific_md/signal_info.md`.
+`event_trade_pairs` ist eine JSON-encodierte Liste `[["signal_event_id","trade_id"], ...]`.
+
+Score-Aggregate (Modul 8.4) analog `suspicious_assets.csv`, aber NUR drei Score-Spalten — kein `total_volume_usd` und kein `warnings`. Aggregations-Logik: `organisation/Filter_Instanz_Parameter.md`. Schema-Details: `organisation/tool_specific_md/signal_info.md`.
 
 ---
 

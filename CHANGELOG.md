@@ -1,0 +1,113 @@
+# Changelog
+
+Historie abgeschlossener Module/Phasen. **Aktueller Status** steht in `CLAUDE.md` (Modul-Tabelle). Detail-Specs zu offenen Arbeiten in `~/.claude/plans/`.
+
+## Konvention
+
+- Eine Phase pro Block, Datum (ISO), Kurz-Beschreibung, Test-Stand.
+- Keine Wiederholung der laufenden Doku — Code-Referenzen nur, wenn dauerhaft sichtbar (z. B. neue Util-Datei).
+- Reihenfolge: neuestes oben.
+
+---
+
+## 2026-05-20 — Modul 9 (Streamlit Dashboard MVP)
+
+Drei neue Dateien: `app/__init__.py`, `app/score_recompute.py`, `app/streamlit_app.py`.
+
+**Hauptfunktionen:**
+- **Datumsbasis:** Radio `disclosure_date` / `transaction_date` (Default disclosure_date)
+- **Zeitfenster:** Radio 7 / 30 / 365 Tage / Alles (Default 30 Tage)
+- **Sortierung:** absteigend / aufsteigend nach `trade_score` (Default absteigend)
+- **Signal-Ausschluss:** Multiselect über alle 9 Signale — löst Voll-Recompute via `scoring/trade_score.py` aus (Gewicht ausgeschlossener Signale = 0; `swarm_paradox` excluded → `SCORING_PARADOX_DAMPER=1.0`)
+- **Member-Suche / Ticker-Suche:** Substring-Filter auf `name` bzw. `ticker`/`issuer_ticker`
+- **Min-Score-Slider:** 0 .. max(50, max(trade_score))
+
+**Drei Tabs:** Trades (KPIs + 16-Spalten-Tabelle) | Assets (suspicious_assets.csv) | Members (suspicious_members.csv)
+
+**Start:** `venv/bin/streamlit run app/streamlit_app.py` → http://localhost:8501
+
+**Smoke-Test:** 200 Test-Rows, Recompute + alle Filter fehlerfrei. Streamlit 1.57.0, Pandas 3.0.0.
+
+---
+
+## 2026-05-20 — Modul 6 (Vote-Timing) Status-Korrektur
+
+Modul 6 war als „UNVOLLSTÄNDIG" markiert, ist aber seit Modul-7-Rebuild vollständig funktional. `VoteTimingTag` liest Roll-Calls direkt aus `bill_actions.json` (Floor Votes in `actions[*].roll_call[*]`) — kein separater Vote-Endpoint nötig (`fetch_congress_votes.py` ist nie wieder eingeführt worden).
+
+**Smoke-Run-Verifikation (111.986 Trades):**
+- 5.357 Trades mit `Vote_Timing_Hit=True` (4,8%)
+- 0 Inkonsistenzen zwischen `Vote_Timing_Hit_Count ≥ 1` und `floor_action` in `signals_triggered`
+- Score-Effekt: mean `trade_score` mit floor_action = 64,6 vs. 21,6 ohne
+
+**Cleanup:**
+- Leere Platzhalter-Files `data/congress_api/votes_house.json` und `votes_senate.json` entfernt
+- Doku-Status in CLAUDE.md, README.md, Filter_Instanz_Parameter.md, settings.py-Kommentar aktualisiert
+
+**Neue Tests:** `tests/test_vote_timing_tag.py` (~12 Tests).
+
+---
+
+## 2026-05-20 — Modul 8 Phase 8.6 (Voll-Pipeline-Smoke-Run)
+
+Voll-Pipeline-Lauf produzierte `trades_master_complete.csv` mit allen 5 Modul-8-Spalten. Score-Verteilung über 111.986 Trades: mean=23.7, median=13, max=1705 (MSFT-Cluster Nov 2021), 80,5% Score > 0, 3.085 paradox-Warnings.
+
+**Bug-Fix:** Stage-Reihenfolge: Suspicious-Export lief vor Save → `_load_trade_scores` las die noch nicht geschriebene `trades_master_complete.csv` → alle Score-Aggregate in `suspicious_assets.csv` / `suspicious_members.csv` fielen auf 0.
+
+Lösung: In-Flight-Hand-off via `self._inflight_trade_scores`. `_load_trade_scores` priorisiert den DataFrame aus dem laufenden Run gegenüber dem File-Read. Im Delta-Mode wurde Save vor Suspicious-Export verschoben, damit `updated_master` als Override bereitsteht. Neuer Regression-Test `test_inflight_override_uebersteuert_file`. 16/16 Modul-8.4-Tests grün.
+
+Nach Fix: Top-Member Michael McCaul mit `score_total=649.758` (44.289 Events, `score_max=1136`), Josh Gottheimer mit `score_max=1705`.
+
+---
+
+## 2026-05-19 — Modul 8 (Scoring-System), Phasen 8.1–8.5
+
+| Phase | Artefakte | Tests |
+|---|---|---|
+| 8.1 Trade-Volume | `utils/amount_parser.py`, Stage `_stage_trade_volume`, Spalte `trade_volume_usd` | 21 grün |
+| 8.2 Asset-Volume | `scoring/asset_volume.py`, Stage `_stage_asset_volume`, Spalte `asset_tradingvolume_usd` (rolling 90d über `issuer_group_key`, Option-A-Delta-Backfill) | 10 grün |
+| 8.3 Trade-Score | `scoring/trade_score.py`, Stage `_stage_scoring`, Spalten `trade_score` / `trade_score_breakdown` / `trade_warnings`. Pipeline 16 Stages. | 23 grün |
+| 8.4 Score-Aggregation | Helper `_load_trade_scores`, `_join_distinct_warnings`. `suspicious_assets.csv` +5 Spalten (`score_avg`/`max`/`total`, `total_volume_usd`, `warnings`). `suspicious_members.csv` +3 Spalten (`score_avg`/`max`/`total`). | 7 grün |
+| 8.5 Doku-Migration | Sieben Doku-Dateien aktualisiert; Single-Source-Konvention etabliert. | — |
+
+---
+
+## 2026-05 — Modul 7 (Signal-Architektur), P1–P7
+
+Gate/Tag/Signal-Konvention eingeführt (`gates/` / `tags/` / `signals/`).
+
+| Phase | Inhalt |
+|---|---|
+| P1 | Architektur-Refactor: alte `filters/` → Drei-Klassen-Struktur |
+| P2 | Branch-1 Per-Trade-Signale: `committee`, `committee_ex_officio`, `floor_action`, `extreme_report` |
+| P3 | Sequenz-Signale: `contrarian`, `accumulative` |
+| P4 | Suspicious-Export: `suspicious_events.csv` + Views `suspicious_assets.csv` / `suspicious_members.csv` |
+| P5 | OpenFIGI-Coverage 82,7%; Spalte `share_class_figi` |
+| P5.5 | Abgeleitete Spalte `issuer_ticker` (Share-Class-Level, Fallback-Kette `share_class_figi → ticker_base → ticker`) |
+| P5.6 | Cross-Class Issuer Mapping via SEC EDGAR CIK: Stage `_stage_issuer_group`, Spalte `issuer_group_key` (Präfix `CIK:` / `TICKER:` / `SKIP:`). GOOGL+GOOG → `CIK:1652044`. |
+| P6 | Schwarm-Signale (Branch 2): `swarm_buy`/`swarm_sell` (Greedy-Cluster), `swarm_conflict` (1 Gegen-Trade), `swarm_paradox` (≥2 Gegen-Trades, mutex zu conflict). Gruppiert nach `issuer_group_key`. 24.926 P6-Events. |
+| P7 | Doku-Konsolidierung |
+
+---
+
+## 2026-04 / 2026-05 — Rebuild T1–T5 (Ticker-Architektur)
+
+| Stufe | Inhalt |
+|---|---|
+| T1 | Foundation: `utils/trade_id.py`, `utils/ticker_classifier.py` (Offline-Regex-Klassifikator) |
+| T2 | Network-Wrapper: `utils/ticker_normalizer.py` (OpenFIGI + SQLite-Cache), `utils/ticker_sector.py` (yfinance) |
+| T3 | Integration in `scripts/import_trades.py` (Stage-Pipeline) |
+| T4 | OFFEN — Migration alter Caches, `utils/openfigi_client.py` entfernen |
+| T5 | P5 + P5.5 + P5.6 (siehe Modul 7) |
+
+Architektur-Doku: `organisation/Ticker_Architektur.md`.
+
+---
+
+## Vor 2026-04 — Module 1–4
+
+- Modul 1: Projektstruktur, venv
+- Modul 2: House Trades Scraping (ZIP + XML + PDF). PDF Extractor v2 (OpenCV Grid + Pixel-Density + Vision API).
+- Modul 3: Senate Trades Scraping (Playwright + DataTables API)
+- Modul 4: Ausschuss-Sektor-Mapping (`config/committee_mapping.py`, 861-Row Mapping)
+
+Module 5 (Yahoo-Kursdaten) und 6 (Roll-Call-Votes) übersprungen / unvollständig.

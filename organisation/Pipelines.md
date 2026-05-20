@@ -182,7 +182,7 @@ PDF_EXTRACTOR_ROW_BATCH_SIZE = 5
 
 ---
 
-## Pipeline 5: Import-Pipeline (Hauptpipeline, 13 Stages)
+## Pipeline 5: Import-Pipeline (Hauptpipeline, 16 Stages)
 
 **Script:** `scripts/import_trades.py`
 **Input:** `data/raw/congress-trading-all.xlsx` (Quiver-Snapshot)
@@ -193,7 +193,7 @@ PDF_EXTRACTOR_ROW_BATCH_SIZE = 5
   - `data/processed/unmatched_names.csv`, `data/processed/unmatched_preferred.csv` (bei Bedarf)
 
 **Modi:**
-- `python scripts/import_trades.py` — Full Rebuild (alle 13 Stages, schreibt complete + curated + review)
+- `python scripts/import_trades.py` — Full Rebuild (alle 16 Stages, schreibt complete + curated + review)
 - `python scripts/import_trades.py --delta` — Delta-Import via `trade_id` (nur neue Trades, merge)
 - `python scripts/import_trades.py --dry_run` — Alle Stages → trades_stage.csv (Master unberuehrt)
 
@@ -202,7 +202,7 @@ PDF_EXTRACTOR_ROW_BATCH_SIZE = 5
 python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splittet complete/curated
 ```
 
-**Stage-Pipeline (13 Schritte, unabhaengig re-runnable):**
+**Stage-Pipeline (16 Schritte, unabhaengig re-runnable):**
 ```
 --stage_rename            # Quiver laden + Spalten umbenennen + trade_id
 --stage_date              # Datum normalisieren
@@ -211,10 +211,13 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
 --stage_tickeropenfigi    # OpenFIGI-Normalisierung (FIGI, ticker_figi)
 --stage_issuer_group      # Cross-Class Issuer Mapping (SEC EDGAR CIK, P5.6)
 --stage_tickeryfinance    # yfinance Sector/Industry-Anreicherung
+--stage_trade_volume      # Trade-Volume aus Amount-Range (Modul 8, Phase 8.1) → trade_volume_usd
+--stage_asset_volume      # Cross-Class Asset-Tradingvolume (Modul 8, Phase 8.2) → asset_tradingvolume_usd
 --stage_gates_tags        # Gates + Tags (Asset-Class, Committee, Vote-Timing) + Scoring
 --stage_branch1_signals   # Branch-1 Signale (committee, ex_officio, floor_action, extreme_report)
 --stage_sequence_signals  # Sequenz-Signale (contrarian, accumulative)
 --stage_swarm_signals     # Schwarm-Signale (swarm_buy/sell/conflict/paradox, P6)
+--stage_scoring           # Trade-Score + breakdown + warnings (Modul 8, Phase 8.3) → trade_score, trade_score_breakdown, trade_warnings
 --stage_suspicious_export # Suspicious-Events → suspicious_*.csv promoten
 --stage_save              # trades_stage.csv → complete + curated Master
 ```
@@ -293,7 +296,37 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
     → Neue Spalten (Suffix _yf): sector_yf, industry_yf, quote_type_yf
     → Vorzugsaktien-Mapping (EP$C → KMI), Hyphen-Fallback (BRK-B → BRK/B)
          ↓
-[8] Filter-Logik (_apply_filter_logic)
+[8] Trade-Volume (Modul 8, Phase 8.1 — neue Stage)
+    → utils/amount_parser.midpoint_usd(amount) — pro Trade individuelle
+      Mittelpunkt-Berechnung der Disclosure-Amount-Range.
+    → Neue Spalte: trade_volume_usd (int64)
+    → Beispiele:
+        "$1,001 - $15,000"  → 8000
+        "$15,001 - $50,000" → 32500
+        "Over $50,000,000"  → 50_000_000 (konservativer Punkt-Trade)
+        "$94.91"            → 94 (Single-Wert)
+        ""/NaN/unparsebar   → 0
+    → Eingabe fuer Stage [9] (Asset-Tradingvolume-Aggregation) und
+      Phase 8.3 (Volume-Score: Schwelle U + lineare Steigung SLOPE).
+         ↓
+[9] Asset-Tradingvolume (Modul 8, Phase 8.2 — neue Stage)
+    → scoring/asset_volume.compute_asset_tradingvolume(df, window_days_z)
+    → Neue Spalte: asset_tradingvolume_usd (int64)
+    → Cross-Class rolling-window Sum(trade_volume_usd), gruppiert nach
+      issuer_group_key, im Fenster [T.transaction_date - Z, T.transaction_date]
+      mit Z = settings.SCORING_VOLUME_WINDOW_DAYS_Z (Default 90).
+    → Tages-Aggregation: alle Trades am gleichen Tag in derselben Gruppe
+      sehen denselben asset_vol-Wert (Schwarm-Konsistenz). rolling closed='both'
+      schliesst beide Fenster-Enden ein.
+    → SKIP-Buckets (SKIP:OPTION, SKIP:BOND, ...): asset_vol = 0.
+    → Edge-Cases (NaT-Datum, leerer issuer_group_key): asset_vol = 0.
+    → Delta-Mode: Master-Historie aus trades_master_complete.csv wird
+      mitgeladen, damit das 90d-Window korrekt zurueckblickt; nur die
+      Delta-Zeilen werden zurueckgeschrieben (Option A — siehe
+      _stage_asset_volume).
+    → GOOG+GOOGL aggregieren ueber CIK:1652044 (Cross-Class verifiziert).
+         ↓
+[10] Filter-Logik (_apply_filter_logic)
     → Pre-Hook _ensure_fresh_vote_data() prueft Alter von bill_actions.json/
       bill_subjects.json. Liegt eine Datei aelter als settings.VOTE_DATA_TTL_HOURS
       (Default 24h), wird scrapers/fetch_congress_data.CongressFetcher.run_update()
@@ -319,7 +352,7 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
       Sektor-Treffer am Ticker haengen, nicht nur am Committee. Alle Treffer
       im Fenster werden als JSON-Liste gespeichert.
          ↓
-[9] Branch-1 Signale (_apply_branch1_signals)
+[11] Branch-1 Signale (_apply_branch1_signals)
     → Vier Per-Trade-Signale: committee, committee_ex_officio,
       floor_action, extreme_report (signals/*.py)
     → Schwellwerte aus settings.py: COMMITTEE_THRESHOLD,
@@ -332,7 +365,7 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
       Diese Datei wird in einer spaeteren Suspicious-Export-Stage (P4) in
       suspicious_events.csv promoted.
          ↓
-[10] Sequenz-Signale (_apply_sequence_signals)
+[12] Sequenz-Signale (_apply_sequence_signals)
     → Zwei Gruppen-Signale: contrarian, accumulative (signals/*.py)
     → Gruppierung: (bio_guide_id, issuer_ticker) via
       utils/issuer_ticker.resolve_issuer_ticker — Fallback-Kette
@@ -346,7 +379,7 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
     → Events nach data/processed/sequence_events_stage.csv (gleiche
       21-Spalten-Form wie branch1_events_stage.csv, inkl. issuer_group_key)
          ↓
-[11] Schwarm-Signale (_apply_swarm_signals)  -- P6, Branch 2
+[13] Schwarm-Signale (_apply_swarm_signals)  -- P6, Branch 2
     → Vier Issuer-Group-Signale: swarm_buy, swarm_sell, swarm_conflict,
       swarm_paradox (signals/swarm_*.py)
     → Gruppierung: settings.SWARM_GROUPING_KEY (= 'issuer_group_key',
@@ -363,23 +396,45 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
     → Aggregiert additiv in signal_count + signals_triggered (dedupliziert)
     → Events nach data/processed/swarm_events_stage.csv (21 Spalten)
          ↓
-[12] Suspicious-Export (_stage_suspicious_export)
+[14] Trade-Score (Modul 8, Phase 8.3 — _stage_scoring)
+    → scoring/trade_score.compute_trade_scores(df, settings)
+    → Drei neue Spalten:
+        trade_score             — int, gewichteter Score nach Formel
+                                   round(swarm × PARADOX_DAMPER + other + volume + ex_officio_bonus)
+        trade_score_breakdown   — ;-getrennte Komponenten in fester Reihenfolge
+                                   (Branch-1 → Sequenz → Schwarm → ex_officio → volume)
+        trade_warnings          — Warning-Tags (aktuell: paradox_swarm)
+    → Eingaben: signals_triggered (aus [11]/[12]/[13]), Member_ExOfficio,
+      asset_tradingvolume_usd (aus [9]).
+    → Parameter aus settings.py: SCORING_WEIGHTS, SCORING_PARADOX_DAMPER,
+      SCORING_EX_OFFICIO_BONUS, SCORING_EX_OFFICIO_TRIGGERS,
+      SCORING_VOLUME_ENABLED, SCORING_VOLUME_THRESHOLD_U, SCORING_VOLUME_SLOPE.
+    → Score = 0 bei trade ohne Signal-Hit; kein Cap.
+         ↓
+[15] Suspicious-Export (_stage_suspicious_export, + Modul 8.4)
     → Liest branch1_events_stage.csv + sequence_events_stage.csv +
       swarm_events_stage.csv
     → Append nach data/processed/suspicious_events.csv mit
       (signal_event_id, trade_id)-Dedup (Idempotenz)
     → Materialisiert suspicious_assets.csv (Y-Tage-Verfall via
-      settings.SUSPICIOUS_ASSET_PERSISTENCE_DAYS, Default 30)
-    → Materialisiert suspicious_members.csv (kein Filter)
+      settings.SUSPICIOUS_ASSET_PERSISTENCE_DAYS, Default 30) — inkl.
+      Score-Aggregat-Spalten score_avg/score_max/score_total/total_volume_usd/
+      warnings (Helper _load_trade_scores + _join_distinct_warnings).
+      Aggregation auf distinct trade_id pro issuer_ticker.
+    → Materialisiert suspicious_members.csv (kein Filter) — inkl. drei
+      Score-Aggregat-Spalten score_avg/score_max/score_total (analog,
+      kein total_volume_usd / warnings).
     → dry_run: schreibt nichts, gibt nur Vorschau-Counts aus
     → Mutiert trades_stage.csv NICHT (signal_count/signals_triggered
-      werden bereits in Stage [9]/[10] gesetzt)
+      werden bereits in Stage [11]/[12] gesetzt)
          ↓
-[12] Speichern
+[16] Speichern
     → Backup: archive/trades_master_backup/trades_master[_complete]_{ts}.csv
-    → trades_master_complete.csv (alle Spalten, neu geschrieben)
+    → trades_master_complete.csv (alle Spalten, neu geschrieben — inkl.
+      trade_volume_usd, asset_tradingvolume_usd, trade_score,
+      trade_score_breakdown, trade_warnings aus Modul 8)
     → trades_master.csv (kuratiert via settings.CURATED_COLUMNS — inkl.
-      signal_count + signals_triggered)
+      signal_count + signals_triggered + alle 5 Modul-8-Spalten)
     → manual_review_tickers.csv (falls Tickers mit manual_review_flag)
     → _promote_problem_outputs(delta) — siehe Abschnitt unten
         - unmatched_names.csv
@@ -623,6 +678,74 @@ und schiebt vor dem Fallback eine `search_pause` ein. Backoff: 2^n max 90s,
 
 ---
 
+## Pipeline 10: Streamlit Dashboard (App)
+
+**Script:** `app/streamlit_app.py`
+**Start-Befehl:**
+```bash
+# Linux/Mac
+venv/bin/streamlit run app/streamlit_app.py
+
+# Windows
+venv\Scripts\streamlit run app/streamlit_app.py
+
+# Alternativer Port / Headless
+venv/bin/streamlit run app/streamlit_app.py --server.port 8502
+venv/bin/streamlit run app/streamlit_app.py --server.headless true
+```
+**Inputs (read-only):**
+- `data/processed/trades_master.csv` — Haupt-Trades-Tabelle (gecached via `@st.cache_data`)
+- `data/processed/suspicious_assets.csv` — Assets-View mit Score-Aggregaten
+- `data/processed/suspicious_members.csv` — Members-View mit Score-Aggregaten
+
+**Outputs:** keine — reine Lese-UI, kein Schreiben auf Disk
+
+**Datenfluss pro Render:**
+```
+Load (cached)
+    → Pre-Filter (Datum + Member-Suche + Ticker-Suche)
+        → Score-Recompute auf Subset (nur wenn Signale ausgeschlossen)
+            → Post-Filter (Min-Score)
+                → Sort (nach trade_score, asc/desc)
+                    → Render (Tab: Trades / Assets / Members)
+```
+
+**Sidebar-Widgets:**
+| Widget | Optionen | Default |
+|--------|----------|---------|
+| Datumsbasis | `disclosure_date` / `transaction_date` | `disclosure_date` |
+| Zeitfenster | 7 / 30 / 365 Tage / Alles | 30 Tage |
+| Sortierung | absteigend / aufsteigend (nach `trade_score`) | absteigend |
+| Signal-Ausschluss | Multiselect über alle 9 Signale | (keines) |
+| Member-Suche | Textfeld, Substring auf `name` | — |
+| Ticker-Suche | Textfeld, Substring auf `ticker` ODER `issuer_ticker` | — |
+| Min-Score-Slider | 0 .. max(50, max(trade_score)) | 0 |
+
+**Voll-Recompute-Mechanismus:**
+Werden Signale via Multiselect ausgeschlossen, ruft die App `app/score_recompute.py` auf:
+- `build_settings_proxy(excluded)` — kopiert `config.settings.SCORING_*`-Konstanten in einen `types.SimpleNamespace`; setzt Gewichte ausgeschlossener Signale auf 0; bei `swarm_paradox` in excluded wird `SCORING_PARADOX_DAMPER=1.0` (Dämpfung aus); `SCORING_EX_OFFICIO_TRIGGERS` wird um ausgeschlossene Trigger bereinigt.
+- `recompute_subset(df, excluded)` — ruft `scoring.trade_score.compute_trade_scores(df, proxy)` auf und überschreibt die Spalten `trade_score`, `trade_score_breakdown`, `trade_warnings` im gefilterten Subset.
+Zweck: Paradox-Dämpfung und Ex-Officio-Bonus bleiben bei Signal-Ausschluss konsistent — einfaches String-Filtern würde diese Interaktionen brechen.
+
+**Drei Tabs:**
+- **Trades** (Standard): KPIs (Anzahl, Mean, Max, # ausgeschlossene Signale) + Datentabelle mit 16 Spalten
+- **Assets**: rohe Ansicht von `suspicious_assets.csv` sortiert nach `score_max` desc (Datum/Score-Filter noch nicht aktiv — geplante Iteration)
+- **Members**: rohe Ansicht von `suspicious_members.csv` sortiert nach `score_max` desc (gleiche MVP-Beschränkung)
+
+**Neue Dateien:**
+| Datei | Zweck |
+|-------|-------|
+| `app/__init__.py` | Package-Marker (leer) |
+| `app/score_recompute.py` | Helper: `available_signals()`, `build_settings_proxy()`, `recompute_subset()` |
+| `app/streamlit_app.py` | Haupt-UI, Streamlit 1.57.0, Pandas 3.0.0 |
+
+**Abhängigkeiten:**
+- `scoring/trade_score.py` — Voll-Recompute
+- `config/settings.py` — `SCORING_*`-Konstanten
+- `streamlit` >= 1.57.0, `pandas` >= 3.0.0
+
+---
+
 ## Pipeline 9: Wartung & Reset
 
 **Script:** `scripts/reset_pipeline.py`
@@ -710,15 +833,22 @@ Zwischensummen pro Gruppe, finale Zusammenfassung.
          └──────────────┬──────────────────────┘
                         │
                         ↓
-              ┌─────────────────────┐
-              │ trades_master.csv   │
-              │ trades_new.csv      │
-              │ unmatched_names.csv │
-              └─────────────────────┘
-                        │
-                        ↓
-              [Modul 7-11: TODO]
-              Filter → Scoring → Dashboard → Email
+              ┌─────────────────────────────────────────┐
+              │ trades_master.csv                       │
+              │ trades_master_complete.csv              │
+              │ suspicious_assets.csv                   │
+              │ suspicious_members.csv                  │
+              │ unmatched_names.csv                     │
+              └─────────────────┬───────────────────────┘
+                                │
+                                ↓
+              ┌─────────────────────────────────────────┐
+              │  Streamlit Dashboard (Pipeline 10)      │
+              │  app/streamlit_app.py                   │
+              │  Lese-UI: Trades / Assets / Members     │
+              └─────────────────────────────────────────┘
+              [Modul 10-11: TODO]
+              Email → Automatisierung
 ```
 
 ---
@@ -741,10 +871,13 @@ Diese Dateien werden nicht durch Pipelines erzeugt, sondern manuell gepflegt:
 ---
 
 Erstellt: 2026-03-07
-Letzte Aktualisierung: 2026-05-14 (Spalten-Refactoring: API-Provider-Suffixe _figi / _yf)
+Letzte Aktualisierung: 2026-05-20 (Pipeline 10: Streamlit Dashboard MVP)
 
 ### Aenderungs-Historie
 
+- **2026-05-20** — Pipeline 10 (Streamlit Dashboard MVP) hinzugefuegt.
+  Drei neue Dateien: `app/__init__.py`, `app/score_recompute.py`,
+  `app/streamlit_app.py`. Abhaengigkeitsgraph um Streamlit-App-Knoten ergaenzt.
 - **2026-05-14** — Spalten-Refactoring in Stage 5 (OpenFIGI) und Stage 6
   (yfinance). Output-Spalten der externen-API-Stages bekommen Provider-Suffixe:
   `_figi` fuer OpenFIGI-Felder (`ticker_figi`, `asset_name_figi`,

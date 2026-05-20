@@ -74,15 +74,32 @@ def isolated_paths(tmp_path, monkeypatch):
                         str(tmp_path / 'branch1_events_stage.csv'))
     monkeypatch.setattr(it, 'SEQUENCE_EVENTS_STAGE_PATH',
                         str(tmp_path / 'sequence_events_stage.csv'))
+    monkeypatch.setattr(it, 'SWARM_EVENTS_STAGE_PATH',
+                        str(tmp_path / 'swarm_events_stage.csv'))
     monkeypatch.setattr(it, 'SUSPICIOUS_EVENTS_PATH',
                         str(tmp_path / 'suspicious_events.csv'))
     monkeypatch.setattr(it, 'SUSPICIOUS_ASSETS_PATH',
                         str(tmp_path / 'suspicious_assets.csv'))
     monkeypatch.setattr(it, 'SUSPICIOUS_MEMBERS_PATH',
                         str(tmp_path / 'suspicious_members.csv'))
+    # Modul 8.4: Score-Lookup-CSV (trades_master_complete) ebenfalls in tmp_path.
+    monkeypatch.setattr(it, 'MASTER_COMPLETE_CSV_PATH',
+                        str(tmp_path / 'trades_master_complete.csv'))
     # _ensure_directories ruft os.makedirs(PROCESSED_DIR) auf — irrelevant,
     # tmp_path existiert. Wir patchen es trotzdem, damit es ein no-op wird.
     return tmp_path
+
+
+def _write_trade_scores_csv(tmp_path, rows):
+    """Schreibt trades_master_complete.csv mit nur den Score-Spalten (Modul 8.4).
+
+    Args:
+        tmp_path: pytest tmp_path
+        rows: Liste von dicts mit Keys trade_id, trade_score, trade_volume_usd, trade_warnings.
+    """
+    cols = ['trade_id', 'trade_score', 'trade_volume_usd', 'trade_warnings']
+    pd.DataFrame(rows, columns=cols).to_csv(
+        tmp_path / 'trades_master_complete.csv', index=False)
 
 
 # ---------- _counter_string -------------------------------------------------
@@ -371,3 +388,195 @@ class TestStageSuspiciousExport:
         assert not os.path.exists(it.SUSPICIOUS_EVENTS_PATH)
         out = capsys.readouterr().out
         assert '0 Events' in out
+
+
+# ---------- Modul 8.4: Score-Aggregation in Views --------------------------
+
+class TestAssetsViewScoreAggregation:
+    """Tests fuer die Score-Spalten in suspicious_assets.csv (Modul 8.4)."""
+
+    def test_two_trades_same_asset(self, isolated_paths):
+        importer = TradeImporter()
+        today = datetime.now().date().isoformat()
+        events = pd.DataFrame([
+            make_event(trade_id='t1', issuer_ticker='AAPL', triggering_date=today),
+            make_event(trade_id='t2', issuer_ticker='AAPL',
+                       signal_event_id='sig_bbb', triggering_date=today),
+        ], columns=SIGNAL_EVENT_COLUMNS)
+        importer._append_suspicious_events(events)
+        _write_trade_scores_csv(isolated_paths, [
+            {'trade_id': 't1', 'trade_score': 10,
+             'trade_volume_usd': 1000, 'trade_warnings': ''},
+            {'trade_id': 't2', 'trade_score': 20,
+             'trade_volume_usd': 2000, 'trade_warnings': ''},
+        ])
+        importer._materialize_suspicious_assets()
+        df = pd.read_csv(it.SUSPICIOUS_ASSETS_PATH)
+        row = df.iloc[0]
+        assert row['score_avg'] == 15.0
+        assert row['score_max'] == 20
+        assert row['score_total'] == 30
+        assert row['total_volume_usd'] == 3000
+
+    def test_distinct_trade_ids(self, isolated_paths):
+        """Trade t1 in 2 Events → Score nur einmal aggregiert (distinct trade_id)."""
+        importer = TradeImporter()
+        today = datetime.now().date().isoformat()
+        events = pd.DataFrame([
+            make_event(trade_id='t1', signal_type='committee',
+                       triggering_date=today),
+            make_event(trade_id='t1', signal_type='contrarian',
+                       signal_event_id='sig_bbb', triggering_date=today),
+        ], columns=SIGNAL_EVENT_COLUMNS)
+        importer._append_suspicious_events(events)
+        _write_trade_scores_csv(isolated_paths, [
+            {'trade_id': 't1', 'trade_score': 50,
+             'trade_volume_usd': 5000, 'trade_warnings': ''},
+        ])
+        importer._materialize_suspicious_assets()
+        df = pd.read_csv(it.SUSPICIOUS_ASSETS_PATH)
+        # score nur einmal gezaehlt, nicht 2x
+        assert df.iloc[0]['score_total'] == 50
+        assert df.iloc[0]['total_volume_usd'] == 5000
+        # event_count zaehlt aber alle Events (Status quo)
+        assert df.iloc[0]['event_count'] == 2
+
+    def test_warnings_distinct_sorted(self, isolated_paths):
+        importer = TradeImporter()
+        today = datetime.now().date().isoformat()
+        events = pd.DataFrame([
+            make_event(trade_id='t1', issuer_ticker='AAPL', triggering_date=today),
+            make_event(trade_id='t2', issuer_ticker='AAPL',
+                       signal_event_id='sig_bbb', triggering_date=today),
+            make_event(trade_id='t3', issuer_ticker='AAPL',
+                       signal_event_id='sig_ccc', triggering_date=today),
+        ], columns=SIGNAL_EVENT_COLUMNS)
+        importer._append_suspicious_events(events)
+        _write_trade_scores_csv(isolated_paths, [
+            {'trade_id': 't1', 'trade_score': 0,
+             'trade_volume_usd': 0, 'trade_warnings': 'paradox_swarm'},
+            {'trade_id': 't2', 'trade_score': 5,
+             'trade_volume_usd': 0, 'trade_warnings': ''},
+            {'trade_id': 't3', 'trade_score': 0,
+             'trade_volume_usd': 0, 'trade_warnings': 'paradox_swarm'},
+        ])
+        importer._materialize_suspicious_assets()
+        df = pd.read_csv(it.SUSPICIOUS_ASSETS_PATH)
+        # Distinct → nur einmal 'paradox_swarm', kein leerer Token
+        assert df.iloc[0]['warnings'] == 'paradox_swarm'
+
+    def test_total_volume_aggregation(self, isolated_paths):
+        importer = TradeImporter()
+        today = datetime.now().date().isoformat()
+        events = pd.DataFrame([
+            make_event(trade_id='t1', issuer_ticker='MSFT', triggering_date=today),
+            make_event(trade_id='t2', issuer_ticker='MSFT',
+                       signal_event_id='sig_bbb', triggering_date=today),
+        ], columns=SIGNAL_EVENT_COLUMNS)
+        importer._append_suspicious_events(events)
+        _write_trade_scores_csv(isolated_paths, [
+            {'trade_id': 't1', 'trade_score': 1,
+             'trade_volume_usd': 12500, 'trade_warnings': ''},
+            {'trade_id': 't2', 'trade_score': 1,
+             'trade_volume_usd': 7500, 'trade_warnings': ''},
+        ])
+        importer._materialize_suspicious_assets()
+        df = pd.read_csv(it.SUSPICIOUS_ASSETS_PATH)
+        assert df.iloc[0]['total_volume_usd'] == 20000
+
+    def test_fillna_zero_when_trade_missing_in_master(self, isolated_paths):
+        """Trade in suspicious_events, aber NICHT in master → score=0 (kein NaN)."""
+        importer = TradeImporter()
+        today = datetime.now().date().isoformat()
+        events = pd.DataFrame([
+            make_event(trade_id='t_unknown', issuer_ticker='AAPL',
+                       triggering_date=today),
+        ], columns=SIGNAL_EVENT_COLUMNS)
+        importer._append_suspicious_events(events)
+        # Master-CSV mit anderem trade_id → t_unknown findet nichts
+        _write_trade_scores_csv(isolated_paths, [
+            {'trade_id': 't_other', 'trade_score': 99,
+             'trade_volume_usd': 1000, 'trade_warnings': 'paradox_swarm'},
+        ])
+        importer._materialize_suspicious_assets()
+        df = pd.read_csv(it.SUSPICIOUS_ASSETS_PATH)
+        row = df.iloc[0]
+        assert row['score_avg'] == 0.0
+        assert row['score_max'] == 0
+        assert row['score_total'] == 0
+        assert row['total_volume_usd'] == 0
+        # Leere warnings → CSV-Roundtrip macht NaN; pd.isna oder '' beides OK.
+        assert pd.isna(row['warnings']) or row['warnings'] == ''
+
+
+class TestMembersViewScoreAggregation:
+    """Tests fuer die Score-Spalten in suspicious_members.csv (Modul 8.4)."""
+
+    def test_member_score_aggregation(self, isolated_paths):
+        importer = TradeImporter()
+        today = datetime.now().date().isoformat()
+        events = pd.DataFrame([
+            make_event(trade_id='t1', member_id='M1', triggering_date=today),
+            make_event(trade_id='t2', member_id='M1',
+                       signal_event_id='sig_bbb', triggering_date=today),
+        ], columns=SIGNAL_EVENT_COLUMNS)
+        importer._append_suspicious_events(events)
+        _write_trade_scores_csv(isolated_paths, [
+            {'trade_id': 't1', 'trade_score': 5,
+             'trade_volume_usd': 0, 'trade_warnings': ''},
+            {'trade_id': 't2', 'trade_score': 15,
+             'trade_volume_usd': 0, 'trade_warnings': ''},
+        ])
+        importer._materialize_suspicious_members()
+        df = pd.read_csv(it.SUSPICIOUS_MEMBERS_PATH)
+        row = df.iloc[0]
+        assert row['score_avg'] == 10.0
+        assert row['score_max'] == 15
+        assert row['score_total'] == 20
+
+    def test_inflight_override_uebersteuert_file(self, isolated_paths):
+        """Voll-/Delta-Pipeline-Pfad: _inflight_trade_scores hat Vorrang vor
+        der trades_master_complete.csv. Simuliert den Fall, dass die Datei
+        veraltete (oder gar keine) Scores enthaelt, der laufende Run aber
+        frische Scores im DataFrame hat (Bug-Regression-Schutz)."""
+        importer = TradeImporter()
+        today = datetime.now().date().isoformat()
+        events = pd.DataFrame([
+            make_event(trade_id='t1', member_id='M1', triggering_date=today),
+        ], columns=SIGNAL_EVENT_COLUMNS)
+        importer._append_suspicious_events(events)
+        # Datei haelt ALTE Scores
+        _write_trade_scores_csv(isolated_paths, [
+            {'trade_id': 't1', 'trade_score': 0,
+             'trade_volume_usd': 0, 'trade_warnings': ''},
+        ])
+        # Override durchreichen: frische Scores aus der Pipeline
+        importer._inflight_trade_scores = pd.DataFrame([
+            {'trade_id': 't1', 'trade_score': 99,
+             'trade_volume_usd': 12345, 'trade_warnings': 'paradox_swarm'},
+        ])
+        importer._materialize_suspicious_members()
+        df = pd.read_csv(it.SUSPICIOUS_MEMBERS_PATH)
+        assert df.iloc[0]['score_max'] == 99, \
+            "Override muss File-Wert (0) ueberschreiben"
+        assert df.iloc[0]['score_total'] == 99
+
+    def test_members_view_no_volume_no_warnings_columns(self, isolated_paths):
+        """Members-View hat NICHT total_volume_usd und NICHT warnings."""
+        importer = TradeImporter()
+        today = datetime.now().date().isoformat()
+        events = pd.DataFrame([
+            make_event(trade_id='t1', triggering_date=today),
+        ], columns=SIGNAL_EVENT_COLUMNS)
+        importer._append_suspicious_events(events)
+        _write_trade_scores_csv(isolated_paths, [
+            {'trade_id': 't1', 'trade_score': 1,
+             'trade_volume_usd': 9999, 'trade_warnings': 'paradox_swarm'},
+        ])
+        importer._materialize_suspicious_members()
+        df = pd.read_csv(it.SUSPICIOUS_MEMBERS_PATH)
+        assert 'total_volume_usd' not in df.columns
+        assert 'warnings' not in df.columns
+        assert 'score_avg' in df.columns
+        assert 'score_max' in df.columns
+        assert 'score_total' in df.columns

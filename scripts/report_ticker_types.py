@@ -5,7 +5,7 @@ Liest die via Stage `tickerclassify` (utils/ticker_classifier.classify)
 klassifizierte Spalte aus data/processed/trades_master_complete.csv und zeigt:
   1. Verteilung pro Kategorie (Anzahl, Anteil, Beispiel-Ticker)
   2. Top 20 'unknown'-Ticker nach Haeufigkeit (Kandidaten fuer Regex-Luecken)
-  3. OpenFIGI-Cache-Statistiken (alte ticker_types-Tabelle, Legacy)
+  3. TickerNormalizer-Cache-Statistiken (ticker_normalizer-Tabelle in SQLite)
 
 WICHTIG (Rebuild Teil 3): ticker_type-Werte sind jetzt kleinbuchstabig
 (TickerType-Enum-Values, z.B. 'stock', 'etf', 'unknown') statt der
@@ -13,7 +13,7 @@ frueheren Großbuchstaben-Strings. Manual-Review-Tickers liegen
 zusaetzlich in manual_review_tickers.csv.
 """
 
-import os
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -23,7 +23,6 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
 
 from config import settings
-from utils.openfigi_client import OpenFigiClient
 
 TRADES_MASTER = BASE_DIR / settings.DATA_PROCESSED_PATH / settings.TRADES_MASTER_COMPLETE_CSV
 
@@ -72,24 +71,33 @@ def report_top_unknown(df: pd.DataFrame, top_n: int = 20):
 def report_openfigi_cache():
     cache_db = BASE_DIR / settings.DATA_CACHE_PATH / settings.TICKER_TYPE_CACHE_DB
     if not cache_db.exists():
-        print(f"OpenFIGI-Cache nicht vorhanden: {cache_db}")
+        print(f"TickerNormalizer-Cache nicht vorhanden: {cache_db}")
         return
 
-    client = OpenFigiClient(cache_db_path=str(cache_db))
-    stats = client.get_cache_stats()
+    conn = sqlite3.connect(str(cache_db))
+    try:
+        total = conn.execute("SELECT COUNT(*) FROM ticker_normalizer").fetchone()[0]
+        by_type = conn.execute(
+            "SELECT classification_type, COUNT(*) FROM ticker_normalizer GROUP BY classification_type ORDER BY COUNT(*) DESC"
+        ).fetchall()
+        by_source = conn.execute(
+            "SELECT source, COUNT(*) FROM ticker_normalizer GROUP BY source ORDER BY COUNT(*) DESC"
+        ).fetchall()
+    finally:
+        conn.close()
 
-    print(f"OpenFIGI-Cache ({cache_db})")
+    print(f"TickerNormalizer-Cache ({cache_db})")
     print("-" * 60)
-    print(f"Gesamt-Eintraege: {stats['total']:,}\n")
+    print(f"Gesamt-Eintraege: {total:,}\n")
 
-    print("Security-Types im Cache:")
-    for t, cnt in stats['by_type'].items():
-        print(f"  {t:<30} {cnt:>8,}")
+    print("Classification-Types im Cache:")
+    for t, cnt in by_type:
+        print(f"  {str(t):<30} {cnt:>8,}")
     print()
 
     print("Source-Verteilung:")
-    for s, cnt in stats['by_source'].items():
-        print(f"  {s:<30} {cnt:>8,}")
+    for s, cnt in by_source:
+        print(f"  {str(s):<30} {cnt:>8,}")
     print()
 
 

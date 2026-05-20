@@ -15,9 +15,9 @@ Python + Streamlit Anwendung zur Analyse von US-Kongress-Aktienhandel. Scrapt of
 | 3 | ✅ Fertig | Senate Scraper (Playwright + DataTables API) |
 | 4 | ✅ Fertig | Ausschuss-Sektor-Mapping (CommitteeMapper + CommitteeTag, 861 Mappings, sector/industry-Match × ex-officio-Multiplikator) |
 | 5 | ⏸️ Übersprungen | Kursdaten (Yahoo Finance) — vorerst nicht benötigt |
-| 6 | ⚠️ Unvollständig | Congress.gov API funktioniert (12.135 Bills, 409 Roll-Calls), aber vote-Extraktion → votes.json fehlt → Vote-Timing-Tag Code vorhanden, aber inaktiv |
-| 7 | ✅ Fertig (außer P7 Doku-Finalisierung) | Signal-Architektur (Gate/Tag/Signal): Gates+Tags ✅, Branch-1 Signale ✅ (P2+P3+P3.5), Suspicious-Export ✅ (P4), OpenFIGI-Coverage + `share_class_figi` ✅ (P5), `issuer_ticker` Share-Class-Level ✅ (P5.5), Cross-Class Issuer Mapping via SEC EDGAR CIK ✅ (P5.6), **Schwarm-Signale ✅ (P6)** — 4 Signale auf Issuer-Group-Ebene: `swarm_buy`/`swarm_sell` (Greedy-Cluster), `swarm_conflict` (1 Gegen-Trade im erweiterten Fenster), `swarm_paradox` (≥2 Gegen-Trades, mutually exclusive). Cross-Class via `issuer_group_key` (GOOGL+GOOG → CIK:1652044). Smoke-Run: 24.926 Schwarm-Events auf 111.986 Trades. |
-| 8 | 🔧 Offen | Scoring-System (gewichteter Calculator + Empfehlungs-Mapping) |
+| 6 | ✅ Fertig | Vote-Timing aktiv. VoteTimingTag extrahiert Roll-Calls direkt aus `bill_actions.json` (Floor Votes in `actions[*].roll_call[*]`). Sektor-Match über `legislative_subject_mapping_complete.csv`. FloorActionSignal triggert bei `Vote_Timing_Hit_Count ≥ 1`. Smoke-Run 20.05.2026: 5.357 Hits / 111.986 Trades. |
+| 7 | ✅ Fertig (P1–P7) | Signal-Architektur (Gate/Tag/Signal): Gates+Tags ✅, Branch-1 Signale ✅ (P2+P3+P3.5), Suspicious-Export ✅ (P4), OpenFIGI-Coverage + `share_class_figi` ✅ (P5), `issuer_ticker` Share-Class-Level ✅ (P5.5), Cross-Class Issuer Mapping via SEC EDGAR CIK ✅ (P5.6), **Schwarm-Signale ✅ (P6)** — 4 Signale auf Issuer-Group-Ebene: `swarm_buy`/`swarm_sell` (Greedy-Cluster), `swarm_conflict` (1 Gegen-Trade im erweiterten Fenster), `swarm_paradox` (≥2 Gegen-Trades, mutually exclusive). Cross-Class via `issuer_group_key` (GOOGL+GOOG → CIK:1652044). Smoke-Run: 24.926 Schwarm-Events auf 111.986 Trades. |
+| 8 | 🔧 In Arbeit | Scoring-System. Phasen 8.1–8.5 ✅. Pipeline 16 Stages, 5 Trade-Spalten + Aggregat-Spalten in Views. 61 Tests grün. Phase 8.6 (Voll-Pipeline-Smoke-Run) offen. Formel + Settings: [Filter_Instanz_Parameter.md](Filter_Instanz_Parameter.md). Historie: `../CHANGELOG.md`. |
 | 9 | 🔧 Offen | Streamlit Dashboard (sortierbare Tabelle, Filter-UI) |
 | 10 | 🔧 Offen | E-Mail-Benachrichtigungen (SMTP) |
 | 11 | 🔧 Offen | Automatisierung & Scheduler (APScheduler) |
@@ -39,22 +39,7 @@ house_trades.csv + senate_trades.csv  →  scripts/import_trades.py  →  data/p
 data/mappings/*.xlsx          →  scripts/convert_xlsx_to_csv.py  →  data/mappings/*.csv
 ```
 
-**Import-Pipeline (13 Stages):**
-1. CSV laden + Spalten umbenennen + trade_id vergeben
-2. Datumsvalidierung & Normalisierung
-3. Name-Matching (4-Tier: Alias → Exact → Former Members → Fuzzy ≥85%) + Committee-Anreicherung
-4. Ticker-Typ-Klassifikation (Offline-Regex, `utils/ticker_classifier.py`)
-5. OpenFIGI-Normalisierung (FIGI, ticker_figi, asset_name_figi, share_class_figi, issuer_ticker)
-6. Cross-Class Issuer Mapping (SEC EDGAR CIK → `issuer_group_key`, P5.6)
-7. Ticker-Sektor/Industry-Lookup (yfinance + Cache)
-8. Gates + Tags: AssetClassGate, CommitteeTag, VoteTimingTag (+ Scoring)
-9. Branch-1 Signale: committee, committee_ex_officio, floor_action, extreme_report → `branch1_events_stage.csv`
-10. Sequenz-Signale: contrarian, accumulative → `sequence_events_stage.csv`
-11. Schwarm-Signale (P6): swarm_buy, swarm_sell, swarm_conflict, swarm_paradox → `swarm_events_stage.csv` (gruppiert nach `issuer_group_key`, Cross-Class)
-12. Suspicious-Export: append-only `suspicious_events.csv` + Y-Tage-View `suspicious_assets.csv` + Member-View `suspicious_members.csv`
-13. trades_master[_complete].csv speichern + unmatched_names.csv
-
-Details und CLI-Flags: `Pipelines.md`, `CLI_Bedienungsanleitung.md`.
+**Import-Pipeline:** 16 Stages — Reihenfolge, Stage-Indizes und Details: siehe [Pipelines.md](Pipelines.md). CLI-Flags: [CLI_Bedienungsanleitung.md](CLI_Bedienungsanleitung.md).
 
 ---
 
@@ -94,29 +79,11 @@ Details und CLI-Flags: `Pipelines.md`, `CLI_Bedienungsanleitung.md`.
 
 ---
 
-## Scoring-System (Modul 4 — aktiv)
+## Scoring-System (Modul 8 — aktiv)
 
-**Formel:** `score = base_score(rank) × confidence_mult × role_mult` (max 100)
+Trade-Score = gewichtete Summe der getriggerten Signale + Volume-Score + Ex-Officio-Bonus, mit Paradox-Dämpfer auf den Schwarm-Anteil. Kein Cap.
 
-| Parameter | Werte |
-|-----------|-------|
-| Rank Weights | Rank 1=100%, 2=75%, 3=50%, 4=25% |
-| Confidence | Hoch=1.0×, Mittel=0.7×, Niedrig=0.4× |
-| Role | Ex Officio (Chairman, Ranking Member, Vice Chairman) = 1.5× |
-
-**Filter-Gewichte (Modul 7 — geplant):**
-
-| Filter | Gewicht | Status |
-|--------|---------|--------|
-| Filter 1: Handelsvolumen | 7.5% | Offen |
-| Filter 2: Schwarm-Verhalten | 35% | Offen |
-| Filter 3: Ausschuss-Überschneidung | Auto-Flag | ✅ Aktiv |
-| Filter 4: Timing vor Abstimmung | 35% | Code ✅, Daten fehlen |
-| Filter 5: Contrarian | — | Übersprungen |
-| Filter 6: Long↔Short Wechsel | 7.5% | Offen |
-| Filter 7: Position vergrößert | 15% | Offen |
-
-**Score-Schwellen:** ≥75 = ⭐⭐⭐ · 50–74 = ⭐⭐ · 30–49 = ⭐ · <30 = kein Signal
+**Vollständige Formel, Signal-Gewichte und Aggregat-Spalten:** [Filter_Instanz_Parameter.md](Filter_Instanz_Parameter.md). Konfiguration: `config/settings.py` (`SCORING_*`-Block).
 
 ---
 

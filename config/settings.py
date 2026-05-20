@@ -53,7 +53,7 @@ COMMITTEE_EX_OFFICIO_ROLES = ['Chairman', 'Ranking Member', 'Vice Chairman', 'Co
 # 'sector_or_industry'  — Eintrag matcht, wenn sector ODER industry zum Ticker passen (Default)
 # 'sector_and_industry' — Eintrag matcht nur, wenn sector UND industry passen
 # 'hybrid'              — bevorzuge sector+industry-Matches, sonst Fallback auf sector_or_industry
-RELEVANT_SECTORS_MATCH_MODE = 'sector_or_industry'
+RELEVANT_SECTORS_MATCH_MODE = 'sector_and_industry'
 
 # =============================================================================
 # TAG: VOTE TIMING (Congress.gov API)
@@ -160,6 +160,56 @@ SEC_EDGAR_USER_AGENT = 'Congress Trade Tracker <kontakt@example.com>'  # Pflicht
 SEC_EDGAR_URL        = 'https://www.sec.gov/files/company_tickers_exchange.json'
 SEC_EDGAR_CACHE_FILE = 'edgar_cik_map.json'      # unter data/cache/
 SEC_EDGAR_TTL_DAYS   = 7
+
+# =============================================================================
+# SCORING (Modul 8)
+# Gewichtetes Combined-Scoring pro Trade. Kein Cap — Score kann beliebig
+# wachsen, vereinfacht Kalibrierung der Gewichts-Verhaeltnisse.
+# Setze ein Gewicht auf 0, um das Signal aus dem Scoring zu nehmen
+# (Event wird trotzdem in suspicious_events.csv gespeichert).
+# Code: scoring/trade_score.py (geplant in Phase 8.3)
+# =============================================================================
+SCORING_WEIGHTS = {
+    'committee':       15,
+    'floor_action':    15,    # Vote-Timing-Treffer (VoteTimingTag → FloorActionSignal)
+    'extreme_report':   5,
+    'contrarian':       8,
+    'accumulative':    10,
+    'swarm_buy':       20,
+    'swarm_sell':      20,
+    'swarm_conflict':   5,
+    # 'swarm_paradox':         kein additives Gewicht — Multiplikator (s.u.)
+    # 'committee_ex_officio':  kein eigenes Gewicht — Bonus X (s.u.)
+}
+
+# Ex-Officio-Bonus: einmaliger Summand pro Trade, addiert wenn
+# is_ex_officio=True UND mindestens ein Signal aus SCORING_EX_OFFICIO_TRIGGERS
+# getriggert hat. Wird nicht pro Signal multipliziert.
+SCORING_EX_OFFICIO_BONUS    = 10
+SCORING_EX_OFFICIO_TRIGGERS = ['committee', 'floor_action']
+
+# Paradox-Daempfer: Multiplikator NUR auf die Schwarm-Komponente
+# (swarm_buy + swarm_sell + swarm_conflict). 0.0 = Schwarm-Anteil ausgeknockt;
+# 0.5 = halbiert; 1.0 = keine Daempfung. Warning-Tag bleibt unabhaengig sichtbar
+# in der trade_warnings-Spalte, damit das Gegenindiz visualisierbar ist.
+SCORING_PARADOX_DAMPER       = 0.0
+SCORING_PARADOX_WARNING_TAG  = 'paradox_swarm'
+
+# Volume-Score: nichtlinear ab Schwelle U.
+#   volume_part = max(0, asset_tradingvolume_usd - U) * SLOPE
+# Beispiele (Default U=100k, SLOPE=0.00002):
+#   - 100k$:        0 Punkte (Schwelle exakt)
+#   - 1M$:          (1_000_000 - 100_000) * 0.00002 = 18 Punkte
+#   - 10M$:         (10_000_000 - 100_000) * 0.00002 ≈ 198 Punkte
+SCORING_VOLUME_ENABLED       = True
+SCORING_VOLUME_THRESHOLD_U   = 100_000     # USD — unter U: 0 Punkte
+SCORING_VOLUME_SLOPE         = 0.00002     # Punkte pro USD ueber U
+
+# Asset-Tradingvolume-Aggregations-Fenster (retroaktiv pro Trade).
+# Σ trade_volume_usd ueber alle Trades mit gleichem issuer_group_key im Fenster
+# [transaction_date - Z, transaction_date]. Cross-Class via issuer_group_key.
+# SKIP-Bucket-Trades werden ausgeschlossen (Aggregat = 0).
+SCORING_VOLUME_WINDOW_DAYS_Z = 90
 
 # =============================================================================
 # SUSPICIOUS PERSISTENCE
@@ -380,6 +430,12 @@ CURATED_COLUMNS = [
     'Vote_Timing_Hit_Count',
     'signal_count',
     'signals_triggered',
+    # Modul 8: Trade-Volume + Score (Phase 8.1 / 8.2 / 8.3)
+    'trade_volume_usd',
+    'asset_tradingvolume_usd',
+    'trade_score',
+    'trade_score_breakdown',
+    'trade_warnings',
 ]
 
 # Backup-Verzeichnis fuer automatische Master-Backups vor destruktiven Aenderungen

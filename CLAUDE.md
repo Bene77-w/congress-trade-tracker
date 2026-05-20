@@ -27,10 +27,10 @@ Python + Streamlit App die US-Kongress-Mitglieder Stock-Trades trackt, analysier
 | 3 | FERTIG | Senate Trades Scraping (Playwright + DataTables API). senate_pdf_extractor liest gescannte PDFs fehlerhaft (Vision API), aber irrelevant — einziger Senator mit Paper-PTRs investiert nur in Fonds |
 | 4 | FERTIG | Ausschuss-Sektor-Mapping (CommitteeMapper + CommitteeTag implementiert) |
 | 5 | ÜBERSPRUNGEN | Kursdaten (Yahoo Finance) — vorerst übersprungen |
-| 6 | UNVOLLSTÄNDIG | bill_actions.json gefetcht (12.135 Bills, 409 Roll-Calls House+Senate). Extraktion → votes_house/senate.json fehlt. fetch_congress_votes.py obsolet. Filter 4 Code vorhanden aber inaktiv. |
-| 7 | FERTIG (P1–P7 ✅) | Signal-Architektur (Gate/Tag/Signal). Aktiv: AssetClassGate, CommitteeTag, VoteTimingTag, Branch-1 (P2), Sequenz (P3), Suspicious-Export (P4), OpenFIGI-Coverage + `share_class_figi` (P5), `issuer_ticker` Share-Class-Level (P5.5), Cross-Class Issuer Mapping via SEC EDGAR CIK (P5.6: `issuer_group_key` mit Präfixen `CIK:`/`TICKER:`/`SKIP:`), **Schwarm-Signale (P6)**: 4 Branch-2-Signale (`swarm_buy`/`swarm_sell` Greedy-Cluster, `swarm_conflict` 1 Gegen-Trade, `swarm_paradox` ≥2 Gegen-Trades mutually exclusive). Stage [11/13]. Voll-Pipeline-Run + Schema-Migration durchgeführt: 165.113 Events in `suspicious_events.csv` (24.926 P6-Events). Cross-Class verifiziert (GOOGL+GOOG → CIK:1652044). P7 Doku-Konsolidierung abgeschlossen (Mai 2026). |
-| 8 | OFFEN | Scoring-System |
-| 9 | OFFEN | Streamlit Dashboard |
+| 6 | FERTIG | Vote-Timing aktiv. VoteTimingTag liest Roll-Calls direkt aus bill_actions.json + bill_subjects.json (kein separater Vote-Endpoint nötig). FloorActionSignal triggert auf Vote_Timing_Hit_Count ≥ 1; SCORING_WEIGHTS['floor_action']=15. Smoke-Run (20.05.2026): 5.357 Hits / 111.986 Trades (4,8%). Score-Effekt: mean=64,6 vs 21,6 ohne. Details: `organisation/Filter_Instanz_Parameter.md` (Tag-Sektion). |
+| 7 | FERTIG | Signal-Architektur (Gate/Tag/Signal). Drei Klassen: `gates/` / `tags/` / `signals/`. 10 aktive Signale + Suspicious-Export-Pipeline + Cross-Class Issuer Mapping. Details: siehe `CHANGELOG.md` (P1–P7) + `organisation/Filter_Instanz_Parameter.md`. |
+| 8 | FERTIG | Scoring-System. Phasen 8.1–8.6 ✅. Pipeline 16 Stages, 5 Trade-Spalten (`trade_volume_usd`, `asset_tradingvolume_usd`, `trade_score`, `trade_score_breakdown`, `trade_warnings`) + Aggregat-Spalten in `suspicious_assets.csv` und `suspicious_members.csv`. 62 Unit-Tests grün. Smoke-Run 20.05.2026 (111.986 Trades, mean=23.7, max=1705). Phasen-Details: `CHANGELOG.md`. Score-Formel + Settings: `organisation/Filter_Instanz_Parameter.md`. |
+| 9 | IN ARBEIT (MVP) | Streamlit Dashboard. `app/streamlit_app.py` + `app/score_recompute.py`. Drei Tabs (Trades / Assets / Members), 7 Sidebar-Filter, Voll-Recompute bei Signal-Ausschluss. Start: `venv/bin/streamlit run app/streamlit_app.py`. |
 | 10 | OFFEN | Email-Benachrichtigungen |
 | 11 | OFFEN | Automatisierung & Scheduler |
 | Rebuild T1 | FERTIG (25.04.2026) | Foundation: `utils/trade_id.py` (13 Tests) + `utils/ticker_classifier.py` (67 Tests) |
@@ -47,21 +47,19 @@ Python + Streamlit App die US-Kongress-Mitglieder Stock-Trades trackt, analysier
 - `scripts/import_trades.py` — Haupt-Import-Pipeline (nach jedem Scraper-Lauf ausführen)
 
 ### Code-Konvention: Gate / Tag / Signal
-- `gates/`   — binäre Hard-Ausschlüsse (z. B. `asset_class_gate.py`)
-- `tags/`    — Kontext-Anreicherung mit Master-Spalten (z. B. `committee_tag.py`, `vote_timing_tag.py`)
-- `signals/` — User-sichtbare Score-Beiträge. Aktiv: Branch-1 Per-Trade-Signale (`committee_signal.py`, `committee_ex_officio_signal.py`, `floor_action_signal.py`, `extreme_report_signal.py`) + Sequenz-Signale (`contrarian_signal.py`, `accumulative_signal.py`) + **Schwarm-Signale (P6)**: `swarm_buy_signal.py`, `swarm_sell_signal.py`, `swarm_conflict_signal.py`, `swarm_paradox_signal.py` (gruppiert nach `issuer_group_key`, Cross-Class).
-- Details: siehe `organisation/Filter_Instanz_Parameter.md`
+- `gates/`   — binäre Hard-Ausschlüsse
+- `tags/`    — Kontext-Anreicherung mit Master-Spalten
+- `signals/` — User-sichtbare Score-Beiträge
+- Instanzen + Parameter + Score-Formel: `organisation/Filter_Instanz_Parameter.md`
 
-### Utils
-- `utils/name_matcher.py` — Fuzzy-Matching mit rapidfuzz (85% Threshold)
-- `utils/trade_id.py` — Hash-basierte stabile Trade-ID (16-Hex-SHA256)
-- `utils/signal_event_id.py` — Hash-basierte Signal-Event-ID (16-Hex-SHA256), gruppiert mehrere Trades pro Auslösung
-- `utils/issuer_ticker.py` — `resolve_issuer_ticker(row)`: Cross-Share-Class-Aufloesung mit Fallback-Kette `share_class_figi → ticker_base → ticker`. share_class_figi (OpenFIGI shareClassFIGI) ist Erstkandidat; bei Miss fallback auf ticker_base, dann ticker.
-- `utils/issuer_group_mapper.py` (P5.6) — `IssuerGroupMapper.resolve_issuer_group_key(row)`: Issuer-Level-Aufloesung via SEC EDGAR CIK. Entscheidungsbaum: SKIP-Types → `SKIP:<type>`; ETF/Foreign → `TICKER:<issuer_ticker>`; CIK-Treffer → `CIK:<cik>`; Fallback → `TICKER:<ticker_base>`. Cache 7 Tage TTL, strikter Abbruch bei API-Failure. Doku `organisation/Ticker_Architektur.md`.
-- `utils/ticker_classifier.py` — Offline-Regex-Klassifikator → `TickerClassification`
-- `utils/ticker_normalizer.py` — OpenFIGI-Wrapper → `NormalizedTicker` (SQLite-Cache, 429-Backoff)
-- `utils/ticker_sector.py` — yfinance-Wrapper → `SectorInfo` (Split-Cache positiv/null, Vorzugsaktien-Mapping)
-- `utils/openfigi_client.py` — LEGACY (wird in Rebuild T4 entfernt)
+### Utils-Übersicht
+- `utils/name_matcher.py` — Fuzzy-Matching (rapidfuzz)
+- `utils/trade_id.py`, `utils/signal_event_id.py` — Hash-basierte stabile IDs
+- `utils/issuer_ticker.py`, `utils/issuer_group_mapper.py` — Cross-Share-Class / Cross-Class Auflösung; Architektur: `organisation/Ticker_Architektur.md`
+- `utils/ticker_classifier.py`, `utils/ticker_normalizer.py`, `utils/ticker_sector.py` — Ticker-Pipeline (Regex / OpenFIGI / yfinance)
+- `utils/amount_parser.py` — Quiver-Amount-Range → Mittelpunkt USD
+- `scoring/asset_volume.py`, `scoring/trade_score.py` — Modul-8-Berechnungen; Formel + Settings in `organisation/Filter_Instanz_Parameter.md`
+- `utils/openfigi_client.py` — LEGACY (Rebuild T4 entfernt diese Datei)
 
 ### Config
 - `config/settings.py` — Alle konfigurierbaren Parameter
@@ -87,20 +85,67 @@ CLI-Optionen (Delta-Mode, einzelne Stages, Dry-Run, PDF-Extraction): siehe `orga
 
 ## Nächste Schritte
 
-1. **Modul 8 — Scoring-System** — Schwarm-Signale ins Gesamt-Scoring integrieren (Gewicht 35% laut README); Paradox als Signal-Dämpfer.
+1. **Modul 9 — Streamlit Dashboard (in Arbeit, MVP fertig)** — Nächste Iteration: Datum/Score-Filter in Tabs „Assets" und „Members" aktivieren.
 2. **Rebuild T4** — Migration alter Caches, Entfernen von `utils/openfigi_client.py` und alten Tabellen.
-3. **Modul 6 abschließen** — Roll-Call-Extraktion aus `bill_actions.json`, damit der VoteTimingTag mit echten Vote-Daten läuft.
-4. **Modul 9 — Streamlit Dashboard**
-5. **Modul 10 — Email-Benachrichtigungen**, **Modul 11 — Automatisierung**
+3. **Modul 10 — Email-Benachrichtigungen**, **Modul 11 — Automatisierung**
 
 Historische Plan-Datei (P1–P7, abgeschlossen): `archive/alt/Implementierungsplan_Signals.md`.
 
 ---
 
-## Detail-Doku
+## Detail-Doku (Index)
 
-- `organisation/README.md` — Kurz-Überblick, Modul-Status, Datei-Index
-- `organisation/DATA_STRUCTURE.md` — Vollständige Datenstruktur-Doku
-- `organisation/Pipelines.md` — Stage-Pipeline und Abhängigkeiten
-- `organisation/Filter_Instanz_Parameter.md` — Gate/Tag/Signal-Instanzen, Parameter, Scoring-Formel
-- `organisation/CLI_Bedienungsanleitung.md` — CLI-Flags und Beispiele
+**Konvention (Single-Source-of-Truth):** Pro Thema EINE kanonische Datei.
+Andere Dateien verlinken nur darauf, kein paralleles Duplizieren.
+
+| Thema | Kanonische Quelle |
+|---|---|
+| Spalten-Definitionen (CSV/JSON/XLSX) | `organisation/DATA_STRUCTURE.md` |
+| Gate/Tag/Signal-Instanzen + Score-Formel + Settings | `organisation/Filter_Instanz_Parameter.md` |
+| Pipeline-Stage-Reihenfolge + Indizes | `organisation/Pipelines.md` |
+| Signal-Schema (`suspicious_events.csv` & Views) | `organisation/tool_specific_md/signal_info.md` |
+| Ticker-/Issuer-Architektur (3 Ebenen, Fallbacks) | `organisation/Ticker_Architektur.md` |
+| CLI-Flags + Bedienung | `organisation/CLI_Bedienungsanleitung.md` |
+| Phasen-Historie (abgeschlossene Module) | `CHANGELOG.md` |
+| Aktueller Modul-Status | `CLAUDE.md` (sandbox, Modul-Tabelle oben) |
+| Offene Implementierungs-Pläne | `~/.claude/plans/*.md` |
+
+Bei Code-Änderungen die folgende Tabelle prüfen — die
+„Aktualisieren bei"-Spalte nennt konkrete Trigger, dadurch muss nicht
+jede Datei einzeln gelesen werden.
+
+### Top-Level
+
+| Datei | Zweck (1 Satz) | Aktualisieren bei |
+|---|---|---|
+| `CLAUDE.md` (sandbox) | Projektstatus, Modul-Tabelle, Wichtige Regeln, Doku-Index. | Neuer Modul-Status, neue Regel/Konvention, neues Util/Skript, Phase abgeschlossen. |
+
+### `organisation/`
+
+| Datei | Zweck (1 Satz) | Aktualisieren bei |
+|---|---|---|
+| `README.md` | Kurz-Überblick mit Datenfluss-Diagramm, Modul-Status, Quick-Start, Scoring-Tabelle. | Neuer Modul-Status, Datenfluss, Scoring-Formel/-Gewichte geändert. |
+| `DATA_STRUCTURE.md` | Vollständige Spalten-Definition **aller** CSV/JSON/XLSX. | Neue/geänderte Spalte (CSV, Cache, JSON), neue Datendatei, Suffix-Konvention geändert. |
+| `Pipelines.md` | Ausführungsreihenfolge aller 9 Pipelines + Import-Stages (aktuell **14**). | Neue/entfernte Stage, Stage-Abhängigkeiten geändert, neue Problem-Output-Datei, Dedup-Logik. |
+| `CLI_Bedienungsanleitung.md` | Vollständige CLI-Referenz aller Scripts inkl. Flag-Matrix. | Neues CLI-Flag, neues Script, geänderter Default-Workflow. |
+| `Filter_Instanz_Parameter.md` | Konkrete Gate/Tag/Signal-Instanzen + Parameter + Scoring-Formel. | Neuer Filter/Signal, Schwelle/Gewicht geändert, neue Scoring-Komponente. |
+| `Ticker_Architektur.md` | Design-Doku der Ticker-/Issuer-Spalten (3 Ebenen, Fallback-Ketten). | Neuer Ticker-Spalten-Typ, Fallback-Kette geändert, neue Cross-Class-Logik. |
+| `migration.md` | Plattformwechsel-Anleitung (Linux↔Windows, USB-Betrieb). | Neue Python-Abhängigkeit, neue ENV-Variable, neue plattformspezifische Permission. |
+| `manual_review_anleitung.md` | Anleitung für 4 manuelle Review-Prozesse (Namen, Ticker, Preferred, Duplicate). | Neuer Manual-Review-Typ, Review-Datei-Struktur geändert, neue Mapping-CSV. |
+
+### `organisation/tool_specific_md/`
+
+| Datei | Zweck (1 Satz) | Aktualisieren bei |
+|---|---|---|
+| `signal_info.md` | **Vollständige Signal-System-Doku**: Architektur, 10 Signal-Typen, Snapshot-Konzept, Scope-Key-Konvention, 21-Spalten-Schema von `suspicious_events.csv`. | Neuer Signal-Typ, Trigger-Logik/Spalten geändert, Scope-Key-Format, Y-Tage-Persistence, Signal-Event-ID-Hash. |
+| `HAND_DELIVERED_PDF_ANALYSE.md` | Analyse der 59 gescannten Hand-Delivered House PTR PDFs (Typ A–D). | Neuer PDF-Formulartyp, Layout-Wechsel, neue OCR-Schwierigkeit, neuer Member mit Hand-Delivered-Form. |
+| `house_all_pdf_info.md` | House-Committee-PDF Layout + Parsing-Parameter (80 Seiten, Font-Größen, Schwellwerte). | PDF-Layout geändert, neue Rollen, neue Committee-Struktur, neuer Parsing-Schwellwert. |
+| `modul2_walkthrough.md` | Walkthrough House Scraper (ZIP→XML→PDF→Block-Parser). | Neuer Filing-Type, Block-Parser-Logik, neue Skip-Pattern, Output-Spalte hinzu/entfernt. |
+| `modul3_walkthrough.md` | Walkthrough Senate Scraper (Playwright + DataTables API). | API-Parameter geändert, Agreement-Flow, Report-Type-Filter, neue Test-Fälle. |
+| `Scraper_problems.md` | Bekannte Scraper-Probleme + Status (aktiv/gelöst/irrelevant). | Neues Scraper-Problem, Status geändert, neue Gegenmaßnahme, neue Fehlerrate. |
+| `Senate_website_structure.md` | efdsearch.senate.gov Selektoren + HTML-Layout. | Website-Layout/Selektoren geändert, Bond-Metadaten-Format, neue Asset-Type. |
+| `vote_timing_audit.md` | Stichproben-Audit der Vote-Timing-Hits. | Neuer Smoke-Run mit relevant abweichender Hit-Anzahl, neue Audit-Punkte hinzu, Mapping-Änderungen. |
+
+**Konvention**: Bei jeder Code-Änderung mindestens eine Doku-Datei anpassen
+(s. Regel 5). Phase-Abschluss → `CLAUDE.md` Modul-Status + alle in der „Aktualisieren bei"-Spalte
+genannten Dateien.
