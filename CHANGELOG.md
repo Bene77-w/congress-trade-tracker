@@ -10,6 +10,39 @@ Historie abgeschlossener Module/Phasen. **Aktueller Status** steht in `CLAUDE.md
 
 ---
 
+## 2026-05-21 — Committee-Score Vereinheitlichung
+
+- Spalte `Relevance_Score` aus `trades_master.csv` entfernt; vier Settings
+  (`COMMITTEE_THRESHOLD`, `COMMITTEE_SECTOR_MATCH_POINTS`,
+  `COMMITTEE_INDUSTRY_MATCH_POINTS`, `COMMITTEE_EX_OFFICIO_MULTIPLIER`)
+  gestrichen.
+- `Relevant_Sectors`-JSON pro Eintrag um `match_type` (`'full'`/`'sector'`) erweitert.
+- Committee-Signal-Trigger: `len(Relevant_Sectors) > 0` (vorher Punkte-Schwelle).
+- Neues Signal `committee_full` triggert nur bei mind. einem Eintrag mit `match_type='full'`.
+- `SCORING_WEIGHTS`: `committee` 15→10, `committee_full` +5 (Voll-Treffer = 15 wie bisher).
+- `suspicious_events.csv`: Spalte `relevance_score` → `match_count`; Migration via
+  `_migrate_suspicious_events_schema` beim nächsten Pipeline-Lauf.
+- 100 Branch1+Scoring-Tests grün. Pipeline-Re-Run notwendig.
+
+---
+
+## 2026-05-21 — Modul 9 Iteration: reaktive Aggregate + relevant_sectors-Spalte
+
+Asset- und Member-Tab aggregieren jetzt on-the-fly aus dem gefilterten Trade-Subset
+(`suspicious_assets.csv` / `suspicious_members.csv` werden nicht mehr geladen).
+Alle Sidebar-Filter (Datum, Member-Suche, Ticker-Suche, Signal-Ausschluss) wirken
+reaktiv; Min-Score greift auf `score_max` des Aggregats. KPI-Zeile (Anzahl,
+Max-Score, Σ Volumen) erscheint in allen drei Tabs. Trade-Tab hat neue abgeleitete
+Spalte `relevant_sectors` (eindeutige `sector`-Namen aus `Relevant_Sectors`-JSON).
+
+**Neue Helper in `app/streamlit_app.py`:** `_parse_relevant_sectors`, `_unique_join`,
+`_unique_signals`, `aggregate_assets`, `aggregate_members`.
+
+**Smoke-Test:** 2000-Row-Subsample, Top-Asset BBG001S5N8V8 (trade_count=9,
+score_max=683, sectors='Technology').
+
+---
+
 ## 2026-05-20 — Modul 9 (Streamlit Dashboard MVP)
 
 Drei neue Dateien: `app/__init__.py`, `app/score_recompute.py`, `app/streamlit_app.py`.

@@ -17,6 +17,7 @@ from signals.committee_signal import (
     _to_int,
     _to_bool,
     _direction_from_transaction_type,
+    parse_relevant_sectors,
 )
 from utils.issuer_ticker import resolve_issuer_ticker
 from utils.signal_event_id import make_signal_event_id
@@ -68,7 +69,7 @@ class FloorActionSignal:
                 row.get('transaction_type')
             ),
             'is_ex_officio': _to_bool(row.get('Member_ExOfficio')),
-            'relevance_score': _to_int(row.get('Relevance_Score'), default=0),
+            'match_count': len(parse_relevant_sectors(row.get('Relevant_Sectors'))),
             'vote_timing_hit_count': hit_count,
             'committee_subcommittee': row.get('Member_Committees_Full', ''),
             'relevant_sectors': row.get('Relevant_Sectors', ''),

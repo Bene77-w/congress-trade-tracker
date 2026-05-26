@@ -3,7 +3,7 @@ Signal: Committee Ex Officio — triggert wenn CommitteeSignal aktiv UND der
 Member zum Trade-Zeitpunkt eine ex-officio-Rolle innehat (Chairman, Ranking
 Member, Vice Chairman, ...).
 
-Trigger:         CommitteeSignal trigger UND Member_ExOfficio truthy
+Trigger:         CommitteeSignal triggert UND Member_ExOfficio truthy
 Triggering-Date: transaction_date
 Scope-Key:       trade_id
 """
@@ -12,12 +12,12 @@ from typing import Optional, Dict, Any
 
 import pandas as pd
 
-from config import settings
 from signals.committee_signal import (
     CommitteeSignal,
-    _to_int,
     _to_bool,
+    _to_int,
     _direction_from_transaction_type,
+    parse_relevant_sectors,
 )
 from utils.issuer_ticker import resolve_issuer_ticker
 from utils.signal_event_id import make_signal_event_id
@@ -32,8 +32,8 @@ class CommitteeExOfficioSignal:
 
     SIGNAL_TYPE = SIGNAL_TYPE
 
-    def __init__(self, threshold: Optional[int] = None):
-        self.committee_signal = CommitteeSignal(threshold=threshold)
+    def __init__(self):
+        self.committee_signal = CommitteeSignal()
 
     def evaluate_row(self, row: pd.Series) -> Optional[Dict[str, Any]]:
         # Voraussetzung: Committee-Signal ist aktiv
@@ -70,7 +70,7 @@ class CommitteeExOfficioSignal:
                 row.get('transaction_type')
             ),
             'is_ex_officio': True,
-            'relevance_score': _to_int(row.get('Relevance_Score'), default=0),
+            'match_count': len(parse_relevant_sectors(row.get('Relevant_Sectors'))),
             'vote_timing_hit_count': _to_int(
                 row.get('Vote_Timing_Hit_Count'), default=0
             ),

@@ -30,8 +30,8 @@ TRADE_DISPLAY_COLS = [
     'transaction_date', 'disclosure_date', 'name', 'chamber', 'Member_Party',
     'ticker', 'issuer_ticker', 'transaction_type', 'amount',
     'trade_volume_usd', 'asset_tradingvolume_usd',
-    'trade_score', 'relevant_sectors', 'signals_triggered',
-    'trade_score_breakdown', 'trade_warnings',
+    'trade_score', 'committee_match', 'relevant_sectors',
+    'signals_triggered', 'trade_score_breakdown', 'trade_warnings',
 ]
 
 
@@ -59,6 +59,45 @@ def _parse_relevant_sectors(value: object) -> str:
     return ', '.join(sectors)
 
 
+def _parse_committee_matches(value: object) -> str:
+    """JSON-Liste -> '; '-getrennte Match-Tupel.
+
+    Jedes Tupel hat das Format ``Committee[/Subcommittee] → Sector[/Industry]``.
+    Genau das, was das ``committee``-Signal triggert: pro Eintrag in
+    ``Relevant_Sectors`` der konkrete Ausschuss + die abgedeckte Sektor-/
+    Industry-Kombination. Duplikate werden entfernt, Reihenfolge bleibt stabil.
+    """
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return ''
+    if not isinstance(value, str) or not value.strip():
+        return ''
+    try:
+        items = json.loads(value)
+    except (ValueError, TypeError):
+        return ''
+    if not isinstance(items, list):
+        return ''
+    seen: set[str] = set()
+    parts: list[str] = []
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        comm = (it.get('committee') or '').strip()
+        sub = (it.get('subcommittee') or '').strip()
+        sec = (it.get('sector') or '').strip()
+        ind = (it.get('industry') or '').strip()
+        left = comm + (f'/{sub}' if sub else '')
+        right = sec + (f'/{ind}' if ind else '')
+        if not left and not right:
+            continue
+        token = f'{left} → {right}'
+        if token in seen:
+            continue
+        seen.add(token)
+        parts.append(token)
+    return '; '.join(parts)
+
+
 # ---------------------------------------------------------------------------
 # Loader (cached)
 # ---------------------------------------------------------------------------
@@ -82,8 +121,12 @@ def load_trades() -> pd.DataFrame:
         df['relevant_sectors'] = df['Relevant_Sectors'].map(
             _parse_relevant_sectors
         ).astype('string')
+        df['committee_match'] = df['Relevant_Sectors'].map(
+            _parse_committee_matches
+        ).astype('string')
     else:
         df['relevant_sectors'] = pd.Series([''] * len(df), dtype='string')
+        df['committee_match'] = pd.Series([''] * len(df), dtype='string')
     return df
 
 

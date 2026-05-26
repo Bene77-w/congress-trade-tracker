@@ -107,7 +107,7 @@ class TestSettingsIntegration:
     def test_settings_constants_importable(self):
         """Smoke-Test: alle neuen Signal-Settings sind importierbar."""
         from config import settings
-        assert hasattr(settings, 'COMMITTEE_THRESHOLD')
+        assert hasattr(settings, 'RELEVANT_SECTORS_MATCH_MODE')
         assert hasattr(settings, 'VOTE_TIMING_HIT_THRESHOLD')
         assert hasattr(settings, 'CONTRARIAN_WINDOW_DAYS')
         assert hasattr(settings, 'ACCUMULATIVE_WINDOW_DAYS')
@@ -123,7 +123,9 @@ class TestSettingsIntegration:
     def test_settings_defaults(self):
         """Defaults entsprechen dem approved Plan."""
         from config import settings
-        assert settings.COMMITTEE_THRESHOLD == 33
+        assert settings.RELEVANT_SECTORS_MATCH_MODE in (
+            'sector_or_industry', 'sector_and_industry', 'hybrid'
+        )
         assert settings.VOTE_TIMING_HIT_THRESHOLD == 1
         assert settings.CONTRARIAN_WINDOW_DAYS == 30
         assert settings.ACCUMULATIVE_WINDOW_DAYS == 30

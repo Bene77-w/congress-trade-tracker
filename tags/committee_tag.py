@@ -130,9 +130,9 @@ class CommitteeTag:
     """
     Tagger: annotiert Trades mit Committee-Sector-Relevanzinfo.
 
-    Schreibt Insider_Sectors, Relevant_Sectors und Relevance_Score in den
-    Master. Kombiniert CommitteeParser und CommitteeMapper, um zu bestimmen,
-    ob die Committee-Zugehoerigkeit eines Politikers thematisch zum Trade passt.
+    Schreibt Insider_Sectors und Relevant_Sectors in den Master. Kombiniert
+    CommitteeParser und CommitteeMapper, um zu bestimmen, ob die Committee-
+    Zugehoerigkeit eines Politikers thematisch zum Trade passt.
 
     In der User-Sprache entspricht dieser Tag dem historischen "Filter 3".
     """
@@ -147,10 +147,6 @@ class CommitteeTag:
         self.mapper = mapper or CommitteeMapper()
         self.parser = CommitteeParser()
 
-        # Score-Parameter (alle aus settings.py konfigurierbar — Regel 1 in CLAUDE.md)
-        self.sector_points = getattr(settings, 'COMMITTEE_SECTOR_MATCH_POINTS', 33)
-        self.industry_points = getattr(settings, 'COMMITTEE_INDUSTRY_MATCH_POINTS', 33)
-        self.ex_officio_mult = getattr(settings, 'COMMITTEE_EX_OFFICIO_MULTIPLIER', 1.5)
         self.ex_officio_roles = {
             r.strip().lower()
             for r in getattr(settings, 'COMMITTEE_EX_OFFICIO_ROLES',
@@ -180,36 +176,30 @@ class CommitteeTag:
         ticker_industry: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        Berechnet Insider_Sectors (alle Committee-Sektoren des Members),
-        Relevant_Sectors (Intersection mit Ticker_Sector/Industry) und
-        Relevance_Score.
+        Berechnet Insider_Sectors (alle Committee-Sektoren des Members) und
+        Relevant_Sectors (Intersection mit Ticker_Sector/Industry, ggf. nach
+        match_mode gefiltert). Jeder Eintrag in Relevant_Sectors traegt das
+        Feld ``match_type`` (``'full'`` wenn Sector UND Industry treffen,
+        ``'sector'`` wenn nur Sector trifft — ``'industry-only'`` existiert
+        nicht, weil Industry per Hierarchie immer einen Sector impliziert).
 
-        Score-Formel:
-            sector_match   = ∃ Mapping-Eintrag mit Sector  == ticker_sector
-            industry_match = ∃ Mapping-Eintrag mit Industry == ticker_industry
-            ex_officio     = ∃ beitragender Treffer mit Rolle ∈ ex_officio_roles
-            raw   = (sector_points if sector_match else 0)
-                  + (industry_points if industry_match else 0)
-            score = round(raw * (ex_officio_mult if ex_officio else 1.0))
-
-        Intersection-Modus (RELEVANT_SECTORS_MATCH_MODE):
-            'sector_or_industry'  — sector ODER industry matcht (Default)
-            'sector_and_industry' — sector UND industry muessen matchen
-            'hybrid'              — bevorzuge (sector+industry), fallback
-                                    auf sector_or_industry
+        Match-Modi (settings.RELEVANT_SECTORS_MATCH_MODE):
+            'sector_or_industry'  — full + sector landen in der Liste
+            'sector_and_industry' — nur full landet in der Liste (Default)
+            'hybrid'              — full bevorzugt; nur wenn keine full,
+                                    landen sector-Eintraege als Fallback
 
         Returns:
             {
                 'insider_sectors': [...],     # alle (sub)committee-Sektoren
-                'relevant_sectors': [...],    # Intersection mit Ticker
-                'relevance_score': int,
-                'match_count': int,
+                'relevant_sectors': [...],    # Treffer nach match_mode,
+                                              #   jeder mit ``match_type``
+                'match_count': int,           # = len(relevant_sectors)
             }
         """
         empty_result = {
             'insider_sectors': [],
             'relevant_sectors': [],
-            'relevance_score': 0,
             'match_count': 0,
         }
 
@@ -253,58 +243,41 @@ class CommitteeTag:
             return {
                 'insider_sectors': unique_sectors,
                 'relevant_sectors': [],
-                'relevance_score': 0,
-                'match_count': len(unique_sectors),
+                'match_count': 0,
             }
 
-        sector_match = False
-        industry_match = False
-        ex_officio = False
-        intersection_or: List[Dict[str, Any]] = []
-        intersection_and: List[Dict[str, Any]] = []
+        full_matches: List[Dict[str, Any]] = []
+        sector_only_matches: List[Dict[str, Any]] = []
 
         for entry in unique_sectors:
             entry_sector = self._norm(entry.get('sector'))
             entry_industry = self._norm(entry.get('industry'))
-            role_norm = str(entry.get('role') or '').strip().lower()
-            is_ex_officio = role_norm in self.ex_officio_roles
 
             hit_sector = bool(t_sector_n) and entry_sector == t_sector_n
             hit_industry = bool(t_industry_n) and entry_industry == t_industry_n
 
-            if hit_sector:
-                sector_match = True
-                if is_ex_officio:
-                    ex_officio = True
-            if hit_industry:
-                industry_match = True
-                if is_ex_officio:
-                    ex_officio = True
-
-            if hit_sector or hit_industry:
-                intersection_or.append(entry)
             if hit_sector and hit_industry:
-                intersection_and.append(entry)
+                tagged = dict(entry, match_type='full')
+                full_matches.append(tagged)
+            elif hit_sector:
+                tagged = dict(entry, match_type='sector')
+                sector_only_matches.append(tagged)
+            # hit_industry-only existiert per Hierarchie nicht — Industry
+            # impliziert immer einen Sector. Wenn Industry trifft aber Sector
+            # nicht, ist das ein Datenfehler im Mapping und wird verworfen.
 
-        # Intersection nach Match-Modus auswaehlen
+        # Auswahl nach Match-Modus
         if self.match_mode == 'sector_and_industry':
-            intersection_list = intersection_and
+            relevant_sectors = full_matches
         elif self.match_mode == 'hybrid':
-            intersection_list = intersection_and if intersection_and else intersection_or
-        else:  # 'sector_or_industry' (Default)
-            intersection_list = intersection_or
-
-        # 4. Score berechnen
-        raw = (self.sector_points if sector_match else 0) \
-            + (self.industry_points if industry_match else 0)
-        multiplier = self.ex_officio_mult if ex_officio else 1.0
-        score = int(round(raw * multiplier))
+            relevant_sectors = full_matches if full_matches else sector_only_matches
+        else:  # 'sector_or_industry'
+            relevant_sectors = full_matches + sector_only_matches
 
         return {
             'insider_sectors': unique_sectors,
-            'relevant_sectors': intersection_list,
-            'relevance_score': score,
-            'match_count': len(unique_sectors),
+            'relevant_sectors': relevant_sectors,
+            'match_count': len(relevant_sectors),
         }
 
     def _deduplicate_sectors(self, sectors: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

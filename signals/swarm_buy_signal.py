@@ -29,6 +29,7 @@ from signals.committee_signal import (
     _to_int,
     _to_bool,
     _direction_from_transaction_type,
+    parse_relevant_sectors,
 )
 from utils.issuer_ticker import resolve_issuer_ticker
 from utils.signal_event_id import make_signal_event_id
@@ -61,7 +62,7 @@ def _swarm_event_snapshot(row: Any, signal_event_id: str, scope_key: str,
             row.get('transaction_type')
         ),
         'is_ex_officio': _to_bool(row.get('Member_ExOfficio')),
-        'relevance_score': _to_int(row.get('Relevance_Score'), default=0),
+        'match_count': len(parse_relevant_sectors(row.get('Relevant_Sectors'))),
         'vote_timing_hit_count': _to_int(
             row.get('Vote_Timing_Hit_Count'), default=0
         ),

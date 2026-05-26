@@ -38,7 +38,7 @@ SWARM_SIGNALS = ('swarm_buy', 'swarm_sell', 'swarm_conflict')
 PARADOX_SIGNAL = 'swarm_paradox'
 
 # Feste Reihenfolge fuer Breakdown-Strings (deterministische CSV-Diffs).
-BRANCH1_ORDER = ('committee', 'floor_action', 'extreme_report')
+BRANCH1_ORDER = ('committee', 'committee_full', 'floor_action', 'extreme_report')
 SEQUENCE_ORDER = ('contrarian', 'accumulative')
 
 

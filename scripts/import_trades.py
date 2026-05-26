@@ -72,6 +72,7 @@ from utils.issuer_group_mapper import IssuerGroupMapper
 from tags.vote_timing_tag import VoteTimingTag, VOTE_TIMING_COLUMNS
 from gates.asset_class_gate import AssetClassGate, ASSET_CLASS_COLUMNS
 from signals.committee_signal import CommitteeSignal
+from signals.committee_full_signal import CommitteeFullSignal
 from signals.committee_ex_officio_signal import CommitteeExOfficioSignal
 from signals.floor_action_signal import FloorActionSignal
 from signals.extreme_report_signal import ExtremeReportSignal
@@ -125,7 +126,7 @@ SIGNAL_EVENT_COLUMNS = [
     'ticker', 'issuer_ticker', 'issuer_group_key', 'asset_name_figi',
     'transaction_date', 'disclosure_date',
     'transaction_amount', 'direction', 'is_ex_officio',
-    'relevance_score', 'vote_timing_hit_count',
+    'match_count', 'vote_timing_hit_count',
     'committee_subcommittee', 'relevant_sectors',
 ]
 
@@ -252,7 +253,7 @@ STAGE_DEPS = {
         'input_cols': ['name', 'chamber', 'Member_Committees_Full', 'ticker',
                        'ticker_type', 'transaction_date'],
         'output_cols': ['MatchScore', 'MatchSource', 'Insider_Sectors', 'Relevant_Sectors',
-                        'Relevance_Score', 'asset_class_excluded',
+                        'asset_class_excluded',
                         'Vote_Timing_Hit', 'Vote_Timing_Hits', 'Vote_Timing_Hit_Count'],
     },
     'branch1_signals': {
@@ -263,7 +264,7 @@ STAGE_DEPS = {
                        'transaction_date', 'disclosure_date',
                        'transaction_type', 'amount',
                        'Member_ExOfficio', 'Member_Committees_Full',
-                       'Relevance_Score', 'Vote_Timing_Hit_Count',
+                       'Vote_Timing_Hit_Count',
                        'Relevant_Sectors'],
         'output_cols': ['signal_count', 'signals_triggered'],
     },
@@ -1001,15 +1002,15 @@ class TradeImporter:
         return df
 
     def _apply_committee_relevance(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Berechnet Insider_Sectors (alle Committee-Sektoren), Relevant_Sectors
-        (Intersection mit sector_yf/industry_yf) und Relevance_Score."""
+        """Berechnet Insider_Sectors (alle Committee-Sektoren) und
+        Relevant_Sectors (Intersection mit sector_yf/industry_yf, jeder
+        Eintrag mit match_type='full' oder 'sector')."""
         from tags.committee_tag import CommitteeTag
         committee_tag = CommitteeTag()
 
         df = df.copy()
         df['Insider_Sectors'] = ''
         df['Relevant_Sectors'] = ''
-        df['Relevance_Score'] = 0
 
         for idx, row in df.iterrows():
             committees_full = str(row.get('Member_Committees_Full', '') or '')
@@ -1029,7 +1030,6 @@ class TradeImporter:
                 )
                 df.at[idx, 'Insider_Sectors'] = json.dumps(relevance['insider_sectors'])
                 df.at[idx, 'Relevant_Sectors'] = json.dumps(relevance['relevant_sectors'])
-                df.at[idx, 'Relevance_Score'] = relevance['relevance_score']
             except Exception as e:
                 logger.warning(f"Relevance-Berechnung fehlgeschlagen fuer {row.get('name', '')}: {e}")
 
@@ -1146,6 +1146,7 @@ class TradeImporter:
         """
         signals = [
             CommitteeSignal(),
+            CommitteeFullSignal(),
             CommitteeExOfficioSignal(),
             FloorActionSignal(),
             ExtremeReportSignal(),

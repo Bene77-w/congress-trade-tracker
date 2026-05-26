@@ -32,30 +32,22 @@ Default `{stock, foreign_stock, shareclass}` (`settings.ASSET_CLASS_KEEP_TYPES`)
 ### **Tag: Committee** (User-Sicht: „Filter 3")
 **Status:** Parameter ✅ / Code ✅ — `tags/committee_tag.py` (`CommitteeTag`)
 
-Schreibt `Insider_Sectors`, `Relevant_Sectors`, `Relevance_Score` in den Master.
-Match-Vergleich gegen `sector_yf` / `industry_yf`.
+Schreibt `Insider_Sectors` und `Relevant_Sectors` in den Master.
+`Relevance_Score` wurde entfernt (Refactor 2026-05-21).
 
-**Scoring-Formel (aktiv im Code):**
-```python
-sector_match   = (Committee-Sektor   == sector_yf)
-industry_match = (Committee-Industry == industry_yf)
-raw   = (33 if sector_match else 0) + (33 if industry_match else 0)
-score = round(raw * (1.5 if ex_officio else 1.0))
-# Mögliche Werte: 0, 33, 50, 66, 99
-```
+**`Relevant_Sectors`-Einträge** haben jetzt ein Feld `match_type`:
+- `'full'` — Eintrag deckt Sector **und** Industry des Assets ab
+- `'sector'` — nur Sector trifft, Industry abweichend (nur bei `'sector_or_industry'`- oder `'hybrid'`-Modus möglich)
 
 **Settings:**
 
 | Konstante | Wert | Bedeutung |
 |-----------|------|-----------|
-| `COMMITTEE_SECTOR_MATCH_POINTS`    | 33  | Punkte bei Sektor-Match |
-| `COMMITTEE_INDUSTRY_MATCH_POINTS`  | 33  | Punkte bei Industry-Match |
-| `COMMITTEE_EX_OFFICIO_MULTIPLIER`  | 1.5 | Multiplikator bei Ex-Officio-Rolle |
 | `COMMITTEE_EX_OFFICIO_ROLES`       | `[Chairman, Ranking Member, Vice Chairman, Cochairman, EXOfficio]` | Welche Rollen als Ex Officio zählen |
 
 **Match-Modus** für `Relevant_Sectors` (Intersection Insider × Ticker):
-- `'sector_or_industry'` — Eintrag matcht, wenn sector ODER industry zum Ticker passen *(Default)*
-- `'sector_and_industry'` — Eintrag matcht nur, wenn sector UND industry passen
+- `'sector_or_industry'` — Eintrag matcht, wenn sector ODER industry zum Ticker passen
+- `'sector_and_industry'` — Eintrag matcht nur, wenn sector UND industry passen *(Default)*
 - `'hybrid'` — bevorzuge sector+industry-Matches, sonst Fallback auf `sector_or_industry`
 
 → `settings.RELEVANT_SECTORS_MATCH_MODE`
@@ -165,7 +157,8 @@ trade_score  = round(swarm_part + other_part + volume_part + bonus)
 
 | Konstante | Default | Bedeutung |
 |---|---|---|
-| `SCORING_WEIGHTS['committee']`       | 15    | Branch-1 Per-Trade |
+| `SCORING_WEIGHTS['committee']`       | 10    | Branch-1 Per-Trade; triggert bei `len(Relevant_Sectors) > 0` |
+| `SCORING_WEIGHTS['committee_full']`  |  5    | Branch-1 Per-Trade; zusätzlich wenn mind. 1 Eintrag `match_type='full'`. Voll-Treffer = 10+5=15 |
 | `SCORING_WEIGHTS['floor_action']`    | 15    | Aktiv. Triggert bei Vote_Timing_Hit_Count ≥ VOTE_TIMING_HIT_THRESHOLD (=1) |
 | `SCORING_WEIGHTS['extreme_report']`  |  5    | Branch-1 Per-Trade |
 | `SCORING_WEIGHTS['contrarian']`      |  8    | Sequenz-Signal |
@@ -199,7 +192,7 @@ trade_score  = round(swarm_part + other_part + volume_part + bonus)
 | `trade_volume_usd` | Stage `trade_volume` (`utils/amount_parser.midpoint_usd`) | int64, Mittelpunkt der Disclosure-Amount-Range in USD. Beispiele: `$1,001 - $15,000` → 8000; `Over $50,000,000` → 50_000_000; leer/NaN → 0. |
 | `asset_tradingvolume_usd` | Stage `asset_volume` (`scoring/asset_volume.compute_asset_tradingvolume`) | int64, Σ `trade_volume_usd` über `issuer_group_key` im Fenster `[T.date − Z, T.date]` (Z = `SCORING_VOLUME_WINDOW_DAYS_Z`, Default 90). Tages-Aggregation; SKIP-Buckets = 0. Sanity-Check (111k Trades): median $72k, p95 $912k, max $83.5M. |
 | `trade_score` | Stage `scoring` (`scoring/trade_score.compute_trade_scores`) | int, Combined-Score laut Formel. Kein Cap. Sanity-Check (111k Trades): mean=21.6, median=13, max=1705. |
-| `trade_score_breakdown` | Stage `scoring` | `;`-getrennt, deterministische Reihenfolge Branch-1 → Sequenz → Schwarm → ex_officio → volume. Beispiel: `committee:15;swarm_buy:20;ex_officio:+10;volume:8`. Null-Komponenten erscheinen explizit. |
+| `trade_score_breakdown` | Stage `scoring` | `;`-getrennt, deterministische Reihenfolge Branch-1 → Sequenz → Schwarm → ex_officio → volume. Beispiel: `committee:10;committee_full:5;swarm_buy:20;ex_officio:+10;volume:8`. Null-Komponenten erscheinen explizit. |
 | `trade_warnings` | Stage `scoring` | `;`-getrennt. Aktuell nur `paradox_swarm` wenn `swarm_paradox` getriggert hat. Unabhängig vom Score sichtbar. |
 
 ### Score-Aggregate in Views (aktiv ab Phase 8.4)

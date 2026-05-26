@@ -26,7 +26,6 @@ def make_trade(td, tx_type='Purchase', trade_id=None, ticker='AAPL',
         'amount': '$1,001-$15,000',
         'Member_ExOfficio': '',
         'Member_Committees_Full': '',
-        'Relevance_Score': 0,
         'Vote_Timing_Hit_Count': 0,
         'Relevant_Sectors': '',
     }

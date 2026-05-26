@@ -339,13 +339,13 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
       werden Alt-Eintraege ohne 'has_summary'/'subject_count' (Felder nachtraeglich
       eingefuehrt) automatisch nachgeruestet — verhindert KeyError im Progress-Print.
     → MatchScore/MatchSource (NameMatcher)
-    → Insider_Sectors / Relevant_Sectors / Relevance_Score (CommitteeTag — User-Sicht „Filter 3")
+    → Insider_Sectors / Relevant_Sectors (CommitteeTag — User-Sicht „Filter 3")
       Insider_Sectors  = JSON-Liste ALLER (sub)committee-Sektoren des Members
-      Relevant_Sectors = Intersection Insider × sector_yf/industry_yf
+      Relevant_Sectors = Intersection Insider × sector_yf/industry_yf, jeder Eintrag
+                         mit Feld match_type ('full' oder 'sector')
                          (Match-Mode via settings.RELEVANT_SECTORS_MATCH_MODE,
-                          Default: sector_or_industry)
-      Score-Formel: sector_match (33) + industry_match (33), * 1.5 wenn ex officio
-      Vergleich Mapping.Sector/Industry == sector_yf/industry_yf → 0/33/50/66/99
+                          Default: sector_and_industry)
+      Relevance_Score entfernt (Refactor 2026-05-21)
     → asset_class_excluded (AssetClassGate — User-Sicht „Filter 0": prueft ASSET_CLASS_KEEP_TYPES = {stock, foreign_stock, shareclass})
     → Vote_Timing_Hit / Vote_Timing_Hits / Vote_Timing_Hit_Count (VoteTimingTag — User-Sicht „Filter 4")
       Quelle der Trade-Sektoren ist Relevant_Sectors (Intersection!), damit
@@ -353,10 +353,11 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
       im Fenster werden als JSON-Liste gespeichert.
          ↓
 [11] Branch-1 Signale (_apply_branch1_signals)
-    → Vier Per-Trade-Signale: committee, committee_ex_officio,
+    → Fünf Per-Trade-Signale: committee, committee_full, committee_ex_officio,
       floor_action, extreme_report (signals/*.py)
-    → Schwellwerte aus settings.py: COMMITTEE_THRESHOLD,
-      VOTE_TIMING_HIT_THRESHOLD, EXTREME_REPORT_DAYS
+      committee triggert bei len(Relevant_Sectors) > 0
+      committee_full triggert zusätzlich wenn mind. 1 Eintrag match_type='full'
+    → Schwellwerte aus settings.py: VOTE_TIMING_HIT_THRESHOLD, EXTREME_REPORT_DAYS
     → Neue Trade-Spalten: signal_count (int 0-4), signals_triggered (str, ";"-getrennt)
     → Auslöse-Events werden in data/processed/branch1_events_stage.csv
       geschrieben (Snapshot pro Auslösung, 21 Spalten inkl. issuer_ticker,
@@ -556,7 +557,8 @@ Nur ausfuehren wenn xlsx-Dateien geaendert wurden.
 | `utils/ticker_sector.py` | yfinance-Wrapper, liefert `SectorInfo` | 6 |
 | `utils/signal_event_id.py` | Hash-basierte Signal-Event-ID (SHA256[:16]) für Signal-Auslösungen (gruppiert Trades bei Schwärmen) — Konvention siehe `organisation/tool_specific_md/signal_info.md` | 14 |
 | `utils/issuer_ticker.py` | `resolve_issuer_ticker(row)` — Cross-Share-Class-Aufloesung mit Fallback-Kette `share_class_figi → ticker_base → ticker`. share_class_figi (OpenFIGI shareClassFIGI) ist der Erstkandidat, faellt bei Miss zurueck auf ticker_base, dann ticker. Aufrufer (alle Signal-Module + sequence-stage Grouping) erhalten garantiert nicht-leeren Identifier solange mindestens eine der drei Quellen gesetzt ist. | 17 |
-| `signals/committee_signal.py` | Branch-1 Per-Trade-Signal: triggert bei `Relevance_Score >= COMMITTEE_THRESHOLD` | 8 (in `test_branch1_signals.py`) |
+| `signals/committee_signal.py` | Branch-1 Per-Trade-Signal: triggert bei `len(Relevant_Sectors) > 0` | 8 (in `test_branch1_signals.py`) |
+| `signals/committee_full_signal.py` | Branch-1 Per-Trade-Signal: triggert wenn mind. 1 Eintrag in `Relevant_Sectors` hat `match_type='full'` | (in `test_branch1_signals.py`) |
 | `signals/committee_ex_officio_signal.py` | Branch-1 Per-Trade-Signal: triggert wenn CommitteeSignal + `Member_ExOfficio` | 4 |
 | `signals/floor_action_signal.py` | Branch-1 Per-Trade-Signal: triggert bei `Vote_Timing_Hit_Count >= VOTE_TIMING_HIT_THRESHOLD` | 4 |
 | `signals/extreme_report_signal.py` | Branch-1 Per-Trade-Signal: triggert bei `disclosure_date - transaction_date > EXTREME_REPORT_DAYS` | 5 |
@@ -695,8 +697,6 @@ venv/bin/streamlit run app/streamlit_app.py --server.headless true
 ```
 **Inputs (read-only):**
 - `data/processed/trades_master.csv` — Haupt-Trades-Tabelle (gecached via `@st.cache_data`)
-- `data/processed/suspicious_assets.csv` — Assets-View mit Score-Aggregaten
-- `data/processed/suspicious_members.csv` — Members-View mit Score-Aggregaten
 
 **Outputs:** keine — reine Lese-UI, kein Schreiben auf Disk
 
@@ -705,10 +705,32 @@ venv/bin/streamlit run app/streamlit_app.py --server.headless true
 Load (cached)
     → Pre-Filter (Datum + Member-Suche + Ticker-Suche)
         → Score-Recompute auf Subset (nur wenn Signale ausgeschlossen)
-            → Post-Filter (Min-Score)
-                → Sort (nach trade_score, asc/desc)
+            → Post-Filter (Min-Score auf trade_score; bei Assets/Members auf score_max)
+                → Sort (nach trade_score / score_max, asc/desc)
                     → Render (Tab: Trades / Assets / Members)
 ```
+
+**Abgeleitete Spalte `relevant_sectors` (Trade-Tab):** Wird on-the-fly aus der
+Quellspalte `Relevant_Sectors` (JSON-Liste) per Helper `_parse_relevant_sectors()`
+erzeugt — eindeutige `sector`-Namen, `', '`-getrennt. Erscheint im Trade-DataFrame
+zwischen `trade_score` und `signals_triggered`. Quellspalte bleibt auf Disk unverändert.
+
+**Live-Aggregation (Asset- und Member-Tab):** Beide Tabs aggregieren on-the-fly aus
+dem gefilterten Trade-Subset (`prefilt`) — `suspicious_assets.csv` und
+`suspicious_members.csv` werden nicht mehr geladen. Min-Score wirkt auf `score_max`
+des Aggregats.
+
+Asset-Aggregat (`aggregate_assets`): gruppiert nach `issuer_ticker`:
+- `issuer_ticker`, `asset_name`, `trade_count`, `member_count`
+- `score_max`, `score_avg`, `score_total`, `total_volume_usd`
+- `last_date`, `first_date`, `chambers`, `sectors`, `signals`
+
+Member-Aggregat (`aggregate_members`): gruppiert nach `(name, chamber)`:
+- `name`, `chamber`, `Member_Party`, `trade_count`, `asset_count`
+- `score_max`, `score_avg`, `score_total`, `total_volume_usd`
+- `last_date`, `first_date`, `signals`
+
+**KPI-Zeile** (Anzahl, Max-Score, Σ Volumen) erscheint jetzt in allen drei Tabs.
 
 **Sidebar-Widgets:**
 | Widget | Optionen | Default |
@@ -728,9 +750,9 @@ Werden Signale via Multiselect ausgeschlossen, ruft die App `app/score_recompute
 Zweck: Paradox-Dämpfung und Ex-Officio-Bonus bleiben bei Signal-Ausschluss konsistent — einfaches String-Filtern würde diese Interaktionen brechen.
 
 **Drei Tabs:**
-- **Trades** (Standard): KPIs (Anzahl, Mean, Max, # ausgeschlossene Signale) + Datentabelle mit 16 Spalten
-- **Assets**: rohe Ansicht von `suspicious_assets.csv` sortiert nach `score_max` desc (Datum/Score-Filter noch nicht aktiv — geplante Iteration)
-- **Members**: rohe Ansicht von `suspicious_members.csv` sortiert nach `score_max` desc (gleiche MVP-Beschränkung)
+- **Trades** (Standard): KPIs (Anzahl, Max-Score, Σ Volumen) + Datentabelle inkl. abgeleiteter Spalte `relevant_sectors`
+- **Assets**: Live-Aggregat aus gefiltertem Trade-Subset, sortiert nach `score_max` desc — reaktiv auf alle Sidebar-Filter
+- **Members**: Live-Aggregat aus gefiltertem Trade-Subset, sortiert nach `score_max` desc — reaktiv auf alle Sidebar-Filter
 
 **Neue Dateien:**
 | Datei | Zweck |
@@ -840,12 +862,13 @@ Zwischensummen pro Gruppe, finale Zusammenfassung.
               │ suspicious_members.csv                  │
               │ unmatched_names.csv                     │
               └─────────────────┬───────────────────────┘
-                                │
+                                │ (nur trades_master.csv)
                                 ↓
               ┌─────────────────────────────────────────┐
               │  Streamlit Dashboard (Pipeline 10)      │
               │  app/streamlit_app.py                   │
               │  Lese-UI: Trades / Assets / Members     │
+              │  (Assets + Members live aggregiert)     │
               └─────────────────────────────────────────┘
               [Modul 10-11: TODO]
               Email → Automatisierung
@@ -875,6 +898,10 @@ Letzte Aktualisierung: 2026-05-20 (Pipeline 10: Streamlit Dashboard MVP)
 
 ### Aenderungs-Historie
 
+- **2026-05-21** — Pipeline 10 Iteration: Asset- und Member-Tab live aus gefiltertem
+  Trade-Subset aggregiert (`suspicious_assets.csv`/`suspicious_members.csv` kein Input
+  mehr). Neue abgeleitete Spalte `relevant_sectors` im Trade-Tab. KPI-Zeile in allen
+  drei Tabs.
 - **2026-05-20** — Pipeline 10 (Streamlit Dashboard MVP) hinzugefuegt.
   Drei neue Dateien: `app/__init__.py`, `app/score_recompute.py`,
   `app/streamlit_app.py`. Abhaengigkeitsgraph um Streamlit-App-Knoten ergaenzt.

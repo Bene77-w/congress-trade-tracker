@@ -679,7 +679,7 @@ House/Senate Member-CSVs, Subcommittee-Mappings, `yf_sectors_with_industries.csv
 ## 14. Streamlit Dashboard
 
 **Datei:** `app/streamlit_app.py`
-**Zweck:** Interaktive Web-UI zur Exploration von Trades, Assets und Members. Lädt `trades_master.csv`, `suspicious_assets.csv`, `suspicious_members.csv` (gecached).
+**Zweck:** Interaktive Web-UI zur Exploration von Trades, Assets und Members. Lädt `trades_master.csv` (gecached); Asset- und Member-Tab werden live aus dem gefilterten Trade-Subset aggregiert (reaktiv auf alle Filter).
 
 ```bash
 # Linux/Mac
@@ -708,12 +708,13 @@ Default-Port: **8501** → im Browser öffnen: `http://localhost:8501`
 
 **Tabs:** Trades (Standard) | Assets | Members
 
+**Trade-Tab:** enthält abgeleitete Spalte `relevant_sectors` (aus `Relevant_Sectors`-JSON, eindeutige Sektor-Namen kommagetrennt).
+
+**Asset- und Member-Tab:** werden live aus dem gefilterten Trade-Subset aggregiert — alle Sidebar-Filter wirken. Min-Score greift auf `score_max` des Aggregats.
+
 > **Hinweis:** Signal-Ausschluss löst einen Voll-Recompute auf dem gefilterten Subset aus
 > (via `scoring/trade_score.py`), damit Paradox-Dämpfung und Ex-Officio-Bonus konsistent
 > bleiben. Einfaches String-Filtern würde diese Interaktionen brechen.
-
-> **MVP-Beschränkung:** Datum- und Score-Filter wirken in den Tabs „Assets" und „Members"
-> noch nicht — geplante Iteration.
 
 ---
 

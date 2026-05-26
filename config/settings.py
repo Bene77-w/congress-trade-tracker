@@ -38,21 +38,16 @@ ASSET_CLASS_KEEP_TYPES = {
 # Code: tags/committee_tag.py (CommitteeTag)
 # In der User-Sprache: "Filter 3".
 # =============================================================================
-# Relevance-Score-Formel (aktiv im Code):
-#   sector_match   = Committee-Sektor   == sector_yf
-#   industry_match = Committee-Industry == industry_yf
-#   raw   = (sector_points if sector_match) + (industry_points if industry_match)
-#   score = round(raw * (ex_officio_mult if ex_officio else 1.0))
-# Mögliche Werte mit Default-Konstanten: 0, 33, 50, 66, 99
-COMMITTEE_SECTOR_MATCH_POINTS = 33
-COMMITTEE_INDUSTRY_MATCH_POINTS = 33
-COMMITTEE_EX_OFFICIO_MULTIPLIER = 1.5
+# CommitteeTag: produziert Relevant_Sectors (Liste von Insider-Eintraegen, die
+# den Trade thematisch beruehren). Pro Eintrag gibt es ein Feld ``match_type``:
+#   'full'   — Insider-Eintrag deckt sowohl Sector als auch Industry des Assets
+#   'sector' — Insider-Eintrag deckt nur den Sector (Industry weicht ab)
+# Industry-only existiert per Hierarchie nicht (Industry impliziert Sector).
+# Welche match_types in der Liste landen, steuert RELEVANT_SECTORS_MATCH_MODE:
+#   'sector_or_industry'  — full + sector (Halb- und Voll-Treffer)
+#   'sector_and_industry' — nur full (strikt)
+#   'hybrid'              — full bevorzugt, sector als Fallback wenn kein full
 COMMITTEE_EX_OFFICIO_ROLES = ['Chairman', 'Ranking Member', 'Vice Chairman', 'Cochairman', 'EXOfficio']
-
-# Match-Modus fuer Relevant_Sectors (Intersection Insider × Ticker):
-# 'sector_or_industry'  — Eintrag matcht, wenn sector ODER industry zum Ticker passen (Default)
-# 'sector_and_industry' — Eintrag matcht nur, wenn sector UND industry passen
-# 'hybrid'              — bevorzuge sector+industry-Matches, sonst Fallback auf sector_or_industry
 RELEVANT_SECTORS_MATCH_MODE = 'sector_and_industry'
 
 # =============================================================================
@@ -73,22 +68,18 @@ BILL_SUBJECTS_FILE = 'bill_subjects.json'
 VOTE_DATA_TTL_HOURS       = 24     # Skip-Schwelle fuer Auto-Refresh in Stunden
 
 # =============================================================================
-# SIGNAL: COMMITTEE (Branch 1)
-# Trade triggert wenn Relevance_Score >= Schwelle.
-# Code: signals/committee_signal.py (CommitteeSignal)
-# In der User-Sprache: "Filter 3" als Signal-Variante.
+# SIGNAL: COMMITTEE / COMMITTEE_FULL / COMMITTEE_EX_OFFICIO (Branch 1)
+# committee:        feuert wenn Relevant_Sectors mindestens einen Eintrag hat
+#                   (egal welcher match_type).
+# committee_full:   feuert wenn mindestens ein Eintrag match_type='full' hat
+#                   (Sector + Industry). Im Modus 'sector_and_industry' immer
+#                   gleichzeitig mit committee.
+# committee_ex_officio: feuert wenn committee aktiv + Member_ExOfficio truthy.
+# Code: signals/committee_signal.py, committee_full_signal.py,
+#       committee_ex_officio_signal.py.
+# Konfiguration: RELEVANT_SECTORS_MATCH_MODE (oben), COMMITTEE_EX_OFFICIO_ROLES.
+# Score-Gewichte siehe SCORING_WEIGHTS weiter unten.
 # =============================================================================
-COMMITTEE_THRESHOLD = 33                # Relevance_Score >= X triggert
-
-# =============================================================================
-# SIGNAL: COMMITTEE EX OFFICIO (Branch 1)
-# Zweites Signal das zusaetzlich zum committee-Signal triggert wenn der
-# Politiker eine Fuehrungsrolle (Chairman, Ranking Member etc.) hat. Bewirkt
-# einen +1-Boost im signal_count fuer Ex-Officio-Trades ohne die ganzzahlige
-# Count-Semantik zu brechen.
-# Code: signals/committee_ex_officio_signal.py (CommitteeExOfficioSignal)
-# =============================================================================
-# (keine zusaetzlichen Variablen — nutzt COMMITTEE_THRESHOLD + is_ex_officio)
 
 # =============================================================================
 # SIGNAL: FLOOR ACTION (Branch 1)
@@ -170,7 +161,8 @@ SEC_EDGAR_TTL_DAYS   = 7
 # Code: scoring/trade_score.py (geplant in Phase 8.3)
 # =============================================================================
 SCORING_WEIGHTS = {
-    'committee':       15,
+    'committee':       10,    # Halb-Treffer (Sector matcht) + Voll-Treffer
+    'committee_full':   5,    # Zusatz fuer Voll-Treffer (Sector + Industry)
     'floor_action':    15,    # Vote-Timing-Treffer (VoteTimingTag → FloorActionSignal)
     'extreme_report':   5,
     'contrarian':       8,
@@ -423,7 +415,6 @@ CURATED_COLUMNS = [
     'Member_Committees',
     'Insider_Sectors',
     'Relevant_Sectors',
-    'Relevance_Score',
     'asset_class_excluded',
     'Vote_Timing_Hit',
     'Vote_Timing_Hits',

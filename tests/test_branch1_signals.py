@@ -1,11 +1,12 @@
-"""Tests fuer die vier Branch-1 Per-Trade-Signale."""
+"""Tests fuer die Branch-1 Per-Trade-Signale."""
 
+import json
 from datetime import date
 
 import pandas as pd
-import pytest
 
 from signals.committee_signal import CommitteeSignal
+from signals.committee_full_signal import CommitteeFullSignal
 from signals.committee_ex_officio_signal import CommitteeExOfficioSignal
 from signals.floor_action_signal import FloorActionSignal
 from signals.extreme_report_signal import ExtremeReportSignal
@@ -13,8 +14,31 @@ from signals.extreme_report_signal import ExtremeReportSignal
 
 # ---------- Test-Fixtures ---------------------------------------------------
 
+def _sectors(*matches):
+    """Hilfs-Funktion: baut JSON-String fuer Relevant_Sectors.
+
+    matches: Tupel (sector, industry, role, match_type, [committee, subcommittee])
+    """
+    out = []
+    for m in matches:
+        sector, industry, role, mtype = m[0], m[1], m[2], m[3]
+        committee = m[4] if len(m) > 4 else 'Ways And Means'
+        subcommittee = m[5] if len(m) > 5 else 'Health'
+        out.append({
+            'sector': sector,
+            'industry': industry,
+            'role': role,
+            'rank': 1,
+            'confidence': 'Hoch',
+            'committee': committee,
+            'subcommittee': subcommittee,
+            'match_type': mtype,
+        })
+    return json.dumps(out)
+
+
 def make_row(**overrides) -> pd.Series:
-    """Erzeugt eine repraesentative Trade-Row mit Defaults."""
+    """Erzeugt eine repraesentative Trade-Row mit Defaults (keine Treffer)."""
     base = {
         'trade_id': 'abc123',
         'name': 'Doe, John',
@@ -30,7 +54,6 @@ def make_row(**overrides) -> pd.Series:
         'amount': '$1,001-$15,000',
         'Member_ExOfficio': '',
         'Member_Committees_Full': 'Armed Services|Chairman',
-        'Relevance_Score': 0,
         'Vote_Timing_Hit_Count': 0,
         'Relevant_Sectors': '',
     }
@@ -41,82 +64,144 @@ def make_row(**overrides) -> pd.Series:
 # ---------- CommitteeSignal -------------------------------------------------
 
 class TestCommitteeSignal:
-    def test_triggers_above_threshold(self):
-        signal = CommitteeSignal(threshold=33)
-        event = signal.evaluate_row(make_row(Relevance_Score=50))
+    def test_triggers_when_full_match(self):
+        signal = CommitteeSignal()
+        event = signal.evaluate_row(make_row(
+            Relevant_Sectors=_sectors(
+                ('Healthcare', 'Drug Manufacturers', '', 'full')
+            )
+        ))
         assert event is not None
         assert event['signal_type'] == 'committee'
-        assert event['relevance_score'] == 50
+        assert event['match_count'] == 1
 
-    def test_triggers_at_threshold(self):
-        signal = CommitteeSignal(threshold=33)
-        event = signal.evaluate_row(make_row(Relevance_Score=33))
+    def test_triggers_when_sector_only_match(self):
+        signal = CommitteeSignal()
+        event = signal.evaluate_row(make_row(
+            Relevant_Sectors=_sectors(
+                ('Healthcare', 'Medical Devices', '', 'sector')
+            )
+        ))
         assert event is not None
+        assert event['match_count'] == 1
 
-    def test_does_not_trigger_below_threshold(self):
-        signal = CommitteeSignal(threshold=33)
-        assert signal.evaluate_row(make_row(Relevance_Score=32)) is None
+    def test_does_not_trigger_on_empty_list(self):
+        signal = CommitteeSignal()
+        assert signal.evaluate_row(make_row(Relevant_Sectors='[]')) is None
 
-    def test_does_not_trigger_on_nan_score(self):
-        signal = CommitteeSignal(threshold=33)
-        assert signal.evaluate_row(make_row(Relevance_Score=float('nan'))) is None
+    def test_does_not_trigger_on_empty_string(self):
+        signal = CommitteeSignal()
+        assert signal.evaluate_row(make_row(Relevant_Sectors='')) is None
+
+    def test_does_not_trigger_on_malformed_json(self):
+        signal = CommitteeSignal()
+        assert signal.evaluate_row(make_row(Relevant_Sectors='not json')) is None
 
     def test_deterministic_signal_event_id(self):
-        signal = CommitteeSignal(threshold=33)
-        row = make_row(Relevance_Score=50)
+        signal = CommitteeSignal()
+        row = make_row(Relevant_Sectors=_sectors(
+            ('Healthcare', 'Drug Manufacturers', '', 'full')
+        ))
         a = signal.evaluate_row(row)['signal_event_id']
         b = signal.evaluate_row(row)['signal_event_id']
         assert a == b
         assert len(a) == 16
 
-    def test_uses_settings_default(self):
-        from config import settings
-        signal = CommitteeSignal()
-        assert signal.threshold == settings.COMMITTEE_THRESHOLD
-
     def test_direction_buy(self):
-        signal = CommitteeSignal(threshold=33)
+        signal = CommitteeSignal()
         event = signal.evaluate_row(make_row(
-            Relevance_Score=50, transaction_type='Purchase'
+            Relevant_Sectors=_sectors(('Healthcare', 'Devices', '', 'full')),
+            transaction_type='Purchase',
         ))
         assert event['direction'] == 'buy'
 
     def test_direction_sell(self):
-        signal = CommitteeSignal(threshold=33)
+        signal = CommitteeSignal()
         event = signal.evaluate_row(make_row(
-            Relevance_Score=50, transaction_type='Sale (Full)'
+            Relevant_Sectors=_sectors(('Healthcare', 'Devices', '', 'full')),
+            transaction_type='Sale (Full)',
         ))
         assert event['direction'] == 'sell'
+
+
+# ---------- CommitteeFullSignal --------------------------------------------
+
+class TestCommitteeFullSignal:
+    def test_triggers_on_full_match(self):
+        signal = CommitteeFullSignal()
+        event = signal.evaluate_row(make_row(
+            Relevant_Sectors=_sectors(
+                ('Healthcare', 'Drug Manufacturers', '', 'full')
+            )
+        ))
+        assert event is not None
+        assert event['signal_type'] == 'committee_full'
+
+    def test_does_not_trigger_on_sector_only(self):
+        signal = CommitteeFullSignal()
+        assert signal.evaluate_row(make_row(
+            Relevant_Sectors=_sectors(
+                ('Healthcare', 'Other', '', 'sector')
+            )
+        )) is None
+
+    def test_triggers_on_mixed_with_at_least_one_full(self):
+        signal = CommitteeFullSignal()
+        event = signal.evaluate_row(make_row(
+            Relevant_Sectors=_sectors(
+                ('Healthcare', 'Other', '', 'sector'),
+                ('Tech', 'Software', '', 'full'),
+            )
+        ))
+        assert event is not None
+
+    def test_does_not_trigger_on_empty(self):
+        signal = CommitteeFullSignal()
+        assert signal.evaluate_row(make_row(Relevant_Sectors='[]')) is None
+
+    def test_distinct_id_from_committee_signal(self):
+        cs = CommitteeSignal()
+        fs = CommitteeFullSignal()
+        row = make_row(Relevant_Sectors=_sectors(
+            ('Healthcare', 'Drug Manufacturers', '', 'full')
+        ))
+        assert cs.evaluate_row(row)['signal_event_id'] != \
+               fs.evaluate_row(row)['signal_event_id']
 
 
 # ---------- CommitteeExOfficioSignal ----------------------------------------
 
 class TestCommitteeExOfficioSignal:
     def test_triggers_when_committee_and_ex_officio(self):
-        signal = CommitteeExOfficioSignal(threshold=33)
+        signal = CommitteeExOfficioSignal()
         event = signal.evaluate_row(make_row(
-            Relevance_Score=50, Member_ExOfficio='Chairman'
+            Relevant_Sectors=_sectors(('Healthcare', 'Devices', '', 'full')),
+            Member_ExOfficio='Chairman',
         ))
         assert event is not None
         assert event['signal_type'] == 'committee_ex_officio'
         assert event['is_ex_officio'] is True
 
     def test_does_not_trigger_without_ex_officio(self):
-        signal = CommitteeExOfficioSignal(threshold=33)
-        assert signal.evaluate_row(
-            make_row(Relevance_Score=50, Member_ExOfficio='')
-        ) is None
+        signal = CommitteeExOfficioSignal()
+        assert signal.evaluate_row(make_row(
+            Relevant_Sectors=_sectors(('Healthcare', 'Devices', '', 'full')),
+            Member_ExOfficio='',
+        )) is None
 
     def test_does_not_trigger_without_committee(self):
-        signal = CommitteeExOfficioSignal(threshold=33)
-        assert signal.evaluate_row(
-            make_row(Relevance_Score=20, Member_ExOfficio='Chairman')
-        ) is None
+        signal = CommitteeExOfficioSignal()
+        assert signal.evaluate_row(make_row(
+            Relevant_Sectors='[]', Member_ExOfficio='Chairman',
+        )) is None
 
     def test_distinct_id_from_committee_signal(self):
-        cs = CommitteeSignal(threshold=33)
-        es = CommitteeExOfficioSignal(threshold=33)
-        row = make_row(Relevance_Score=50, Member_ExOfficio='Chairman')
+        cs = CommitteeSignal()
+        es = CommitteeExOfficioSignal()
+        row = make_row(
+            Relevant_Sectors=_sectors(('Healthcare', 'Devices', '', 'full')),
+            Member_ExOfficio='Chairman',
+        )
         assert cs.evaluate_row(row)['signal_event_id'] != \
                es.evaluate_row(row)['signal_event_id']
 
@@ -161,7 +246,6 @@ class TestExtremeReportSignal:
         assert event['signal_type'] == 'extreme_report'
 
     def test_does_not_trigger_at_threshold(self):
-        # > threshold (strikt), nicht >=
         signal = ExtremeReportSignal(threshold_days=60)
         event = signal.evaluate_row(make_row(
             transaction_date=date(2026, 1, 1),
@@ -191,37 +275,54 @@ class TestExtremeReportSignal:
         assert signal.evaluate_row(make_row(disclosure_date=None)) is None
 
 
-# ---------- Integration: alle 4 Signale auf einem Mini-DataFrame ------------
+# ---------- Integration: alle Signale auf einem Mini-DataFrame --------------
 
 class TestBranch1Integration:
     def test_combined_signal_count_and_list(self):
-        """Ein Trade triggert mehrere Signale gleichzeitig — der Aggregator
-        muss alle einsammeln und korrekt zaehlen."""
+        """Voll-Treffer + Ex-Officio + Vote-Timing + Late-Disclosure feuert
+        committee, committee_full, committee_ex_officio, floor_action,
+        extreme_report."""
         signals = [
-            CommitteeSignal(threshold=33),
-            CommitteeExOfficioSignal(threshold=33),
+            CommitteeSignal(),
+            CommitteeFullSignal(),
+            CommitteeExOfficioSignal(),
             FloorActionSignal(threshold=1),
             ExtremeReportSignal(threshold_days=60),
         ]
-        # Volltreffer: Committee + ExOfficio + FloorAction + ExtremeReport
         row = make_row(
-            Relevance_Score=75,
+            Relevant_Sectors=_sectors(
+                ('Healthcare', 'Drug Manufacturers', 'Chairman', 'full')
+            ),
             Member_ExOfficio='Chairman',
             Vote_Timing_Hit_Count=2,
             transaction_date=date(2026, 1, 1),
-            disclosure_date=date(2026, 4, 1),  # 90 Tage Verzug
+            disclosure_date=date(2026, 4, 1),
         )
         triggered = [s.SIGNAL_TYPE for s in signals if s.evaluate_row(row)]
         assert triggered == [
-            'committee', 'committee_ex_officio', 'floor_action', 'extreme_report'
+            'committee', 'committee_full', 'committee_ex_officio',
+            'floor_action', 'extreme_report',
         ]
+
+    def test_sector_only_match_skips_committee_full(self):
+        """Halb-Treffer triggert committee, aber NICHT committee_full."""
+        signals = [
+            CommitteeSignal(),
+            CommitteeFullSignal(),
+        ]
+        row = make_row(Relevant_Sectors=_sectors(
+            ('Healthcare', 'Other', '', 'sector')
+        ))
+        triggered = [s.SIGNAL_TYPE for s in signals if s.evaluate_row(row)]
+        assert triggered == ['committee']
 
     def test_no_signals_on_clean_row(self):
         signals = [
-            CommitteeSignal(threshold=33),
-            CommitteeExOfficioSignal(threshold=33),
+            CommitteeSignal(),
+            CommitteeFullSignal(),
+            CommitteeExOfficioSignal(),
             FloorActionSignal(threshold=1),
             ExtremeReportSignal(threshold_days=60),
         ]
-        row = make_row()  # alle Defaults sauber
+        row = make_row()
         assert [s.SIGNAL_TYPE for s in signals if s.evaluate_row(row)] == []

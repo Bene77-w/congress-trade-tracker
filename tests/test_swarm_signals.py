@@ -51,7 +51,6 @@ def make_swarm_trade(member_id, ticker, direction, td,
         'amount': '$1,001-$15,000',
         'Member_ExOfficio': '',
         'Member_Committees_Full': '',
-        'Relevance_Score': 0,
         'Vote_Timing_Hit_Count': 0,
         'Relevant_Sectors': '',
     }

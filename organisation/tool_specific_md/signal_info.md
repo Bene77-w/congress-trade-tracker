@@ -33,11 +33,12 @@ Zwei Ebenen der Issuer-Gruppierung werden genutzt:
 
 ---
 
-## Signal-Typen (10 Stück)
+## Signal-Typen (11 Stück)
 
 | #  | Signal-Typ             | Branch | Modul                                      | Trigger-Logik (Kurzform)                                                                                                          | Triggering-Date                              |
 |----|------------------------|--------|--------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------|
-| 1  | `committee`            | 1      | `signals/committee_signal.py`              | `relevance_score >= COMMITTEE_THRESHOLD`                                                                                          | `transaction_date`                           |
+| 1  | `committee`            | 1      | `signals/committee_signal.py`              | `len(Relevant_Sectors) > 0`                                                                                                       | `transaction_date`                           |
+| 1b | `committee_full`       | 1      | `signals/committee_full_signal.py`         | mind. 1 Eintrag in `Relevant_Sectors` hat `match_type == 'full'`                                                                  | `transaction_date`                           |
 | 2  | `committee_ex_officio` | 1      | `signals/committee_ex_officio_signal.py`   | Signal 1 ausgelöst UND `is_ex_officio == True`                                                                                    | `transaction_date`                           |
 | 3  | `floor_action`         | 1      | `signals/floor_action_signal.py`           | `vote_timing_hit_count >= VOTE_TIMING_HIT_THRESHOLD`                                                                              | `transaction_date`                           |
 | 4  | `extreme_report`       | 1      | `signals/extreme_report_signal.py`         | `disclosure_date - transaction_date > EXTREME_REPORT_DAYS`                                                                        | `disclosure_date`                            |
@@ -70,7 +71,7 @@ Der `scope_key` definiert, **welche Trades zu derselben Auslösung gehören** (g
 
 | Signal-Familie | scope_key-Format | Folge |
 |---|---|---|
-| Branch-1 per-Trade: `committee`, `committee_ex_officio`, `floor_action`, `extreme_report` | `trade_id` | Ein Trade → eine `signal_event_id` pro Signal-Typ. |
+| Branch-1 per-Trade: `committee`, `committee_full`, `committee_ex_officio`, `floor_action`, `extreme_report` | `trade_id` | Ein Trade → eine `signal_event_id` pro Signal-Typ. |
 | Sequenz per-Member×Asset: `contrarian`, `accumulative` | `member_id + "\|" + issuer_ticker + "\|" + window_start_iso` | Alle Trades desselben Members auf demselben `issuer_ticker` im selben Fenster → gleiche ID. |
 | Schwarm Buy/Sell: `swarm_buy`, `swarm_sell` | `issuer_group_key + "\|" + direction + "\|" + window_start_iso` | Alle Trades innerhalb desselben Schwarms (Cross-Class) → gleiche ID. |
 | Schwarm Konflikt: `swarm_conflict` | `"conflict\|" + issuer_group_key + "\|" + swarm_direction + "\|" + window_start_iso` | Der einzelne Gegen-Trade zum referenzierten Schwarm. |
@@ -103,7 +104,7 @@ Identische 21-Spalten-Struktur in `branch1_events_stage.csv`, `sequence_events_s
 | 15 | `transaction_amount` | str | Original-Range, z. B. `"$1,001 - $15,000"` | Volumen-Hinweis (keine Aggregation möglich) |
 | 16 | `direction` | `buy`/`sell`/`other` | abgeleitet aus `transaction_type` | Schwarm-Filter, Conflict-Logik |
 | 17 | `is_ex_officio` | bool | Member war zur Trade-Zeit in Leadership | Multiplikator im Scoring |
-| 18 | `relevance_score` | int 0–99 | Ergebnis von `CommitteeTag` | Wie stark das Asset zum Ausschuss passt |
+| 18 | `match_count` | int | Anzahl Einträge in `Relevant_Sectors` zum Trigger-Zeitpunkt | Wie viele Ausschuss-Sektoren mit dem Asset übereinstimmen |
 | 19 | `vote_timing_hit_count` | int | Treffer im `VoteTimingTag` | Wie viele Roll-Calls im Fenster |
 | 20 | `committee_subcommittee` | str | `Member_Committees_Full`-Snapshot | Welche Ausschüsse zur Trade-Zeit |
 | 21 | `relevant_sectors` | str | matching Sektoren aus Mapping | Welche Sektoren der Ausschuss + das Asset abdecken |
@@ -257,7 +258,7 @@ swarm_events_stage.csv     ─┘            │  concat + (signal_event_id, tra
 
 | Variable | Default | Wirkung |
 |---|---|---|
-| `COMMITTEE_THRESHOLD` | 33 | Untergrenze für `relevance_score`, ab dem `committee` triggert |
+| ~~`COMMITTEE_THRESHOLD`~~ | entfernt | Trigger-Logik: `len(Relevant_Sectors) > 0` (kein Schwellwert mehr) |
 | `VOTE_TIMING_HIT_THRESHOLD` | 1 | Untergrenze `vote_timing_hit_count` für `floor_action` |
 | `CONTRARIAN_WINDOW_DAYS` | 30 | Max Tage zwischen Buy und Gegen-Sell |
 | `ACCUMULATIVE_WINDOW_DAYS` | 30 | Rolling-Window für mehrfaches Aufstocken |

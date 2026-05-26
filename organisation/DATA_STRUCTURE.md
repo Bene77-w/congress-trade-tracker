@@ -530,7 +530,7 @@ MatchSource,            # exact, fuzzy, alias, none
 Member_Committees_Full, # Vollstaendiger Committee-String
 Insider_Sectors,        # JSON: ALLE (sub)committee-Sektoren des Members [{sector, industry, rank, confidence, role, committee, subcommittee}, ...]
 Relevant_Sectors,       # JSON: Intersection von Insider_Sectors mit sector_yf/industry_yf (Match-Mode konfigurierbar in settings.RELEVANT_SECTORS_MATCH_MODE)
-Relevance_Score,        # 0-100 (Committee-Sektor Relevanz, basierend auf Sector/Industry-Match × Ex-Officio-Multiplikator)
+                        # Jeder Eintrag hat Feld match_type: 'full' (Sector+Industry treffen), 'sector' (nur Sector trifft)
 
 # Anreicherung durch Filter 0 (Asset-Klasse)
 asset_class_excluded,   # True = Nicht-Aktie (ETF/Option/Bond/Crypto/...) -> wird von Scoring ignoriert
@@ -689,8 +689,10 @@ Bis P4 fertig ist, dient sie auch der manuellen Inspektion.
 `triggering_date`, `scope_key`, `member_id`, `member_name`, `chamber`,
 `ticker`, `issuer_ticker`, `issuer_group_key`, `asset_name_figi`, `transaction_date`,
 `disclosure_date`, `transaction_amount`, `direction`, `is_ex_officio`,
-`relevance_score`, `vote_timing_hit_count`, `committee_subcommittee`,
+`match_count`, `vote_timing_hit_count`, `committee_subcommittee`,
 `relevant_sectors`.
+
+`match_count` = Anzahl Einträge in `Relevant_Sectors` zum Zeitpunkt des Triggers (Snapshot).
 
 `issuer_ticker` wird über `utils/issuer_ticker.resolve_issuer_ticker`
 aufgelöst (Fallback-Kette `share_class_figi → ticker_base → ticker`).
@@ -1043,7 +1045,7 @@ Chamber, Committee, Subcommittee, Region, Konfidenz
    + bill_actions.json + bill_subjects.json (VoteTimingTag)
    ↓
    _apply_match_scores → [MatchScore, MatchSource]
-   _apply_committee_relevance → [Insider_Sectors, Relevant_Sectors, Relevance_Score]
+   _apply_committee_relevance → [Insider_Sectors, Relevant_Sectors]
    AssetClassGate → [asset_class_excluded]
    VoteTimingTag → [Vote_Timing_Hit, Vote_Timing_Hits, Vote_Timing_Hit_Count]
 
@@ -1056,26 +1058,18 @@ Chamber, Committee, Subcommittee, Region, Konfidenz
 
 ---
 
-## Scoring-Formel (Modul 4)
+## Committee-Relevanz (Modul 4)
 
-```python
-# Pro Trade über alle Mapping-Einträge der Member-Committees prüfen:
-sector_match   = ∃ Mapping-Eintrag mit Sector   == sector_yf
-industry_match = ∃ Mapping-Eintrag mit Industry == industry_yf
-ex_officio     = ∃ beitragender Treffer (Sektor ODER Industry)
-                 mit Rolle ∈ {Chairman, Ranking Member, Vice Chairman, Cochairman}
+`_apply_committee_relevance` schreibt `Insider_Sectors` und `Relevant_Sectors` in den Master.
+`Relevance_Score` wurde entfernt (Refactor 2026-05-21).
 
-raw   = (33 if sector_match else 0) + (33 if industry_match else 0)
-score = round(raw × (1.5 if ex_officio else 1.0))
-```
+**Score-Beitrag** läuft über `SCORING_WEIGHTS` in `config/settings.py`:
+- `committee = 10` — für jeden Trade mit `len(Relevant_Sectors) > 0`
+- `committee_full = 5` — zusätzlich, wenn mind. ein Eintrag `match_type='full'`
+- Voll-Treffer ergibt 10 + 5 = 15 (entspricht dem Wert vor dem Refactor)
 
-Mögliche Werte: **0 · 33 · 50 · 66 · 99**
-
-Konstanten konfigurierbar in `config/settings.py`:
-- `COMMITTEE_SECTOR_MATCH_POINTS` (Default 33)
-- `COMMITTEE_INDUSTRY_MATCH_POINTS` (Default 33)
-- `COMMITTEE_EX_OFFICIO_MULTIPLIER` (Default 1.5)
-- `COMMITTEE_EX_OFFICIO_ROLES` (Default: Chairman, Ranking Member, Vice Chairman, Cochairman, EXOfficio)
+`COMMITTEE_EX_OFFICIO_ROLES` (Default: Chairman, Ranking Member, Vice Chairman, Cochairman, EXOfficio) bleibt konfigurierbar.
+`RELEVANT_SECTORS_MATCH_MODE` steuert welche Einträge in `Relevant_Sectors` landen (Default `'sector_and_industry'`).
 
 ### Relevant_Sectors (Intersection) vs. Insider_Sectors
 

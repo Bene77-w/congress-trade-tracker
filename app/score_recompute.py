@@ -30,15 +30,18 @@ SCORING_ATTRS = (
 
 
 def available_signals() -> list[str]:
-    """Liste aller Signale, die der User ausschliessen kann.
+    """Liste aller Signale/Komponenten, die der User ausschliessen kann.
 
-    Quelle: Keys aus SCORING_WEIGHTS plus 'swarm_paradox' (kein eigenes
-    Gewicht, wirkt aber als Daempfer).
+    Quelle: Keys aus SCORING_WEIGHTS plus zwei Pseudo-Eintraege:
+      - 'swarm_paradox' (kein eigenes Gewicht, wirkt als Daempfer)
+      - 'volume' (kein eigenes Gewicht, schaltet SCORING_VOLUME_ENABLED)
     """
     weights = getattr(_settings, 'SCORING_WEIGHTS', {}) or {}
     sigs = list(weights.keys())
     if 'swarm_paradox' not in sigs:
         sigs.append('swarm_paradox')
+    if 'volume' not in sigs:
+        sigs.append('volume')
     return sigs
 
 
@@ -57,6 +60,9 @@ def build_settings_proxy(excluded: Iterable[str]) -> SimpleNamespace:
 
     if 'swarm_paradox' in excluded_set:
         proxy_kwargs['SCORING_PARADOX_DAMPER'] = 1.0
+
+    if 'volume' in excluded_set:
+        proxy_kwargs['SCORING_VOLUME_ENABLED'] = False
 
     triggers = list(proxy_kwargs.get('SCORING_EX_OFFICIO_TRIGGERS') or [])
     triggers = [t for t in triggers if t not in excluded_set]

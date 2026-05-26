@@ -2,21 +2,22 @@
 Signal: Committee — triggert bei thematischem Match zwischen Member-Committee
 und Ticker-Sektor.
 
-Der Tag CommitteeTag liefert pro Trade die Spalten Relevance_Score,
-Insider_Sectors und Relevant_Sectors. Dieses Signal hebt einen Trade als
-verdaechtig, sobald Relevance_Score den Schwellwert COMMITTEE_THRESHOLD
-erreicht.
+Der Tag CommitteeTag liefert pro Trade die Spalten Insider_Sectors und
+Relevant_Sectors. Dieses Signal hebt einen Trade als verdaechtig, sobald
+Relevant_Sectors mindestens einen Eintrag enthaelt — egal mit welchem
+match_type. Die Match-Auswahl steuert settings.RELEVANT_SECTORS_MATCH_MODE
+im CommitteeTag (sector_and_industry / sector_or_industry / hybrid).
 
-Trigger:      Relevance_Score >= settings.COMMITTEE_THRESHOLD
+Trigger:         len(Relevant_Sectors) > 0
 Triggering-Date: transaction_date
-Scope-Key:    trade_id
+Scope-Key:       trade_id
 """
 
-from typing import Optional, Dict, Any
+import json
+from typing import Optional, Dict, Any, List
 
 import pandas as pd
 
-from config import settings
 from utils.issuer_ticker import resolve_issuer_ticker
 from utils.signal_event_id import make_signal_event_id
 
@@ -67,21 +68,44 @@ def _direction_from_transaction_type(transaction_type: Any) -> str:
     return 'other'
 
 
+def parse_relevant_sectors(value: Any) -> List[Dict[str, Any]]:
+    """Liest die Relevant_Sectors-Zelle defensiv in eine Liste von Dicts.
+
+    Akzeptiert JSON-String, Python-Liste, NaN/None/leer. Returnt immer eine
+    (ggf. leere) Liste.
+    """
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [e for e in value if isinstance(e, dict)]
+    try:
+        if pd.isna(value):
+            return []
+    except (TypeError, ValueError):
+        pass
+    if not isinstance(value, str) or not value.strip():
+        return []
+    try:
+        parsed = json.loads(value)
+    except (ValueError, TypeError):
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [e for e in parsed if isinstance(e, dict)]
+
+
 class CommitteeSignal:
     """Bewertet pro Trade, ob ein Committee-Signal ausgeloest wird."""
 
     SIGNAL_TYPE = SIGNAL_TYPE
 
-    def __init__(self, threshold: Optional[int] = None):
-        self.threshold = (
-            threshold if threshold is not None
-            else getattr(settings, 'COMMITTEE_THRESHOLD', 33)
-        )
+    def __init__(self):
+        pass
 
     def evaluate_row(self, row: pd.Series) -> Optional[Dict[str, Any]]:
         """Gibt None zurueck wenn nicht getriggert, sonst Snapshot-Dict."""
-        score = _to_int(row.get('Relevance_Score'), default=0)
-        if score < self.threshold:
+        relevant = parse_relevant_sectors(row.get('Relevant_Sectors'))
+        if not relevant:
             return None
 
         trade_id = row.get('trade_id', '')
@@ -111,7 +135,7 @@ class CommitteeSignal:
                 row.get('transaction_type')
             ),
             'is_ex_officio': _to_bool(row.get('Member_ExOfficio')),
-            'relevance_score': score,
+            'match_count': len(relevant),
             'vote_timing_hit_count': _to_int(
                 row.get('Vote_Timing_Hit_Count'), default=0
             ),
