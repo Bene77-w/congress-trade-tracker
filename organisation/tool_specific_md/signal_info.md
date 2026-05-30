@@ -33,7 +33,7 @@ Zwei Ebenen der Issuer-Gruppierung werden genutzt:
 
 ---
 
-## Signal-Typen (11 Stück)
+## Signal-Typen (12 Stück)
 
 | #  | Signal-Typ             | Branch | Modul                                      | Trigger-Logik (Kurzform)                                                                                                          | Triggering-Date                              |
 |----|------------------------|--------|--------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------|
@@ -42,6 +42,7 @@ Zwei Ebenen der Issuer-Gruppierung werden genutzt:
 | 2  | `committee_ex_officio` | 1      | `signals/committee_ex_officio_signal.py`   | Signal 1 ausgelöst UND `is_ex_officio == True`                                                                                    | `transaction_date`                           |
 | 3  | `floor_action`         | 1      | `signals/floor_action_signal.py`           | `vote_timing_hit_count >= VOTE_TIMING_HIT_THRESHOLD`                                                                              | `transaction_date`                           |
 | 4  | `extreme_report`       | 1      | `signals/extreme_report_signal.py`         | `disclosure_date - transaction_date > EXTREME_REPORT_DAYS`                                                                        | `disclosure_date`                            |
+| 4b | `trade_volume`         | 1      | `signals/trade_volume_signal.py`           | `trade_amount_max_usd > SCORING_TRADE_VOLUME_TRIGGER_FLOOR` (Default 15.000 USD). Score-Beitrag stufenweise aus `SCORING_TRADE_VOLUME_TIERS` | `transaction_date` |
 | 5  | `contrarian`           | seq    | `signals/contrarian_signal.py`             | Buy↔Sell desselben Members auf demselben `issuer_ticker` innerhalb `CONTRARIAN_WINDOW_DAYS`                                       | Datum des Kontra-Trades                       |
 | 6  | `accumulative`         | seq    | `signals/accumulative_signal.py`           | ≥ `ACCUMULATIVE_MIN_COUNT` Trades desselben Members auf demselben `issuer_ticker` (gleiche Richtung) in `ACCUMULATIVE_WINDOW_DAYS` | Datum des Trades, der die Schwelle erreicht  |
 | 7  | `swarm_buy`            | 2      | `signals/swarm_buy_signal.py`              | ≥ `SWARM_MIN_MEMBERS` distinkte Members kaufen denselben `issuer_group_key` in rolling `SWARM_WINDOW_DAYS`                        | Datum des N-ten distinct Members             |
@@ -71,7 +72,7 @@ Der `scope_key` definiert, **welche Trades zu derselben Auslösung gehören** (g
 
 | Signal-Familie | scope_key-Format | Folge |
 |---|---|---|
-| Branch-1 per-Trade: `committee`, `committee_full`, `committee_ex_officio`, `floor_action`, `extreme_report` | `trade_id` | Ein Trade → eine `signal_event_id` pro Signal-Typ. |
+| Branch-1 per-Trade: `committee`, `committee_full`, `committee_ex_officio`, `floor_action`, `extreme_report`, `trade_volume` | `trade_id` | Ein Trade → eine `signal_event_id` pro Signal-Typ. |
 | Sequenz per-Member×Asset: `contrarian`, `accumulative` | `member_id + "\|" + issuer_ticker + "\|" + window_start_iso` | Alle Trades desselben Members auf demselben `issuer_ticker` im selben Fenster → gleiche ID. |
 | Schwarm Buy/Sell: `swarm_buy`, `swarm_sell` | `issuer_group_key + "\|" + direction + "\|" + window_start_iso` | Alle Trades innerhalb desselben Schwarms (Cross-Class) → gleiche ID. |
 | Schwarm Konflikt: `swarm_conflict` | `"conflict\|" + issuer_group_key + "\|" + swarm_direction + "\|" + window_start_iso` | Der einzelne Gegen-Trade zum referenzierten Schwarm. |
@@ -251,6 +252,26 @@ swarm_events_stage.csv     ─┘            │  concat + (signal_event_id, tra
 | W         | 1           | swarm_buy:1                                         | 1           |
 
 **Erweiterung — Symmetrisches Paradox:** Wenn statt 1 Gegen-Trade ≥ 2 Gegen-Trades auftauchen (z. B. C und D verkaufen Z am Tag 3 und 4), wird statt `swarm_conflict` ein `swarm_paradox` erzeugt — und symmetrisch entsteht zusätzlich ein zweites Paradox aus Sell-Perspektive (C+D bilden einen `swarm_sell`-Schwarm, X+W sind dessen Gegen-Trades). → 2 distinkte `signal_event_id`s vom Typ `swarm_paradox`, 4 Event-Zeilen.
+
+---
+
+## Trade-Score-Formel
+
+```
+trade_score = other_part + swarm_part + ex_officio_bonus + volume_part
+```
+
+| Teil | Berechnung | Quell-Spalten |
+|---|---|---|
+| `other_part` | Σ WEIGHTS[s] für s ∈ Branch-1+Seq ∩ signals_triggered (ohne `trade_volume`) | `signals_triggered` |
+| `swarm_raw` | Σ WEIGHTS[s] für s ∈ {swarm_buy, swarm_sell, swarm_conflict} ∩ signals_triggered | `signals_triggered` |
+| `swarm_part` | `swarm_raw × PARADOX_DAMPER` wenn `swarm_paradox` getriggert, sonst `swarm_raw × 1.0` | — |
+| `ex_officio_bonus` | `SCORING_EX_OFFICIO_BONUS` wenn `Member_ExOfficio` truthy UND `{committee, floor_action} ∩ triggered ≠ ∅`, sonst 0 | `Member_ExOfficio` |
+| `volume_part` | Tier-Score aus `SCORING_TRADE_VOLUME_TIERS`, skaliert um `SCORING_WEIGHTS['trade_volume'] / max(tier_scores)`. Nur wenn `'trade_volume' ∈ triggered` und `SCORING_TRADE_VOLUME_ENABLED`. | `trade_amount_max_usd` |
+
+**`trade_amount_max_usd`** = Obergrenze der Disclosure-Amount-Range (z.B. `$1,001 - $15,000` → 15.000). Befüllt von Stage `trade_volume` via `utils/amount_parser.max_usd`.
+
+**Breakdown-Spalte** (`trade_score_breakdown`): `;`-getrennte `key:value`-Paare in fester Reihenfolge (Branch-1 → Sequenz → Schwarm → `trade_volume` → `ex_officio`), z.B. `committee:10;accumulative:10;swarm_buy(x0):0;trade_volume:7;ex_officio:+10`. Nur getriggerte Signale erscheinen; `ex_officio` ist immer dabei (auch mit Wert 0). `trade_volume` erscheint nur wenn das Signal getriggert hat.
 
 ---
 

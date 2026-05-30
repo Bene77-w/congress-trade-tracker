@@ -1,15 +1,15 @@
 """Score-Recompute fuer das Streamlit-Dashboard.
 
 Erzeugt einen Settings-Proxy, in dem die Gewichte ausgeschlossener Signale
-auf 0 gesetzt sind, und ruft ``scoring.trade_score.compute_trade_scores`` damit
-auf. So bleibt die volle Score-Logik (Paradox-Daempfung, Ex-Officio-Bonus,
-Volume) erhalten, nur der direkte Beitrag der vom User ausgeklammerten Signale
-faellt weg.
+auf 0 gesetzt sind (und optional weitere Scoring-Parameter ueberschrieben
+werden), und ruft ``scoring.trade_score.compute_trade_scores`` damit auf. So
+bleibt die volle Score-Logik (Paradox-Daempfung, Ex-Officio-Bonus, Volume)
+erhalten, nur Gewichte/Parameter werden ad-hoc fuer die UI-Sitzung getauscht.
 """
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Iterable
+from typing import Iterable, Mapping
 
 import pandas as pd
 
@@ -21,38 +21,73 @@ SCORING_ATTRS = (
     'SCORING_WEIGHTS',
     'SCORING_PARADOX_DAMPER',
     'SCORING_PARADOX_WARNING_TAG',
-    'SCORING_VOLUME_ENABLED',
-    'SCORING_VOLUME_THRESHOLD_U',
-    'SCORING_VOLUME_SLOPE',
+    'SCORING_TRADE_VOLUME_ENABLED',
+    'SCORING_TRADE_VOLUME_TIERS',
+    'SCORING_TRADE_VOLUME_TRIGGER_FLOOR',
     'SCORING_EX_OFFICIO_BONUS',
     'SCORING_EX_OFFICIO_TRIGGERS',
 )
+
+# Erlaubte Keys in params_override -> Mapping auf den jeweiligen Settings-Attr.
+# Halten wir bewusst explizit, damit Tippfehler im UI nicht stillschweigend
+# unwirksame Overrides erzeugen.
+PARAMS_OVERRIDE_KEYS = {
+    'paradox_damper':         'SCORING_PARADOX_DAMPER',
+    'trade_volume_enabled':   'SCORING_TRADE_VOLUME_ENABLED',
+    'trade_volume_tiers':     'SCORING_TRADE_VOLUME_TIERS',
+    'trade_volume_trigger':   'SCORING_TRADE_VOLUME_TRIGGER_FLOOR',
+    'ex_officio_bonus':       'SCORING_EX_OFFICIO_BONUS',
+}
 
 
 def available_signals() -> list[str]:
     """Liste aller Signale/Komponenten, die der User ausschliessen kann.
 
-    Quelle: Keys aus SCORING_WEIGHTS plus zwei Pseudo-Eintraege:
+    Quelle: Keys aus SCORING_WEIGHTS plus Pseudo-Eintraege:
       - 'swarm_paradox' (kein eigenes Gewicht, wirkt als Daempfer)
-      - 'volume' (kein eigenes Gewicht, schaltet SCORING_VOLUME_ENABLED)
+      - 'committee_ex_officio' (kein eigenes Gewicht, Ex-Officio-Bonus)
     """
     weights = getattr(_settings, 'SCORING_WEIGHTS', {}) or {}
     sigs = list(weights.keys())
     if 'swarm_paradox' not in sigs:
         sigs.append('swarm_paradox')
-    if 'volume' not in sigs:
-        sigs.append('volume')
+    if 'committee_ex_officio' not in sigs:
+        sigs.append('committee_ex_officio')
     return sigs
 
 
-def build_settings_proxy(excluded: Iterable[str]) -> SimpleNamespace:
-    """Kopiert die SCORING_*-Konstanten und nullt ausgeschlossene Gewichte."""
+def build_settings_proxy(
+    excluded: Iterable[str],
+    weights_override: Mapping[str, float] | None = None,
+    params_override: Mapping[str, object] | None = None,
+) -> SimpleNamespace:
+    """Kopiert die SCORING_*-Konstanten und wendet Overrides + Exclude an.
+
+    Reihenfolge:
+      1. Defaults aus ``config.settings`` kopieren.
+      2. ``weights_override`` auf ``SCORING_WEIGHTS`` anwenden.
+      3. ``params_override`` auf die Skalar-Parameter anwenden
+         (Keys siehe ``PARAMS_OVERRIDE_KEYS``).
+      4. ``excluded`` nullt Gewichte / deaktiviert Volume / 1.0-Damper —
+         Exclude gewinnt also immer ueber einen positiven Override.
+    """
     excluded_set = set(excluded or [])
     proxy_kwargs: dict[str, object] = {}
     for attr in SCORING_ATTRS:
         proxy_kwargs[attr] = getattr(_settings, attr, None)
 
     weights = dict(proxy_kwargs.get('SCORING_WEIGHTS') or {})
+    if weights_override:
+        for sig, value in weights_override.items():
+            if sig in weights:
+                weights[sig] = value
+
+    if params_override:
+        for key, value in params_override.items():
+            attr = PARAMS_OVERRIDE_KEYS.get(key)
+            if attr is not None:
+                proxy_kwargs[attr] = value
+
     for sig in excluded_set:
         if sig in weights:
             weights[sig] = 0
@@ -61,8 +96,8 @@ def build_settings_proxy(excluded: Iterable[str]) -> SimpleNamespace:
     if 'swarm_paradox' in excluded_set:
         proxy_kwargs['SCORING_PARADOX_DAMPER'] = 1.0
 
-    if 'volume' in excluded_set:
-        proxy_kwargs['SCORING_VOLUME_ENABLED'] = False
+    if 'trade_volume' in excluded_set:
+        proxy_kwargs['SCORING_TRADE_VOLUME_ENABLED'] = False
 
     triggers = list(proxy_kwargs.get('SCORING_EX_OFFICIO_TRIGGERS') or [])
     triggers = [t for t in triggers if t not in excluded_set]
@@ -71,18 +106,22 @@ def build_settings_proxy(excluded: Iterable[str]) -> SimpleNamespace:
     return SimpleNamespace(**proxy_kwargs)
 
 
-def recompute_subset(df: pd.DataFrame,
-                     excluded: Iterable[str]) -> pd.DataFrame:
+def recompute_subset(
+    df: pd.DataFrame,
+    excluded: Iterable[str],
+    weights_override: Mapping[str, float] | None = None,
+    params_override: Mapping[str, object] | None = None,
+) -> pd.DataFrame:
     """Berechnet trade_score / trade_score_breakdown / trade_warnings neu.
 
     Liefert eine Kopie von ``df`` mit ueberschriebenen Score-Spalten. Bei
-    leerem ``excluded`` werden die Original-Spalten (sofern vorhanden)
-    beibehalten, sonst neu berechnet.
+    leerem ``excluded`` und ohne Overrides werden die Original-Spalten
+    (sofern vorhanden) beibehalten, sonst neu berechnet.
     """
     if df.empty:
         return df.copy()
 
-    proxy = build_settings_proxy(excluded)
+    proxy = build_settings_proxy(excluded, weights_override, params_override)
     scores = compute_trade_scores(df, proxy)
 
     out = df.copy()

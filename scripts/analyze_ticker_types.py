@@ -1,13 +1,14 @@
 """
-Analysiert Ticker-Types in trades_master.csv und zeigt erkannte Typen
+Analysiert Ticker-Types in trades_master_complete.csv und zeigt erkannte Typen
 """
 
 import pandas as pd
 import os
 import sys
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(os.path.abspath(os.path.join(__file__, '..')))
 sys.path.insert(0, BASE_DIR)
+from config import settings  # noqa: E402
 
 # Erkannte Sicherheits-Typen vom OpenFIGI API
 RECOGNIZED_SECURITY_TYPES = {
@@ -30,12 +31,12 @@ RECOGNIZED_SECURITY_TYPES = {
 }
 
 # ============================================================================
-# 1. Ticker-Types in trades_master.csv
+# 1. Ticker-Types in trades_master_complete.csv
 # ============================================================================
 
-csv_file = 'data/processed/trades_master.csv'
+csv_file = os.path.join(BASE_DIR, 'data', 'processed', settings.TRADES_MASTER_COMPLETE_CSV)
 print("=" * 80)
-print("1. TICKER-TYPES IN trades_master.csv")
+print("1. TICKER-TYPES IN trades_master_complete.csv")
 print("=" * 80)
 
 df = pd.read_csv(csv_file, low_memory=False)

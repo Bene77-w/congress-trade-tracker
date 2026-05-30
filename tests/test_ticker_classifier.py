@@ -70,6 +70,27 @@ class TestPreferred:
         assert c.status_suffix == "CL"
         assert "status_cl" in c.classification_reason
 
+    @pytest.mark.parametrize("ticker,expected_parent", [
+        ("EP$C",     "EP"),
+        ("AAM-PA",   "AAM"),
+        ("ALIN-P-E", "ALIN"),
+        ("NEE.PRI",  "NEE"),
+        ("BAC.PL",   "BAC"),
+        ("O-P",      "O"),
+        ("CFG-P-E",  "CFG"),
+        ("T$A",      "T"),
+    ])
+    def test_preferred_parent_ticker(self, ticker, expected_parent):
+        """parent_ticker liefert den Common-Stamm fuer yfinance-Lookup."""
+        c = classify(ticker)
+        assert c.parent_ticker == expected_parent
+
+    def test_non_preferred_has_no_parent_ticker(self):
+        """Nicht-Preferred haben parent_ticker=None (Default)."""
+        assert classify("AAPL").parent_ticker is None
+        assert classify("BRK.B").parent_ticker is None
+        assert classify("SAP.DE").parent_ticker is None
+
 
 # ---------------------------------------------------------------------------
 # Regeln 12/13: Share-Classes (Dot und Dash)

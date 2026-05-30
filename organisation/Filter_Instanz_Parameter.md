@@ -76,6 +76,38 @@ frisch (TTL = `settings.VOTE_DATA_TTL_HOURS`).
 
 ---
 
+### **Signal: Trade Volume** (User-Sicht: „Filter 1")
+
+Tier-basiertes Volume-Signal — ersetzt den früheren linearen Volume-Multiplikator,
+der ohne sonstigen Signal-Treffer hohe Scores erzeugen konnte.
+
+- **Code:** `signals/trade_volume_signal.py` (`TradeVolumeSignal`).
+- **Trigger:** `trade_amount_max_usd > SCORING_TRADE_VOLUME_TRIGGER_FLOOR` (Default 15.000 USD).
+- **Score-Beitrag:** diskret aus `SCORING_TRADE_VOLUME_TIERS` (nur höchste erreichte Stufe zählt). Default-Tiers (Vorschlag C, konservativ): ≤50k→+2, ≤100k→+4, ≤250k→+7, ≤500k→+10, ≤1M→+13, >1M→+16.
+- **Score-Basis-Spalte:** `trade_amount_max_usd` (Obergrenze der Disclosure-Range, befüllt von Stage `trade_volume` via `utils/amount_parser.max_usd`).
+- **UI-Override:** `SCORING_WEIGHTS['trade_volume']` skaliert den Maximalbeitrag linear. Tier-Tabelle live editierbar im Streamlit-Dashboard (Sidebar „Score-Gewichte" → Erweiterte Parameter).
+- **Event-Persistenz:** Pro getriggertem Trade ein Event in `suspicious_events.csv` mit `signal_type='trade_volume'` und `match_count = Tier-Index` (1–6 bei Default-Tiers).
+
+Verteilung in einem Smoke-Run (112.658 Trades, 27.05.2026): 29.340 Trades (26,0%) triggern `trade_volume`; 6.625 Trades (5,9%) haben **nur** `trade_volume` als Signal mit Score-Verteilung min=2/max=16/mean=3,3 — klein genug, dass Volume-only-Trades nicht mehr in die Top-Ränge der Ranking-Tabelle rutschen.
+
+---
+
+## Post-Trade-Performance (Modul 9.x — Daten-Anreicherung, KEIN Signal/Gate/Tag)
+
+Dies ist eine reine Daten-Anreicherung (Pipeline Stage 9) — fliesst NICHT in den `trade_score` ein, sondern dient der UI/Analyse der historischen Performance von Trades.
+
+| Konstante | Default | Bedeutung |
+|---|---|---|
+| `POST_TRADE_HORIZONS_DAYS` | `[30, 60, 90, 120]` | Tage nach `transaction_date`, fuer die Preis-Snapshots erfasst werden. Anpassbar — Spalten `post_price_{X}d` / `post_return_{X}d` werden dynamisch erzeugt. |
+| `POST_TRADE_PRICE_CACHE` | `'data/cache/price_history.parquet'` | Pfad zum yfinance-Preis-Cache |
+| `POST_TRADE_PRICE_FETCH_YEARS` | `5` | yfinance `period` beim Erstabruf pro Ticker |
+| `POST_TRADE_PRICE_CACHE_TTL_DAYS` | `7` | Refresh-Schwelle pro Ticker |
+| `POST_TRADE_EXIT_AMOUNT_TOLERANCE` | `0.0` | 0.0 = strikt (kumulierter opposing-max muss >= original-max); >0.0 = relative Toleranz (z.B. 0.1 = 10% Unterdeckung erlaubt) |
+
+**Exit-Status-Werte**: `not_applicable` / `delisted` / `unknown` / `held` / `closed_full` / `closed_partial` — siehe DATA_STRUCTURE.md.
+
+---
+
 ## Schwarm-Signale (P6, Branch 2)
 
 Vier Signale auf Issuer-Group-Ebene (gruppiert nach `issuer_group_key` —
@@ -116,7 +148,7 @@ schrittweise integriert. Stand nach **Phase 8.1**:
 
 | User-Sicht | Code-Konzept | Status |
 |------------|--------------|--------|
-| „Filter 1" — Handelsvolumen           | Volume-Komponente im Score-Modul | Foundation `trade_volume_usd` ✅ Phase 8.1, Aggregat `asset_tradingvolume_usd` ✅ Phase 8.2. Volume-Score-Berechnung folgt in Phase 8.3. |
+| „Filter 1" — Handelsvolumen           | `trade_volume`-Signal (Tier-basiert) | ✅ Vollwertiges Signal; triggert pro Trade auf `trade_amount_max_usd` (Obergrenze der Quiver-Range). Stufen: ≤50k→+2, ≤100k→+4, ≤250k→+7, ≤500k→+10, ≤1M→+13, >1M→+16 (Default Vorschlag C, in Settings + Streamlit anpassbar). Trigger-Floor 15.000 USD — Tier 0 löst nichts aus. |
 | „Filter 2" — Schwarm-Verhalten        | Signal | ✅ **P6 implementiert** — siehe Schwarm-Sektion oben |
 | „Filter 5" — Contrarian               | Signal | ✅ implementiert als Sequenz-Signal (P3) |
 | „Filter 6" — Long ↔ Short Wechsel     | — | **verworfen** (phänomenologisch identisch mit `contrarian`) |
@@ -130,7 +162,7 @@ schrittweise integriert. Stand nach **Phase 8.1**:
 Pipeline jetzt 16 Stages. 61 Unit-Tests grün. Phase 8.6 (Voll-Pipeline-Smoke-Run) offen.
 **Plan:** `~/.claude/plans/crispy-growing-pizza.md`.
 
-### Score-Formel (aktiv, Phase 8.3)
+### Score-Formel (aktiv)
 
 ```python
 swarm_signals = {'swarm_buy', 'swarm_sell', 'swarm_conflict'}
@@ -139,11 +171,18 @@ swarm_part  = Σ WEIGHTS[s] für s in signals_triggered ∩ swarm_signals
 if 'swarm_paradox' in signals_triggered:
     swarm_part *= SCORING_PARADOX_DAMPER         # default 0.0
 
-other_part  = Σ WEIGHTS[s] für s in signals_triggered \ swarm_signals \ {swarm_paradox}
+other_part  = Σ WEIGHTS[s] für s in signals_triggered
+              \ swarm_signals \ {swarm_paradox, trade_volume}
 
-volume_part = max(0, asset_tradingvolume_usd - SCORING_VOLUME_THRESHOLD_U)
-              * SCORING_VOLUME_SLOPE
-if SCORING_VOLUME_ENABLED is False:
+# Volume ist ein Tier-Signal — Beitrag NUR wenn das Signal getriggert hat.
+# Der Tier-Index wird aus trade_amount_max_usd berechnet; der Punkte-Wert
+# kommt aus SCORING_TRADE_VOLUME_TIERS, NICHT aus SCORING_WEIGHTS.
+# SCORING_WEIGHTS['trade_volume'] wirkt als UI-Skalierungsfaktor:
+#   scale = SCORING_WEIGHTS['trade_volume'] / max(tier_scores)
+#   volume_part = tier_score(amount_max) * scale
+if 'trade_volume' in signals_triggered and SCORING_TRADE_VOLUME_ENABLED:
+    volume_part = tier_score_scaled(trade_amount_max_usd)
+else:
     volume_part = 0
 
 bonus_active = is_ex_officio AND (signals_triggered ∩ SCORING_EX_OFFICIO_TRIGGERS ≠ ∅)
@@ -152,6 +191,14 @@ bonus        = SCORING_EX_OFFICIO_BONUS if bonus_active else 0
 trade_score  = round(swarm_part + other_part + volume_part + bonus)
 # KEIN Cap auf 100 — Score wächst unbegrenzt.
 ```
+
+> **Dashboard-Override:** Alle in der Tabelle unten gelisteten Konstanten sind
+> im Streamlit-Dashboard (Sidebar-Form „Score-Gewichte") live anpassbar und als
+> benannte Presets in `data/config/scoring_presets.json` persistierbar.
+> `config/settings.py` definiert nur die Defaults — der Recompute baut bei
+> Bedarf einen Settings-Proxy (`app/score_recompute.py:build_settings_proxy`).
+> „Signale ausschließen" gewinnt dabei immer über einen positiven Override
+> (Reihenfolge: Defaults → weights/params-Override → Exclude → 0).
 
 ### Settings-Block (aktiv ab Phase 8.1, in `config/settings.py`)
 
@@ -166,14 +213,15 @@ trade_score  = round(swarm_part + other_part + volume_part + bonus)
 | `SCORING_WEIGHTS['swarm_buy']`       | 20    | Branch-2 Cluster |
 | `SCORING_WEIGHTS['swarm_sell']`      | 20    | Branch-2 Cluster |
 | `SCORING_WEIGHTS['swarm_conflict']`  |  5    | Gegen-Trade-Hinweis |
+| `SCORING_WEIGHTS['trade_volume']`    | 16    | Nomineller Max-Beitrag des Tier-Signals (UI-Skalierung). Faktischer Beitrag pro Trade kommt aus `SCORING_TRADE_VOLUME_TIERS`. |
 | `SCORING_EX_OFFICIO_BONUS`           | 10    | Einmaliger Summand pro Trade |
 | `SCORING_EX_OFFICIO_TRIGGERS`        | `['committee', 'floor_action']` | Welche Signale den Bonus aktivieren |
 | `SCORING_PARADOX_DAMPER`             | 0.0   | Multiplikator auf Schwarm-Anteil bei `swarm_paradox` |
 | `SCORING_PARADOX_WARNING_TAG`        | `'paradox_swarm'` | Tag in `trade_warnings`-Spalte |
-| `SCORING_VOLUME_ENABLED`             | `True` | Volume-Komponente an/aus |
-| `SCORING_VOLUME_THRESHOLD_U`         | 100_000 | USD-Schwelle, unter U: 0 Punkte |
-| `SCORING_VOLUME_SLOPE`               | 0.00002 | Punkte pro USD über U (1M$ ≈ 18 Punkte) |
-| `SCORING_VOLUME_WINDOW_DAYS_Z`       | 90    | Rolling-Window für asset_tradingvolume_usd |
+| `SCORING_TRADE_VOLUME_ENABLED`       | `True` | Trade-Volume-Signal an/aus |
+| `SCORING_TRADE_VOLUME_TIERS`         | `[(50k,2),(100k,4),(250k,7),(500k,10),(1M,13),(inf,16)]` | Aufsteigend sortiert; nur höchste erreichte Stufe zählt. Letzter Eintrag muss `float('inf')` als Catch-all sein. |
+| `SCORING_TRADE_VOLUME_TRIGGER_FLOOR` | 15_000 | Untergrenze für Trigger. Trades mit `trade_amount_max_usd <= floor` lösen kein `trade_volume`-Signal aus. |
+| `SCORING_VOLUME_WINDOW_DAYS_Z`       | 90    | Rolling-Window für `asset_tradingvolume_usd` (weiterhin gebraucht für `total_volume_usd` in Asset-Aggregaten, fließt aber **nicht** in den `trade_score` ein). |
 
 **Konvention:**
 - Signal via `SCORING_WEIGHTS[s] = 0` deaktivierbar (Event bleibt in
@@ -189,10 +237,11 @@ trade_score  = round(swarm_part + other_part + volume_part + bonus)
 
 | Spalte | Quelle | Inhalt |
 |---|---|---|
-| `trade_volume_usd` | Stage `trade_volume` (`utils/amount_parser.midpoint_usd`) | int64, Mittelpunkt der Disclosure-Amount-Range in USD. Beispiele: `$1,001 - $15,000` → 8000; `Over $50,000,000` → 50_000_000; leer/NaN → 0. |
-| `asset_tradingvolume_usd` | Stage `asset_volume` (`scoring/asset_volume.compute_asset_tradingvolume`) | int64, Σ `trade_volume_usd` über `issuer_group_key` im Fenster `[T.date − Z, T.date]` (Z = `SCORING_VOLUME_WINDOW_DAYS_Z`, Default 90). Tages-Aggregation; SKIP-Buckets = 0. Sanity-Check (111k Trades): median $72k, p95 $912k, max $83.5M. |
-| `trade_score` | Stage `scoring` (`scoring/trade_score.compute_trade_scores`) | int, Combined-Score laut Formel. Kein Cap. Sanity-Check (111k Trades): mean=21.6, median=13, max=1705. |
-| `trade_score_breakdown` | Stage `scoring` | `;`-getrennt, deterministische Reihenfolge Branch-1 → Sequenz → Schwarm → ex_officio → volume. Beispiel: `committee:10;committee_full:5;swarm_buy:20;ex_officio:+10;volume:8`. Null-Komponenten erscheinen explizit. |
+| `trade_volume_usd` | Stage `trade_volume` (`utils/amount_parser.midpoint_usd`) | int64, Mittelpunkt der Disclosure-Amount-Range in USD. Beispiele: `$1,001 - $15,000` → 8000; `Over $50,000,000` → 50_000_000; leer/NaN → 0. Weiter genutzt für `asset_tradingvolume_usd`-Aggregat und `total_volume_usd` in den View-CSVs. |
+| `trade_amount_max_usd` | Stage `trade_volume` (`utils/amount_parser.max_usd`) | int64, **Obergrenze** der Disclosure-Amount-Range. Score-Basis für das `trade_volume`-Signal. Beispiele: `$1,001 - $15,000` → 15000; `Over $50,000,000` → 50_000_000; leer/NaN → 0. |
+| `asset_tradingvolume_usd` | Stage `asset_volume` (`scoring/asset_volume.compute_asset_tradingvolume`) | int64, Σ `trade_volume_usd` über `issuer_group_key` im Fenster `[T.date − Z, T.date]` (Z = `SCORING_VOLUME_WINDOW_DAYS_Z`, Default 90). Tages-Aggregation; SKIP-Buckets = 0. **Wird seit dem Volume-Signal-Redesign nicht mehr direkt im `trade_score` verrechnet** — bleibt aber für `total_volume_usd` in `suspicious_assets.csv` und das Streamlit-Asset-Tab. |
+| `trade_score` | Stage `scoring` (`scoring/trade_score.compute_trade_scores`) | int, Combined-Score laut Formel. Kein Cap. Sanity-Check (112k Trades, 27.05.2026): mean=13.0, median ≈ 9, max=83 (vorher: mean=21.6, max=1705 — der lineare Volume-Beitrag fiel weg). |
+| `trade_score_breakdown` | Stage `scoring` | `;`-getrennt, deterministische Reihenfolge Branch-1 → Sequenz → Schwarm → trade_volume → ex_officio. Beispiel: `committee:10;committee_full:5;swarm_buy:20;trade_volume:7;ex_officio:+10`. `trade_volume`-Komponente erscheint nur wenn das Signal getriggert hat. |
 | `trade_warnings` | Stage `scoring` | `;`-getrennt. Aktuell nur `paradox_swarm` wenn `swarm_paradox` getriggert hat. Unabhängig vom Score sichtbar. |
 
 ### Score-Aggregate in Views (aktiv ab Phase 8.4)
@@ -203,3 +252,33 @@ trade_score  = round(swarm_part + other_part + volume_part + bonus)
 |---|---|---|
 | `suspicious_assets.csv` | `score_avg`, `score_max`, `score_total`, `total_volume_usd`, `warnings` | groupby `issuer_ticker` über distinct `trade_id` im Y-Tage-Fenster. `fillna(0)` für fehlende Master-Eintraege. `warnings` = `_join_distinct_warnings` (distinct, sortiert, leer-tokens raus). |
 | `suspicious_members.csv` | `score_avg`, `score_max`, `score_total` | groupby `member_id` über distinct `trade_id` (kein Y-Filter). Nur drei Score-Spalten — bewusst kein `total_volume_usd` / `warnings`. |
+
+---
+
+## Post-Trade-Performance (Modul 9.x)
+
+**Status:** Parameter ✅ / Code ✅ — `scoring/post_trade_returns.py`
+
+**Kein Signal/Gate/Tag** — reine Daten-Anreicherung der `trades_master_complete.csv` mit Post-Trade-Preisen und Exit-Detection. Pipeline Stage 8 (`stage_post_trade_returns`), zwischen `tickeryfinance` und `trade_volume`.
+
+### Settings (in `config/settings.py`)
+
+| Konstante | Default | Bedeutung |
+|---|---|---|
+| `POST_TRADE_HORIZONS_DAYS` | `[30, 60, 90, 120]` | Zeithorizonte in Tagen fuer Preis-Lookups nach `transaction_date` |
+| `POST_TRADE_EXIT_AMOUNT_TOLERANCE` | `0.0` | Toleranz in USD fuer Exit-Schwellwert (Summe gegensaetzlicher Trades) |
+| `POST_TRADE_PRICE_CACHE` | `data/cache/price_history.parquet` | Pfad zum yfinance-Preis-Cache (Parquet, MultiIndex) |
+| `POST_TRADE_PRICE_FETCH_YEARS` | `5` | Anzahl Jahre Daily-Close-Daten, die pro Ticker von yfinance geholt werden |
+| `POST_TRADE_PRICE_CACHE_TTL_DAYS` | `7` | Cache-Gueltigkeit in Tagen; aeltere Eintraege werden bei naechstem Lauf erneuert |
+
+### Neue Spalten (14 in `trades_master_complete.csv`)
+
+Die Spalten werden zwischen den yfinance-Spalten (`quote_type_yf`) und den Volume-Spalten (`trade_volume_usd`) eingefuegt. Vollstaendige Beschreibung: `organisation/DATA_STRUCTURE.md` (Section 6, `trades_master_complete.csv`).
+
+**exit_status-Werte:**
+- `not_applicable` — ticker_type nicht in {stock, foreign_stock, shareclass, etf} oder issuer_group_key beginnt mit SKIP: oder Exchange-Trade
+- `delisted` — yfinance liefert leere History
+- `unknown` — yfinance Network/Rate-Limit-Error
+- `held` — keine gegensaetzlichen Trades im Fenster
+- `closed_full` — kumulierte opposing amount >= Schwellwert
+- `closed_partial` — opposing vorhanden aber Schwellwert nicht erreicht

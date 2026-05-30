@@ -85,3 +85,19 @@ def midpoint_usd(amount_str) -> int:
     """
     low, high = parse_amount_range(amount_str)
     return (low + high) // 2
+
+
+def max_usd(amount_str) -> int:
+    """Obergrenze der parse_amount_range in ganzen USD.
+
+    Wird vom Trade-Volume-Signal als Score-Basis genutzt: der "im
+    schlimmsten Fall hat der Member bis hierhin gehandelt"-Wert.
+
+    Beispiele:
+        '$1,001 - $15,000' -> 15000
+        '$15,001'          -> 15001
+        'Over $50,000,000' -> 50_000_000   (open-ended, konservativ)
+        ''                 -> 0
+    """
+    _, high = parse_amount_range(amount_str)
+    return high

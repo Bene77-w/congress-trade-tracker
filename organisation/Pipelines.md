@@ -182,7 +182,7 @@ PDF_EXTRACTOR_ROW_BATCH_SIZE = 5
 
 ---
 
-## Pipeline 5: Import-Pipeline (Hauptpipeline, 16 Stages)
+## Pipeline 5: Import-Pipeline (Hauptpipeline, 17 Stages)
 
 **Script:** `scripts/import_trades.py`
 **Input:** `data/raw/congress-trading-all.xlsx` (Quiver-Snapshot)
@@ -190,10 +190,10 @@ PDF_EXTRACTOR_ROW_BATCH_SIZE = 5
   - `data/processed/trades_master_complete.csv` (vollstaendige Spalten, Rebuild T3)
   - `data/processed/trades_master.csv` (kuratierte Sicht via `settings.CURATED_COLUMNS`)
   - `data/processed/manual_review_tickers.csv` (Diagnose-Output)
-  - `data/processed/unmatched_names.csv`, `data/processed/unmatched_preferred.csv` (bei Bedarf)
+  - `data/processed/unmatched_names.csv` (bei Bedarf)
 
 **Modi:**
-- `python scripts/import_trades.py` — Full Rebuild (alle 16 Stages, schreibt complete + curated + review)
+- `python scripts/import_trades.py` — Full Rebuild (alle 17 Stages, schreibt complete + curated + review)
 - `python scripts/import_trades.py --delta` — Delta-Import via `trade_id` (nur neue Trades, merge)
 - `python scripts/import_trades.py --dry_run` — Alle Stages → trades_stage.csv (Master unberuehrt)
 
@@ -202,7 +202,7 @@ PDF_EXTRACTOR_ROW_BATCH_SIZE = 5
 python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splittet complete/curated
 ```
 
-**Stage-Pipeline (16 Schritte, unabhaengig re-runnable):**
+**Stage-Pipeline (17 Schritte, unabhaengig re-runnable):**
 ```
 --stage_rename            # Quiver laden + Spalten umbenennen + trade_id
 --stage_date              # Datum normalisieren
@@ -211,8 +211,9 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
 --stage_tickeropenfigi    # OpenFIGI-Normalisierung (FIGI, ticker_figi)
 --stage_issuer_group      # Cross-Class Issuer Mapping (SEC EDGAR CIK, P5.6)
 --stage_tickeryfinance    # yfinance Sector/Industry-Anreicherung
---stage_trade_volume      # Trade-Volume aus Amount-Range (Modul 8, Phase 8.1) → trade_volume_usd
---stage_asset_volume      # Cross-Class Asset-Tradingvolume (Modul 8, Phase 8.2) → asset_tradingvolume_usd
+--stage_trade_volume      # Trade-Volume aus Amount-Range → trade_volume_usd + trade_amount_max_usd (MUSS VOR post_trade_returns)
+--stage_post_trade_returns  # Post-Trade-Preise + Exit-Detection (Modul 9.x, braucht trade_amount_max_usd)
+--stage_asset_volume      # Cross-Class Asset-Tradingvolume → asset_tradingvolume_usd
 --stage_gates_tags        # Gates + Tags (Asset-Class, Committee, Vote-Timing) + Scoring
 --stage_branch1_signals   # Branch-1 Signale (committee, ex_officio, floor_action, extreme_report)
 --stage_sequence_signals  # Sequenz-Signale (contrarian, accumulative)
@@ -255,7 +256,7 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
          ↓
 [4] Ticker-Klassifikation (offline, Rebuild T3)
     → utils/ticker_classifier.classify(ticker, asset_name)
-    → Neue Spalten: ticker_type, ticker_base, classification_*, api_strategy,
+    → Neue Spalten: ticker_type, ticker_base, classification_*,
       exch_code, series_letter, status_suffix, manual_review_flag
     → Schreibt manual_review_tickers.csv (aggregiert, sortiert nach Häufigkeit)
          ↓
@@ -277,6 +278,12 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
     → P5-Cache-Migration: alte Cache-Hits mit figi NOT NULL aber NULL
       share_class_figi werden als Cache-Miss behandelt → einmaliger Re-Fetch
       fuellt das fehlende Feld nach.
+    → Dedup-Schicht in normalize_batch: identische TickerClassifications werden
+      einmal verarbeitet und das Resultat auf alle Vorkommen expandiert; FIGI_MAPPING-
+      Misses schreiben einen source='empty' Negativ-Cache (TTL TICKER_TYPE_UNKNOWN_TTL_DAYS).
+      Verhindert wiederholte /v3/mapping- und /v3/search-Calls bei haeufig
+      vorkommenden Tickern (z.B. AAM-PA, SEAL-PB) innerhalb eines Laufs und
+      ueber Laeufe hinweg.
          ↓
 [6] Cross-Class Issuer Mapping (P5.6, neue Stage)
     → utils/issuer_group_mapper.IssuerGroupMapper.resolve_issuer_group_key()
@@ -294,22 +301,34 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
 [7] yfinance Sector/Industry (Rebuild T3)
     → utils/ticker_sector.TickerSectorEnricher.enrich_batch()
     → Neue Spalten (Suffix _yf): sector_yf, industry_yf, quote_type_yf
-    → Vorzugsaktien-Mapping (EP$C → KMI), Hyphen-Fallback (BRK-B → BRK/B)
+    → Preferred-Auto-Resolution via parent_ticker (EP$C → parent_ticker='EP' → yfinance(EP))
          ↓
-[8] Trade-Volume (Modul 8, Phase 8.1 — neue Stage)
-    → utils/amount_parser.midpoint_usd(amount) — pro Trade individuelle
-      Mittelpunkt-Berechnung der Disclosure-Amount-Range.
-    → Neue Spalte: trade_volume_usd (int64)
-    → Beispiele:
-        "$1,001 - $15,000"  → 8000
-        "$15,001 - $50,000" → 32500
-        "Over $50,000,000"  → 50_000_000 (konservativer Punkt-Trade)
-        "$94.91"            → 94 (Single-Wert)
-        ""/NaN/unparsebar   → 0
-    → Eingabe fuer Stage [9] (Asset-Tradingvolume-Aggregation) und
-      Phase 8.3 (Volume-Score: Schwelle U + lineare Steigung SLOPE).
+[8] Post-Trade Returns (NEU — Stage post_trade_returns)
+    → scoring/post_trade_returns.compute_post_trade_returns(df, horizons_days, cache_path)
+    → Neue Spalten (14): post_trade_baseline_price, post_price_30d/60d/90d/120d,
+      post_return_30d/60d/90d/120d, exit_status, exit_date, exit_price,
+      exit_amount_max_usd, effective_return_pct, opposing_trade_ids
+    → Exit-Detection: gruppiert nach (name, issuer_group_key), chronologisch
+    → Preisdaten von yfinance, gecached in data/cache/price_history.parquet
+      (MultiIndex [ticker, date], Spalte close, TTL 7 Tage)
+    → Reihenfolge-Begruendung: nach tickeryfinance (Sektor-Daten bereits vorhanden),
+      vor trade_volume (Volume unabhaengig von Preis-Daten)
          ↓
-[9] Asset-Tradingvolume (Modul 8, Phase 8.2 — neue Stage)
+[9] Trade-Volume (Modul 8 — Stage `trade_volume`)
+    → utils/amount_parser.midpoint_usd(amount) und max_usd(amount) — pro
+      Trade zwei Spalten aus der Disclosure-Amount-Range.
+    → Neue Spalten:
+        - trade_volume_usd (int64): Mittelpunkt, Eingabe für [10].
+        - trade_amount_max_usd (int64): Obergrenze, Score-Basis für das
+          trade_volume-Signal (Stage [11]).
+    → Beispiele (Mittelpunkt / Obergrenze):
+        "$1,001 - $15,000"  → 8000 / 15000
+        "$15,001 - $50,000" → 32500 / 50000
+        "Over $50,000,000"  → 50_000_000 / 50_000_000 (konservativ)
+        "$94.91"            → 94 / 94 (Single-Wert)
+        ""/NaN/unparsebar   → 0 / 0
+         ↓
+[10] Asset-Tradingvolume (Modul 8, Phase 8.2 — neue Stage)
     → scoring/asset_volume.compute_asset_tradingvolume(df, window_days_z)
     → Neue Spalte: asset_tradingvolume_usd (int64)
     → Cross-Class rolling-window Sum(trade_volume_usd), gruppiert nach
@@ -326,7 +345,7 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
       _stage_asset_volume).
     → GOOG+GOOGL aggregieren ueber CIK:1652044 (Cross-Class verifiziert).
          ↓
-[10] Filter-Logik (_apply_filter_logic)
+[11] Filter-Logik (_apply_filter_logic)
     → Pre-Hook _ensure_fresh_vote_data() prueft Alter von bill_actions.json/
       bill_subjects.json. Liegt eine Datei aelter als settings.VOTE_DATA_TTL_HOURS
       (Default 24h), wird scrapers/fetch_congress_data.CongressFetcher.run_update()
@@ -352,7 +371,7 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
       Sektor-Treffer am Ticker haengen, nicht nur am Committee. Alle Treffer
       im Fenster werden als JSON-Liste gespeichert.
          ↓
-[11] Branch-1 Signale (_apply_branch1_signals)
+[12] Branch-1 Signale (_apply_branch1_signals)
     → Fünf Per-Trade-Signale: committee, committee_full, committee_ex_officio,
       floor_action, extreme_report (signals/*.py)
       committee triggert bei len(Relevant_Sectors) > 0
@@ -366,7 +385,7 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
       Diese Datei wird in einer spaeteren Suspicious-Export-Stage (P4) in
       suspicious_events.csv promoted.
          ↓
-[12] Sequenz-Signale (_apply_sequence_signals)
+[13] Sequenz-Signale (_apply_sequence_signals)
     → Zwei Gruppen-Signale: contrarian, accumulative (signals/*.py)
     → Gruppierung: (bio_guide_id, issuer_ticker) via
       utils/issuer_ticker.resolve_issuer_ticker — Fallback-Kette
@@ -380,7 +399,7 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
     → Events nach data/processed/sequence_events_stage.csv (gleiche
       21-Spalten-Form wie branch1_events_stage.csv, inkl. issuer_group_key)
          ↓
-[13] Schwarm-Signale (_apply_swarm_signals)  -- P6, Branch 2
+[14] Schwarm-Signale (_apply_swarm_signals)  -- P6, Branch 2
     → Vier Issuer-Group-Signale: swarm_buy, swarm_sell, swarm_conflict,
       swarm_paradox (signals/swarm_*.py)
     → Gruppierung: settings.SWARM_GROUPING_KEY (= 'issuer_group_key',
@@ -397,22 +416,25 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
     → Aggregiert additiv in signal_count + signals_triggered (dedupliziert)
     → Events nach data/processed/swarm_events_stage.csv (21 Spalten)
          ↓
-[14] Trade-Score (Modul 8, Phase 8.3 — _stage_scoring)
+[15] Trade-Score (Modul 8 — _stage_scoring)
     → scoring/trade_score.compute_trade_scores(df, settings)
     → Drei neue Spalten:
         trade_score             — int, gewichteter Score nach Formel
-                                   round(swarm × PARADOX_DAMPER + other + volume + ex_officio_bonus)
+                                   round(swarm × PARADOX_DAMPER + other +
+                                         volume_tier + ex_officio_bonus)
         trade_score_breakdown   — ;-getrennte Komponenten in fester Reihenfolge
-                                   (Branch-1 → Sequenz → Schwarm → ex_officio → volume)
+                                   (Branch-1 → Sequenz → Schwarm → trade_volume → ex_officio).
+                                   trade_volume erscheint nur wenn das Signal getriggert hat.
         trade_warnings          — Warning-Tags (aktuell: paradox_swarm)
-    → Eingaben: signals_triggered (aus [11]/[12]/[13]), Member_ExOfficio,
-      asset_tradingvolume_usd (aus [9]).
+    → Eingaben: signals_triggered (aus [12]/[13]/[14]), Member_ExOfficio,
+      trade_amount_max_usd (aus [9]).
     → Parameter aus settings.py: SCORING_WEIGHTS, SCORING_PARADOX_DAMPER,
       SCORING_EX_OFFICIO_BONUS, SCORING_EX_OFFICIO_TRIGGERS,
-      SCORING_VOLUME_ENABLED, SCORING_VOLUME_THRESHOLD_U, SCORING_VOLUME_SLOPE.
+      SCORING_TRADE_VOLUME_ENABLED, SCORING_TRADE_VOLUME_TIERS,
+      SCORING_TRADE_VOLUME_TRIGGER_FLOOR.
     → Score = 0 bei trade ohne Signal-Hit; kein Cap.
          ↓
-[15] Suspicious-Export (_stage_suspicious_export, + Modul 8.4)
+[16] Suspicious-Export (_stage_suspicious_export, + Modul 8.4)
     → Liest branch1_events_stage.csv + sequence_events_stage.csv +
       swarm_events_stage.csv
     → Append nach data/processed/suspicious_events.csv mit
@@ -427,19 +449,18 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
       kein total_volume_usd / warnings).
     → dry_run: schreibt nichts, gibt nur Vorschau-Counts aus
     → Mutiert trades_stage.csv NICHT (signal_count/signals_triggered
-      werden bereits in Stage [11]/[12] gesetzt)
+      werden bereits in Stage [12]/[13] gesetzt)
          ↓
-[16] Speichern
+[17] Speichern
     → Backup: archive/trades_master_backup/trades_master[_complete]_{ts}.csv
     → trades_master_complete.csv (alle Spalten, neu geschrieben — inkl.
-      trade_volume_usd, asset_tradingvolume_usd, trade_score,
-      trade_score_breakdown, trade_warnings aus Modul 8)
+      trade_volume_usd, trade_amount_max_usd, asset_tradingvolume_usd,
+      trade_score, trade_score_breakdown, trade_warnings aus Modul 8)
     → trades_master.csv (kuratiert via settings.CURATED_COLUMNS — inkl.
-      signal_count + signals_triggered + alle 5 Modul-8-Spalten)
+      signal_count + signals_triggered + alle 6 Modul-8-Spalten)
     → manual_review_tickers.csv (falls Tickers mit manual_review_flag)
     → _promote_problem_outputs(delta) — siehe Abschnitt unten
         - unmatched_names.csv
-        - unmatched_preferred.csv
         - delisted_trades.csv
 ```
 
@@ -455,12 +476,11 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
 
 **Re-Validation-Quellen** (Delta-Modus):
 - `unmatched_names.csv` ↔ `NameMatcher.match()` (lädt aktuelle `name_aliases.csv` + Member-CSVs)
-- `unmatched_preferred.csv` ↔ `Vorzugsaktien_mapping.csv` + `ignored_tickers.csv`
 - `delisted_trades.csv` ↔ positiver `ticker_industry_cache.json` (cache-only, kein API-Call)
 
 **`manual_review_tickers.csv`** wird im Live-Pfad immer aus dem vollen gemergten Master aggregiert (Re-Validation läuft implizit über Filter `ticker_type!='ignored'` + `manual_review_flag=True`). Im Delta-Dry-Run zeigt die Datei eine Vorschau des Endzustands (`existing-master ∪ delta_enriched`).
 
-Stage-Dateien (`unmatched_names_stage.csv`, `unmatched_preferred_stage.csv`, `delisted_trades_stage.csv`) werden nach Promotion automatisch entfernt.
+Stage-Dateien (`unmatched_names_stage.csv`, `delisted_trades_stage.csv`) werden nach Promotion automatisch entfernt.
 
 **Hinweis:** Die Pipeline ist ein reiner Enrichment-Durchlauf — es werden keine Zeilen entfernt.
 
@@ -482,6 +502,9 @@ python scripts/import_trades.py --stage_tickerclassify
 
 # OpenFIGI-Cache nutzen (refresh_ticker_types.py wurde in T3 entfernt):
 python scripts/import_trades.py --stage_tickeropenfigi
+
+# Post-Trade-Preise + Exit-Detection (Modul 9.x):
+python scripts/import_trades.py --stage_post_trade_returns
 
 # Filter-Stage nach Mapping-Änderung neu berechnen:
 python scripts/import_trades.py --stage_filter
@@ -509,7 +532,6 @@ python scripts/import_trades.py --regenerate_curated      # curated aus complete
 - `tags/vote_timing_tag.py` — VoteTimingTag (User-Sicht „Filter 4"): Vote-Timing (respektiert asset_class_excluded)
 - `config/committee_mapping.py` — O(1) Subcommittee→Sektor Lookup
 - `config/settings.py` — Alle Schwellenwerte und Pfade
-- `data/mappings/Vorzugsaktien_mapping.csv` — Preferred→Stammaktien-Ticker (16 Mappings)
 - `data/mappings/ticker_industry_cache.json` — yfinance-Cache (Ticker→Sector/Industry)
 - `yfinance` (Python-Paket) — Sector/Industry Lookup via Yahoo Finance API
 
@@ -573,32 +595,23 @@ DataFrame (raw_ticker, company_name, ...)
 [1] ticker_classifier.classify(ticker, company_name)
         → TickerClassification (frozen):
           ticker_type ∈ {STOCK, ETF, PREFERRED, WARRANT, OPTION, BOND, ...}
-          api_strategy ∈ {SKIP, FIGI_MAPPING, FIGI_SEARCH, CUSIP_LOOKUP,
-                          YFINANCE_DIRECT, MANUAL_REVIEW}
+          parent_ticker — für PREFERRED: automatisch auf Common-Stamm gesetzt (z.B. EP$C → parent_ticker='EP')
           confidence ∈ {HIGH, MEDIUM, LOW}
         ↓
 [2] TickerNormalizer.normalize_batch(classifications)
         → NormalizedTicker (frozen):
           figi, ticker_figi, asset_name_figi, security_type_figi,
           market_sector_figi, share_class_figi
-        Routing nach api_strategy:
-          SKIP                 → kein Call (OPTION, TREASURY, CRYPTO, WHEN_ISSUED, INVALID)
-          FIGI_MAPPING         → /v3/mapping (Batches à 100)
-          FIGI_SEARCH          → /v3/search (einzeln, Name+Ticker)
-          CUSIP_LOOKUP         → /v3/mapping mit idType=ID_CUSIP
-          YFINANCE_DIRECT      → /v3/mapping optimistisch (P5), danach
-                                 yfinance Sector/Industry in [3]
-          MANUAL_REVIEW        → /v3/mapping optimistisch (P5),
-                                 Negativ-Cache bei Miss
+        Routing: Klassifikation → OpenFIGI-Normalisierung. api_strategy
+        bleibt intern; wird nicht persistiert.
         Type-Korrektur: STOCK + securityType2='ETP' → ETF
         ↓
 [3] TickerSectorEnricher.enrich_batch(normalized)
         → SectorInfo (frozen): sector_yf, industry_yf, quote_type_yf
-        Routing nach ticker_type:
+        Routing nach ticker_type (Set zentral in `utils/ticker_routing.py::SECTOR_LOOKUP_TYPES`):
           STOCK/SHARECLASS/FOREIGN_STOCK/ETF/NUMERIC_SUFFIX → yfinance
-          PREFERRED                                          → via Mapping (Vorzugsaktien_mapping.csv)
+          PREFERRED                                          → Fallback via parent_ticker (z.B. EP$C → yfinance(EP))
           WARRANT/OPTION/BOND/CRYPTO/...                     → kein Call
-        Hyphen-Fallback: yfinance(BRK-B) leer → yfinance(BRK/B)
 ```
 
 ### Caches
@@ -621,7 +634,7 @@ Jeder Mechanismus ist Resultat eines echten Bugs — keine Vereinfachung.
 | 11.5 | sector | Confirm-Prompt bei ≥100 neuen Tickern (callback-injizierbar) |
 | 11.6 | sector | yfinance-Logger CRITICAL während Loop |
 | 11.7 | sector | Delisted → `data/processed/delisted_trades_stage.csv`; Terminal-Report nach Jahr aggregiert (`enrich_batch(normalized, transaction_dates=...)`) |
-| 11.8 | sector | Vorzugsaktien-Mapping aus `Vorzugsaktien_mapping.csv` + Terminal-Report `Preferred-Mapping: matched=X, unmatched=Y` nach Batch-Ende |
+| 11.8 | sector | Parent-Ticker-Fallback für PREFERRED automatisch; Terminal-Report nach Batch-Ende |
 | 11.9 | normalizer | OpenFIGI 429 Backoff 2^n max 90s, 6 → RuntimeError; getrennte Pausen pro Endpoint (Mapping/Search) |
 | 11.10 | beide | Lazy Init (DB/Caches erst bei Bedarf) |
 
@@ -636,9 +649,7 @@ Pro Defensiv-Mechanismus ein klarer `print(...)`:
 [!] OpenFIGI 429 (Versuch 1/3) → Backoff 2.0s
 [i] Kein Mapping-Hit für OBSCURE → Fallback /v3/search
 [i] SPY: Type-Korrektur STOCK → ETF (securityType2=ETP)
-[i] BRK-B ohne Sektor → Retry mit Slash-Variante BRK/B
 [i] Cache-Checkpoint: 100 Lookups gespeichert
-[!] Preferred-Ticker XYZ$A ohne Mapping
 [i] Delisted/Unbekannte Ticker: 3 Eintraege → …/delisted_trades_stage.csv
 ```
 
@@ -742,12 +753,21 @@ Member-Aggregat (`aggregate_members`): gruppiert nach `(name, chamber)`:
 | Member-Suche | Textfeld, Substring auf `name` | — |
 | Ticker-Suche | Textfeld, Substring auf `ticker` ODER `issuer_ticker` | — |
 | Min-Score-Slider | 0 .. max(50, max(trade_score)) | 0 |
+| Score-Gewichte-Form | Number-Input pro `SCORING_WEIGHTS`-Key + Paradox-Damper-Slider + Volume-Enabled/Threshold/Slope + Ex-Officio-Bonus | Defaults aus `config/settings.py` |
+| Preset-Selectbox | `Default` + alle in `data/config/scoring_presets.json` gespeicherten Konstellationen | `Default` |
 
 **Voll-Recompute-Mechanismus:**
-Werden Signale via Multiselect ausgeschlossen, ruft die App `app/score_recompute.py` auf:
-- `build_settings_proxy(excluded)` — kopiert `config.settings.SCORING_*`-Konstanten in einen `types.SimpleNamespace`; setzt Gewichte ausgeschlossener Signale auf 0; bei `swarm_paradox` in excluded wird `SCORING_PARADOX_DAMPER=1.0` (Dämpfung aus); `SCORING_EX_OFFICIO_TRIGGERS` wird um ausgeschlossene Trigger bereinigt.
-- `recompute_subset(df, excluded)` — ruft `scoring.trade_score.compute_trade_scores(df, proxy)` auf und überschreibt die Spalten `trade_score`, `trade_score_breakdown`, `trade_warnings` im gefilterten Subset.
+Werden Signale ausgeschlossen ODER Gewichte/Parameter über die Sidebar-Form überschrieben, ruft die App `app/score_recompute.py` auf:
+- `build_settings_proxy(excluded, weights_override=None, params_override=None)` — kopiert `config.settings.SCORING_*`-Konstanten in einen `types.SimpleNamespace`; wendet `weights_override` und `params_override` an; anschließend nullt der Exclude-Schritt Gewichte ausgeschlossener Signale, setzt `SCORING_PARADOX_DAMPER=1.0` bei `swarm_paradox` in excluded und bereinigt `SCORING_EX_OFFICIO_TRIGGERS`. **Reihenfolge:** Defaults → Override → Exclude (0 gewinnt).
+- `recompute_subset(df, excluded, weights_override=None, params_override=None)` — ruft `scoring.trade_score.compute_trade_scores(df, proxy)` auf und überschreibt die Spalten `trade_score`, `trade_score_breakdown`, `trade_warnings` im gefilterten Subset.
+- `params_override`-Keys (explizit erlaubt, siehe `PARAMS_OVERRIDE_KEYS`): `paradox_damper`, `volume_enabled`, `volume_threshold_u`, `volume_slope`, `ex_officio_bonus`.
 Zweck: Paradox-Dämpfung und Ex-Officio-Bonus bleiben bei Signal-Ausschluss konsistent — einfaches String-Filtern würde diese Interaktionen brechen.
+
+**Preset-Persistenz (`app/scoring_presets.py`):**
+- `load_presets()` liest `data/config/scoring_presets.json`; ein synthetischer `Default`-Eintrag (Snapshot aus `config.settings`) ist immer enthalten.
+- `save_preset(name, payload)` speichert; `Default` ist reserviert. Datei + Ordner werden bei Bedarf angelegt.
+- `delete_preset(name)` entfernt; `Default` ist nicht löschbar.
+- Payload-Schema: `{weights: {...}, paradox_damper, volume_enabled, volume_threshold_u, volume_slope, ex_officio_bonus}`.
 
 **Drei Tabs:**
 - **Trades** (Standard): KPIs (Anzahl, Max-Score, Σ Volumen) + Datentabelle inkl. abgeleiteter Spalte `relevant_sectors`
@@ -758,7 +778,8 @@ Zweck: Paradox-Dämpfung und Ex-Officio-Bonus bleiben bei Signal-Ausschluss kons
 | Datei | Zweck |
 |-------|-------|
 | `app/__init__.py` | Package-Marker (leer) |
-| `app/score_recompute.py` | Helper: `available_signals()`, `build_settings_proxy()`, `recompute_subset()` |
+| `app/score_recompute.py` | Helper: `available_signals()`, `build_settings_proxy(excluded, weights_override, params_override)`, `recompute_subset(...)` |
+| `app/scoring_presets.py` | Persistenz für Scoring-Konstellationen: `load_presets()`, `save_preset()`, `delete_preset()`, `default_payload()`; JSON in `data/config/scoring_presets.json` |
 | `app/streamlit_app.py` | Haupt-UI, Streamlit 1.57.0, Pandas 3.0.0 |
 
 **Abhängigkeiten:**
@@ -794,7 +815,7 @@ Default-Verhalten: reversibler **Move** nach `archive/reset_pipeline/reset_<ts>/
 | `--processed`, `--all` | getipptes `JA` |
 | `--purge` (zusätzlich) | getipptes `PURGE` |
 
-**Geschützt (nie verschoben/gelöscht):** `name_aliases.csv`, `Vorzugsaktien_mapping.csv`,
+**Geschützt (nie verschoben/gelöscht):** `name_aliases.csv`,
 `house_member&(sub)committees.csv`, `senate_member&(sub)committees.csv`,
 `subcommittee_sector_industry_mapping*.csv`, `yf_sectors_with_industries.csv`,
 `vote_sector_mapping.py`, `logs/house_pdf_extractor_done.csv` (State).
@@ -885,7 +906,7 @@ Diese Dateien werden nicht durch Pipelines erzeugt, sondern manuell gepflegt:
 | `data/mappings/house_member&(sub)committees.csv` | Alle 2 Jahre (Wahlen) | 437 House-Mitglieder + Committees (inkl. 5 Leadership ex officio) |
 | `data/mappings/senate_member&(sub)committees.csv` | Alle 2 Jahre (Wahlen) | 100 Senatoren + Committees |
 | `data/mappings/name_aliases.csv` | Bei Bedarf (neue Varianten) | Manuelle Namenskorrekturen (11 Eintraege) |
-| `data/mappings/ignored_tickers.csv` | Bei Bedarf | Manuelle Ignore-Liste fuer raw_ticker (z.B. private Funds ohne oeffentlichen Ticker). Wird in Stage `tickerclassify` ausgewertet → setzt `ticker_type=ignored`, `api_strategy=skip`, kein Manual-Review-Eintrag |
+| `data/mappings/ignored_tickers.csv` | Bei Bedarf | Manuelle Ignore-Liste fuer raw_ticker (z.B. private Funds ohne oeffentlichen Ticker). Wird in Stage `tickerclassify` ausgewertet → setzt `ticker_type=ignored`, kein Manual-Review-Eintrag |
 | `data/mappings/subcommittee_sector_industry_mapping.csv` | Bei Bedarf | Subcommittee→Sektor/Industry (861 Zeilen) |
 | `data/mappings/vote_sector_mapping.py` | Bei Bedarf | Policy Area→YF-Sektoren (Python, 12 Mappings) |
 | `data/raw/former_members.csv` | Bei Bedarf (Congresswechsel) | Ehemalige Politiker mit Trades (6 Eintraege) |

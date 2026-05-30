@@ -45,7 +45,6 @@ def enricher(cache_dir, tmp_path):
     return TickerSectorEnricher(
         cache_dir=str(cache_dir),
         delisted_output_path=str(tmp_path / "delisted_trades_stage.csv"),
-        unmatched_preferred_path=str(tmp_path / "unmatched_preferred.csv"),
         confirm_callback=lambda n: True,
     )
 
@@ -164,26 +163,25 @@ class TestCacheSplit:
         assert "OK" not in null_list
 
 
-class TestPreferredMapping:
-    def test_preferred_mapping(self, cache_dir, tmp_path, make_normalized):
-        """EP$C (PREFERRED) → KMI Lookup → SectorInfo mit Energy."""
-        # Preferred-Mapping-CSV anlegen.
-        pref_csv = tmp_path / "Vorzugsaktien_mapping.csv"
-        pref_csv.write_text(
-            "stammaktien_ticker,vorzugsaktien_ticker,Company\n"
-            "KMI,EP$C,Kinder Morgan\n",
-            encoding="utf-8",
+class TestPreferredParentLookup:
+    def test_preferred_parent_ticker_used(self, enricher, make_normalized):
+        """PREFERRED → yfinance-Call auf parent_ticker (Common-Stamm)."""
+        norm = make_normalized(
+            raw="EP$C",
+            ticker_type=TickerType.PREFERRED,
+            api_strategy=ApiStrategy.FIGI_MAPPING,
         )
-
-        enricher = TickerSectorEnricher(
-            cache_dir=str(cache_dir),
-            preferred_mapping_path=str(pref_csv),
-            confirm_callback=lambda n: True,
+        # Classifier-Output simulieren: parent_ticker fuer EP$C ist EP.
+        from dataclasses import replace
+        norm = NormalizedTicker(
+            classification=replace(norm.classification, parent_ticker="EP"),
+            figi=None, ticker_figi=None, asset_name_figi=None,
+            security_type_figi=None, market_sector_figi=None,
+            share_class_figi=None,
+            normalization_errors=[],
         )
-
-        norm = make_normalized(raw="EP$C", ticker_type=TickerType.PREFERRED)
-        info = {"KMI": {"sector": "Energy", "industry": "Oil & Gas Midstream",
-                         "quoteType": "EQUITY"}}
+        info = {"EP": {"sector": "Energy", "industry": "Oil & Gas Midstream",
+                       "quoteType": "EQUITY"}}
 
         captured_calls: list[str] = []
 
@@ -196,7 +194,7 @@ class TestPreferredMapping:
         with patch("utils.ticker_sector.yf.Ticker", side_effect=factory):
             result = enricher.enrich_batch([norm])
 
-        assert "KMI" in captured_calls, f"yfinance sollte mit KMI gecallt werden: {captured_calls}"
+        assert "EP" in captured_calls, f"yfinance sollte mit EP gecallt werden: {captured_calls}"
         assert result[0].sector_yf == "Energy"
         assert result[0].normalized.classification.raw_ticker == "EP$C"
 
@@ -216,34 +214,3 @@ class TestDelistedTracking:
         assert "GONE" in content
 
 
-class TestHyphenFallback:
-    def test_hyphen_fallback(self, enricher, make_normalized):
-        """BRK-B liefert leer → Retry mit BRK/B → Erfolg, kein Delisted."""
-        norm = make_normalized(raw="BRK-B", ticker_base="BRK-B",
-                                ticker_type=TickerType.SHARECLASS)
-
-        seen_tickers: list[str] = []
-
-        def factory(ticker):
-            seen_tickers.append(ticker)
-            m = MagicMock()
-            if ticker == "BRK-B":
-                m.info = {}
-            elif ticker == "BRK/B":
-                m.info = {"sector": "Financial Services",
-                          "industry": "Insurance—Diversified",
-                          "quoteType": "EQUITY"}
-            else:
-                m.info = {}
-            return m
-
-        with patch("utils.ticker_sector.yf.Ticker", side_effect=factory):
-            result = enricher.enrich_batch([norm])
-
-        assert "BRK-B" in seen_tickers
-        assert "BRK/B" in seen_tickers
-        assert result[0].sector_yf == "Financial Services"
-        # Kein Delisted-Eintrag (Fallback war erfolgreich).
-        delisted_path = Path(enricher.delisted_output_path)
-        if delisted_path.is_file():
-            assert "BRK-B" not in delisted_path.read_text()

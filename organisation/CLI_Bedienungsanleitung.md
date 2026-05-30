@@ -101,7 +101,7 @@ python scrapers/senate_pdf_extractor.py --headless False
 
 ---
 
-## 3. Import Pipeline (16 Stages)
+## 3. Import Pipeline (17 Stages)
 
 **Datei:** `scripts/import_trades.py`
 **Zweck:** Liest Quiver-Snapshot (`congress-trading-all.xlsx`), matcht Member-Namen (Alias→Exakt→Former→Fuzzy), klassifiziert Tickers offline, normalisiert via OpenFIGI, reichert via yfinance an, wendet Filter an.
@@ -113,7 +113,7 @@ Provider-Suffixe — `_figi` (OpenFIGI: `ticker_figi`, `asset_name_figi`,
 Suffix. Details siehe `organisation/DATA_STRUCTURE.md`.
 
 ```bash
-# Standard: vollständige Pipeline (alle 16 Stages sequenziell)
+# Standard: vollständige Pipeline (alle 17 Stages sequenziell)
 python scripts/import_trades.py
 
 # Delta-Modus: nur neue Trades (via trade_id) anreichern und mergen
@@ -127,7 +127,62 @@ python scripts/import_trades.py --dry_run
 - `data/processed/trades_master_complete.csv` — vollstaendige Spalten
 - `data/processed/trades_master.csv` — kuratierte Sicht (settings.CURATED_COLUMNS)
 - `data/processed/manual_review_tickers.csv` — Diagnose-Output
-- `data/processed/unmatched_names.csv`, `data/processed/unmatched_preferred.csv` (bei Bedarf)
+- `data/processed/unmatched_names.csv` (bei Bedarf)
+
+### Dry-Run-Ergebnisse in `trades_master_complete.csv` uebernehmen
+
+`--dry_run` schreibt absichtlich **nur** nach `data/processed/trades_stage.csv` —
+Sicherheits-Sandbox, damit der Master unangetastet bleibt. Wenn der Dry-Run
+geprueft ist und das Ergebnis in den `complete`-Master soll, gibt es zwei Wege:
+
+**Weg 1 — Promotion via `--stage_save` (empfohlen, wenn der Dry-Run bereits gelaufen ist):**
+
+```bash
+# 1. Dry-Run anschauen / sanity-checken
+python scripts/import_trades.py --dry_run            # -> trades_stage.csv
+head -1 data/processed/trades_stage.csv              # Spalten pruefen
+wc -l data/processed/trades_stage.csv                # Zeilen zaehlen
+
+# 2. Promoten: Stage-CSV -> complete + curated Master
+python scripts/import_trades.py --stage_save
+```
+
+`_stage_save` legt vorher automatisch ein Backup unter
+`archive/trades_master_backup/` an, schreibt `trades_master_complete.csv`
+**komplett neu** aus `trades_stage.csv`, regeneriert `trades_master.csv`
+(kuratiert) und raeumt `trades_stage.csv` danach auf.
+
+> **Achtung — `--stage_save` ohne `--delta` ersetzt den Master komplett.**
+> Das ist nur sicher, wenn der vorhergehende Dry-Run eine **volle Pipeline**
+> war (`python scripts/import_trades.py --dry_run`). Bei einem Single-Stage-Dry-Run
+> (`--stage_post_trade_returns --dry_run`) enthaelt `trades_stage.csv` nur das
+> Snapshot dieser einen Stage — ein anschliessendes `--stage_save` wuerde
+> dann den Master auf diesen Snapshot reduzieren. In dem Fall stattdessen
+> Weg 2 nehmen.
+
+**Weg 2 — Direkt in den Master schreiben (Single-Stage, kein `--dry_run`):**
+
+Wenn nur eine einzelne Stage ausgefuehrt wird, schreibt `_write_stage_output`
+ohne `--dry_run` und ohne `--delta` automatisch direkt in
+`trades_master_complete.csv` (mit Backup vorher). Alle anderen Spalten bleiben
+erhalten — die Stage fuegt nur ihre eigenen Output-Spalten hinzu bzw. ueberschreibt
+diese.
+
+```bash
+# Direkter Stage-Lauf -> trades_master_complete.csv (mit auto-Backup)
+python scripts/import_trades.py --stage_post_trade_returns
+
+# Optional: kuratierte Sicht aktualisieren (falls Stage curated-relevante Spalten anfasst)
+python scripts/import_trades.py --regenerate_curated
+```
+
+**Wann welcher Weg?**
+
+| Situation | Weg | Befehl |
+|---|---|---|
+| Volle Pipeline-Verifikation, dann Promotion | Weg 1 | `--dry_run` → Pruefung → `--stage_save` |
+| Einzelne Stage soll direkt in Master | Weg 2 | nur `--stage_<X>` (ohne `--dry_run`) |
+| Einzelne Stage erst pruefen, dann promoten | Weg 1 (vorsichtig) | `--stage_<X> --dry_run` → Pruefung → `--stage_save` **erst wenn klar ist, dass der Stage-Snapshot vollstaendig ist** |
 
 **Migration vor erstem Lauf** (einmalig, vergibt trade_id auf Bestand):
 ```bash
@@ -146,7 +201,8 @@ python scripts/import_trades.py --stage_tickerclassify    # Offline-Klassifikati
 python scripts/import_trades.py --stage_tickeropenfigi    # OpenFIGI-Normalisierung
 python scripts/import_trades.py --stage_issuer_group      # Cross-Class Issuer Mapping (SEC EDGAR CIK)
 python scripts/import_trades.py --stage_tickeryfinance    # yfinance Sector/Industry
-python scripts/import_trades.py --stage_trade_volume      # trade_volume_usd aus Amount-Range
+python scripts/import_trades.py --stage_trade_volume      # trade_volume_usd aus Amount-Range (MUSS VOR post_trade_returns)
+python scripts/import_trades.py --stage_post_trade_returns  # Post-Trade-Preise + Exit-Detection (Modul 9.x, braucht trade_amount_max_usd)
 python scripts/import_trades.py --stage_asset_volume      # Cross-Class Asset-Tradingvolume rolling-window
 python scripts/import_trades.py --stage_gates_tags        # Gates + Tags (Asset-Class, Committee, Vote-Timing)
 python scripts/import_trades.py --stage_branch1_signals   # Branch-1 Signale
@@ -161,6 +217,40 @@ python scripts/import_trades.py --delta --stage_rename
 ```
 
 Stage-Reihenfolge + Indizes: siehe [Pipelines.md](Pipelines.md).
+
+### Welche Stages bei Scoring-Anpassungen neu laufen lassen?
+
+Hängt davon ab, welcher Parameter in `config/settings.py` geändert wurde. Drei Fälle:
+
+**Fall A — Nur Score-Gewichte / Formel-Parameter** (z. B. `SCORING_WEIGHTS`, `SCORING_PARADOX_*`, Ex-Officio-Multiplikator — alles was ausschliesslich in `scoring/trade_score.py` gelesen wird):
+
+```bash
+python scripts/import_trades.py --stage_scoring
+python scripts/import_trades.py --stage_suspicious_export
+python scripts/import_trades.py --stage_save
+python scripts/import_trades.py --regenerate_curated   # optional, falls curated benötigt
+```
+
+`_stage_scoring` rechnet `trade_score`, `trade_score_breakdown`, `trade_warnings` aus dem unveränderten `signals_triggered` neu. `_stage_suspicious_export` materialisiert anschliessend `suspicious_assets.csv` / `suspicious_members.csv` mit den neuen Scores.
+
+**Fall B — Signal-Trigger-Schwellen geändert** (z. B. `SWARM_*`, `SEQUENCE_*`, `EXTREME_REPORT_*`, Vote-Timing-Trigger — Parameter, die bestimmen, *ob* ein Signal feuert, nicht nur dessen Gewicht):
+
+Ab der betroffenen Signal-Stage neu laufen lassen, dann Scoring + Export + Save:
+
+```bash
+--stage_branch1_signals    # bei committee / ex_officio / floor_action / extreme_report
+--stage_sequence_signals   # bei contrarian / accumulative
+--stage_swarm_signals      # bei swarm_buy / swarm_sell / swarm_conflict / swarm_paradox
+--stage_scoring
+--stage_suspicious_export
+--stage_save
+```
+
+**Fall C — Gate/Tag-Parameter geändert** (z. B. `COMMITTEE_*`, `VOTE_TIMING_*`, Asset-Class-Gate — Parameter, die Master-Spalten wie `Insider_Sectors`, `Relevant_Sectors`, `Vote_Timing_Hit_Count` erzeugen):
+
+Ab `--stage_gates_tags` neu, danach alle Signal-Stages + Scoring + Export + Save (= praktisch P2..P5 der Pipeline). Bei sehr breiten Tag-Änderungen ist oft ein voller `python scripts/import_trades.py` einfacher.
+
+**Merksatz:** STAGE_DEPS in `scripts/import_trades.py` und [Pipelines.md](Pipelines.md) zeigen pro Stage genau, welche Spalten produziert/konsumiert werden — daraus lässt sich der minimale Re-Run ableiten.
 
 ### Bonus-Flags (kein Master-Touch ausser Curated, exklusiv)
 
@@ -670,7 +760,7 @@ python scripts/reset_pipeline.py --processed --purge
 pro Gruppe, finale Zusammenfassung. Bei Default-Move zusätzlich `_manifest.txt`
 im Archiv-Ordner für Wiederherstellung.
 
-**Geschützte Mappings (nie betroffen):** `name_aliases.csv`, `Vorzugsaktien_mapping.csv`,
+**Geschützte Mappings (nie betroffen):** `name_aliases.csv`,
 House/Senate Member-CSVs, Subcommittee-Mappings, `yf_sectors_with_industries.csv`,
 `vote_sector_mapping.py`, `logs/house_pdf_extractor_done.csv` (State).
 

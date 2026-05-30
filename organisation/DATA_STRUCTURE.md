@@ -309,24 +309,35 @@ CREATE TABLE ticker_types (
 
 **Verwendung**: `ticker_normalizer` ist die aktive Quelle der OpenFIGI-Felder im Master (Spalten `figi`, `ticker_figi`, `asset_name_figi`, `security_type_figi`, `market_sector_figi`). `ticker_types` ist Legacy und wird nicht mehr beschrieben.
 
-### `data/mappings/Vorzugsaktien_mapping.csv`
-**Quelle**: Manuell gepflegt
-**Format**: CSV
-**Update**: Bei Bedarf (neue Preferred-Ticker in Daten entdeckt)
+### `data/cache/price_history.parquet`
+**Quelle**: Automatisch von `scoring/post_trade_returns.py` (`compute_post_trade_returns`) via yfinance.
+**Format**: Parquet (Pandas MultiIndex)
+**Update**: Bei jedem Import (nur neue Ticker werden abgefragt; Cache-TTL 7 Tage via `POST_TRADE_PRICE_CACHE_TTL_DAYS`).
+**Atomare Speicherung**: tmp + rename verhindert Korruption bei Abbruch.
 
-**Spalten**:
-```csv
-stammaktien_ticker, vorzugsaktien_ticker, Company
+**Struktur**:
+```
+MultiIndex: (ticker: str, date: datetime64[ns])
+Spalte:     close: float64
 ```
 
 **Beispiel**:
-```csv
-KMI,EP$C,EL PASO CORPORATION
-USB,USB$N,US BANCORP DEL
-T,T$A,AT&T INC.
+```
+ticker    date
+AAPL      2025-01-02    243.85
+          2025-01-03    243.04
+MSFT      2025-01-02    421.10
+          2025-01-03    423.35
 ```
 
-**Verwendung**: Mapping von Vorzugsaktien-Tickern (z.B. `EP$C`) auf Stammaktien-Ticker (z.B. `KMI`), damit der yfinance-Lookup den korrekten Sector/Industry findet. Wird in `enrich_with_ticker_industry()` geladen.
+**Marker-Konvention fuer delistete Ticker**:
+```
+ticker    date
+DELISTED  1900-01-01    NaN
+```
+Ein Eintrag mit `date='1900-01-01'` und `close=NaN` signalisiert, dass yfinance fuer diesen Ticker keine Historie liefert (delisted oder unbekannt). Verhindert wiederholte API-Calls.
+
+**Verwendung**: Wird von Stage `post_trade_returns` (Pipeline Stage 9) gelesen/geschrieben. Alle yfinance-basierten Preisdaten (5 Jahre Daily Close via `POST_TRADE_PRICE_FETCH_YEARS`). Wird geladen bevor neue Ticker abgefragt werden (Cache-Hit-Erkennung); neue Daten werden appendiert und in einem Rutsch atomar gespeichert. **Incremental-Save**: alle 100 Ticker wird der Cache zwischenpersistiert (Crash-Schutz fuer 1-2h Erstabruf).
 
 ---
 
@@ -471,7 +482,7 @@ User erweiterbar):
 - `chamber`, `Member_Party`, `Member_State`
 - `security_type_figi`, `sector_yf`, `industry_yf`
 - `MatchScore`, `Vote_Timing_Hit`
-- **Modul 8** (seit 8.3): `trade_volume_usd`, `asset_tradingvolume_usd`, `trade_score`, `trade_score_breakdown`, `trade_warnings`
+- **Modul 8**: `trade_volume_usd`, `trade_amount_max_usd`, `asset_tradingvolume_usd`, `trade_score`, `trade_score_breakdown`, `trade_warnings`
 
 `issuer_ticker` (P5.5): Fallback-Kette `share_class_figi → ticker_base
 → ticker`. Garantiert 100% gefuellt solange mindestens eine der drei
@@ -565,22 +576,54 @@ sector_yf,              # YF Sector (z.B. "Technology") — leer bei ETFs/Bonds/
 industry_yf,            # YF Industry (z.B. "Consumer Electronics") — leer bei ETFs/Bonds/unbekannten Tickern
 quote_type_yf,          # YF quoteType (z.B. "EQUITY", "ETF", "MUTUALFUND")
 
-# Modul 8 — Volume-Spalten (Phase 8.1/8.2). Edge-Cases siehe tests/test_amount_parser.py
-# und tests/test_asset_volume.py.
+# Post-Trade-Performance (Stage post_trade_returns, Modul 9.x) — NUR in trades_master_complete.csv
+post_trade_baseline_price, # float: Close-Preis am transaction_date (naechster Handelstag bei Wochenende)
+post_price_30d,            # float: Close-Preis 30 Tage nach Trade
+post_price_60d,            # float: Close-Preis 60 Tage nach Trade
+post_price_90d,            # float: Close-Preis 90 Tage nach Trade
+post_price_120d,           # float: Close-Preis 120 Tage nach Trade
+post_return_30d,           # float: (post_price_30d/baseline - 1) * 100 in %
+post_return_60d,           # float: dito fuer 60d
+post_return_90d,           # float: dito fuer 90d
+post_return_120d,          # float: dito fuer 120d
+exit_status,               # str: held / closed_full / closed_partial / delisted / unknown / not_applicable
+exit_date,                 # datetime: Datum des ersten gegensätzlichen Trades (bei closed_*)
+exit_price,                # float: Close-Preis am exit_date
+exit_amount_max_usd,       # float: Kumulierte Max-USD der gegensätzlichen Trades
+effective_return_pct,      # float: Bei closed: (exit_price/baseline-1)*100; bei held: post_return_max_horizon
+opposing_trade_ids,        # str: Semikolon-getrennte trade_ids der gegensätzlichen Trades
+# exit_status-Werte: not_applicable — ticker_type nicht in {stock,foreign_stock,shareclass,etf} oder
+#                    issuer_group_key beginnt mit SKIP: oder Exchange-Trade
+#                    delisted — yfinance liefert leere History
+#                    unknown — yfinance Network/Rate-Limit-Error
+#                    held — keine gegensätzlichen Trades im Fenster
+#                    closed_full — kumulierte opposing amount >= Schwellwert
+#                    closed_partial — opposing vorhanden aber Schwellwert nicht erreicht
+
+# Modul 8 — Volume-Spalten. Edge-Cases: tests/test_amount_parser.py,
+# tests/test_asset_volume.py, tests/test_trade_volume_signal.py.
 trade_volume_usd,       # int64: Mittelpunkt der Disclosure-Amount-Range (utils/amount_parser.midpoint_usd).
+                        # Genutzt fuer asset_tradingvolume_usd und total_volume_usd in den View-CSVs.
+trade_amount_max_usd,   # int64: OBERGRENZE der Disclosure-Amount-Range (utils/amount_parser.max_usd).
+                        # Score-Basis fuer das trade_volume-Signal. Beispiele:
+                        # '$1,001 - $15,000' -> 15000; 'Over $50M' -> 50_000_000; leer/NaN -> 0.
 asset_tradingvolume_usd,# int64: Cross-Class rolling-window Sum(trade_volume_usd) gruppiert nach
                         # issuer_group_key, Fenster Z = settings.SCORING_VOLUME_WINDOW_DAYS_Z.
                         # SKIP-Buckets / NaT-Datum -> 0. Delta-Mode liest Master-Historie mit.
+                        # HINWEIS: Floesst NICHT mehr direkt in trade_score ein (Volume ist
+                        # jetzt ein Tier-Signal auf trade_amount_max_usd). Bleibt fuer
+                        # total_volume_usd in suspicious_assets.csv + Streamlit Asset-Tab.
 
 # Anreicherung durch Branch-1 Signale (Stage branch1_signals)
 signal_count,           # int 0-4: Anzahl ausgeloester Branch-1 Signale pro Trade
 signals_triggered,      # str ";"-getrennt: Liste der Signal-Typen (z.B. "committee;floor_action")
 
-# Modul 8 — Score-Spalten (Phase 8.3). Formel + Beispiele: organisation/Filter_Instanz_Parameter.md.
-# Edge-Cases: tests/test_trade_score.py (23 Faelle).
+# Modul 8 — Score-Spalten. Formel + Beispiele: organisation/Filter_Instanz_Parameter.md.
+# Edge-Cases: tests/test_trade_score.py, tests/test_trade_volume_signal.py.
 trade_score,            # int: gewichteter Trade-Score (kein Cap). Quelle: scoring/trade_score.compute_trade_scores.
 trade_score_breakdown,  # str ";"-getrennt: deterministische Komponenten-Aufschluesselung in fester Reihenfolge
-                        # (Branch-1 -> Sequenz -> Schwarm -> ex_officio -> volume).
+                        # (Branch-1 -> Sequenz -> Schwarm -> trade_volume -> ex_officio).
+                        # trade_volume erscheint nur wenn das Signal getriggert hat.
 trade_warnings,         # str ";"-getrennt: Warning-Tags (initial nur "paradox_swarm").
 
 # Metadata
@@ -601,7 +644,7 @@ Die ID-Spalte `figi` selbst behält keinen Suffix (Eigenname/Akronym).
 - `ticker_base` — normalisierte Form (z.B. BRK-B fuer BRK.B)
 - `classification_reason` — welche Regex/Regel hat gefeuert
 - `classification_confidence` — high/medium/low
-- `api_strategy` — figi_mapping/figi_search/cusip_lookup/yfinance_direct/skip/manual_review
+- `parent_ticker` — interne Fallback-Spalte fuer PREFERRED-Notationen (z.B. `EP$C` → `parent_ticker='EP'`). NICHT in Master persistiert, verbleibt in `TickerClassification`-Dataclass und wird intern in der Sektor-Stage fuer yfinance-Lookup genutzt.
 - `exch_code`, `series_letter`, `status_suffix`
 - `manual_review_flag` — bool
 
@@ -610,14 +653,17 @@ Die ID-Spalte `figi` selbst behält keinen Suffix (Eigenname/Akronym).
 - `security_type_figi`, `market_sector_figi`
 - `share_class_figi` (P5) — FIGI auf Issuer-Ebene (Cross-Share-Class-Anker)
 
-**P5 — Router-Erweiterung (2026-05-18)**: Im Gegensatz zur urspruenglichen
-Implementierung gehen jetzt auch `api_strategy=YFINANCE_DIRECT` (ETFs,
-NUMERIC_SUFFIX, manche SHARECLASS) und `api_strategy=MANUAL_REVIEW`
-(UNKNOWN, LONG_ALPHA_SUSPECT) durch einen optimistischen OpenFIGI-Mapping-
-Versuch, damit ihre `share_class_figi`-Spalte gefuellt werden kann. Bei Miss
-wird ein Negativ-Cache-Eintrag mit `source='empty'` geschrieben (verhindert
-Wiederholungen). `api_strategy=SKIP` bleibt unveraendert ohne API-Call
-(OPTION, TREASURY, CRYPTO, WHEN_ISSUED, INVALID).
+**P5 — Router-Erweiterung (2026-05-18)**: Auch Trades mit Classifier-internem
+Routing-Wert `YFINANCE_DIRECT` (ETFs, NUMERIC_SUFFIX, manche SHARECLASS) und
+`MANUAL_REVIEW` (UNKNOWN, LONG_ALPHA_SUSPECT) durchlaufen einen optimistischen
+OpenFIGI-Mapping-Versuch, damit ihre `share_class_figi`-Spalte gefuellt werden
+kann. Bei Miss wird ein Negativ-Cache-Eintrag mit `source='empty'` geschrieben
+(verhindert Wiederholungen). Klassen `SKIP` (OPTION, TREASURY, CRYPTO,
+WHEN_ISSUED, INVALID) bleiben unveraendert ohne API-Call.
+
+Der Routing-Wert (`api_strategy`) ist intern im `TickerClassification`-
+Dataclass und wird **nicht** als Spalte in `trades_master_complete.csv` 
+persistiert (Refactor 2026-05-28).
 
 **Stage `tickeryfinance` ergaenzt**:
 - `sector_yf`, `industry_yf`, `quote_type_yf`
@@ -792,7 +838,7 @@ Score-Aggregate (Modul 8.4) analog `suspicious_assets.csv`, aber NUR drei Score-
 
 ### Problem-Outputs: Stage-vs-Live-Verhalten (Mai 2026)
 
-Die vier Diagnose-Dateien `unmatched_names.csv`, `unmatched_preferred.csv`, `delisted_trades.csv`, `manual_review_tickers.csv` folgen einem einheitlichen Stage→Live-Muster:
+Die drei Diagnose-Dateien `unmatched_names.csv`, `delisted_trades.csv`, `manual_review_tickers.csv` folgen einem einheitlichen Stage→Live-Muster:
 
 | Lauf-Typ | Verhalten | Wirkung |
 |----------|-----------|---------|
@@ -802,7 +848,6 @@ Die vier Diagnose-Dateien `unmatched_names.csv`, `unmatched_preferred.csv`, `del
 
 **Stage-Dateien** (Zwischen-Output während des Laufs):
 - `unmatched_names_stage.csv`
-- `unmatched_preferred_stage.csv` (NEU)
 - `delisted_trades_stage.csv`
 
 Sie werden nach erfolgreicher Promotion automatisch entfernt (`_promote_problem_outputs(delta)` in `scripts/import_trades.py`).
@@ -811,7 +856,6 @@ Sie werden nach erfolgreicher Promotion automatisch entfernt (`_promote_problem_
 | Datei | Re-Validation gegen |
 |-------|---------------------|
 | `unmatched_names.csv` | `NameMatcher.match()` mit aktuellen `name_aliases.csv` + Member-CSVs |
-| `unmatched_preferred.csv` | `Vorzugsaktien_mapping.csv` + `ignored_tickers.csv` |
 | `delisted_trades.csv` | Positiver `ticker_industry_cache.json` (kein API-Call) |
 | `manual_review_tickers.csv` | bestehende Filter (`ticker_type!='ignored'`, `manual_review_flag=True`, nicht in `ignored_tickers`) |
 
@@ -870,27 +914,6 @@ Nancy Pelosi,30,house,Nancy Mace,63
 **Verwendung**:
 - Review von nicht-gematchten Namen
 - Kandidaten für `data/mappings/name_aliases.csv`
-
----
-
-### `data/processed/unmatched_preferred.csv`
-**Quelle**: Output von `scripts/import_trades.py` via `utils/ticker_sector.py:_write_unmatched_preferred()`
-**Format**: CSV (1 Spalte: `preferred_ticker`)
-**Update**: Full-Run = Overwrite. Delta-Run = Akkumuliert + Re-Validiert.
-**Auto-Purge**: Sobald ein Ticker in `Vorzugsaktien_mapping.csv` oder `ignored_tickers.csv` auftaucht, wird er beim nächsten Run entfernt.
-
-**Stage-Datei**: `data/processed/unmatched_preferred_stage.csv` (Zwischenpuffer, wird nach Promotion gelöscht).
-
-**Beispiel**:
-```csv
-preferred_ticker
-EFC$D
-BAC$I
-```
-
-**Verwendung**:
-- Review von Preferred-Tickern ohne Mapping in `Vorzugsaktien_mapping.csv`
-- Kandidaten für neue Einträge in der Mapping-Datei oder `ignored_tickers.csv`
 
 ---
 
@@ -963,8 +986,9 @@ Thomas H Tuberville,"Tuberville, Tommy",senate
 **Quelle**: Manuell gepflegt
 **Format**: CSV
 **Zweck**: Allowlist-Gegenstueck — Trades, deren `raw_ticker` in dieser Liste
-steht, werden in der Pipeline mit `ticker_type='ignored'`, `api_strategy='skip'`
-und `manual_review_flag=False` markiert. Dadurch entfallen API-Lookups
+steht, werden in der Pipeline mit `ticker_type='ignored'` und
+`manual_review_flag=False` markiert (Reconstruct leitet daraus intern
+`SKIP`-Routing ab). Dadurch entfallen API-Lookups
 (OpenFIGI/yfinance) und der Eintrag taucht nicht mehr in
 `manual_review_tickers.csv` auf.
 
@@ -1010,6 +1034,57 @@ Chamber, Committee, Subcommittee, Region, Konfidenz
 **Regionen**: USA, Global, Europe, Asia, Latin_America, Africa, Middle_East
 
 **Verwendung**: Zukünftige Erweiterung (geografische Filter)
+
+---
+
+## 7b. App-Konfiguration (Streamlit-Dashboard)
+
+### `data/config/scoring_presets.json`
+**Quelle**: Vom User im Streamlit-Dashboard (Sidebar-Form „Score-Gewichte" →
+„Speichern") angelegt. Datei + Ordner werden bei Bedarf automatisch erzeugt;
+nicht in Git versioniert.
+**Format**: JSON, Top-Level-Objekt mit benannten Presets.
+**Verwendung**: `app/scoring_presets.py` (`load_presets`, `save_preset`,
+`delete_preset`). Ein Preset namens `Default` ist synthetisch (Snapshot aus
+`config/settings.py`) und immer verfügbar; er erscheint nicht in der Datei und
+ist reserviert (nicht überschreib-/löschbar).
+
+**Payload-Schema pro Preset:**
+```json
+{
+  "Aggressiver Schwarm": {
+    "weights": {
+      "committee": 10,
+      "committee_full": 5,
+      "floor_action": 15,
+      "extreme_report": 5,
+      "contrarian": 8,
+      "accumulative": 10,
+      "swarm_buy": 40,
+      "swarm_sell": 40,
+      "swarm_conflict": 10
+    },
+    "paradox_damper": 0.0,
+    "volume_enabled": true,
+    "volume_threshold_u": 100000.0,
+    "volume_slope": 0.00002,
+    "ex_officio_bonus": 10.0
+  }
+}
+```
+
+**Felder:**
+- `weights` — Dict mit allen Keys aus `SCORING_WEIGHTS`. Fehlende Keys werden
+  beim Laden mit Defaults aufgefüllt.
+- `paradox_damper` — Float 0.0–1.0 (Schwarm-Multiplikator bei `swarm_paradox`).
+- `volume_enabled` — Bool, schaltet den Volume-Score komplett aus.
+- `volume_threshold_u` — Schwellenwert U in USD (linearer Anteil ab vol > U).
+- `volume_slope` — Punkte pro USD über U.
+- `ex_officio_bonus` — additiver Bonus (Float) bei `is_ex_officio` + Trigger.
+
+**Recompute-Pfad:** Diffs gegen `default_payload()` werden als
+`weights_override` / `params_override` an `app/score_recompute.recompute_subset()`
+gereicht; nur tatsächlich veränderte Felder landen im Override-Dict.
 
 ---
 

@@ -220,6 +220,11 @@ class TickerNormalizer:
 
         Routet pro api_strategy, behält Input-Reihenfolge im Output bei.
         Wirft RuntimeError bei zu vielen consecutive Network-Errors oder 429.
+
+        Dedup-Schicht: identische TickerClassifications (frozen dataclass,
+        hashbar) werden nur einmal verarbeitet und das Resultat auf alle
+        Vorkommen expandiert. Spart API-Calls bei Trade-Listen mit
+        wiederkehrenden Tickern und verhindert doppelte Log-Zeilen.
         """
         if not classifications:
             return []
@@ -228,9 +233,17 @@ class TickerNormalizer:
         self._consecutive_network_errors = 0
         self._consecutive_429 = 0
 
-        # Index merken für Reihenfolge-Erhalt.
-        indexed = list(enumerate(classifications))
-        results: list[Optional[NormalizedTicker]] = [None] * len(classifications)
+        # Dedup-Mapping cls -> position in unique-Liste.
+        unique_index: dict[TickerClassification, int] = {}
+        unique_classifications: list[TickerClassification] = []
+        for cls in classifications:
+            if cls not in unique_index:
+                unique_index[cls] = len(unique_classifications)
+                unique_classifications.append(cls)
+
+        # Index merken für Reihenfolge-Erhalt (unique-Ebene).
+        indexed = list(enumerate(unique_classifications))
+        results: list[Optional[NormalizedTicker]] = [None] * len(unique_classifications)
 
         # Routing pro Strategie.
         groups = self._route_by_strategy(indexed)
@@ -258,15 +271,18 @@ class TickerNormalizer:
 
         # Retry-Queue: einmaliger Wiederholungslauf für Network-Error-Tickers.
         if self._retry_queue:
-            self._run_retry_round(results, classifications)
+            self._run_retry_round(results, unique_classifications)
 
         # Final cache flush nach Batch.
         self._cache_flush()
 
-        # mypy-comfort: alle Slots gefüllt.
-        return [r if r is not None
-                else self._empty_result(classifications[i], ["routing_lost"])
-                for i, r in enumerate(results)]
+        # Unique-Resultate auf Original-Reihenfolge expandieren.
+        unique_results = [
+            r if r is not None
+            else self._empty_result(unique_classifications[i], ["routing_lost"])
+            for i, r in enumerate(results)
+        ]
+        return [unique_results[unique_index[cls]] for cls in classifications]
 
     # ------------------------------------------------------------------
     # Routing
@@ -396,6 +412,7 @@ class TickerNormalizer:
             # 1. Cache-Lookup pro Item.
             uncached: list[TickerClassification] = []
             payloads: dict[str, Optional[dict]] = {}
+            uncached_rawtickers: set[str] = set()
             for cls in batch:
                 key = self._cache_key(cls, "TICKER")
                 cached = self._cache_lookup(key)
@@ -403,6 +420,7 @@ class TickerNormalizer:
                     payloads[cls.raw_ticker] = cached
                 else:
                     uncached.append(cls)
+                    uncached_rawtickers.add(cls.raw_ticker)
 
             # 2. Uncached → API-Call.
             if uncached:
@@ -423,10 +441,20 @@ class TickerNormalizer:
                     # Response parsen.
                     for cls, resp_item in zip(uncached, response or []):
                         parsed = self._parse_mapping_response(resp_item)
+                        # Misses zu explizitem empty-Payload normalisieren,
+                        # damit der Negativ-Cache greift (verhindert wiederholte
+                        # Mapping-API-Calls + Log-Spam ueber Batches/Runs).
+                        if parsed is None:
+                            parsed = {
+                                "figi": None, "ticker_figi": None,
+                                "asset_name_figi": None, "security_type_figi": None,
+                                "raw_security_type": None, "raw_security_type2": None,
+                                "market_sector_figi": None, "share_class_figi": None,
+                                "source": "empty",
+                            }
                         payloads[cls.raw_ticker] = parsed
-                        if parsed is not None:
-                            self._cache_write(self._cache_key(cls, "TICKER"), parsed)
-                            self._lookups_since_checkpoint += 1
+                        self._cache_write(self._cache_key(cls, "TICKER"), parsed)
+                        self._lookups_since_checkpoint += 1
 
                 # Rate-Limiting zwischen Mapping-Batches.
                 if batch_start + self.batch_size < len(items):
@@ -440,8 +468,11 @@ class TickerNormalizer:
                     # 0 Treffer → Fallback zu Search.
                     # Pause vor Search, damit Search-Endpoint nicht direkt nach
                     # Mapping-Batch getroffen wird (Search-Limit ist viel strenger).
-                    print(f"      [i] Kein Mapping-Hit für {cls.raw_ticker} → Fallback /v3/search")
-                    time.sleep(self.search_pause)
+                    # Print nur fuer frische API-Misses (uncached), nicht fuer
+                    # bereits in der DB persistierte Negativ-Cache-Hits.
+                    if cls.raw_ticker in uncached_rawtickers:
+                        print(f"      [i] Kein Mapping-Hit für {cls.raw_ticker} → Fallback /v3/search")
+                        time.sleep(self.search_pause)
                     fallback_results = self._process_search([cls])
                     results.append(fallback_results[0])
                     continue

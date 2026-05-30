@@ -76,6 +76,9 @@ class TickerClassification:
     manual_review: bool
     series_letter: Optional[str]
     status_suffix: Optional[str]
+    # Nur für PREFERRED gesetzt: Common-Stamm-Ticker (z.B. "BAC" für "BAC-PRK").
+    # Sektor-Stage nutzt ihn für den yfinance-Lookup der Stammaktie.
+    parent_ticker: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -395,6 +398,7 @@ def _classify_inner(raw_ticker: str,
             classification_reason="PREFERRED_DOLLAR",
             manual_review=False,
             series_letter=series, status_suffix=None,
+            parent_ticker=root,
         )
 
     m = _RE_PREF_DASH_P_X.match(raw)
@@ -409,6 +413,7 @@ def _classify_inner(raw_ticker: str,
             classification_reason="PREFERRED_DASH_P_X",
             manual_review=False,
             series_letter=series, status_suffix=None,
+            parent_ticker=root,
         )
 
     m = _RE_PREF_DASH_PX.match(raw)
@@ -423,6 +428,7 @@ def _classify_inner(raw_ticker: str,
             classification_reason="PREFERRED_DASH_PX",
             manual_review=False,
             series_letter=series, status_suffix=None,
+            parent_ticker=root,
         )
 
     m = _RE_PREF_DASH_P.match(raw)
@@ -437,6 +443,7 @@ def _classify_inner(raw_ticker: str,
             classification_reason="PREFERRED_DASH_P",
             manual_review=False,
             series_letter=None, status_suffix=None,
+            parent_ticker=root,
         )
 
     m = _RE_PREF_DOT_PR.match(raw)
@@ -451,6 +458,7 @@ def _classify_inner(raw_ticker: str,
             classification_reason="PREFERRED_DOT_PR",
             manual_review=False,
             series_letter=series, status_suffix=None,
+            parent_ticker=root,
         )
 
     m = _RE_PREF_DOT_PX.match(raw)
@@ -469,6 +477,7 @@ def _classify_inner(raw_ticker: str,
                 classification_reason="PREFERRED_DOT_PX",
                 manual_review=False,
                 series_letter=series_char, status_suffix=None,
+                parent_ticker=root,
             )
         # Fällt durch zu Schritt 12 (Dot-Suffix-Disambiguierung)
 

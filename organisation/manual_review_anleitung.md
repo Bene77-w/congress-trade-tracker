@@ -12,8 +12,7 @@ Dieses Dokument erklärt **alle manuellen Review-Vorgänge** im Congress-Trade-T
 |------------|---------------------|----------------------------------------|-------------|
 | 1. **Namen** (Politiker) | `data/processed/unmatched_names.csv` | `data/mappings/name_aliases.csv` | NameMatcher liest Alias bei nächstem Lauf |
 | 2. **Manual-Review-Tickers** | `data/processed/manual_review_tickers.csv` | (Klassifikator-Regeln in `utils/ticker_classifier.py` oder Whitelist) | Klassifikator markiert mehrdeutige Ticker |
-| 3. **Vorzugsaktien** (Preferred) | `data/processed/unmatched_preferred.csv` | `data/mappings/Vorzugsaktien_mapping.csv` | TickerSectorEnricher mappt Preferred → Stamm |
-| 4. **Duplikate** | `data/processed/duplicate_inspection_sample.csv` | (keine — nur Sichtprüfung; ggf. `DEDUP_STRATEGY` in `config/settings.py`) | Sichtprüfung der Trade-ID-Hash-Strategie |
+| 3. **Duplikate** | `data/processed/duplicate_inspection_sample.csv` | (keine — nur Sichtprüfung; ggf. `DEDUP_STRATEGY` in `config/settings.py`) | Sichtprüfung der Trade-ID-Hash-Strategie |
 
 Reine **Output-Dateien ohne Review-Pflicht** (Information / Diagnose):
 
@@ -137,58 +136,7 @@ WB1, WB, numeric_suffix, NUMERIC_SUFFIX, 131, 2016-08-10, 2024-08-09, Michael T.
 
 ---
 
-## 3. Vorzugsaktien-Review — `unmatched_preferred.csv` → `Vorzugsaktien_mapping.csv`
-
-### Worum geht es?
-
-Vorzugsaktien (Preferred Shares) haben eigene Ticker-Konventionen, die yfinance nicht direkt versteht:
-- `EFC$D`, `T$A`, `BAC$I` (Dollar-Notation) — yfinance kennt diese teilweise
-- `AAM-PA`, `ALIN-P-E` (Hyphen-Notation) — yfinance liefert oft `None`
-
-`utils/ticker_sector.py` hat zwei Mechanismen:
-
-1. **Hyphen-Fallback** automatisch (`BRK-B` → `BRK/B`).
-2. **Preferred-Mapping** — explizite Tabelle `Vorzugsaktien_mapping.csv`: Preferred-Ticker → Stamm-Ticker (von dort wird dann der Sektor übernommen, weil Preferred und Stamm zur gleichen Firma gehören).
-
-Wenn weder Mapping-Eintrag existiert noch yfinance Daten liefert, landet der Ticker in `unmatched_preferred.csv`.
-
-### Spalten
-
-`unmatched_preferred.csv`:
-```
-preferred_ticker
-AAM-PA
-ALIN-P-E
-ATH-PC
-```
-
-`Vorzugsaktien_mapping.csv`:
-```
-stammaktien_ticker, vorzugsaktien_ticker, Company
-EFC, EFC$D, ELLINGTON FINANCIAL INC.
-T, T$A, AT&T INC.
-```
-
-### Schritt-für-Schritt
-
-1. **Datei öffnen:** `data/processed/unmatched_preferred.csv`
-2. **Pro Ticker recherchieren:**
-   - Konvention erkennen: `XXX-PA`, `XXX-PB` = Preferred Series A/B; `XXX$A` = SEC-Notation für gleiches.
-   - Echten Stamm-Ticker finden (z.B. `AAM-PA` → `AAM` = Apollo Asset Management Inc.)
-   - Verifizieren: Yahoo Finance / OpenFIGI / SEC EDGAR
-3. **In `Vorzugsaktien_mapping.csv` eintragen:**
-   ```
-   AAM,AAM-PA,APOLLO ASSET MANAGEMENT INC.
-   ```
-   - `stammaktien_ticker`: Echter Underlying-Ticker
-   - `vorzugsaktien_ticker`: **Exakt** wie in `unmatched_preferred.csv` (Schreibweise!)
-   - `Company`: Optional, nur Lesbarkeit
-4. **Pipeline neu laufen lassen** — `TickerSectorEnricher` lädt das Mapping bei Init (`_load_preferred_mapping`), beim nächsten Lauf wird `AAM-PA` automatisch über `AAM` aufgelöst und in den positiv-Cache geschrieben.
-5. **Verifizieren:** `unmatched_preferred.csv` sollte den Eintrag nicht mehr enthalten; `trades_master.csv` hat für diese Trades nun korrekte `sector` / `industry` Werte.
-
----
-
-## 4. Duplikat-Review — `duplicate_inspection_sample.csv`
+## 3. Duplikat-Review — `duplicate_inspection_sample.csv`
 
 ### Worum geht es?
 
@@ -230,15 +178,11 @@ Zwei Zeilen mit **gleicher** `trade_id` ⇒ Pipeline hält sie für Duplikate.
 
 ---
 
-## 5. Reine Output-Dateien (kein Review nötig)
-
-### `data/mappings/Vorzugsaktien_mapping.csv` (Input, nicht Output)
-
-Statisch gepflegtes Mapping Preferred-Ticker → Stamm-Ticker. Wird von `TickerSectorEnricher` bei Init geladen. **Du editierst diese Datei direkt** als Reaktion auf `unmatched_preferred.csv` (siehe §3).
+## 4. Reine Output-Dateien (kein Review nötig)
 
 ### `data/processed/delisted_trades.csv`
 
-Liste der Tickers, für die yfinance auch nach Hyphen-Fallback und Preferred-Lookup keinen Sektor liefert. Mögliche Ursachen:
+Liste der Tickers, für die yfinance keinen Sektor liefert (auch nicht nach automatischem `parent_ticker`-Fallback für Preferreds). Mögliche Ursachen:
 - Firma ist delisted / insolvent / akquiriert.
 - Ticker wurde umbenannt (z.B. `FB` → `META`).
 - Spezial-Instrumente (Warrants, Rights) ohne Sektor-Tag.
@@ -263,8 +207,7 @@ Empfohlene Abarbeitungs-Reihenfolge (nach Hebelwirkung):
 
 1. **`unmatched_names.csv`** — größter Hebel: ein Alias kann tausende Trades anreichern.
 2. **`manual_review_tickers.csv`** — Top-10 nach `count_of_trades` durcharbeiten.
-3. **`unmatched_preferred.csv`** — meist kurz, schnell abgearbeitet.
-4. **`duplicate_inspection_sample.csv`** — nur stichprobenartig, einmal pro Major-Release.
-5. **`delisted_trades.csv` / `ticker_liste_index.csv`** — nur lesen, nicht bearbeiten.
+3. **`duplicate_inspection_sample.csv`** — nur stichprobenartig, einmal pro Major-Release.
+4. **`delisted_trades.csv` / `ticker_liste_index.csv`** — nur lesen, nicht bearbeiten.
 
 > **Faustregel:** Nach 3–4 Review-Iterationen sollte `unmatched_names.csv` auf <50 Zeilen schrumpfen, `manual_review_tickers.csv` auf <100. Was dann übrigbleibt, ist meist „long tail" und erfordert Pipeline-Code-Änderungen, nicht mehr nur Mapping-Pflege.

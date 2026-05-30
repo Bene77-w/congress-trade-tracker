@@ -1,13 +1,19 @@
 """
-Listet alle Zeilen mit ticker_type != 'Stock' aus trades_master.csv.
+Listet alle Zeilen mit ticker_type != 'Stock' aus trades_master_complete.csv.
 Jeder Ticker nur einmal (niedrigster Index gewinnt).
 Output: Tabelle + Semikolon-Liste.
 """
 
+import sys
 import pandas as pd
 from pathlib import Path
 
-MASTER = Path(__file__).parent.parent / "data" / "processed" / "trades_master.csv"
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from config import settings  # noqa: E402
+
+MASTER = ROOT / "data" / "processed" / settings.TRADES_MASTER_COMPLETE_CSV
 
 df = pd.read_csv(MASTER, low_memory=False)
 

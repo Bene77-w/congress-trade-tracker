@@ -1,0 +1,17 @@
+# Grosse / nicht benoetigte Verzeichnisse vom Build-Kontext ausschliessen.
+# Wichtig: archive/ (~20 GB) und venv/ (~938 MB) wuerden den Build sonst lahmlegen.
+venv/
+archive/
+__pycache__/
+**/__pycache__/
+*.pyc
+.git/
+.gitignore
+
+# Daten + Logs werden zur Laufzeit per Bind-Mount eingehaengt (docker-compose.yml),
+# nicht ins Image gebacken.
+data/
+logs/
+
+# Secrets nie ins Image backen — kommen ueber env_file in den Container.
+.env

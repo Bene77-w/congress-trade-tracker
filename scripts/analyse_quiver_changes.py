@@ -44,7 +44,7 @@ def make_keys(df: pd.DataFrame) -> pd.Series:
 
 def main():
     quiver_path = os.path.join(BASE_DIR, settings.DATA_RAW_PATH, settings.QUIVER_TRADES_FILE)
-    master_path = os.path.join(BASE_DIR, settings.DATA_PROCESSED_PATH, 'trades_master.csv')
+    master_path = os.path.join(BASE_DIR, settings.DATA_PROCESSED_PATH, settings.TRADES_MASTER_COMPLETE_CSV)
 
     # 1. Laden
     print("Lade Quiver-Daten...")

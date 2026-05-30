@@ -1,0 +1,16 @@
+# Congress Trade Tracker — Compose-Setup
+# Start:  docker compose up -d        (baut bei Bedarf + startet im Hintergrund)
+# Stop:   docker compose down
+services:
+  congress-tracker:
+    build: .
+    image: congress-tracker
+    container_name: congress-tracker
+    ports:
+      - "8501:8501"          # Dashboard im Browser: http://localhost:8501
+    env_file:
+      - .env                 # API-Keys etc. — werden NICHT ins Image gebacken
+    volumes:
+      - ./data:/app/data     # Daten bleiben auf der Festplatte (kein Datenverlust bei Rebuild)
+      - ./logs:/app/logs
+    restart: "no"            # KEIN Autostart — Container laeuft nur nach manuellem 'docker compose up -d'

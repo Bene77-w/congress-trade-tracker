@@ -10,6 +10,17 @@ Historie abgeschlossener Module/Phasen. **Aktueller Status** steht in `CLAUDE.md
 
 ---
 
+## 2026-05-28 — Ticker-System Vereinfachung (Preferred-Auto + Routing-Konsolidierung + Slash-Fallback Removal)
+
+- **Säule 1 — Preferred-Auto-Resolution:** `TickerClassification.parent_ticker` neu gesetzt auf Common-Stamm für 6 PREFERRED-Notationen (z.B. `BAC-PRK` → `parent_ticker='BAC'`). Klassifikator + Sektor-Stage setzen automatisch Fallback; Coverage 100% der 38 Preferreds im Master. Manuelle CSV `Vorzugsaktien_mapping.csv` → obsolet (Datei gelöscht).
+- **Säule 2 — Routing-Konsolidierung (R2.c):** Neue zentrale Datei `utils/ticker_routing.py` mit `SECTOR_LOOKUP_TYPES` (5 Typen) + `POST_TRADE_PRICE_TYPES` (4 Typen, ohne NUMERIC_SUFFIX). Konstante `_YF_ELIGIBLE_TYPES` entfernt. `api_strategy` bleibt intern in `TickerClassification`, wird NICHT mehr persistent in `trades_master_complete.csv` geschrieben. Interne Spalte `MASTER_INTERNAL_COLUMNS` eingeführt; `_strip_master_internal()` entfernt `api_strategy` vor allen CSV-Saves (4 Stellen).
+- **Säule 3 — Slash-Fallback Removal (R4):** Automatischer Retry `BRK-A` → `BRK/A` entfernt (Empirisch: 0 Cache-Treffer in 2.730 Einträgen). Code war messbar tot.
+- Daten-Dateien gelöscht: `data/mappings/Vorzugsaktien_mapping.csv`, `data/processed/unmatched_preferred.csv` (Output nicht mehr generiert).
+- 652 von 654 Tests grün (2 vorbestehende Failures, unabhängig).
+- Doku-Updates: `organisation/DATA_STRUCTURE.md`, `organisation/Pipelines.md`, `organisation/manual_review_anleitung.md`, `organisation/Ticker_Architektur.md`.
+
+---
+
 ## 2026-05-21 — Committee-Score Vereinheitlichung
 
 - Spalte `Relevance_Score` aus `trades_master.csv` entfernt; vier Settings

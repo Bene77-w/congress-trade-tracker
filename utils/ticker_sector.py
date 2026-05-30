@@ -25,6 +25,7 @@ import yfinance as yf
 from config import settings
 from utils.ticker_classifier import TickerType
 from utils.ticker_normalizer import NormalizedTicker
+from utils.ticker_routing import SECTOR_LOOKUP_TYPES
 
 
 logger = logging.getLogger(__name__)
@@ -39,16 +40,6 @@ _NETWORK_ERROR_PATTERNS = (
     "Connection timed out",
     "Network is unreachable",
 )
-
-
-# Welche TickerType-Werte gehen direkt an yfinance.
-_YF_ELIGIBLE_TYPES = frozenset({
-    TickerType.STOCK,
-    TickerType.SHARECLASS,
-    TickerType.FOREIGN_STOCK,
-    TickerType.ETF,
-    TickerType.NUMERIC_SUFFIX,
-})
 
 
 @dataclass(frozen=True)
@@ -71,9 +62,7 @@ class TickerSectorEnricher:
     def __init__(
         self,
         cache_dir: str,
-        preferred_mapping_path: Optional[str] = None,
         delisted_output_path: Optional[str] = None,
-        unmatched_preferred_path: Optional[str] = None,
         confirm_threshold: int = settings.TICKER_LOOKUP_CONFIRM_THRESHOLD,
         pause_seconds: float = settings.TICKER_LOOKUP_PAUSE_SECONDS,
         net_error_pause: int = settings.TICKER_LOOKUP_NET_ERROR_PAUSE,
@@ -89,9 +78,7 @@ class TickerSectorEnricher:
         self.null_cache_path = os.path.join(
             cache_dir, settings.TICKER_0_CACHE_FILE
         )
-        self.preferred_mapping_path = preferred_mapping_path
         self.delisted_output_path = delisted_output_path
-        self.unmatched_preferred_path = unmatched_preferred_path
 
         self.confirm_threshold = confirm_threshold
         self.pause_seconds = pause_seconds
@@ -111,13 +98,10 @@ class TickerSectorEnricher:
         # State
         self._positive_cache: dict[str, dict] = {}
         self._null_cache: set[str] = set()
-        self._preferred_map: dict[str, str] = {}
         self._lookups_since_checkpoint = 0
         self._consecutive_network_errors = 0
         self._retry_queue: list[NormalizedTicker] = []
         self._delisted_records: list[dict] = []
-        self._pref_stats: Counter = Counter()
-        self._unmatched_preferred: list[str] = []
         self._loaded = False
 
     # ------------------------------------------------------------------
@@ -133,7 +117,7 @@ class TickerSectorEnricher:
 
         Routing:
         - Eligible Types (STOCK, ETF, ...) → direkter yfinance-Call
-        - PREFERRED → via Vorzugsaktien-Mapping → yfinance(stammaktie)
+        - PREFERRED → yfinance(parent_ticker aus Classifier)
         - Sonst → leeres SectorInfo (kein Call)
 
         transaction_dates ist eine optionale parallele Liste (gleiche Länge wie
@@ -161,16 +145,14 @@ class TickerSectorEnricher:
             raw = norm.classification.raw_ticker
 
             if ttype == TickerType.PREFERRED:
-                parent = self._resolve_preferred(norm)
+                parent = norm.classification.parent_ticker
                 if parent is None:
-                    self._pref_stats["unmatched"] += 1
-                    self._unmatched_preferred.append(raw)
-                    print(f"      [!] Preferred-Ticker {raw} ohne Mapping")
+                    print(f"      [!] Preferred-Ticker {raw} ohne parent_ticker "
+                          f"(Classifier-Anomalie)")
                     targets.append((idx, norm, None))
                 else:
-                    self._pref_stats["matched"] += 1
                     targets.append((idx, norm, parent))
-            elif ttype in _YF_ELIGIBLE_TYPES:
+            elif ttype in SECTOR_LOOKUP_TYPES:
                 targets.append((idx, norm, raw))
             else:
                 targets.append((idx, norm, None))
@@ -218,11 +200,9 @@ class TickerSectorEnricher:
             tx_date = transaction_dates[idx] if transaction_dates is not None else None
             results.append(self._build_sector_info(norm, lookup, tx_date))
 
-        # 7. Final save + Delisted-Report + Preferred-Mapping-Report (§11.8).
+        # 7. Final save + Delisted-Report.
         self._save_caches()
         self._write_delisted_stage()
-        self._write_unmatched_preferred()
-        self._print_preferred_summary()
 
         return results
 
@@ -234,7 +214,6 @@ class TickerSectorEnricher:
         if self._loaded:
             return
         self._load_caches()
-        self._preferred_map = self._load_preferred_mapping()
         self._loaded = True
 
     def _load_caches(self) -> None:
@@ -297,36 +276,6 @@ class TickerSectorEnricher:
         return datetime.now() - ts <= timedelta(days=self.cache_ttl_days)
 
     # ------------------------------------------------------------------
-    # Preferred-Mapping
-    # ------------------------------------------------------------------
-
-    def _load_preferred_mapping(self) -> dict[str, str]:
-        if not self.preferred_mapping_path:
-            return {}
-        if not os.path.isfile(self.preferred_mapping_path):
-            return {}
-
-        mapping: dict[str, str] = {}
-        try:
-            with open(self.preferred_mapping_path, "r", encoding="utf-8-sig") as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    pref = (row.get("vorzugsaktien_ticker") or "").strip()
-                    parent = (row.get("stammaktien_ticker") or "").strip()
-                    if pref and parent:
-                        mapping[pref] = parent
-        except OSError as exc:
-            print(f"      [!] Preferred-Mapping {self.preferred_mapping_path} unlesbar: {exc}")
-            return {}
-
-        logger.info(f"Vorzugsaktien-Mapping geladen: {len(mapping)} Eintraege")
-        return mapping
-
-    def _resolve_preferred(self, normalized: NormalizedTicker) -> Optional[str]:
-        raw = normalized.classification.raw_ticker
-        return self._preferred_map.get(raw)
-
-    # ------------------------------------------------------------------
     # API-Calls
     # ------------------------------------------------------------------
 
@@ -336,14 +285,11 @@ class TickerSectorEnricher:
         net_errors = 0
 
         for i, ticker in enumerate(misses):
-            info, error_kind = self._fetch_with_hyphen_fallback(ticker)
+            info, error_kind = self._fetch_yf_info(ticker)
 
             if error_kind == "network":
                 net_errors += 1
-                # Item für Retry merken (nur einmal).
                 if ticker not in {n.classification.raw_ticker for n in self._retry_queue}:
-                    # Wir merken hier nur den Ticker-String — der Retry geht über
-                    # _fetch_with_hyphen_fallback erneut.
                     self._retry_queue.append(self._fake_normalized_for_retry(ticker))
                 continue
 
@@ -371,27 +317,6 @@ class TickerSectorEnricher:
 
         print(f"      Sector-Fetch fertig: {success} OK, {empty} leer, "
               f"{net_errors} Netz-Fehler")
-
-    def _fetch_with_hyphen_fallback(
-        self, ticker: str
-    ) -> tuple[Optional[dict], Optional[str]]:
-        """yfinance(ticker); bei leerem Result einmaliger Retry mit /-Variante."""
-        info, error_kind = self._fetch_yf_info(ticker)
-        if error_kind is not None:
-            return None, error_kind
-
-        # Erfolg oder leerer Treffer → Hyphen-Fallback nur, wenn '-' im Ticker
-        # und Result leer.
-        if (info is None or not info.get("sector")) and "-" in ticker:
-            alt = ticker.replace("-", "/")
-            print(f"      [i] {ticker} ohne Sektor → Retry mit Slash-Variante {alt}")
-            info_alt, error_kind_alt = self._fetch_yf_info(alt)
-            if error_kind_alt is not None:
-                return None, error_kind_alt
-            if info_alt and info_alt.get("sector"):
-                return info_alt, None
-
-        return info, None
 
     def _fetch_yf_info(self, ticker: str) -> tuple[Optional[dict], Optional[str]]:
         try:
@@ -432,7 +357,7 @@ class TickerSectorEnricher:
         yf_logger.setLevel(logging.CRITICAL)
         try:
             for ticker in retries:
-                info, error_kind = self._fetch_with_hyphen_fallback(ticker)
+                info, error_kind = self._fetch_yf_info(ticker)
                 if error_kind == "network":
                     fail += 1
                     continue
@@ -578,31 +503,6 @@ class TickerSectorEnricher:
             parts = [f"{year}: {count}" for year, count in sorted(year_counter.items())]
             print(f"      [i] Delisted nach Jahr: {', '.join(parts)}"
                   + (f" (ohne Datum: {n_no_date})" if n_no_date else ""))
-
-    def _print_preferred_summary(self) -> None:
-        """Pitch §11.8: Terminal-Report Vorzugsaktien-Mapping."""
-        if not self._pref_stats:
-            return
-        matched = self._pref_stats.get("matched", 0)
-        unmatched = self._pref_stats.get("unmatched", 0)
-        if matched == 0 and unmatched == 0:
-            return
-        print(f"      [i] Preferred-Mapping: matched={matched}, "
-              f"unmatched={unmatched}")
-
-    def _write_unmatched_preferred(self) -> None:
-        if not self._unmatched_preferred or not self.unmatched_preferred_path:
-            return
-        os.makedirs(os.path.dirname(self.unmatched_preferred_path) or ".", exist_ok=True)
-        try:
-            with open(self.unmatched_preferred_path, "w",
-                      encoding="utf-8", newline="") as f:
-                writer = csv.writer(f)
-                writer.writerow(["preferred_ticker"])
-                for ticker in sorted(set(self._unmatched_preferred)):
-                    writer.writerow([ticker])
-        except PermissionError:
-            print(f"      [!] {self.unmatched_preferred_path} nicht schreibbar")
 
     # ------------------------------------------------------------------
     # Result-Konstruktion

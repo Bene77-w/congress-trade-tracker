@@ -4,7 +4,7 @@ import math
 
 import pytest
 
-from utils.amount_parser import parse_amount_range, midpoint_usd
+from utils.amount_parser import parse_amount_range, midpoint_usd, max_usd
 
 
 class TestParseAmountRange:
@@ -80,3 +80,28 @@ class TestMidpointUsd:
     def test_large_range(self):
         # (5_000_001 + 25_000_000) // 2 = 15_000_000
         assert midpoint_usd('$5,000,001 - $25,000,000') == 15_000_000
+
+
+class TestMaxUsd:
+    def test_standard_range(self):
+        assert max_usd('$1,001 - $15,000') == 15_000
+
+    def test_large_range(self):
+        assert max_usd('$5,000,001 - $25,000,000') == 25_000_000
+
+    def test_single_value(self):
+        assert max_usd('$15,001') == 15_001
+
+    def test_over_open_ended(self):
+        # 'Over $50M' wird konservativ auf Untergrenze gesetzt
+        assert max_usd('Over $50,000,000') == 50_000_000
+
+    def test_empty(self):
+        assert max_usd('') == 0
+
+    def test_none(self):
+        assert max_usd(None) == 0
+
+    def test_corrupt_double_range(self):
+        # min/max ueber alle gefundenen Werte
+        assert max_usd('$250,001-$500,000 - $100,001') == 500_000

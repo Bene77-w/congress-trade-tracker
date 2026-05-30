@@ -204,3 +204,68 @@ python -m pytest tests/ -v --tb=short
 # 4. Import-Pipeline testen (ohne Scraper)
 python scripts/import_trades.py --dry-run  # falls --dry-run unterstützt
 ```
+
+---
+
+## 8. Betrieb im Docker-Container
+
+Statt venv + System-Pakete manuell einzurichten, kann das Projekt komplett in
+einem Docker-Container laufen. Das Image bringt Python, alle Pakete, Tesseract
+und Chromium (Playwright) bereits mit. Code-Anpassungen sind **nicht** nötig —
+`BASE_DIR = Path(__file__).resolve().parent.parent` macht den Pfad im Container
+(`/app`) automatisch korrekt.
+
+### Beteiligte Dateien (im Projektroot)
+
+| Datei | Zweck |
+|---|---|
+| `Dockerfile` | Bau-Rezept: `python:3.12-slim` + Tesseract + `pip install -r requirements.txt` + `playwright install --with-deps chromium`. Startbefehl: Streamlit auf Port 8501. |
+| `docker-compose.yml` | Start-Konfiguration: Port-Mapping `8501:8501`, `.env` via `env_file`, Bind-Mounts `./data` und `./logs`, `restart: unless-stopped`. |
+| `.dockerignore` | Schliesst `venv/`, `archive/` (~20 GB), `data/`, `logs/`, `.env`, `__pycache__/` vom Build-Kontext aus. |
+
+### Wichtige Design-Entscheidungen
+
+- **Daten bleiben auf der Festplatte:** `data/` und `logs/` werden per Bind-Mount
+  eingehaengt, nicht ins Image gebacken. Rebuilds verlieren also keine Daten,
+  und die vorhandenen ~1,1 GB werden direkt weiterverwendet.
+- **Secrets nie im Image:** `.env` steht in `.dockerignore` und wird zur Laufzeit
+  ueber `env_file` injiziert.
+- **`TESSERACT_PATH` im Container nicht setzen** — Default `/usr/bin/tesseract`
+  greift. Steht in `.env` noch ein Windows-Pfad (`C:\Program Files\...`), Zeile
+  loeschen oder auf `/usr/bin/tesseract` setzen.
+- **Playwright/Chromium** laeuft nur bei aktivem Senate-Scraper — **kein**
+  Ressourcenverbrauch im Leerlauf, nur groesseres Image (~700 MB) + laengerer Build.
+
+### Voraussetzungen (einmalig, Linux Mint / Ubuntu)
+
+```bash
+sudo apt update
+sudo apt install -y docker.io docker-compose-v2
+sudo usermod -aG docker $USER     # danach einmal ab- und wieder anmelden -> kein sudo noetig
+docker compose version            # Pruefen, dass das Plugin da ist
+```
+
+### Bedienung
+
+```bash
+cd <projektroot>            # z.B. .../Projekte/bmb_trdprg/congress_tracker
+docker compose build       # Image bauen (erster Lauf einige Minuten wg. Chromium)
+docker compose up -d        # Container im Hintergrund starten -> http://localhost:8501
+
+# Pipeline / Scraper im laufenden Container ausfuehren:
+docker compose exec congress-tracker python scripts/import_trades.py
+docker compose exec congress-tracker python scrapers/senate_scraper.py --dry-run
+
+docker compose logs -f      # Live-Logs (Strg+C zum Verlassen)
+docker compose down         # Container stoppen
+```
+
+### Docker-Daemon
+
+Der Docker-Dienst startet per Default beim Booten (`systemctl is-enabled docker`)
+und belegt im Leerlauf ~70 MB RAM. Autostart bei Bedarf abschalten:
+
+```bash
+sudo systemctl disable --now docker.service docker.socket   # Autostart AUS
+sudo systemctl enable  --now docker.service docker.socket   # Autostart AN
+```

@@ -170,6 +170,10 @@ SCORING_WEIGHTS = {
     'swarm_buy':       20,
     'swarm_sell':      20,
     'swarm_conflict':   5,
+    'trade_volume':    16,    # nomineller Max-Beitrag (Top-Tier); konkreter Wert
+                              # je Trade aus SCORING_TRADE_VOLUME_TIERS, nicht aus
+                              # diesem Dict. Der Wert hier steuert nur die
+                              # UI-Slider-Obergrenze.
     # 'swarm_paradox':         kein additives Gewicht — Multiplikator (s.u.)
     # 'committee_ex_officio':  kein eigenes Gewicht — Bonus X (s.u.)
 }
@@ -187,20 +191,46 @@ SCORING_EX_OFFICIO_TRIGGERS = ['committee', 'floor_action']
 SCORING_PARADOX_DAMPER       = 0.0
 SCORING_PARADOX_WARNING_TAG  = 'paradox_swarm'
 
-# Volume-Score: nichtlinear ab Schwelle U.
-#   volume_part = max(0, asset_tradingvolume_usd - U) * SLOPE
-# Beispiele (Default U=100k, SLOPE=0.00002):
-#   - 100k$:        0 Punkte (Schwelle exakt)
-#   - 1M$:          (1_000_000 - 100_000) * 0.00002 = 18 Punkte
-#   - 10M$:         (10_000_000 - 100_000) * 0.00002 ≈ 198 Punkte
-SCORING_VOLUME_ENABLED       = True
-SCORING_VOLUME_THRESHOLD_U   = 100_000     # USD — unter U: 0 Punkte
-SCORING_VOLUME_SLOPE         = 0.00002     # Punkte pro USD ueber U
+# Trade-Volume-Signal: diskrete Stufen auf trade_amount_max_usd (obere
+# Quiver-Disclosure-Range). Pro Trade zaehlt nur die hoechste erreichte
+# Stufe — nicht kumulativ. Tier 0 (<= 15.000 USD) triggert nicht; alles
+# darueber loest ein 'trade_volume'-Signal aus und schreibt einen Event
+# in suspicious_events.csv.
+#
+# Defaults (Vorschlag C, konservativ) — siehe Plan-Datei
+# ~/.claude/plans/ich-m-chte-den-volumefilter-recursive-wand.md:
+#   Tier 1: <= 50.000      USD -> +2
+#   Tier 2: <= 100.000     USD -> +4
+#   Tier 3: <= 250.000     USD -> +7
+#   Tier 4: <= 500.000     USD -> +10
+#   Tier 5: <= 1.000.000   USD -> +13
+#   Tier 6: >  1.000.000   USD -> +16
+#
+# Format: aufsteigend sortierte Liste (max_inclusive, score). Der letzte
+# Eintrag MUSS float('inf') als Obergrenze haben (Catch-all).
+SCORING_TRADE_VOLUME_ENABLED = True
+SCORING_TRADE_VOLUME_TIERS   = [
+    (50_000,        2),
+    (100_000,       4),
+    (250_000,       7),
+    (500_000,      10),
+    (1_000_000,    13),
+    (float('inf'), 16),
+]
+# Untergrenze, ab der ein Trade ueberhaupt als Tier-1-Treffer gilt.
+# Trades mit trade_amount_max_usd <= TRIGGER_FLOOR loesen kein Event aus
+# und tragen 0 Punkte bei. Default: 15.000 (oberste Buckets ist
+# "$1,001 - $15,000" mit ~73% der Trades).
+SCORING_TRADE_VOLUME_TRIGGER_FLOOR = 15_000
 
 # Asset-Tradingvolume-Aggregations-Fenster (retroaktiv pro Trade).
 # Σ trade_volume_usd ueber alle Trades mit gleichem issuer_group_key im Fenster
 # [transaction_date - Z, transaction_date]. Cross-Class via issuer_group_key.
 # SKIP-Bucket-Trades werden ausgeschlossen (Aggregat = 0).
+# HINWEIS: Die Spalte asset_tradingvolume_usd wird weiterhin berechnet (fuer
+# total_volume_usd in suspicious_assets.csv und den Streamlit Asset-Tab),
+# fliesst aber NICHT mehr direkt in den trade_score ein. Stattdessen wirkt
+# das neue TradeVolumeSignal auf trade_amount_max_usd.
 SCORING_VOLUME_WINDOW_DAYS_Z = 90
 
 # =============================================================================
@@ -276,9 +306,6 @@ TICKER_LOOKUP_NET_ERROR_PAUSE = 30    # Pause (Sek.) nach Pause-Threshold Netzwe
 TICKER_LOOKUP_NET_ERROR_PAUSE_THRESHOLD = 3  # Ab N consecutive Net-Errors -> Pause ausloesen
 TICKER_LOOKUP_NET_ERROR_ABORT = 5     # Abbruch nach N Netzwerk-Fehlern in Folge
 TICKER_SECTOR_CACHE_TTL_DAYS = 30     # TTL fuer ticker_industry_cache (positive Eintraege)
-
-# Vorzugsaktien-Mapping (Preferred → Stammaktie)
-PREFERRED_TICKER_MAPPING_FILE = 'Vorzugsaktien_mapping.csv'
 
 # Ticker-Pattern-Konstanten (TICKER_TYPE_PATTERNS, TICKER_FILTER_PATTERNS,
 # TICKER_WHITELIST) wurden im Rebuild Teil 3 entfernt — die Klassifikation
@@ -388,10 +415,12 @@ HOUSE_TRADES_FILE = 'house_trades.csv'            # Eigene House-Scraper-Daten (
 SENATE_TRADES_FILE = 'senate_trades.csv'          # Eigene Senate-Scraper-Daten (Ergaenzung)
 
 # Output-Dateien (Rebuild Teil 3): vollstaendige + kuratierte Master-Sicht
-TRADES_MASTER_COMPLETE_CSV = 'trades_master_complete.csv'  # alle Spalten persistiert
+TRADES_MASTER_COMPLETE_CSV = 'trades_master_complete.csv'  # alle Spalten — Quelle fuer Dashboard + Workflows
+TRADES_MASTER_CSV = 'trades_master.csv'                    # kuratierte Excel-Sicht fuer den User (Inspektion)
 MANUAL_REVIEW_CSV = 'manual_review_tickers.csv'            # Diagnose-Output
 
-# Kuratierte Spalten fuer trades_master.csv (userrelevante Sicht).
+# Kuratierte Spalten fuer trades_master.csv (Excel-Sicht fuer User-Inspektion).
+# Dashboard und Workflows nutzen trades_master_complete.csv.
 CURATED_COLUMNS = [
     'trade_id',
     'name',
@@ -421,9 +450,10 @@ CURATED_COLUMNS = [
     'Vote_Timing_Hit_Count',
     'signal_count',
     'signals_triggered',
-    # Modul 8: Trade-Volume + Score (Phase 8.1 / 8.2 / 8.3)
-    'trade_volume_usd',
-    'asset_tradingvolume_usd',
+    # Modul 8: Trade-Volume + Score
+    'trade_volume_usd',          # Median der Amount-Range (fuer Aggregate)
+    'trade_amount_max_usd',      # Obergrenze der Amount-Range (Score-Basis)
+    'asset_tradingvolume_usd',   # 90d-Cross-Class-Aggregat per Issuer
     'trade_score',
     'trade_score_breakdown',
     'trade_warnings',
@@ -431,3 +461,26 @@ CURATED_COLUMNS = [
 
 # Backup-Verzeichnis fuer automatische Master-Backups vor destruktiven Aenderungen
 ARCHIVE_BACKUP_PATH = 'archive/trades_master_backup'
+
+
+# ---------------------------------------------------------------------------
+# Post-Trade Returns (Modul 9.x — Historische Insider-Detection)
+# ---------------------------------------------------------------------------
+# Horizont-Tage nach dem Trade, an denen Close-Preise gezogen werden.
+POST_TRADE_HORIZONS_DAYS = [30, 60, 90, 120]
+# yfinance-Daily-Cache (MultiIndex [ticker, date], Spalte close).
+POST_TRADE_PRICE_CACHE = 'data/cache/price_history.parquet'
+# Erstabruf-Fenster pro Ticker.
+POST_TRADE_PRICE_FETCH_YEARS = 5
+# Refresh-Schwelle pro Ticker (max(date) < today - TTL -> Refresh).
+POST_TRADE_PRICE_CACHE_TTL_DAYS = 7
+# Toleranz fuer Exit-Schwelle (0.0 = strikt; 0.1 = 10% Unterdeckung erlaubt).
+POST_TRADE_EXIT_AMOUNT_TOLERANCE = 0.0
+# Inkrementelles Cache-Flushing: alle N erfolgreich gefetchte Ticker zwischenspeichern.
+# Verhindert Komplettverlust beim Erstlauf (~3000 Ticker, 1-2h) falls
+# yfinance/Netzwerk-Exception durchschlaegt.
+POST_TRADE_CACHE_FLUSH_EVERY = 50
+# Progress-Intervall fuer Baseline-/Horizont-/Exit-Phasen: Fortschrittszeile
+# alle N verarbeiteten Trades (zusaetzlich zu jedem 10%-Schritt). Reines
+# Logging — kein Einfluss auf Ergebnisse.
+POST_TRADE_PROGRESS_EVERY = 20000

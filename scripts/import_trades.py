@@ -1,10 +1,10 @@
 """
-Congress Trade Tracker - Trade Import Pipeline (16 Stages)
+Congress Trade Tracker - Trade Import Pipeline (17 Stages)
 Importiert Trades, reichert mit Committee-Daten, Ticker-Klassifikation,
 OpenFIGI/yfinance-Sektor und Filter-Logik an.
 
 Modi:
-  python scripts/import_trades.py                    # Full Rebuild (alle 16 Stages)
+  python scripts/import_trades.py                    # Full Rebuild (alle 17 Stages)
   python scripts/import_trades.py --delta            # Nur neue Trades (via trade_id)
   python scripts/import_trades.py --dry_run          # Alle Stages -> trades_stage.csv
 
@@ -17,11 +17,13 @@ Stage-Pipeline (einzelne Schritte, re-runnable):
   --stage_issuer_group      # Cross-Class Issuer Mapping (SEC EDGAR CIK, P5.6)
   --stage_tickeryfinance    # yfinance Sector/Industry-Anreicherung
   --stage_trade_volume      # trade_volume_usd aus Amount-Range (Modul 8.1)
+  --stage_post_trade_returns # Post-Trade-Preise + Exit-Detection (Modul 9.x)
   --stage_asset_volume      # Cross-Class Asset-Tradingvolume rolling-window (Modul 8.2)
   --stage_gates_tags        # Pipeline-Gates + Tags (Asset-Class, Committee, Vote-Timing)
   --stage_branch1_signals   # Branch-1 Signale (committee, ex_officio, floor_action, extreme_report)
   --stage_sequence_signals  # Sequenz-Signale (contrarian, accumulative)
   --stage_swarm_signals     # Schwarm-Signale (swarm_buy/sell/conflict/paradox, P6)
+  --stage_scoring           # Trade-Score + Breakdown + Warnings (Modul 8.3)
   --stage_suspicious_export # Promote Stage-Events nach suspicious_events.csv
   --stage_save              # trades_stage.csv -> complete + curated Master
 
@@ -56,9 +58,10 @@ sys.path.insert(0, BASE_DIR)
 from config import settings
 from utils.name_matcher import NameMatcher
 from utils.trade_id import compute_trade_ids, detect_new_trades
-from utils.amount_parser import midpoint_usd
+from utils.amount_parser import midpoint_usd, max_usd
 from scoring.asset_volume import compute_asset_tradingvolume
 from scoring.trade_score import compute_trade_scores
+from scoring.post_trade_returns import compute_post_trade_returns
 from utils.ticker_classifier import (
     classify,
     TickerType,
@@ -76,6 +79,7 @@ from signals.committee_full_signal import CommitteeFullSignal
 from signals.committee_ex_officio_signal import CommitteeExOfficioSignal
 from signals.floor_action_signal import FloorActionSignal
 from signals.extreme_report_signal import ExtremeReportSignal
+from signals.trade_volume_signal import TradeVolumeSignal
 from signals.contrarian_signal import ContrarianSignal
 from signals.accumulative_signal import AccumulativeSignal
 from signals.swarm_buy_signal import SwarmBuySignal
@@ -90,15 +94,24 @@ PROCESSED_DIR = os.path.join(BASE_DIR, settings.DATA_PROCESSED_PATH)
 RAW_DIR = os.path.join(BASE_DIR, settings.DATA_RAW_PATH)
 # Input/Output Dateien (aus Config)
 QUIVER_TRADES_PATH = os.path.join(RAW_DIR, settings.QUIVER_TRADES_FILE)
-MASTER_CSV_PATH = os.path.join(PROCESSED_DIR, 'trades_master.csv')                          # kuratierte Sicht
+MASTER_CSV_PATH = os.path.join(PROCESSED_DIR, settings.TRADES_MASTER_CSV)                    # kuratierte Excel-Sicht
 MASTER_COMPLETE_CSV_PATH = os.path.join(PROCESSED_DIR, settings.TRADES_MASTER_COMPLETE_CSV)  # vollstaendig
 MANUAL_REVIEW_CSV_PATH = os.path.join(PROCESSED_DIR, settings.MANUAL_REVIEW_CSV)
 UNMATCHED_PATH = os.path.join(PROCESSED_DIR, 'unmatched_names.csv')
-UNMATCHED_PREFERRED_PATH = os.path.join(PROCESSED_DIR, 'unmatched_preferred.csv')
 DELISTED_TRADES_PATH = os.path.join(PROCESSED_DIR, 'delisted_trades.csv')
 IGNORED_TICKERS_PATH = os.path.join(BASE_DIR, settings.DATA_MAPPINGS_PATH,
                                     settings.IGNORED_TICKERS_FILE)
 CHECKPOINT_PATH = os.path.join(PROCESSED_DIR, '.enrichment_checkpoint.pkl')
+
+# Pipeline-interne Spalten — werden nicht in trades_master*.csv persistiert.
+# api_strategy: Routing-Key fuer OpenFIGI-Normalizer, aus ticker_type ableitbar.
+MASTER_INTERNAL_COLUMNS = ('api_strategy',)
+
+
+def _strip_master_internal(df: pd.DataFrame) -> pd.DataFrame:
+    """Entfernt Pipeline-interne Spalten vor dem Persistieren des Masters."""
+    drop = [c for c in MASTER_INTERNAL_COLUMNS if c in df.columns]
+    return df.drop(columns=drop) if drop else df
 
 CHECKPOINT_INTERVAL = 5000  # Trades zwischen Checkpoint-Speicherungen
 
@@ -107,7 +120,6 @@ STAGE_CSV_PATH = os.path.join(PROCESSED_DIR, 'trades_stage.csv')
 PIPELINE_STATE_PATH = os.path.join(PROCESSED_DIR, 'pipeline_state.json')
 UNMATCHED_STAGE_PATH = os.path.join(PROCESSED_DIR, 'unmatched_names_stage.csv')
 DELISTED_STAGE_PATH = os.path.join(PROCESSED_DIR, 'delisted_trades_stage.csv')
-UNMATCHED_PREFERRED_STAGE_PATH = os.path.join(PROCESSED_DIR, 'unmatched_preferred_stage.csv')
 BRANCH1_EVENTS_STAGE_PATH = os.path.join(PROCESSED_DIR, 'branch1_events_stage.csv')
 SEQUENCE_EVENTS_STAGE_PATH = os.path.join(PROCESSED_DIR, 'sequence_events_stage.csv')
 SWARM_EVENTS_STAGE_PATH = os.path.join(PROCESSED_DIR, 'swarm_events_stage.csv')
@@ -217,12 +229,12 @@ STAGE_DEPS = {
     'tickerclassify': {
         'input_cols': ['ticker'],
         'output_cols': ['ticker_type', 'ticker_base', 'classification_reason',
-                        'classification_confidence', 'api_strategy',
+                        'classification_confidence',
                         'exch_code', 'series_letter', 'status_suffix',
                         'manual_review_flag'],
     },
     'tickeropenfigi': {
-        'input_cols': ['ticker_type', 'ticker_base', 'api_strategy'],
+        'input_cols': ['ticker_type', 'ticker_base'],
         'output_cols': ['figi', 'ticker_figi', 'asset_name_figi',
                         'security_type_figi', 'market_sector_figi',
                         'share_class_figi', 'issuer_ticker'],
@@ -239,9 +251,28 @@ STAGE_DEPS = {
         'output_cols': ['sector_yf', 'industry_yf', 'quote_type_yf'],
     },
     'trade_volume': {
-        # Phase 8.1: parse 'amount' (Quiver-Range-String) -> Mittelpunkt in USD.
+        # parse 'amount' (Quiver-Range-String) -> zwei Spalten:
+        # - trade_volume_usd (Mittelpunkt, fuer Aggregate)
+        # - trade_amount_max_usd (Obergrenze, Score-Basis fuer trade_volume-Signal)
+        # MUSS vor post_trade_returns laufen (Input-Abhaengigkeit).
         'input_cols': ['amount'],
-        'output_cols': ['trade_volume_usd'],
+        'output_cols': ['trade_volume_usd', 'trade_amount_max_usd'],
+    },
+    'post_trade_returns': {
+        # Post-Trade-Preise + Exit-Detection (Modul 9.x).
+        # Cache: data/cache/price_history.parquet (yfinance 5y Daily).
+        # trade_amount_max_usd kommt aus Stage 'trade_volume'.
+        'input_cols': ['trade_id', 'name', 'ticker', 'issuer_group_key',
+                       'transaction_date', 'transaction_type',
+                       'trade_amount_max_usd', 'ticker_type'],
+        'output_cols': ['post_trade_baseline_price',
+                       'post_price_30d', 'post_price_60d',
+                       'post_price_90d', 'post_price_120d',
+                       'post_return_30d', 'post_return_60d',
+                       'post_return_90d', 'post_return_120d',
+                       'exit_status', 'exit_date', 'exit_price',
+                       'exit_amount_max_usd', 'effective_return_pct',
+                       'opposing_trade_ids'],
     },
     'asset_volume': {
         # Phase 8.2: Cross-Class rolling-window Sum(trade_volume_usd) ueber
@@ -260,12 +291,13 @@ STAGE_DEPS = {
         # asset_name_figi ist optional (Fallback asset_name); ticker_base ist
         # optional (Fallback ticker via resolve_issuer_ticker). Beides wird im
         # Code defensiv aufgeloest, deshalb hier nicht hart required.
+        # trade_amount_max_usd: pflicht fuer TradeVolumeSignal (Stage trade_volume).
         'input_cols': ['trade_id', 'name', 'chamber', 'ticker', 'asset_name',
                        'transaction_date', 'disclosure_date',
                        'transaction_type', 'amount',
                        'Member_ExOfficio', 'Member_Committees_Full',
                        'Vote_Timing_Hit_Count',
-                       'Relevant_Sectors'],
+                       'Relevant_Sectors', 'trade_amount_max_usd'],
         'output_cols': ['signal_count', 'signals_triggered'],
     },
     'sequence_signals': {
@@ -286,10 +318,12 @@ STAGE_DEPS = {
         'output_cols': ['signal_count', 'signals_triggered'],
     },
     'scoring': {
-        # Modul 8.3: trade_score + breakdown + warnings. Liest signals_triggered
-        # (Branch-1 + Sequenz + Schwarm), Member_ExOfficio, asset_tradingvolume_usd.
+        # trade_score + breakdown + warnings. Liest signals_triggered
+        # (Branch-1 + Sequenz + Schwarm), Member_ExOfficio, trade_amount_max_usd.
+        # trade_amount_max_usd ersetzt das frühere asset_tradingvolume_usd —
+        # Volume zaehlt jetzt als eigenstaendiges Signal mit Tier-Stufen.
         'input_cols': ['signals_triggered', 'Member_ExOfficio',
-                       'asset_tradingvolume_usd'],
+                       'trade_amount_max_usd'],
         'output_cols': ['trade_score', 'trade_score_breakdown',
                         'trade_warnings'],
     },
@@ -591,27 +625,40 @@ class TradeImporter:
     def _reconstruct_classifications(self, df: pd.DataFrame) -> list:
         """Rekonstruiert TickerClassification-Liste aus DataFrame-Spalten.
 
-        Erwartet Spalten aus _stage_tickerclassify (siehe STAGE_DEPS).
+        Strategie: classify() einmal pro Trade neu aufrufen (deterministisch);
+        dann DataFrame-Overrides anwenden (ticker_type, manual_review_flag,
+        classification_reason — gesetzt von _apply_ignore_list und manuell).
+        So bleibt api_strategy + parent_ticker (Classifier-Output) verfuegbar,
+        ohne im Master persistiert zu werden.
+
         Reihenfolge entspricht df.index (positional).
         """
         out = []
         for _, row in df.iterrows():
-            exch = row.get('exch_code')
-            series = row.get('series_letter')
-            status = row.get('status_suffix')
-            out.append(TickerClassification(
-                raw_ticker=str(row.get('ticker') or ''),
-                company_name=str(row.get('asset_name') or ''),
-                ticker_base=str(row.get('ticker_base') or ''),
-                ticker_type=TickerType(row['ticker_type']),
-                api_strategy=ApiStrategy(row['api_strategy']),
-                exch_code=exch if pd.notna(exch) and exch != '' else None,
-                confidence=Confidence(row.get('classification_confidence') or 'low'),
-                classification_reason=str(row.get('classification_reason') or ''),
-                manual_review=bool(row.get('manual_review_flag', False)),
-                series_letter=series if pd.notna(series) and series != '' else None,
-                status_suffix=status if pd.notna(status) and status != '' else None,
-            ))
+            raw_ticker = str(row.get('ticker') or '')
+            company_name = str(row.get('asset_name') or '')
+            cls = classify(raw_ticker, company_name)
+
+            df_ticker_type = row.get('ticker_type')
+            overrides = {}
+            if pd.notna(df_ticker_type) and str(df_ticker_type).strip():
+                tt = TickerType(df_ticker_type)
+                if tt != cls.ticker_type:
+                    overrides['ticker_type'] = tt
+                    if tt == TickerType.IGNORED:
+                        overrides['api_strategy'] = ApiStrategy.SKIP
+            df_reason = row.get('classification_reason')
+            if pd.notna(df_reason) and str(df_reason).strip() \
+                    and str(df_reason) != cls.classification_reason:
+                overrides['classification_reason'] = str(df_reason)
+            df_manual = row.get('manual_review_flag')
+            if pd.notna(df_manual):
+                overrides['manual_review'] = bool(df_manual)
+
+            if overrides:
+                import dataclasses as _dc
+                cls = _dc.replace(cls, **overrides)
+            out.append(cls)
         return out
 
     def _reconstruct_normalized(self, df: pd.DataFrame) -> list:
@@ -651,7 +698,8 @@ class TradeImporter:
     def _apply_ignore_list(self, df: pd.DataFrame) -> pd.DataFrame:
         """Markiert Trades, deren raw_ticker in ignored_tickers.csv steht.
 
-        Setzt ticker_type='ignored', api_strategy='skip', manual_review_flag=False.
+        Setzt ticker_type='ignored', manual_review_flag=False. Reconstruct leitet
+        daraus api_strategy=SKIP ab (siehe _reconstruct_classifications).
         Verhindert, dass private/nicht-oeffentliche Assets in manual_review-Aggregat
         oder API-Lookups landen.
         """
@@ -663,8 +711,6 @@ class TradeImporter:
         if n_hit == 0:
             return df
         df.loc[mask, 'ticker_type'] = 'ignored'
-        if 'api_strategy' in df.columns:
-            df.loc[mask, 'api_strategy'] = 'skip'
         if 'manual_review_flag' in df.columns:
             df.loc[mask, 'manual_review_flag'] = False
         if 'classification_reason' in df.columns:
@@ -754,37 +800,6 @@ class TradeImporter:
             return df.iloc[0:0]
         return df.loc[keep_idx].reset_index(drop=True)
 
-    def _revalidate_unmatched_preferred(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Drop preferred_ticker, die jetzt in Vorzugsaktien_mapping.csv oder
-        ignored_tickers.csv stehen.
-
-        Liest das Vorzugsaktien-Mapping mit csv.DictReader (gleiche Logik wie
-        utils/ticker_sector.py), um robust gegen Kommas in Firmennamen zu sein.
-        """
-        if df is None or df.empty:
-            return df
-        import csv as _csv
-        preferred_path = os.path.join(BASE_DIR, settings.DATA_MAPPINGS_PATH,
-                                      settings.PREFERRED_TICKER_MAPPING_FILE)
-        mapped_set: set = set()
-        if os.path.isfile(preferred_path):
-            try:
-                with open(preferred_path, 'r', encoding='utf-8-sig') as f:
-                    reader = _csv.DictReader(f)
-                    for row in reader:
-                        pref = (row.get('vorzugsaktien_ticker') or '').strip()
-                        if pref:
-                            mapped_set.add(pref)
-            except Exception as exc:
-                logger.warning(
-                    f"Vorzugsaktien-Mapping {preferred_path} konnte nicht gelesen werden: {exc}")
-        ignored = self._load_ignored_tickers()
-        excluded = mapped_set | ignored
-        if not excluded or 'preferred_ticker' not in df.columns:
-            return df
-        mask = ~df['preferred_ticker'].astype(str).str.strip().isin(excluded)
-        return df[mask].reset_index(drop=True)
-
     def _revalidate_delisted(self, df: pd.DataFrame) -> pd.DataFrame:
         """Drop Ticker, die jetzt im positiven ticker_industry_cache.json stehen.
 
@@ -826,9 +841,6 @@ class TradeImporter:
              ['count'], 'Unmatched-Names'),
             (DELISTED_STAGE_PATH, DELISTED_TRADES_PATH,
              ['ticker'], self._revalidate_delisted, None, 'Delisted'),
-            (UNMATCHED_PREFERRED_STAGE_PATH, UNMATCHED_PREFERRED_PATH,
-             ['preferred_ticker'], self._revalidate_unmatched_preferred,
-             None, 'Unmatched-Preferred'),
         ]
         for stage_path, live_path, keys, revalidate, sum_cols, label in promotions:
             if delta:
@@ -1150,6 +1162,7 @@ class TradeImporter:
             CommitteeExOfficioSignal(),
             FloorActionSignal(),
             ExtremeReportSignal(),
+            TradeVolumeSignal(),
         ]
 
         df = df.copy()
@@ -1874,7 +1887,7 @@ class TradeImporter:
             print(f"      -> {STAGE_CSV_PATH} ({len(df):,} Trades)")
         else:
             self._backup_master()
-            df.to_csv(MASTER_COMPLETE_CSV_PATH, index=False, encoding='utf-8')
+            _strip_master_internal(df).to_csv(MASTER_COMPLETE_CSV_PATH, index=False, encoding='utf-8')
             print(f"      -> {MASTER_COMPLETE_CSV_PATH} ({len(df):,} Trades)")
 
     def _merge_into_master(self, stage_df: pd.DataFrame,
@@ -1980,7 +1993,6 @@ class TradeImporter:
         df['ticker_base']               = [c.ticker_base for c in classifications]
         df['classification_reason']     = [c.classification_reason for c in classifications]
         df['classification_confidence'] = [c.confidence.value for c in classifications]
-        df['api_strategy']              = [c.api_strategy.value for c in classifications]
         df['exch_code']                 = [c.exch_code for c in classifications]
         df['series_letter']             = [c.series_letter for c in classifications]
         df['status_suffix']             = [c.status_suffix for c in classifications]
@@ -2084,10 +2096,7 @@ class TradeImporter:
         mappings_dir = os.path.join(BASE_DIR, settings.DATA_MAPPINGS_PATH)
         enricher = TickerSectorEnricher(
             cache_dir=mappings_dir,
-            preferred_mapping_path=os.path.join(
-                mappings_dir, settings.PREFERRED_TICKER_MAPPING_FILE),
             delisted_output_path=DELISTED_STAGE_PATH,
-            unmatched_preferred_path=UNMATCHED_PREFERRED_STAGE_PATH,
         )
 
         normalized = self._reconstruct_normalized(df)
@@ -2103,16 +2112,39 @@ class TradeImporter:
         print(f"      {n_sector:,}/{len(df):,} mit Sektor angereichert")
         self._write_stage_output(df, 'tickeryfinance', delta, dry_run)
 
+    def _stage_post_trade_returns(self, delta: bool = False, dry_run: bool = False):
+        """Stage: Post-Trade-Preise + Exit-Detection (Modul 9.x)."""
+        print(f"\n[Stage: post_trade_returns] Post-Trade-Preise + Exit-Detection...")
+        df = self._read_stage_input('post_trade_returns', delta, dry_run)
+        self._check_stage_inputs('post_trade_returns', df)
+        cache_path = os.path.join(BASE_DIR, settings.POST_TRADE_PRICE_CACHE)
+        df = compute_post_trade_returns(
+            df,
+            horizons_days=settings.POST_TRADE_HORIZONS_DAYS,
+            cache_path=cache_path,
+            fetch_years=settings.POST_TRADE_PRICE_FETCH_YEARS,
+            cache_ttl_days=settings.POST_TRADE_PRICE_CACHE_TTL_DAYS,
+            exit_amount_tolerance=settings.POST_TRADE_EXIT_AMOUNT_TOLERANCE,
+            cache_flush_every=settings.POST_TRADE_CACHE_FLUSH_EVERY,
+            progress_every=settings.POST_TRADE_PROGRESS_EVERY,
+        )
+        self._write_stage_output(df, 'post_trade_returns', delta, dry_run)
+
     def _stage_trade_volume(self, delta: bool = False, dry_run: bool = False):
-        """Stage: berechnet trade_volume_usd als Mittelpunkt des Disclosure-
-        Amount-Strings ('$1,001 - $15,000' -> 8000). Vorstufe fuer die
-        asset_tradingvolume_usd-Aggregation (Phase 8.2) und das Volume-Scoring
-        (Phase 8.3). Modul 8."""
+        """Stage: berechnet zwei Volumen-Spalten aus der Disclosure-Amount-Range.
+
+        - ``trade_volume_usd``: Mittelpunkt der Range ('$1,001 - $15,000'
+          -> 8000). Wird fuer ``asset_tradingvolume_usd``-Aggregation und
+          fuer ``total_volume_usd`` in den View-CSVs gebraucht.
+        - ``trade_amount_max_usd``: Obergrenze der Range ('$1,001 - $15,000'
+          -> 15000). Score-Basis fuer das ``trade_volume``-Signal.
+        """
         print(f"\n[Stage: trade_volume] Trade-Volumen aus Amount-Range...")
         df = self._read_stage_input('trade_volume', delta, dry_run)
         self._check_stage_inputs('trade_volume', df)
         df = df.copy()
         df['trade_volume_usd'] = df['amount'].map(midpoint_usd).astype('int64')
+        df['trade_amount_max_usd'] = df['amount'].map(max_usd).astype('int64')
 
         n_zero    = int((df['trade_volume_usd'] == 0).sum())
         n_total   = len(df)
@@ -2304,7 +2336,7 @@ class TradeImporter:
             print(f"      Delta-Merge: {len(df):,} Trades gesamt")
 
         # 1. Complete-Master (alle Spalten)
-        df.to_csv(MASTER_COMPLETE_CSV_PATH, index=False, encoding='utf-8')
+        _strip_master_internal(df).to_csv(MASTER_COMPLETE_CSV_PATH, index=False, encoding='utf-8')
         print(f"      -> {MASTER_COMPLETE_CSV_PATH} ({len(df):,} Trades)")
 
         # 2. Curated-Master
@@ -2347,7 +2379,7 @@ class TradeImporter:
     def run_delta(self, dry_run: bool = False) -> dict:
         """
         Delta-Import: Nur neue Trades anreichern und an Master mergen.
-        8-Stages-Pipeline (Rebuild Teil 3).
+        17-Stages-Pipeline (analog Full-Rebuild).
 
         Args:
             dry_run: Wenn True, schreibt Ergebnis in trades_stage.csv statt Master
@@ -2360,12 +2392,12 @@ class TradeImporter:
         print("=" * 60)
 
         # 1. Laden + Umbenennen + trade_id
-        print("\n[1/16] Lade Quiver-Trades...")
+        print("\n[1/17] Lade Quiver-Trades...")
         input_df = self.load_and_rename()
         print(f"      Gesamt: {len(input_df)} Trades in Quiver-Datei")
 
         # 2. Datum normalisieren
-        print("\n[2/16] Normalisiere Datumsspalten...")
+        print("\n[2/17] Normalisiere Datumsspalten...")
         input_df = self.normalize_dates(input_df)
         input_df['trade_id'] = compute_trade_ids(input_df)
         n_fallback = self.stats.get('date_fallback', 0)
@@ -2376,7 +2408,7 @@ class TradeImporter:
             print(f"      Fallback: {n_future} future-dates korrigiert")
 
         # 3. Master laden + Delta erkennen via trade_id
-        print("\n[3/16] Lade Master + erkenne neue Trades...")
+        print("\n[3/17] Lade Master + erkenne neue Trades...")
         if not os.path.exists(MASTER_COMPLETE_CSV_PATH):
             print(f"      [!] {MASTER_COMPLETE_CSV_PATH} nicht vorhanden.")
             print("          Bitte zuerst Migration: python scripts/migrate_add_trade_ids.py")
@@ -2399,12 +2431,12 @@ class TradeImporter:
             return self.stats
 
         # 4. Committee-Member-Enrichment
-        print(f"\n[4/16] Reichere {len(new_trades):,} neue Trades an...")
+        print(f"\n[4/17] Reichere {len(new_trades):,} neue Trades an...")
         enriched_df, unmatched_df = self.enrich_member_data(new_trades)
         print(f"      {self.stats['matched']} gematcht, {self.stats['unmatched']} unmatched")
 
         # 5. Ticker-Klassifikation (offline)
-        print("\n[5/16] Ticker-Klassifikation (offline)...")
+        print("\n[5/17] Ticker-Klassifikation (offline)...")
         classifications = [
             classify(row.get('ticker', ''), row.get('asset_name', '') or '')
             for _, row in enriched_df.iterrows()
@@ -2414,7 +2446,6 @@ class TradeImporter:
         enriched_df['ticker_base']               = [c.ticker_base for c in classifications]
         enriched_df['classification_reason']     = [c.classification_reason for c in classifications]
         enriched_df['classification_confidence'] = [c.confidence.value for c in classifications]
-        enriched_df['api_strategy']              = [c.api_strategy.value for c in classifications]
         enriched_df['exch_code']                 = [c.exch_code for c in classifications]
         enriched_df['series_letter']             = [c.series_letter for c in classifications]
         enriched_df['status_suffix']             = [c.status_suffix for c in classifications]
@@ -2422,7 +2453,7 @@ class TradeImporter:
         enriched_df = self._apply_ignore_list(enriched_df)
 
         # 6. OpenFIGI-Normalisierung
-        print("\n[6/16] OpenFIGI-Normalisierung...")
+        print("\n[6/17] OpenFIGI-Normalisierung...")
         cache_db = os.path.join(BASE_DIR, settings.DATA_CACHE_PATH,
                                 settings.TICKER_TYPE_CACHE_DB)
         normalizer = TickerNormalizer(cache_db_path=cache_db,
@@ -2448,20 +2479,17 @@ class TradeImporter:
         enriched_df['issuer_ticker'] = scf.where(scf != '', tb.where(tb != '', tk))
 
         # 7. Cross-Class Issuer Mapping via SEC EDGAR CIK (P5.6)
-        print("\n[7/16] Cross-Class Issuer Mapping (EDGAR CIK)...")
+        print("\n[7/17] Cross-Class Issuer Mapping (EDGAR CIK)...")
         issuer_mapper = IssuerGroupMapper()
         enriched_df['issuer_group_key'] = enriched_df.apply(
             issuer_mapper.resolve_issuer_group_key, axis=1)
 
         # 8. yfinance Sector/Industry
-        print("\n[8/16] yfinance Sector/Industry-Anreicherung...")
+        print("\n[8/17] yfinance Sector/Industry-Anreicherung...")
         mappings_dir = os.path.join(BASE_DIR, settings.DATA_MAPPINGS_PATH)
         enricher = TickerSectorEnricher(
             cache_dir=mappings_dir,
-            preferred_mapping_path=os.path.join(
-                mappings_dir, settings.PREFERRED_TICKER_MAPPING_FILE),
             delisted_output_path=DELISTED_STAGE_PATH,
-            unmatched_preferred_path=UNMATCHED_PREFERRED_STAGE_PATH,
         )
         transaction_dates = enriched_df['transaction_date'].tolist() if 'transaction_date' in enriched_df.columns else None
         sector_infos = enricher.enrich_batch(normalized, transaction_dates=transaction_dates)
@@ -2469,14 +2497,60 @@ class TradeImporter:
         enriched_df['industry_yf'] = [s.industry_yf for s in sector_infos]
         enriched_df['quote_type_yf']      = [s.quote_type_yf for s in sector_infos]
 
-        # 9. Trade-Volume (Mittelpunkt der Amount-Range, Modul 8.1)
-        print("\n[9/16] Trade-Volume aus Amount-Range berechnen...")
+        # 9. Trade-Volume (Mittelpunkt + Max der Amount-Range)
+        # MUSS vor post_trade_returns laufen, da post_trade_returns
+        # trade_amount_max_usd als Input erwartet.
+        print("\n[9/17] Trade-Volume aus Amount-Range berechnen...")
         enriched_df['trade_volume_usd'] = enriched_df['amount'].map(midpoint_usd).astype('int64')
+        enriched_df['trade_amount_max_usd'] = enriched_df['amount'].map(max_usd).astype('int64')
 
-        # 10. Asset-Tradingvolume (Cross-Class rolling-window, Modul 8.2).
+        # 10. Post-Trade-Preise + Exit-Detection (Modul 9.x).
+        # Union aus Master-Historie + Delta, dann Slice zurueck (Pattern: asset_volume).
+        print("\n[10/17] Post-Trade-Preise + Exit-Detection...")
+        ptr_history_cols = ['trade_id', 'name', 'ticker', 'issuer_group_key',
+                           'transaction_date', 'transaction_type',
+                           'trade_amount_max_usd', 'ticker_type']
+        ptr_history = master_df[[c for c in ptr_history_cols
+                                 if c in master_df.columns]].copy()
+        ptr_stage_ids = set(enriched_df['trade_id'].astype(str))
+        if 'trade_id' in ptr_history.columns:
+            ptr_history = ptr_history[
+                ~ptr_history['trade_id'].astype(str).isin(ptr_stage_ids)
+            ]
+        ptr_combined = pd.concat([ptr_history, enriched_df],
+                                 ignore_index=True, sort=False)
+        ptr_cache = os.path.join(BASE_DIR, settings.POST_TRADE_PRICE_CACHE)
+        ptr_combined = compute_post_trade_returns(
+            ptr_combined,
+            horizons_days=settings.POST_TRADE_HORIZONS_DAYS,
+            cache_path=ptr_cache,
+            fetch_years=settings.POST_TRADE_PRICE_FETCH_YEARS,
+            cache_ttl_days=settings.POST_TRADE_PRICE_CACHE_TTL_DAYS,
+            exit_amount_tolerance=settings.POST_TRADE_EXIT_AMOUNT_TOLERANCE,
+            cache_flush_every=settings.POST_TRADE_CACHE_FLUSH_EVERY,
+            progress_every=settings.POST_TRADE_PROGRESS_EVERY,
+        )
+        # Slice zurueck: nur die Delta-Zeilen.
+        ptr_out_cols = [
+            'post_trade_baseline_price',
+            'post_price_30d', 'post_price_60d',
+            'post_price_90d', 'post_price_120d',
+            'post_return_30d', 'post_return_60d',
+            'post_return_90d', 'post_return_120d',
+            'exit_status', 'exit_date', 'exit_price',
+            'exit_amount_max_usd', 'effective_return_pct',
+            'opposing_trade_ids',
+        ]
+        for col in ptr_out_cols:
+            if col in ptr_combined.columns:
+                enriched_df[col] = ptr_combined[col].iloc[len(ptr_history):].values
+        print(f"      {len(ptr_history):,} historische + "
+              f"{len(enriched_df):,} Delta-Trades")
+
+        # 11. Asset-Tradingvolume (Cross-Class rolling-window, Modul 8.2).
         # Im Delta-Mode wird Master-Historie fuer das Fenster-Backfill genutzt.
         z = settings.SCORING_VOLUME_WINDOW_DAYS_Z
-        print(f"\n[10/16] Asset-Tradingvolume ({z}d, Cross-Class)...")
+        print(f"\n[11/17] Asset-Tradingvolume ({z}d, Cross-Class)...")
         history_cols = ['trade_id', 'trade_volume_usd', 'issuer_group_key',
                         'transaction_date']
         history = master_df[[c for c in history_cols if c in master_df.columns]].copy()
@@ -2489,24 +2563,24 @@ class TradeImporter:
             combined_vol.iloc[len(history):].values.astype('int64')
         print(f"      {len(history):,} historische + {len(enriched_df):,} Delta-Trades")
 
-        # 11. Filter-Logik (Scoring + Filter 0 + Filter 4)
-        print("\n[11/16] Filter-Logik (Scoring, Asset-Klasse, Vote-Timing)...")
+        # 12. Filter-Logik (Scoring + Filter 0 + Filter 4)
+        print("\n[12/17] Filter-Logik (Scoring, Asset-Klasse, Vote-Timing)...")
         enriched_df = self._apply_gates_and_tags(enriched_df)
 
-        # 12. Branch-1 Signale (committee, ex_officio, floor_action, extreme_report)
-        print("\n[12/16] Branch-1 Signale auswerten...")
+        # 13. Branch-1 Signale (committee, ex_officio, floor_action, extreme_report)
+        print("\n[13/17] Branch-1 Signale auswerten...")
         enriched_df = self._apply_branch1_signals(enriched_df)
 
-        # 13. Sequenz-Signale (contrarian, accumulative)
-        print("\n[13/16] Sequenz-Signale auswerten...")
+        # 14. Sequenz-Signale (contrarian, accumulative)
+        print("\n[14/17] Sequenz-Signale auswerten...")
         enriched_df = self._apply_sequence_signals(enriched_df)
 
-        # 14. Schwarm-Signale (swarm_buy/sell/conflict/paradox, P6)
-        print("\n[14/16] Schwarm-Signale auswerten...")
+        # 15. Schwarm-Signale (swarm_buy/sell/conflict/paradox, P6)
+        print("\n[15/17] Schwarm-Signale auswerten...")
         enriched_df = self._apply_swarm_signals(enriched_df)
 
-        # 15. Scoring (trade_score + breakdown + warnings, Modul 8.3)
-        print("\n[15/16] Trade-Score berechnen (Modul 8.3)...")
+        # 16. Scoring (trade_score + breakdown + warnings, Modul 8.3)
+        print("\n[16/17] Trade-Score berechnen (Modul 8.3)...")
         scored = compute_trade_scores(enriched_df, settings)
         enriched_df = enriched_df.copy()
         enriched_df['trade_score'] = scored['trade_score'].values
@@ -2537,7 +2611,7 @@ class TradeImporter:
         else:
             self._backup_master()
             updated_master = self._merge_into_master(enriched_df, master_df)
-            updated_master.to_csv(MASTER_COMPLETE_CSV_PATH, index=False, encoding='utf-8')
+            _strip_master_internal(updated_master).to_csv(MASTER_COMPLETE_CSV_PATH, index=False, encoding='utf-8')
             curated = self._export_curated_master(updated_master)
             curated.to_csv(MASTER_CSV_PATH, index=False, encoding='utf-8')
             self._write_manual_review_subset(updated_master)
@@ -2581,8 +2655,6 @@ class TradeImporter:
             print(f"  - {UNMATCHED_STAGE_PATH if dry_run else UNMATCHED_PATH}")
         if os.path.isfile(DELISTED_STAGE_PATH):
             print(f"  - {DELISTED_STAGE_PATH if dry_run else DELISTED_TRADES_PATH}")
-        if os.path.isfile(UNMATCHED_PREFERRED_PATH):
-            print(f"  - {UNMATCHED_PREFERRED_PATH}")
         if os.path.isfile(MANUAL_REVIEW_CSV_PATH):
             print(f"  - {MANUAL_REVIEW_CSV_PATH}")
 
@@ -2605,7 +2677,7 @@ class TradeImporter:
         enriched_df['ImportDate'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
         # 1. Complete-Master (alle Spalten)
-        enriched_df.to_csv(MASTER_COMPLETE_CSV_PATH, index=False, encoding='utf-8')
+        _strip_master_internal(enriched_df).to_csv(MASTER_COMPLETE_CSV_PATH, index=False, encoding='utf-8')
         logger.info(f"Complete-Master: {MASTER_COMPLETE_CSV_PATH} ({len(enriched_df)} Trades)")
 
         # 2. Curated-Master (Spalten gemaess settings.CURATED_COLUMNS)
@@ -2634,16 +2706,16 @@ class TradeImporter:
             dict mit Statistiken
         """
         print("=" * 60)
-        print("CONGRESS TRADE TRACKER - Import Pipeline (16 Stages)")
+        print("CONGRESS TRADE TRACKER - Import Pipeline (17 Stages)")
         print("=" * 60)
 
         # 1. Laden + Umbenennen + trade_id
-        print("\n[1/16] Lade Quiver-Trades...")
+        print("\n[1/17] Lade Quiver-Trades...")
         df = self.load_and_rename()
         print(f"      Gesamt: {len(df)} Trades geladen")
 
         # 2. Datum normalisieren + trade_id
-        print("\n[2/16] Normalisiere Datumsspalten + trade_id...")
+        print("\n[2/17] Normalisiere Datumsspalten + trade_id...")
         df = self.normalize_dates(df)
         df['trade_id'] = compute_trade_ids(df)
         n_fallback = self.stats.get('date_fallback', 0)
@@ -2655,13 +2727,13 @@ class TradeImporter:
         print(f"      {len(df):,} trade_ids vergeben")
 
         # 3. Committee-Member-Enrichment
-        print("\n[3/16] Reichere mit Committee-Member-Daten an...")
+        print("\n[3/17] Reichere mit Committee-Member-Daten an...")
         df, unmatched_df = self.enrich_member_data(df)
         print(f"      {self.stats['matched']} erfolgreich gematcht")
         print(f"      {self.stats['unmatched']} nicht gefunden")
 
         # 4. Ticker-Klassifikation (offline)
-        print("\n[4/16] Ticker-Klassifikation (offline Regex)...")
+        print("\n[4/17] Ticker-Klassifikation (offline Regex)...")
         classifications = [
             classify(row.get('ticker', ''), row.get('asset_name', '') or '')
             for _, row in df.iterrows()
@@ -2671,7 +2743,6 @@ class TradeImporter:
         df['ticker_base']               = [c.ticker_base for c in classifications]
         df['classification_reason']     = [c.classification_reason for c in classifications]
         df['classification_confidence'] = [c.confidence.value for c in classifications]
-        df['api_strategy']              = [c.api_strategy.value for c in classifications]
         df['exch_code']                 = [c.exch_code for c in classifications]
         df['series_letter']             = [c.series_letter for c in classifications]
         df['status_suffix']             = [c.status_suffix for c in classifications]
@@ -2681,7 +2752,7 @@ class TradeImporter:
         print(f"      {len(df):,} klassifiziert, {n_review} fuer manual_review markiert")
 
         # 5. OpenFIGI-Normalisierung
-        print("\n[5/16] OpenFIGI-Normalisierung...")
+        print("\n[5/17] OpenFIGI-Normalisierung...")
         cache_db = os.path.join(BASE_DIR, settings.DATA_CACHE_PATH,
                                 settings.TICKER_TYPE_CACHE_DB)
         normalizer = TickerNormalizer(
@@ -2713,19 +2784,16 @@ class TradeImporter:
         df['issuer_ticker'] = scf.where(scf != '', tb.where(tb != '', tk))
 
         # 6. Cross-Class Issuer Mapping via SEC EDGAR CIK (P5.6)
-        print("\n[6/16] Cross-Class Issuer Mapping (EDGAR CIK)...")
+        print("\n[6/17] Cross-Class Issuer Mapping (EDGAR CIK)...")
         issuer_mapper = IssuerGroupMapper()
         df['issuer_group_key'] = df.apply(issuer_mapper.resolve_issuer_group_key, axis=1)
 
         # 7. yfinance Sector/Industry-Anreicherung
-        print("\n[7/16] yfinance Sector/Industry-Anreicherung...")
+        print("\n[7/17] yfinance Sector/Industry-Anreicherung...")
         mappings_dir = os.path.join(BASE_DIR, settings.DATA_MAPPINGS_PATH)
         enricher = TickerSectorEnricher(
             cache_dir=mappings_dir,
-            preferred_mapping_path=os.path.join(
-                mappings_dir, settings.PREFERRED_TICKER_MAPPING_FILE),
             delisted_output_path=DELISTED_STAGE_PATH,
-            unmatched_preferred_path=UNMATCHED_PREFERRED_STAGE_PATH,
         )
         transaction_dates = df['transaction_date'].tolist() if 'transaction_date' in df.columns else None
         sector_infos = enricher.enrich_batch(normalized, transaction_dates=transaction_dates)
@@ -2733,34 +2801,51 @@ class TradeImporter:
         df['industry_yf'] = [s.industry_yf for s in sector_infos]
         df['quote_type_yf']      = [s.quote_type_yf for s in sector_infos]
 
-        # 8. Trade-Volume (Mittelpunkt der Amount-Range, Modul 8.1)
-        print("\n[8/16] Trade-Volume aus Amount-Range berechnen...")
+        # 8. Trade-Volume (Mittelpunkt + Max der Amount-Range)
+        # MUSS vor post_trade_returns laufen, da post_trade_returns
+        # trade_amount_max_usd als Input erwartet.
+        print("\n[8/17] Trade-Volume aus Amount-Range berechnen...")
         df['trade_volume_usd'] = df['amount'].map(midpoint_usd).astype('int64')
+        df['trade_amount_max_usd'] = df['amount'].map(max_usd).astype('int64')
 
-        # 9. Asset-Tradingvolume (Cross-Class rolling-window, Modul 8.2)
+        # 9. Post-Trade-Preise + Exit-Detection (Modul 9.x)
+        print("\n[9/17] Post-Trade-Preise + Exit-Detection...")
+        post_trade_cache = os.path.join(BASE_DIR, settings.POST_TRADE_PRICE_CACHE)
+        df = compute_post_trade_returns(
+            df,
+            horizons_days=settings.POST_TRADE_HORIZONS_DAYS,
+            cache_path=post_trade_cache,
+            fetch_years=settings.POST_TRADE_PRICE_FETCH_YEARS,
+            cache_ttl_days=settings.POST_TRADE_PRICE_CACHE_TTL_DAYS,
+            exit_amount_tolerance=settings.POST_TRADE_EXIT_AMOUNT_TOLERANCE,
+            cache_flush_every=settings.POST_TRADE_CACHE_FLUSH_EVERY,
+            progress_every=settings.POST_TRADE_PROGRESS_EVERY,
+        )
+
+        # 10. Asset-Tradingvolume (Cross-Class rolling-window, Modul 8.2)
         z = settings.SCORING_VOLUME_WINDOW_DAYS_Z
-        print(f"\n[9/16] Asset-Tradingvolume ({z}d, Cross-Class)...")
+        print(f"\n[10/17] Asset-Tradingvolume ({z}d, Cross-Class)...")
         df['asset_tradingvolume_usd'] = \
             compute_asset_tradingvolume(df, z).astype('int64')
 
-        # 10. Filter-Logik (Scoring + Filter 0 + Filter 4)
-        print("\n[10/16] Filter-Logik (Scoring, Asset-Klasse, Vote-Timing)...")
+        # 11. Filter-Logik (Scoring + Filter 0 + Filter 4)
+        print("\n[11/17] Filter-Logik (Scoring, Asset-Klasse, Vote-Timing)...")
         df = self._apply_gates_and_tags(df)
 
-        # 11. Branch-1 Signale (committee, ex_officio, floor_action, extreme_report)
-        print("\n[11/16] Branch-1 Signale auswerten...")
+        # 12. Branch-1 Signale (committee, ex_officio, floor_action, extreme_report)
+        print("\n[12/17] Branch-1 Signale auswerten...")
         df = self._apply_branch1_signals(df)
 
-        # 12. Sequenz-Signale (contrarian, accumulative)
-        print("\n[12/16] Sequenz-Signale auswerten...")
+        # 13. Sequenz-Signale (contrarian, accumulative)
+        print("\n[13/17] Sequenz-Signale auswerten...")
         df = self._apply_sequence_signals(df)
 
-        # 13. Schwarm-Signale (swarm_buy/sell/conflict/paradox, P6)
-        print("\n[13/16] Schwarm-Signale auswerten...")
+        # 14. Schwarm-Signale (swarm_buy/sell/conflict/paradox, P6)
+        print("\n[14/17] Schwarm-Signale auswerten...")
         df = self._apply_swarm_signals(df)
 
-        # 14. Scoring (trade_score + breakdown + warnings, Modul 8.3)
-        print("\n[14/16] Trade-Score berechnen (Modul 8.3)...")
+        # 15. Scoring (trade_score + breakdown + warnings, Modul 8.3)
+        print("\n[15/17] Trade-Score berechnen (Modul 8.3)...")
         scored = compute_trade_scores(df, settings)
         df = df.copy()
         df['trade_score'] = scored['trade_score'].values
@@ -2771,8 +2856,8 @@ class TradeImporter:
         print(f"  Trades mit trade_score > 0: {_n_pos:,}")
         print(f"  Trades mit paradox-Warning: {_n_par:,}")
 
-        # 15. Suspicious-Export (promote Stage-Events nach suspicious_*.csv)
-        print("\n[15/16] Suspicious-Export...")
+        # 16. Suspicious-Export (promote Stage-Events nach suspicious_*.csv)
+        print("\n[16/17] Suspicious-Export...")
         # Modul 8.4: In-Memory-Scores durchreichen, da trades_master_complete
         # erst in Stage 16 geschrieben wird.
         self._inflight_trade_scores = df[
@@ -2785,8 +2870,8 @@ class TradeImporter:
             self._inflight_trade_scores = None
             self._trade_scores_cache = None
 
-        # 16. Speichern
-        print("\n[16/16] Speichere Ergebnisse...")
+        # 17. Speichern
+        print("\n[17/17] Speichere Ergebnisse...")
         if dry_run:
             self._ensure_directories()
             df_out = df.copy()
@@ -2819,8 +2904,6 @@ class TradeImporter:
             print(f"  - {UNMATCHED_STAGE_PATH if dry_run else UNMATCHED_PATH}")
         if os.path.isfile(DELISTED_STAGE_PATH):
             print(f"  - {DELISTED_STAGE_PATH if dry_run else DELISTED_TRADES_PATH}")
-        if os.path.isfile(UNMATCHED_PREFERRED_PATH):
-            print(f"  - {UNMATCHED_PREFERRED_PATH}")
         if os.path.isfile(MANUAL_REVIEW_CSV_PATH):
             print(f"  - {MANUAL_REVIEW_CSV_PATH}")
 
@@ -2876,6 +2959,8 @@ def main():
                         help='Stage: Cross-Class Issuer Mapping (SEC EDGAR CIK, P5.6)')
     parser.add_argument('--stage_tickeryfinance', action='store_true',
                         help='Stage: yfinance Sector/Industry-Anreicherung')
+    parser.add_argument('--stage_post_trade_returns', action='store_true',
+                        help='Stage: Post-Trade-Preise + Exit-Detection (Modul 9.x)')
     parser.add_argument('--stage_trade_volume', action='store_true',
                         help='Stage: trade_volume_usd aus Amount-Range berechnen (Modul 8)')
     parser.add_argument('--stage_asset_volume', action='store_true',
@@ -2917,6 +3002,7 @@ def main():
         'issuer_group': args.stage_issuer_group,
         'tickeryfinance': args.stage_tickeryfinance,
         'trade_volume': args.stage_trade_volume,
+        'post_trade_returns': args.stage_post_trade_returns,
         'asset_volume': args.stage_asset_volume,
         'gates_tags': args.stage_gates_tags,
         'branch1_signals': args.stage_branch1_signals,

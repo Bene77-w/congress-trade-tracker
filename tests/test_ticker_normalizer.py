@@ -478,3 +478,73 @@ class TestOptimisticMappingRouter:
 
         mock_post.assert_not_called()
         assert result[0].share_class_figi is None
+
+
+# ---------------------------------------------------------------------------
+# Dedup + Negativ-Cache: keine doppelten API-Calls und Log-Zeilen bei
+# wiederkehrenden Tickern (Fixes A+B).
+# ---------------------------------------------------------------------------
+
+
+class TestDedupIdenticalClassifications:
+    def test_identical_classifications_call_api_once(
+        self, normalizer, make_classification
+    ):
+        """8 identische Classifications → genau 1 Mapping-Request, 8 Outputs."""
+        cls = make_classification(
+            raw="AAM-PA", ticker_base="AAM",
+            ticker_type=TickerType.PREFERRED,
+            api_strategy=ApiStrategy.FIGI_MAPPING,
+        )
+
+        post_calls = []
+
+        def fake_post(url, json=None, headers=None, timeout=None):
+            post_calls.append((url, json))
+            if "/mapping" in url:
+                return _http_response(200, [{"warning": "No identifier found"}])
+            return _http_response(200, {"data": []})
+
+        with patch("utils.ticker_normalizer.requests.post", side_effect=fake_post):
+            results = normalizer.normalize_batch([cls] * 8)
+
+        # 8 Resultate in Eingabe-Reihenfolge
+        assert len(results) == 8
+        # Genau 1 Mapping-Call (Dedup) + 1 Search-Fallback-Call
+        mapping_calls = [c for c in post_calls if "/mapping" in c[0]]
+        search_calls = [c for c in post_calls if "/search" in c[0]]
+        assert len(mapping_calls) == 1
+        assert len(mapping_calls[0][1]) == 1  # genau 1 Job im Batch
+        assert len(search_calls) == 1
+
+
+class TestMappingMissNegativeCache:
+    def test_mapping_miss_writes_negative_cache(
+        self, normalizer, make_classification
+    ):
+        """Zweiter normalize_batch-Lauf nutzt Negativ-Cache → kein neuer Mapping-Call."""
+        cls = make_classification(
+            raw="SEAL-PB", ticker_base="SEAL",
+            ticker_type=TickerType.PREFERRED,
+            api_strategy=ApiStrategy.FIGI_MAPPING,
+        )
+
+        post_calls = []
+
+        def fake_post(url, json=None, headers=None, timeout=None):
+            post_calls.append(url)
+            if "/mapping" in url:
+                return _http_response(200, [{"warning": "No identifier found"}])
+            return _http_response(200, {"data": []})
+
+        with patch("utils.ticker_normalizer.requests.post", side_effect=fake_post):
+            normalizer.normalize_batch([cls])
+            first_round_calls = list(post_calls)
+            post_calls.clear()
+            normalizer.normalize_batch([cls])
+
+        # Erster Lauf: Mapping + Search-Fallback
+        assert any("/mapping" in u for u in first_round_calls)
+        assert any("/search" in u for u in first_round_calls)
+        # Zweiter Lauf: weder Mapping noch Search (beide Negativ-Caches greifen)
+        assert post_calls == []

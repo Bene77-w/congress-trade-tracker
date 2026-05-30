@@ -1,4 +1,4 @@
-"""Trade-Score-Berechnung (Modul 8, Phase 8.3).
+"""Trade-Score-Berechnung (Modul 8).
 
 Liefert pro Trade ein Tripel ``(trade_score, trade_score_breakdown,
 trade_warnings)`` nach der Formel:
@@ -9,9 +9,11 @@ trade_warnings)`` nach der Formel:
 
     other_part  = Σ WEIGHTS[s] für s in signals_triggered \\ swarm_signals
                                                         \\ {swarm_paradox}
+                                                        \\ {trade_volume}
 
-    volume_part = max(0, asset_tradingvolume_usd - U) * SLOPE
-                  (0 wenn SCORING_VOLUME_ENABLED=False)
+    volume_part = tier_score(trade_amount_max_usd, SCORING_TRADE_VOLUME_TIERS)
+                  (0 wenn SCORING_TRADE_VOLUME_ENABLED=False oder
+                   'trade_volume' nicht in signals_triggered)
 
     bonus       = SCORING_EX_OFFICIO_BONUS, falls Member_ExOfficio truthy UND
                   signals_triggered ∩ SCORING_EX_OFFICIO_TRIGGERS ≠ ∅
@@ -23,8 +25,9 @@ trade_warnings)`` nach der Formel:
 Breakdown-Format (volle Verbositaet): ``";"``-getrennte ``key:value``-Paare in
 fester Reihenfolge. Es erscheinen ausschliesslich Komponenten, deren Signal
 auch wirklich in ``signals_triggered`` enthalten ist (sonst Laengen-Explosion);
-Volume-Komponente erscheint immer, Ex-Officio-Bonus immer, beide auch mit
-Wert 0 wenn deaktiviert oder unter Schwelle.
+Ex-Officio-Bonus erscheint immer (auch mit Wert 0). ``trade_volume`` erscheint
+nur, wenn das Signal getriggert hat — der Beitrag kommt dann aus der
+Tier-Tabelle, nicht aus ``SCORING_WEIGHTS``.
 """
 from __future__ import annotations
 
@@ -32,10 +35,16 @@ from typing import Any, Tuple
 
 import pandas as pd
 
+from signals.trade_volume_signal import (
+    resolve_tier as _resolve_volume_tier,
+    _normalize_tiers as _normalize_volume_tiers,
+)
+
 # Schwarm-Signal-Klassen — fuer Paradox-Daempfung gruppieren wir nur
 # swarm_buy/sell/conflict; swarm_paradox ist der Daempfer selbst.
 SWARM_SIGNALS = ('swarm_buy', 'swarm_sell', 'swarm_conflict')
 PARADOX_SIGNAL = 'swarm_paradox'
+TRADE_VOLUME_SIGNAL = 'trade_volume'
 
 # Feste Reihenfolge fuer Breakdown-Strings (deterministische CSV-Diffs).
 BRANCH1_ORDER = ('committee', 'committee_full', 'floor_action', 'extreme_report')
@@ -86,7 +95,7 @@ def _to_float(value: Any, default: float = 0.0) -> float:
 
 def compute_trade_score(signals_value: Any,
                         ex_officio_value: Any,
-                        asset_tradingvolume_usd: Any,
+                        trade_amount_max_usd: Any,
                         settings_module: Any) -> Tuple[int, str, str]:
     """Berechnet ``(score, breakdown, warnings)`` fuer einen einzelnen Trade.
 
@@ -96,8 +105,9 @@ def compute_trade_score(signals_value: Any,
         Zellwert aus ``signals_triggered`` (``;``-getrennter String oder NaN).
     ex_officio_value:
         Zellwert aus ``Member_ExOfficio`` (z.B. ``"Chairman"`` oder leer/NaN).
-    asset_tradingvolume_usd:
-        Zellwert aus ``asset_tradingvolume_usd`` (int, kann 0/NaN sein).
+    trade_amount_max_usd:
+        Zellwert aus ``trade_amount_max_usd`` (int, kann 0/NaN sein). Wird
+        nur ausgewertet, wenn ``'trade_volume'`` in ``signals_value`` ist.
     settings_module:
         Modul mit den ``SCORING_*``-Konstanten (typischerweise
         ``config.settings``).
@@ -106,11 +116,15 @@ def compute_trade_score(signals_value: Any,
     paradox_damper = float(getattr(settings_module, 'SCORING_PARADOX_DAMPER', 0.0))
     paradox_tag = getattr(settings_module, 'SCORING_PARADOX_WARNING_TAG',
                           'paradox_swarm')
-    volume_enabled = bool(getattr(settings_module, 'SCORING_VOLUME_ENABLED',
-                                  True))
-    volume_threshold = float(getattr(settings_module,
-                                     'SCORING_VOLUME_THRESHOLD_U', 0.0))
-    volume_slope = float(getattr(settings_module, 'SCORING_VOLUME_SLOPE', 0.0))
+    volume_enabled = bool(getattr(
+        settings_module, 'SCORING_TRADE_VOLUME_ENABLED', True
+    ))
+    volume_tiers = getattr(
+        settings_module, 'SCORING_TRADE_VOLUME_TIERS', []
+    ) or []
+    volume_trigger_floor = float(getattr(
+        settings_module, 'SCORING_TRADE_VOLUME_TRIGGER_FLOOR', 0.0
+    ))
     bonus_amount = float(getattr(settings_module, 'SCORING_EX_OFFICIO_BONUS',
                                  0.0))
     bonus_triggers = set(getattr(settings_module,
@@ -153,19 +167,35 @@ def compute_trade_score(signals_value: Any,
         else:
             breakdown_parts.append(f'{sig}:{int(round(damped))}')
 
+    # --- Trade-Volume: Tier-basiert, nur wenn Signal getriggert hat ---
+    volume_part = 0.0
+    if volume_enabled and TRADE_VOLUME_SIGNAL in triggered:
+        tiers_norm = _normalize_volume_tiers(volume_tiers)
+        vol = _to_float(trade_amount_max_usd, 0.0)
+        _tier_idx, tier_score = _resolve_volume_tier(
+            vol, tiers_norm, volume_trigger_floor
+        )
+        # SCORING_WEIGHTS['trade_volume'] dient nur als UI-Skalierungsfaktor:
+        # tier_score wird relativ zum nominellen Max-Wert skaliert, wenn der
+        # User das Gewicht im UI ueberschreibt. Default-Faktor = 1.0 (das
+        # Gewicht entspricht dem hoechsten Tier-Score).
+        nominal_max = float(weights.get(TRADE_VOLUME_SIGNAL, 0))
+        if tiers_norm:
+            tier_max = max(int(s) for _, s in tiers_norm)
+        else:
+            tier_max = 0
+        if tier_max > 0:
+            scale = nominal_max / tier_max
+        else:
+            scale = 1.0
+        volume_part = tier_score * scale
+        breakdown_parts.append(f'trade_volume:{int(round(volume_part))}')
+
     # --- Ex-Officio-Bonus: einmalig, falls truthy + Trigger getroffen ---
     ex_officio_truthy = _to_bool(ex_officio_value)
     bonus_active = ex_officio_truthy and bool(triggered & bonus_triggers)
     bonus = bonus_amount if bonus_active else 0.0
     breakdown_parts.append(f'ex_officio:+{int(round(bonus))}')
-
-    # --- Volume: nichtlinear ab Schwelle U ---
-    if volume_enabled:
-        vol = _to_float(asset_tradingvolume_usd, 0.0)
-        volume_part = max(0.0, vol - volume_threshold) * volume_slope
-    else:
-        volume_part = 0.0
-    breakdown_parts.append(f'volume:{int(round(volume_part))}')
 
     # --- Aggregation ---
     total = swarm_part + other_part + volume_part + bonus
@@ -194,8 +224,8 @@ def compute_trade_scores(df: pd.DataFrame, settings_module: Any) -> pd.DataFrame
         else pd.Series([''] * len(df), index=df.index)
     ex_col = df['Member_ExOfficio'] if 'Member_ExOfficio' in df.columns \
         else pd.Series([''] * len(df), index=df.index)
-    vol_col = df['asset_tradingvolume_usd'] \
-        if 'asset_tradingvolume_usd' in df.columns \
+    vol_col = df['trade_amount_max_usd'] \
+        if 'trade_amount_max_usd' in df.columns \
         else pd.Series([0] * len(df), index=df.index)
 
     scores = []

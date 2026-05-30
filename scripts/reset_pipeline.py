@@ -95,7 +95,6 @@ PROTECTED_FILES: frozenset[Path] = frozenset(
     p.resolve()
     for p in [
         DATA_MAPPINGS / settings.NAME_ALIASES_FILE,
-        DATA_MAPPINGS / settings.PREFERRED_TICKER_MAPPING_FILE,
         DATA_MAPPINGS / settings.HOUSE_COMMITTEES_FILE,
         DATA_MAPPINGS / settings.SENATE_COMMITTEES_FILE,
         DATA_MAPPINGS / settings.COMMITTEE_MAPPING_FILE,

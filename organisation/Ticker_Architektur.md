@@ -38,6 +38,7 @@ Daher führt der Master **beide** Ebenen explizit als separate Spalten.
 |--------------------|---------------|------------------------------------------|--------------------|----------------------------------------------|
 | `ticker`           | Listing       | Scraper (Quiver/Senate-Feed)             | 100% (Stocks)      | `GOOGL`, `BRK.A`, `NESN.SG`                  |
 | `ticker_base`      | Share-Class   | `utils/ticker_classifier` (Offline-Regex) | 100% (Stocks)      | `GOOGL`, `BRK` (für `BRK.A`)                 |
+| `parent_ticker`    | Share-Class   | `utils/ticker_classifier` (intern, PREFERRED-only) | 100% PREFERRED | `EP` (für `EP$C`), `O` (für `O-P`)           |
 | `ticker_figi`      | Listing       | OpenFIGI `/v3/mapping`                   | ~85%               | `GOOGL` (Bloomberg-Canonical)                |
 | `figi`             | Listing       | OpenFIGI `/v3/mapping`                   | ~85%               | `BBG009S39JX6`                               |
 | `share_class_figi` | Share-Class   | OpenFIGI shareClassFIGI                  | ~83% (P5)          | `BBG009S39JY5`                               |
@@ -50,8 +51,21 @@ Wird im Dashboard angezeigt und für Audit-Trail im Master gehalten.
 
 ### `ticker_base` (Share-Class-Level, deterministisch)
 Vom Offline-Klassifikator gestrippte Form: `BRK.A` → `BRK`, `EP$C` →
-`EP`. Eine Aktienklasse hat genau einen `ticker_base`. Wird für yfinance
-(Sektor/Industry) und als Fallback in den Issuer-Spalten verwendet.
+`EP`. Eine Aktienklasse hat genau einen `ticker_base`. Dient als
+Routing-Input für die yfinance-Stage (nicht als API-Input — yfinance
+bekommt `raw_ticker`, weil der Yahoo-Wrapper die Original-Notation
+erwartet; Bloomberg-Notation wie `ticker_figi` wäre für yfinance falsch)
+und als Fallback in den Issuer-Spalten.
+
+### `parent_ticker` (Share-Class-Level, intern)
+Internes Klassifikator-Feld, **nicht persistiert in Master**. Wird nur für
+PREFERRED-Notationen gesetzt (z.B. `EP$C` → `parent_ticker='EP'`, `O-P` →
+`parent_ticker='O'`). Dient der Sektor-Stage als Fallback-Hint für
+yfinance-Lookup: wenn `raw_ticker` im yfinance keinen Sektor liefert,
+wird automatisch `parent_ticker` probiert (z.B. `EP$C` → yfinance(EP) →
+Energy, Oil & Gas). Hat 100% Coverage innerhalb der PREFERRED-Klasse,
+bleibt aber in der `TickerClassification`-Dataclass und wird nicht ins
+CSV exportiert.
 
 ### `figi` / `ticker_figi` / `share_class_figi` (Bloomberg-IDs)
 Drei Granularitätsstufen aus der OpenFIGI-API:
@@ -109,7 +123,7 @@ operiert auf Issuer-Level, weil das Insider-Signal dort sitzt.
 | Use-Case                                  | Spalte               | Begründung                                                       |
 |-------------------------------------------|----------------------|------------------------------------------------------------------|
 | Dashboard / Anzeige                       | `ticker`             | Was der User aus PTRs/News kennt                                 |
-| Sektor/Industry-Lookup via yfinance       | `ticker_base`        | yfinance kennt keine Suffixe wie `.SG`                           |
+| Sektor/Industry-Lookup via yfinance       | `raw_ticker` (Yahoo-Notation) | yfinance ist ein Yahoo-Wrapper; `ticker_base` ist Routing-Input der Stage, aber API-Input ist `raw_ticker`. Bloomberg-Notation (`ticker_figi` wie `BRK/B`, `BAC PR L`) wäre für yfinance falsch. |
 | **Suspicious-Asset-Aggregation (P4)**     | `issuer_ticker`      | Asset-Risiko ist klassen-spezifisch (Voting-Rechte etc.)         |
 | Sequenz-Signale (P3: contrarian/accumulative) | `issuer_ticker`  | Wenn dieselbe Person mehrfach handelt, ist Klasse meist konstant |
 | **Schwarm-Erkennung (P6, implementiert ✅)** | `issuer_group_key`   | Insider-Signal ist Issuer-Level (GOOGL+GOOG = ein Alphabet-Schwarm). Implementierung: `signals/swarm_buy_signal.py`, `swarm_sell_signal.py`, `swarm_conflict_signal.py`, `swarm_paradox_signal.py` |
@@ -250,10 +264,12 @@ liefern aber beide Spalten unterschiedlichen Mehrwert.
 
 | Komponente                          | Datei                              |
 |-------------------------------------|-------------------------------------|
-| Offline-Klassifikator (`ticker_base`) | `utils/ticker_classifier.py`        |
+| Offline-Klassifikator (`ticker_base`, `parent_ticker`) | `utils/ticker_classifier.py`        |
 | OpenFIGI-Wrapper (`share_class_figi`) | `utils/ticker_normalizer.py`        |
+| Sektor-Enricher (yfinance via `parent_ticker`) | `utils/ticker_sector.py`            |
 | `issuer_ticker`-Resolver            | `utils/issuer_ticker.py`            |
 | `issuer_group_key`-Mapper           | `utils/issuer_group_mapper.py`      |
+| Routing-Sets (zentralisiert)        | `utils/ticker_routing.py` (`SECTOR_LOOKUP_TYPES`, `POST_TRADE_PRICE_TYPES`) |
 | Pipeline-Integration                | `scripts/import_trades.py` Stages `tickeropenfigi` + `issuer_group` |
 | SEC-Settings (URL, User-Agent, TTL) | `config/settings.py`, Sektion `SEC EDGAR (P5.6)` |
 | EDGAR-Cache-Datei                   | `data/cache/edgar_cik_map.json` (TTL 7 Tage) |

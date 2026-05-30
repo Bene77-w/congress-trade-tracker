@@ -15,6 +15,12 @@ Python + Streamlit App die US-Kongress-Mitglieder Stock-Trades trackt, analysier
 6. **Systemanweisung**: Du bist ein erfahrener Software-Entwickler. Du erstellst vor jeder Code-Änderung einen Implementierungsplan, bevor du diesen strikt umsetzt. Um einen individuell passenden Plan zu erstellen frägst du den User nach konkreten Anweisungen und lässt wichtige Planungsfragen vom User approven. Du teilst jeden Gedankengang und Entscheidungsweg mit dem User. Falls Rückfragen oder Probleme auftreten, teile sie dem User mit.
 7. **Fragen an dich**: Wenn der User nach deiner Einschätzung frägt, dann präsentiere zunächst deinen Gedankengang, verschiedene Lösungswege, Pro-/Kontra-Argumente und Konsequenzen jedes Lösungsweges und zuletzt deine begründete Empfehlung.
 8. **Plan-Dateien nicht recyceln**: Wenn ein komplett neuer Implementierungsplan zu einem neuen Todo erstellt wird (und keine themenrelevante Plan-Datei existiert), darf KEINE vorhandene Plan-Datei aus einem unverwandten Vorgang überschrieben werden. Stattdessen neue Plan-Datei anlegen. Begründung: Token-Ersparnis — der Main-Agent muss eine Datei vor jeder Änderung erst komplett einlesen; eine frische Datei umgeht diesen Read-Roundtrip.
+9. **Dokumentation nach Modulabschluss via Doku-Agent**: Nach Abschluss eines Moduls die Dokumentation nicht selbst schreiben, sondern den Sub-Agenten starten. Der Agent erwartet ein strukturiertes, vollständiges und ausführliches Briefing (geänderte Dateien, neue Spalten, neue Scripts/Stages, neue Signale, betroffene Doku-Dateien). Vorlage + Regeln: `.claude/agents/doku-agent.md`.
+   - `model`-Feld ist **nicht** in `.claude/settings.json` gesetzt → Override erfolgt im Agent-Call:
+     - **Anthropic-Session:** `model: "haiku"`
+     - **DeepSeek-Session:** `model: "flash"`
+   - Aufruf: `Agent({ subagent_type: "doku-agent", model: "haiku"|"flash", prompt: "## Briefing: ..." })`
+10. **Einsatz von subagents** Nutze für tokenintensive und gleichzeitig nicht anspruchsvolle Aufgaben subagents, welche eine Teilaufgabe für dich übernehmen. z.b. den explore subagent zum indentifizieren von dateien oder finden von wichtigen Codestellen unter vielen verschiedenen Dateien.
 
 ---
 
@@ -26,11 +32,11 @@ Python + Streamlit App die US-Kongress-Mitglieder Stock-Trades trackt, analysier
 | 2 | FERTIG | House Trades Scraping (ZIP + PDF-Parsing, 126 Tests, subholding-Fix Feb 2026) + House PDF Extractor v2 (OpenCV Grid + Pixel-Density + Vision API Batch, alle Formulartypen A/B/C/D, Mrz 2026) |
 | 3 | FERTIG | Senate Trades Scraping (Playwright + DataTables API). senate_pdf_extractor liest gescannte PDFs fehlerhaft (Vision API), aber irrelevant — einziger Senator mit Paper-PTRs investiert nur in Fonds |
 | 4 | FERTIG | Ausschuss-Sektor-Mapping (CommitteeMapper + CommitteeTag implementiert) |
-| 5 | ÜBERSPRUNGEN | Kursdaten (Yahoo Finance) — vorerst übersprungen |
+| 5 | TEILWEISE (Post-Trade-Pricing FERTIG, kein Live-Quote) | Kursdaten (Yahoo Finance) — Post-Trade-Performance-Tracking abgeschlossen (Stage post_trade_returns, 14 neue Spalten, Exit-Detection, yfinance-Preis-Cache). Live-Quotes weiterhin offen. Details: `organisation/DATA_STRUCTURE.md` (Post-Trade-Spalten) + `organisation/Filter_Instanz_Parameter.md` (Settings). |
 | 6 | FERTIG | Vote-Timing aktiv. VoteTimingTag liest Roll-Calls direkt aus bill_actions.json + bill_subjects.json (kein separater Vote-Endpoint nötig). FloorActionSignal triggert auf Vote_Timing_Hit_Count ≥ 1; SCORING_WEIGHTS['floor_action']=15. Smoke-Run (20.05.2026): 5.357 Hits / 111.986 Trades (4,8%). Score-Effekt: mean=64,6 vs 21,6 ohne. Details: `organisation/Filter_Instanz_Parameter.md` (Tag-Sektion). |
 | 7 | FERTIG | Signal-Architektur (Gate/Tag/Signal). Drei Klassen: `gates/` / `tags/` / `signals/`. 11 aktive Signale + Suspicious-Export-Pipeline + Cross-Class Issuer Mapping. Committee-Score auf einheitliche Match-Liste vereinheitlicht (`Relevance_Score` entfernt, `committee_full`-Signal hinzugefügt). Details: `CHANGELOG.md` (P1–P7) + `organisation/Filter_Instanz_Parameter.md`. |
-| 8 | FERTIG | Scoring-System. Phasen 8.1–8.6 ✅. Pipeline 16 Stages, 5 Trade-Spalten (`trade_volume_usd`, `asset_tradingvolume_usd`, `trade_score`, `trade_score_breakdown`, `trade_warnings`) + Aggregat-Spalten in `suspicious_assets.csv` und `suspicious_members.csv`. 100 Unit-Tests grün. Smoke-Run 20.05.2026 (111.986 Trades, mean=23.7, max=1705). SCORING_WEIGHTS: `committee=10`, `committee_full=5` (Voll-Treffer=15 wie vorher). Phasen-Details: `CHANGELOG.md`. Score-Formel + Settings: `organisation/Filter_Instanz_Parameter.md`. |
-| 9 | IN ARBEIT (MVP) | Streamlit Dashboard. `app/streamlit_app.py` + `app/score_recompute.py`. Drei Tabs (Trades / Assets / Members), 7 Sidebar-Filter, Voll-Recompute bei Signal-Ausschluss. Asset- und Member-Tab live aus gefiltertem Trade-Subset aggregiert (reaktiv auf alle Filter). Trade-Tab enthält abgeleitete Spalte `relevant_sectors`. Start: `venv/bin/streamlit run app/streamlit_app.py`. |
+| 8 | FERTIG | Scoring-System. Pipeline 17 Stages, 6 Trade-Spalten (`trade_volume_usd`, `trade_amount_max_usd`, `asset_tradingvolume_usd`, `trade_score`, `trade_score_breakdown`, `trade_warnings`) + Aggregat-Spalten in `suspicious_assets.csv` und `suspicious_members.csv`. **Volume-Signal-Redesign (27.05.2026):** linearer `volume_part = max(0, asset_tradingvolume_usd − U) × SLOPE` ersetzt durch vollwertiges Tier-Signal `trade_volume` auf `trade_amount_max_usd`. Trigger ab >15.000 USD, Default-Tiers (Vorschlag C, konservativ): ≤50k→+2, ≤100k→+4, ≤250k→+7, ≤500k→+10, ≤1M→+13, >1M→+16. Smoke-Run 27.05.2026 (112.658 Trades): mean=13.0 (vorher 23.7), max=83 (vorher 1705) — Top-Trades sind jetzt durchweg Multi-Signal-Treffer, nicht mehr reine Volume-Trades. 84 Unit-Tests grün (Scoring + Signal). Score-Formel + Settings: `organisation/Filter_Instanz_Parameter.md`. |
+| 9 | IN ARBEIT (MVP) | Streamlit Dashboard. `app/streamlit_app.py` + `app/score_recompute.py` + `app/scoring_presets.py`. Drei Tabs (Trades / Assets / Members), 7 Sidebar-Filter, Voll-Recompute bei Signal-Ausschluss. Asset- und Member-Tab live aus gefiltertem Trade-Subset aggregiert (reaktiv auf alle Filter). Trade-Tab enthält abgeleitete Spalte `relevant_sectors`. **Sidebar-Form „Score-Gewichte"**: alle `SCORING_WEIGHTS` (inkl. `trade_volume`), Paradox-Damper, Trade-Volume-Tier-Editor (`st.data_editor`, dynamische Zeilen), Trigger-Floor, Enabled-Flag und Ex-Officio-Bonus live override-bar; Apply/Defaults/Speichern-Buttons, Preset-Persistenz in `data/config/scoring_presets.json` (Tier-Liste serialisiert mit `null` als `inf`-Catch-all). Start: `venv/bin/streamlit run app/streamlit_app.py`. |
 | 10 | OFFEN | Email-Benachrichtigungen |
 | 11 | OFFEN | Automatisierung & Scheduler |
 | Rebuild T1 | FERTIG (25.04.2026) | Foundation: `utils/trade_id.py` (13 Tests) + `utils/ticker_classifier.py` (67 Tests) |
@@ -86,8 +92,9 @@ CLI-Optionen (Delta-Mode, einzelne Stages, Dry-Run, PDF-Extraction): siehe `orga
 ## Nächste Schritte
 
 1. **Modul 9 — Streamlit Dashboard (in Arbeit, MVP fertig)** — Nächste Iteration: Datum/Score-Filter in Tabs „Assets" und „Members" aktivieren.
-2. **Rebuild T4** — Migration alter Caches, Entfernen von `utils/openfigi_client.py` und alten Tabellen.
-3. **Modul 10 — Email-Benachrichtigungen**, **Modul 11 — Automatisierung**
+2. **Post-Trade-Performance (FERTIG)** — Neue Stage `post_trade_returns` in Pipeline Stage 8 (17 Stages gesamt). 14 neue Spalten in `trades_master_complete.csv`. Exit-Detection (closed_full/closed_partial/held) gruppiert nach (name, issuer_group_key). yfinance-Preis-Cache in `data/cache/price_history.parquet`. Nächste Iteration: 4. Tab „Trade-Detail" im Streamlit mit Plotly-Chart.
+3. **Rebuild T4** — Migration alter Caches, Entfernen von `utils/openfigi_client.py` und alten Tabellen.
+4. **Modul 10 — Email-Benachrichtigungen**, **Modul 11 — Automatisierung**
 
 Historische Plan-Datei (P1–P7, abgeschlossen): `archive/alt/Implementierungsplan_Signals.md`.
 
@@ -107,7 +114,7 @@ Andere Dateien verlinken nur darauf, kein paralleles Duplizieren.
 | Ticker-/Issuer-Architektur (3 Ebenen, Fallbacks) | `organisation/Ticker_Architektur.md` |
 | CLI-Flags + Bedienung | `organisation/CLI_Bedienungsanleitung.md` |
 | Phasen-Historie (abgeschlossene Module) | `CHANGELOG.md` |
-| Aktueller Modul-Status | `CLAUDE.md` (sandbox, Modul-Tabelle oben) |
+| Aktueller Modul-Status | `CLAUDE.md` (Projekt-Root, Modul-Tabelle oben) |
 | Offene Implementierungs-Pläne | `~/.claude/plans/*.md` |
 
 Bei Code-Änderungen die folgende Tabelle prüfen — die
@@ -118,7 +125,7 @@ jede Datei einzeln gelesen werden.
 
 | Datei | Zweck (1 Satz) | Aktualisieren bei |
 |---|---|---|
-| `CLAUDE.md` (sandbox) | Projektstatus, Modul-Tabelle, Wichtige Regeln, Doku-Index. | Neuer Modul-Status, neue Regel/Konvention, neues Util/Skript, Phase abgeschlossen. |
+| `CLAUDE.md` (Projekt-Root) | Projektstatus, Modul-Tabelle, Wichtige Regeln, Doku-Index. | Neuer Modul-Status, neue Regel/Konvention, neues Util/Skript, Phase abgeschlossen. |
 
 ### `organisation/`
 
