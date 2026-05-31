@@ -259,7 +259,7 @@ trade_score  = round(swarm_part + other_part + volume_part + bonus)
 
 **Status:** Parameter ✅ / Code ✅ — `scoring/post_trade_returns.py`
 
-**Kein Signal/Gate/Tag** — reine Daten-Anreicherung der `trades_master_complete.csv` mit Post-Trade-Preisen und Exit-Detection. Pipeline Stage 8 (`stage_post_trade_returns`), zwischen `tickeryfinance` und `trade_volume`.
+**Kein Signal/Gate/Tag** — reine Daten-Anreicherung der `trades_master_complete.csv` mit Post-Trade-Preisen und Exit-Detection. Pipeline Stage 9 (`stage_post_trade_performance`), zwischen `tickeryfinance` und `trade_volume`.
 
 ### Settings (in `config/settings.py`)
 

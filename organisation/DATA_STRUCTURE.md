@@ -590,10 +590,15 @@ exit_status,               # str: held / closed_full / closed_partial / delisted
 exit_date,                 # datetime: Datum des ersten gegensätzlichen Trades (bei closed_*)
 exit_price,                # float: Close-Preis am exit_date
 exit_amount_max_usd,       # float: Kumulierte Max-USD der gegensätzlichen Trades
-effective_return_pct,      # float: Bei closed: (exit_price/baseline-1)*100; bei held: post_return_max_horizon
+effective_return_pct,      # float: Bei closed_*: (exit_price/baseline-1)*100; bei held: längster
+                           # verfügbarer (nicht-NaN) Horizont-Return (120→90→60→30 Tage)
+effective_return_horizon_days,  # float: Zeithorizont in Tagen auf den sich effective_return_pct bezieht.
+                           # Bei closed_*: Tage zw. transaction_date und exit_date. Bei held: tatsächlich
+                           # verwendeter Horizont (120/90/60/30). Sonst NaN.
 opposing_trade_ids,        # str: Semikolon-getrennte trade_ids der gegensätzlichen Trades
 # exit_status-Werte: not_applicable — ticker_type nicht in {stock,foreign_stock,shareclass,etf} oder
-#                    issuer_group_key beginnt mit SKIP: oder Exchange-Trade
+#                    issuer_group_key beginnt mit SKIP: oder Exchange-Trade (kanonische Richtungserkennung
+#                    via _direction_from_transaction_type, handling Sale/Sale (Full)/Sale (Partial)/SALE)
 #                    delisted — yfinance liefert leere History
 #                    unknown — yfinance Network/Rate-Limit-Error
 #                    held — keine gegensätzlichen Trades im Fenster

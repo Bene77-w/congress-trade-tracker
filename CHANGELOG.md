@@ -8,6 +8,7 @@ Historie abgeschlossener Module/Phasen. **Aktueller Status** steht in `CLAUDE.md
 - Keine Wiederholung der laufenden Doku — Code-Referenzen nur, wenn dauerhaft sichtbar (z. B. neue Util-Datei).
 - Reihenfolge: neuestes oben.
 
+
 ---
 
 ## 2026-05-28 — Ticker-System Vereinfachung (Preferred-Auto + Routing-Konsolidierung + Slash-Fallback Removal)

@@ -36,6 +36,7 @@ from config import settings  # noqa: E402
 TRADES_CSV = ROOT / 'data' / 'processed' / settings.TRADES_MASTER_COMPLETE_CSV
 
 TRADE_DISPLAY_COLS = [
+    'trade_id',
     'transaction_date', 'disclosure_date', 'name', 'chamber', 'Member_Party',
     'asset_name', 'ticker', 'issuer_ticker', 'transaction_type', 'amount',
     'trade_volume_usd', 'trade_amount_max_usd', 'asset_tradingvolume_usd',
@@ -46,6 +47,7 @@ TRADE_DISPLAY_COLS = [
 ]
 
 TRADE_DEFAULT_COLS = [
+    'trade_id',
     'transaction_date', 'name', 'asset_name', 'ticker',
     'transaction_type', 'amount', 'asset_tradingvolume_usd',
     'trade_score', 'committee_match', 'relevant_sectors',
@@ -567,7 +569,7 @@ with st.sidebar:
             key='preset_select',
         )
         load_clicked = st.button(
-            f'Preset „{selected_preset}" laden', use_container_width=True,
+            f'Preset „{selected_preset}" laden', width='stretch',
         )
         if load_clicked:
             payload = presets.get(selected_preset, DEFAULTS)
@@ -594,7 +596,7 @@ with st.sidebar:
         if (selected_preset != DEFAULT_PRESET_NAME
                 and selected_preset in presets):
             if st.button(f'Preset „{selected_preset}" löschen',
-                         use_container_width=True):
+                         width='stretch'):
                 delete_preset(selected_preset)
                 st.rerun()
 
@@ -656,7 +658,7 @@ with st.sidebar:
                 )
                 tier_df_out = st.data_editor(
                     tier_df_in,
-                    use_container_width=True,
+                    width='stretch',
                     num_rows='dynamic',
                     key='p_tv_tiers',
                     column_config={
@@ -799,6 +801,7 @@ def _dyn_height(n_rows: int) -> int:
 def _trade_column_config(score_max_val: int) -> dict:
     cc = st.column_config
     return {
+        'trade_id': cc.TextColumn('Hash-ID', width='small'),
         'transaction_date': cc.DateColumn(
             'Transaction', format='DD.MM.YYYY', width='small'),
         'disclosure_date': cc.DateColumn(
@@ -813,6 +816,8 @@ def _trade_column_config(score_max_val: int) -> dict:
         'amount': cc.TextColumn('Amount Range', width='small'),
         'trade_volume_usd': cc.NumberColumn(
             'Trade Vol (USD)', format='$%d', width='medium'),
+        'trade_amount_max_usd': cc.NumberColumn(
+            'Kapital (USD)', format='$%d', width='medium'),
         'asset_tradingvolume_usd': cc.NumberColumn(
             'Asset Vol (USD)', format='$%d', width='medium'),
         'trade_score': cc.ProgressColumn(
@@ -919,7 +924,7 @@ def _member_column_config(score_max_val: int) -> dict:
 
 # --- Tabs ----------------------------------------------------------------
 tab_trades, tab_assets, tab_members, tab_detail = st.tabs(
-    ['Trades', 'Assets', 'Members', 'Trade-Detail'])
+    ['Trades', 'Assets', 'Members', 'Post Trade Performance'])
 
 with tab_trades:
     n = len(trade_rows)
@@ -937,7 +942,7 @@ with tab_trades:
                     if c in trade_rows.columns and c in trade_cols_sel]
     st.dataframe(
         trade_rows[display_cols],
-        use_container_width=True,
+        width='stretch',
         hide_index=True,
         height=_dyn_height(len(trade_rows)),
         column_config=_trade_column_config(max_score),
@@ -970,7 +975,7 @@ with tab_assets:
                    if len(assets_df) else 0)
     st.dataframe(
         assets_df[asset_display_cols] if asset_display_cols else assets_df,
-        use_container_width=True,
+        width='stretch',
         hide_index=True,
         height=_dyn_height(len(assets_df)),
         column_config=_asset_column_config(a_score_max),
@@ -1004,7 +1009,7 @@ with tab_members:
                    if len(members_df) else 0)
     st.dataframe(
         members_df[member_display_cols] if member_display_cols else members_df,
-        use_container_width=True,
+        width='stretch',
         hide_index=True,
         height=_dyn_height(len(members_df)),
         column_config=_member_column_config(m_score_max),
@@ -1012,8 +1017,8 @@ with tab_members:
 
 with tab_detail:
     st.caption('Drill-Down pro Trade: Preisverlauf + Exit-Marker. '
-               'Top-Trades nach effective_return_pct aus der aktuellen '
-               'Sidebar-Filterung.')
+               'Top-Trades nach Kapital (trade_amount_max_usd) aus '
+               'der aktuellen Sidebar-Filterung.')
 
     detail_pool = trade_rows.copy()
     has_detail_data = ('effective_return_pct' in detail_pool.columns
@@ -1027,12 +1032,74 @@ with tab_detail:
     elif detail_pool.empty:
         st.info('Keine Trades im aktuellen Filter.')
     else:
-        detail_pool['_abs_eff_ret'] = detail_pool[
-            'effective_return_pct'
-        ].abs()
         detail_pool = detail_pool.sort_values(
-            '_abs_eff_ret', ascending=False, na_position='last',
+            'trade_amount_max_usd', ascending=False, na_position='last',
         )
+
+        search_query = st.text_input(
+            'Suche (Name / Ticker / Hash-ID)',
+            value='',
+            key='detail_search',
+        ).strip()
+        if search_query:
+            name_mask = detail_pool['name'].astype(str).str.contains(
+                search_query, case=False, na=False,
+            )
+            ticker_mask = detail_pool['ticker'].astype(str).str.contains(
+                search_query, case=False, na=False,
+            )
+            trade_id_mask = pd.Series(False, index=detail_pool.index)
+            if 'trade_id' in detail_pool.columns:
+                trade_id_mask = detail_pool['trade_id'].astype(str).str.contains(
+                    search_query, case=False, na=False,
+                )
+            detail_pool = detail_pool[name_mask | ticker_mask | trade_id_mask]
+            if detail_pool.empty:
+                st.info(f'Keine Trades gefunden fuer "{search_query}".')
+                st.stop()
+
+        DEFAULT_SHOW = 25
+        EXPAND_STEP = 100
+        if 'detail_show_n' not in st.session_state:
+            st.session_state['detail_show_n'] = DEFAULT_SHOW
+
+        n_show = min(st.session_state['detail_show_n'], len(detail_pool))
+        top_pool = detail_pool.head(n_show)
+
+        top_columns = [
+            'trade_amount_max_usd', 'name', 'ticker',
+            'transaction_date', 'effective_return_pct',
+        ]
+        if 'trade_id' in top_pool.columns:
+            top_columns.insert(0, 'trade_id')
+        top_columns = [c for c in top_columns if c in top_pool.columns]
+
+        _max_score = max(
+            int(trade_rows['trade_score'].max()) if len(trade_rows) else 200,
+            200,
+        )
+        st.dataframe(
+            top_pool[top_columns],
+            width='stretch',
+            hide_index=True,
+            height=_dyn_height(len(top_pool)),
+            column_config=_trade_column_config(_max_score),
+        )
+
+        remaining = len(detail_pool) - n_show
+        if remaining > 0:
+            col_btn1, col_btn2 = st.columns([1, 3])
+            with col_btn1:
+                if st.button(f'{n_show} von {len(detail_pool):,} — '
+                             f'{remaining:,} weitere', key='detail_expand'):
+                    st.session_state['detail_show_n'] = min(
+                        n_show + EXPAND_STEP, len(detail_pool),
+                    )
+                    st.rerun()
+            with col_btn2:
+                if st.button('Alle anzeigen', key='detail_show_all'):
+                    st.session_state['detail_show_n'] = len(detail_pool)
+                    st.rerun()
 
         def _format_trade_option(idx):
             r = detail_pool.loc[idx]
@@ -1043,14 +1110,16 @@ with tab_detail:
                 pd.Timestamp(t_date).strftime('%Y-%m-%d')
                 if pd.notna(t_date) else '--'
             )
+            tid = r.get('trade_id', '')
+            tid_short = str(tid)[:8] if pd.notna(tid) else '--'
             return (
-                f"{date_str} | {r['name']} | {r['ticker']} | {ret_str}"
+                f"{date_str} | {r['name']} | {r['ticker']}"
+                f" | {ret_str} | ID:{tid_short}"
             )
 
-        top_n = min(50, len(detail_pool))
         selected_idx = st.selectbox(
-            'Trade auswaehlen',
-            options=detail_pool.index.tolist()[:top_n],
+            'Trade auswaehlen (fuer Chart-Detail)',
+            options=detail_pool.index.tolist(),
             format_func=_format_trade_option,
         )
         trade = detail_pool.loc[selected_idx]
@@ -1109,10 +1178,12 @@ with tab_detail:
 
             # Horizont-Vertikalen
             for h in settings.POST_TRADE_HORIZONS_DAYS:
-                fig.add_vline(
-                    x=t_date + pd.Timedelta(days=h),
-                    line_dash='dot', line_color='gray',
-                    annotation_text=f'{h}d',
+                x_h = t_date + pd.Timedelta(days=h)
+                fig.add_vline(x=x_h, line_dash='dot', line_color='gray')
+                fig.add_annotation(
+                    x=x_h, y=1.0, yref='paper', yanchor='bottom',
+                    text=f'{h}d', showarrow=False,
+                    font=dict(color='gray', size=10),
                 )
 
             # Exit-Marker
@@ -1167,7 +1238,7 @@ with tab_detail:
                 xaxis_title='Datum', yaxis_title='Kurs (USD)',
                 height=500, hovermode='x unified',
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
         # Zwei Tabellen nebeneinander
         col_left, col_right = st.columns(2)
@@ -1184,7 +1255,7 @@ with tab_detail:
             ctx_data = {k: trade[k] for k in ctx_available}
             st.dataframe(
                 pd.Series(ctx_data, name='Wert'),
-                use_container_width=True,
+                width='stretch',
             )
 
         with col_right:
@@ -1201,5 +1272,5 @@ with tab_detail:
             ret_data = {k: trade[k] for k in ret_available}
             st.dataframe(
                 pd.Series(ret_data, name='Wert'),
-                use_container_width=True,
+                width='stretch',
             )

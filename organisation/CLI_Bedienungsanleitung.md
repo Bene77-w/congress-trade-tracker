@@ -170,7 +170,7 @@ diese.
 
 ```bash
 # Direkter Stage-Lauf -> trades_master_complete.csv (mit auto-Backup)
-python scripts/import_trades.py --stage_post_trade_returns
+python scripts/import_trades.py --stage_post_trade_performance
 
 # Optional: kuratierte Sicht aktualisieren (falls Stage curated-relevante Spalten anfasst)
 python scripts/import_trades.py --regenerate_curated
@@ -202,7 +202,7 @@ python scripts/import_trades.py --stage_tickeropenfigi    # OpenFIGI-Normalisier
 python scripts/import_trades.py --stage_issuer_group      # Cross-Class Issuer Mapping (SEC EDGAR CIK)
 python scripts/import_trades.py --stage_tickeryfinance    # yfinance Sector/Industry
 python scripts/import_trades.py --stage_trade_volume      # trade_volume_usd aus Amount-Range (MUSS VOR post_trade_returns)
-python scripts/import_trades.py --stage_post_trade_returns  # Post-Trade-Preise + Exit-Detection (Modul 9.x, braucht trade_amount_max_usd)
+python scripts/import_trades.py --stage_post_trade_performance  # Post-Trade-Preise + Exit-Detection (Modul 9.x, braucht trade_amount_max_usd)
 python scripts/import_trades.py --stage_asset_volume      # Cross-Class Asset-Tradingvolume rolling-window
 python scripts/import_trades.py --stage_gates_tags        # Gates + Tags (Asset-Class, Committee, Vote-Timing)
 python scripts/import_trades.py --stage_branch1_signals   # Branch-1 Signale
@@ -769,7 +769,7 @@ House/Senate Member-CSVs, Subcommittee-Mappings, `yf_sectors_with_industries.csv
 ## 14. Streamlit Dashboard
 
 **Datei:** `app/streamlit_app.py`
-**Zweck:** Interaktive Web-UI zur Exploration von Trades, Assets und Members. Lädt `trades_master.csv` (gecached); Asset- und Member-Tab werden live aus dem gefilterten Trade-Subset aggregiert (reaktiv auf alle Filter).
+**Zweck:** Interaktive Web-UI zur Exploration von Trades, Assets, Members und Post-Trade-Performance. Lädt `trades_master.csv` (gecached); Asset- und Member-Tab werden live aus dem gefilterten Trade-Subset aggregiert (reaktiv auf alle Filter).
 
 ```bash
 # Linux/Mac
@@ -796,11 +796,13 @@ Default-Port: **8501** → im Browser öffnen: `http://localhost:8501`
 - **Ticker-Suche:** Substring auf `ticker` ODER `issuer_ticker` (uppercase)
 - **Min-Score:** Slider 0 .. max(50, max(trade_score))
 
-**Tabs:** Trades (Standard) | Assets | Members
+**Tabs:** Trades (Standard) | Assets | Members | Post Trade Performance
 
-**Trade-Tab:** enthält abgeleitete Spalte `relevant_sectors` (aus `Relevant_Sectors`-JSON, eindeutige Sektor-Namen kommagetrennt).
+**Trade-Tab:** enthält abgeleitete Spalte `relevant_sectors` (aus `Relevant_Sectors`-JSON, eindeutige Sektor-Namen kommagetrennt) + Spalte `trade_id` (Hash-ID).
 
 **Asset- und Member-Tab:** werden live aus dem gefilterten Trade-Subset aggregiert — alle Sidebar-Filter wirken. Min-Score greift auf `score_max` des Aggregats.
+
+**Post-Trade-Performance-Tab:** Top-25 nach Kapital (`trade_amount_max_usd`) sortiert + Ausklapp-Buttons (+100 / Alle anzeigen) + Freitext-Suche (Name / Ticker / Hash-ID, case-insensitive) + Performance-Charts (Preisverlauf, Exit-Status-Visualisierung).
 
 > **Hinweis:** Signal-Ausschluss löst einen Voll-Recompute auf dem gefilterten Subset aus
 > (via `scoring/trade_score.py`), damit Paradox-Dämpfung und Ex-Officio-Bonus konsistent

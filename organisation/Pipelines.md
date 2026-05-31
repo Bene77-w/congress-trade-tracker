@@ -212,7 +212,7 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
 --stage_issuer_group      # Cross-Class Issuer Mapping (SEC EDGAR CIK, P5.6)
 --stage_tickeryfinance    # yfinance Sector/Industry-Anreicherung
 --stage_trade_volume      # Trade-Volume aus Amount-Range → trade_volume_usd + trade_amount_max_usd (MUSS VOR post_trade_returns)
---stage_post_trade_returns  # Post-Trade-Preise + Exit-Detection (Modul 9.x, braucht trade_amount_max_usd)
+--stage_post_trade_performance  # Post-Trade-Preise + Exit-Detection (Modul 9.x, braucht trade_amount_max_usd)
 --stage_asset_volume      # Cross-Class Asset-Tradingvolume → asset_tradingvolume_usd
 --stage_gates_tags        # Gates + Tags (Asset-Class, Committee, Vote-Timing) + Scoring
 --stage_branch1_signals   # Branch-1 Signale (committee, ex_officio, floor_action, extreme_report)
@@ -303,14 +303,19 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
     → Neue Spalten (Suffix _yf): sector_yf, industry_yf, quote_type_yf
     → Preferred-Auto-Resolution via parent_ticker (EP$C → parent_ticker='EP' → yfinance(EP))
          ↓
-[8] Post-Trade Returns (NEU — Stage post_trade_returns)
+[8] Post-Trade Performance (NEU — Stage post_trade_performance)
     → scoring/post_trade_returns.compute_post_trade_returns(df, horizons_days, cache_path)
-    → Neue Spalten (14): post_trade_baseline_price, post_price_30d/60d/90d/120d,
+    → Neue Spalten (15): post_trade_baseline_price, post_price_30d/60d/90d/120d,
       post_return_30d/60d/90d/120d, exit_status, exit_date, exit_price,
-      exit_amount_max_usd, effective_return_pct, opposing_trade_ids
+      exit_amount_max_usd, effective_return_pct, effective_return_horizon_days,
+      opposing_trade_ids
     → Exit-Detection: gruppiert nach (name, issuer_group_key), chronologisch
     → Preisdaten von yfinance, gecached in data/cache/price_history.parquet
       (MultiIndex [ticker, date], Spalte close, TTL 7 Tage)
+    → Semantik-Aenderung effective_return_pct: bei held-Trades jetzt längster
+      verfügbarer (nicht-NaN) Horizont-Return (120 → 90 → 60 → 30) statt fix nur 120d.
+    → Semantik-Aenderung exit_status: kanonische Richtungserkennung via
+      _direction_from_transaction_type (handling Sale/Sale (Full)/Sale (Partial)/SALE)
     → Reihenfolge-Begruendung: nach tickeryfinance (Sektor-Daten bereits vorhanden),
       vor trade_volume (Volume unabhaengig von Preis-Daten)
          ↓

@@ -1,8 +1,8 @@
-# Briefing: Pipeline-Stage `post_trade_returns`
+# Briefing: Pipeline-Stage `post_trade_performance`
 
-> **Zielgruppe**: Folge-Agenten, die an `--stage_post_trade_returns`
+> **Zielgruppe**: Folge-Agenten, die an `--stage_post_trade_performance`
 > debuggen, erweitern oder Architektur-Entscheidungen treffen.
-> **Stand**: 2026-05-29 (nach Ticker-System-Refactor vom 28.05.2026).
+> **Stand**: 2026-05-31 (Stage-Rename + 3 Änderungen: neue Spalte + Semantik-Updates).
 > **Single-Source**: Pipeline-Details in `Pipelines.md`, Spalten in
 > `DATA_STRUCTURE.md`. Dieses Briefing fasst aktiv genutzte Bezüge
 > zusammen und markiert veraltete Konzepte.
@@ -39,7 +39,7 @@ ermittelt und gegensätzliche Trades desselben Politikers im
 Issuer-Bucket erkannt (Exit-Detection).
 
 **Pipeline-Position**: Stage #9 von 17 (Aufruf:
-`scripts/import_trades.py::_stage_post_trade_returns`, Z. 2115-2130;
+`scripts/import_trades.py::_stage_post_trade_performance`, Z. 2115-2130;
 weitere Aufrufe in Voll-Lauf-Pfaden Z. 2522 und 2812).
 
 **Implementierung**: `scoring/post_trade_returns.py::compute_post_trade_returns`
@@ -67,7 +67,7 @@ Validierung: `_check_stage_inputs` (im import_trades.py-Stage-Runner).
 
 ---
 
-## 3. Output (14 neue Spalten)
+## 3. Output (15 neue Spalten, +1 seit 2026-05-31)
 
 | Spalte | Inhalt |
 |---|---|
@@ -78,7 +78,8 @@ Validierung: `_check_stage_inputs` (im import_trades.py-Stage-Runner).
 | `exit_date` | Datum des gegensätzlichen Trades |
 | `exit_price` | Close am Exit-Datum |
 | `exit_amount_max_usd` | Kumulierte Gegenseite-USD |
-| `effective_return_pct` | Return bis Exit (oder bis Max-Horizont bei `held`) |
+| `effective_return_pct` | Bei closed_*: Return bis Exit; bei held: längster verfügbarer Horizont-Return |
+| `effective_return_horizon_days` | Zeithorizont in Tagen auf den sich effective_return_pct bezieht (NEW) |
 | `opposing_trade_ids` | Semikolon-separierte trade_ids der Gegen-Trades |
 
 Spalten-Definitionen sind in `DATA_STRUCTURE.md` (Post-Trade-Sektion)
@@ -130,6 +131,41 @@ Status:
 - `delisted` — Cache hat Marker-Row (siehe §6)
 - `unknown` — Ticker kein Preis-Hit
 - `not_applicable` — Trade hat Filter aus §4 nicht passiert
+
+---
+
+## 5.5. Änderungen seit 2026-05-31
+
+Drei semantische Updates + neue Spalte:
+
+### Änderung 1: `effective_return_horizon_days` (neue Spalte)
+Pro Trade wird jetzt auch dokumentiert, auf welchen Zeithorizont sich
+`effective_return_pct` bezieht:
+- **closed_full / closed_partial**: Anzahl Tage zwischen `transaction_date` und `exit_date`
+- **held**: tatsächlich verwendeter Horizont (120/90/60/30 — siehe Änderung 2)
+- **delisted / unknown / not_applicable**: NaN
+
+### Änderung 2: `effective_return_pct` (Semantik)
+**Für `held`-Trades**: Nutzt jetzt den **längsten VERFÜGBAREN** (nicht-NaN)
+Horizont-Return in dieser Reihenfolge: 120 → 90 → 60 → 30 Tage.
+
+**Hintergrund**: junge Trades (< 120 Tage alt) haben `post_return_120d = NaN`
+(Zukunftshorizont). Statt den Trade als `held` und NaN-Return zu markieren,
+suchen wir den längsten verf ügbaren Horizont raus (z.B. 90d wenn 120d noch NaN).
+
+**Effekt auf Realdata** (112.663 Trades, 30.05.2026): NaN-Anteil in
+`effective_return_pct` fiel von 23,5 % → 17,7 %. `not_applicable` fiel von
+7.489 auf 1.753 (siehe Änderung 3).
+
+### Änderung 3: `exit_status` — kanonische Richtungserkennung
+Die Exit-Erkennung nutzt jetzt den kanonischen Helper
+`_direction_from_transaction_type()` (aus `signals/committee_signal.py`) statt
+exaktem String-Vergleich. Damit werden transaction_type-Varianten korrekt erkannt:
+- `'Purchase'`, `'PURCHASE'`, etc. → buy
+- `'Sale'`, `'Sale (Full)'`, `'Sale (Partial)'`, `'SALE'`, etc. → sell
+- `'Exchange'` bleibt `not_applicable` (Richtung 'other', genuin ambig)
+
+**Keine Auswirkung auf Code-Korrektheit** — alle neuen Spalten sind NaN/Not-Applicable-sicher.
 
 ---
 

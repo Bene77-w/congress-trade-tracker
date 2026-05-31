@@ -17,7 +17,7 @@ Stage-Pipeline (einzelne Schritte, re-runnable):
   --stage_issuer_group      # Cross-Class Issuer Mapping (SEC EDGAR CIK, P5.6)
   --stage_tickeryfinance    # yfinance Sector/Industry-Anreicherung
   --stage_trade_volume      # trade_volume_usd aus Amount-Range (Modul 8.1)
-  --stage_post_trade_returns # Post-Trade-Preise + Exit-Detection (Modul 9.x)
+  --stage_post_trade_performance # Post-Trade-Preise + Exit-Detection (Modul 9.x)
   --stage_asset_volume      # Cross-Class Asset-Tradingvolume rolling-window (Modul 8.2)
   --stage_gates_tags        # Pipeline-Gates + Tags (Asset-Class, Committee, Vote-Timing)
   --stage_branch1_signals   # Branch-1 Signale (committee, ex_officio, floor_action, extreme_report)
@@ -254,11 +254,11 @@ STAGE_DEPS = {
         # parse 'amount' (Quiver-Range-String) -> zwei Spalten:
         # - trade_volume_usd (Mittelpunkt, fuer Aggregate)
         # - trade_amount_max_usd (Obergrenze, Score-Basis fuer trade_volume-Signal)
-        # MUSS vor post_trade_returns laufen (Input-Abhaengigkeit).
+        # MUSS vor post_trade_performance laufen (Input-Abhaengigkeit).
         'input_cols': ['amount'],
         'output_cols': ['trade_volume_usd', 'trade_amount_max_usd'],
     },
-    'post_trade_returns': {
+    'post_trade_performance': {
         # Post-Trade-Preise + Exit-Detection (Modul 9.x).
         # Cache: data/cache/price_history.parquet (yfinance 5y Daily).
         # trade_amount_max_usd kommt aus Stage 'trade_volume'.
@@ -272,7 +272,7 @@ STAGE_DEPS = {
                        'post_return_90d', 'post_return_120d',
                        'exit_status', 'exit_date', 'exit_price',
                        'exit_amount_max_usd', 'effective_return_pct',
-                       'opposing_trade_ids'],
+                       'effective_return_horizon_days', 'opposing_trade_ids'],
     },
     'asset_volume': {
         # Phase 8.2: Cross-Class rolling-window Sum(trade_volume_usd) ueber
@@ -2112,11 +2112,11 @@ class TradeImporter:
         print(f"      {n_sector:,}/{len(df):,} mit Sektor angereichert")
         self._write_stage_output(df, 'tickeryfinance', delta, dry_run)
 
-    def _stage_post_trade_returns(self, delta: bool = False, dry_run: bool = False):
+    def _stage_post_trade_performance(self, delta: bool = False, dry_run: bool = False):
         """Stage: Post-Trade-Preise + Exit-Detection (Modul 9.x)."""
-        print(f"\n[Stage: post_trade_returns] Post-Trade-Preise + Exit-Detection...")
-        df = self._read_stage_input('post_trade_returns', delta, dry_run)
-        self._check_stage_inputs('post_trade_returns', df)
+        print(f"\n[Stage: post_trade_performance] Post-Trade-Preise + Exit-Detection...")
+        df = self._read_stage_input('post_trade_performance', delta, dry_run)
+        self._check_stage_inputs('post_trade_performance', df)
         cache_path = os.path.join(BASE_DIR, settings.POST_TRADE_PRICE_CACHE)
         df = compute_post_trade_returns(
             df,
@@ -2128,7 +2128,7 @@ class TradeImporter:
             cache_flush_every=settings.POST_TRADE_CACHE_FLUSH_EVERY,
             progress_every=settings.POST_TRADE_PROGRESS_EVERY,
         )
-        self._write_stage_output(df, 'post_trade_returns', delta, dry_run)
+        self._write_stage_output(df, 'post_trade_performance', delta, dry_run)
 
     def _stage_trade_volume(self, delta: bool = False, dry_run: bool = False):
         """Stage: berechnet zwei Volumen-Spalten aus der Disclosure-Amount-Range.
@@ -2498,7 +2498,7 @@ class TradeImporter:
         enriched_df['quote_type_yf']      = [s.quote_type_yf for s in sector_infos]
 
         # 9. Trade-Volume (Mittelpunkt + Max der Amount-Range)
-        # MUSS vor post_trade_returns laufen, da post_trade_returns
+        # MUSS vor post_trade_performance laufen, da post_trade_performance
         # trade_amount_max_usd als Input erwartet.
         print("\n[9/17] Trade-Volume aus Amount-Range berechnen...")
         enriched_df['trade_volume_usd'] = enriched_df['amount'].map(midpoint_usd).astype('int64')
@@ -2539,7 +2539,7 @@ class TradeImporter:
             'post_return_90d', 'post_return_120d',
             'exit_status', 'exit_date', 'exit_price',
             'exit_amount_max_usd', 'effective_return_pct',
-            'opposing_trade_ids',
+            'effective_return_horizon_days', 'opposing_trade_ids',
         ]
         for col in ptr_out_cols:
             if col in ptr_combined.columns:
@@ -2802,7 +2802,7 @@ class TradeImporter:
         df['quote_type_yf']      = [s.quote_type_yf for s in sector_infos]
 
         # 8. Trade-Volume (Mittelpunkt + Max der Amount-Range)
-        # MUSS vor post_trade_returns laufen, da post_trade_returns
+        # MUSS vor post_trade_performance laufen, da post_trade_performance
         # trade_amount_max_usd als Input erwartet.
         print("\n[8/17] Trade-Volume aus Amount-Range berechnen...")
         df['trade_volume_usd'] = df['amount'].map(midpoint_usd).astype('int64')
@@ -2959,7 +2959,7 @@ def main():
                         help='Stage: Cross-Class Issuer Mapping (SEC EDGAR CIK, P5.6)')
     parser.add_argument('--stage_tickeryfinance', action='store_true',
                         help='Stage: yfinance Sector/Industry-Anreicherung')
-    parser.add_argument('--stage_post_trade_returns', action='store_true',
+    parser.add_argument('--stage_post_trade_performance', action='store_true',
                         help='Stage: Post-Trade-Preise + Exit-Detection (Modul 9.x)')
     parser.add_argument('--stage_trade_volume', action='store_true',
                         help='Stage: trade_volume_usd aus Amount-Range berechnen (Modul 8)')
@@ -3002,7 +3002,7 @@ def main():
         'issuer_group': args.stage_issuer_group,
         'tickeryfinance': args.stage_tickeryfinance,
         'trade_volume': args.stage_trade_volume,
-        'post_trade_returns': args.stage_post_trade_returns,
+        'post_trade_performance': args.stage_post_trade_performance,
         'asset_volume': args.stage_asset_volume,
         'gates_tags': args.stage_gates_tags,
         'branch1_signals': args.stage_branch1_signals,

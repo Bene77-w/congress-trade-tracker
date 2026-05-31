@@ -553,3 +553,132 @@ def test_build_price_lookup_drops_delisted_marker(multi_cache):
 def test_build_price_lookup_empty_cache():
     empty = _load_price_cache('/tmp/_does_not_exist_xyz.parquet')
     assert _build_price_lookup(empty) == {}
+
+
+# ---------------------------------------------------------------------------
+# 21. transaction_type-Kanonisierung: 'Sale (Full)' / 'Sale (Partial)' / Caps
+#     werden als opposing Sell erkannt (Fix Root Cause #2a).
+# ---------------------------------------------------------------------------
+
+def test_exit_sale_full_recognized_as_opposing(sample_cache):
+    """'Sale (Full)' muss als Verkauf gegen einen Purchase zaehlen -> closed_full.
+
+    Vorher (exakter String-Match 'Sale'): not_applicable / held.
+    """
+    df = pd.DataFrame([
+        _make_trade_row(trade_id='T1', transaction_date='2025-06-02',
+                        transaction_type='Purchase', trade_amount_max_usd=50_000),
+        _make_trade_row(trade_id='T2', transaction_date='2025-06-20',
+                        transaction_type='Sale (Full)', trade_amount_max_usd=60_000),
+    ])
+    df['_post_trade_applicable'] = df.apply(_is_applicable, axis=1)
+    cols = _compute_exit_columns(df, sample_cache, 120, 0.0)
+    assert cols['exit_status'].iloc[0] == 'closed_full'
+    assert cols['opposing_trade_ids'].iloc[0] == 'T2'
+    # Der Sell selbst hat keinen opposing Buy danach -> held (nicht not_applicable)
+    assert cols['exit_status'].iloc[1] == 'held'
+
+
+def test_exit_sale_partial_label_recognized(sample_cache):
+    """'Sale (Partial)' als Label zaehlt ebenfalls als Sell-Richtung."""
+    df = pd.DataFrame([
+        _make_trade_row(trade_id='T1', transaction_date='2025-06-02',
+                        transaction_type='Purchase', trade_amount_max_usd=50_000),
+        _make_trade_row(trade_id='T2', transaction_date='2025-06-20',
+                        transaction_type='Sale (Partial)', trade_amount_max_usd=20_000),
+    ])
+    df['_post_trade_applicable'] = df.apply(_is_applicable, axis=1)
+    cols = _compute_exit_columns(df, sample_cache, 120, 0.0)
+    assert cols['exit_status'].iloc[0] == 'closed_partial'
+    assert cols['opposing_trade_ids'].iloc[0] == 'T2'
+
+
+def test_exit_uppercase_types_recognized(sample_cache):
+    """'PURCHASE' / 'SALE' (Caps) werden kanonisiert."""
+    df = pd.DataFrame([
+        _make_trade_row(trade_id='T1', transaction_date='2025-06-02',
+                        transaction_type='PURCHASE', trade_amount_max_usd=50_000),
+        _make_trade_row(trade_id='T2', transaction_date='2025-06-20',
+                        transaction_type='SALE', trade_amount_max_usd=60_000),
+    ])
+    df['_post_trade_applicable'] = df.apply(_is_applicable, axis=1)
+    cols = _compute_exit_columns(df, sample_cache, 120, 0.0)
+    assert cols['exit_status'].iloc[0] == 'closed_full'
+
+
+def test_exit_exchange_stays_not_applicable_regression(sample_cache):
+    """REGRESSION: 'Exchange' bleibt not_applicable (Decision: nicht auf buy/sell mappen)."""
+    df = pd.DataFrame([
+        _make_trade_row(trade_id='T1', transaction_date='2025-06-02',
+                        transaction_type='Purchase', trade_amount_max_usd=50_000),
+        _make_trade_row(trade_id='T2', transaction_date='2025-06-20',
+                        transaction_type='Exchange', trade_amount_max_usd=60_000),
+    ])
+    df['_post_trade_applicable'] = df.apply(_is_applicable, axis=1)
+    cols = _compute_exit_columns(df, sample_cache, 120, 0.0)
+    # Exchange ist kein opposing -> Purchase bleibt held; Exchange selbst not_applicable
+    assert cols['exit_status'].iloc[0] == 'held'
+    assert cols['exit_status'].iloc[1] == 'not_applicable'
+
+
+# ---------------------------------------------------------------------------
+# 22. held-effective_return: laengster VERFUEGBARER Horizont + Begleitspalte
+#     (Fix Root Cause #2b).
+# ---------------------------------------------------------------------------
+
+def test_held_effective_uses_longest_available_horizon(sample_cache, monkeypatch):
+    """held-Trade, dessen 60/90/120d-Preise nicht im Cache liegen (Cache endet
+    2025-07-31), faellt auf den verfuegbaren 30d-Horizont zurueck.
+    effective_return_horizon_days muss 30 sein.
+    """
+    import scoring.post_trade_returns as ptr
+    monkeypatch.setattr(ptr, '_load_price_cache', lambda path: sample_cache)
+    monkeypatch.setattr(ptr, '_save_price_cache', lambda df, path: None)
+    monkeypatch.setattr(
+        ptr, '_ensure_cache_for_tickers',
+        lambda cache, tickers, **kw: cache,
+    )
+    df = pd.DataFrame([
+        _make_trade_row(trade_id='T1', transaction_date='2025-06-02',
+                        transaction_type='Purchase'),
+    ])
+    result = compute_post_trade_returns(
+        df, horizons_days=[30, 60, 90, 120],
+        cache_path='/tmp/_test_ptr_held_horizon.parquet',
+    )
+    # 30d (Jul 2) ist im Cache, 60/90/120d (ab Aug) nicht -> NaN
+    assert pd.notna(result['post_return_30d'].iloc[0])
+    assert pd.isna(result['post_return_120d'].iloc[0])
+    # effective faellt auf 30d zurueck statt NaN
+    assert result['exit_status'].iloc[0] == 'held'
+    assert result['effective_return_horizon_days'].iloc[0] == 30
+    assert result['effective_return_pct'].iloc[0] == pytest.approx(
+        result['post_return_30d'].iloc[0])
+    if os.path.isfile('/tmp/_test_ptr_held_horizon.parquet'):
+        os.remove('/tmp/_test_ptr_held_horizon.parquet')
+
+
+def test_closed_effective_horizon_is_days_to_exit(sample_cache, monkeypatch):
+    """Bei closed_* = Tage zwischen Trade und Exit."""
+    import scoring.post_trade_returns as ptr
+    monkeypatch.setattr(ptr, '_load_price_cache', lambda path: sample_cache)
+    monkeypatch.setattr(ptr, '_save_price_cache', lambda df, path: None)
+    monkeypatch.setattr(
+        ptr, '_ensure_cache_for_tickers',
+        lambda cache, tickers, **kw: cache,
+    )
+    df = pd.DataFrame([
+        _make_trade_row(trade_id='T1', transaction_date='2025-06-02',
+                        transaction_type='Purchase', trade_amount_max_usd=50_000),
+        _make_trade_row(trade_id='T2', transaction_date='2025-06-20',
+                        transaction_type='Sale', trade_amount_max_usd=60_000),
+    ])
+    result = compute_post_trade_returns(
+        df, horizons_days=[30, 60],
+        cache_path='/tmp/_test_ptr_closed_horizon.parquet',
+    )
+    assert result['exit_status'].iloc[0] == 'closed_full'
+    # 2025-06-02 -> 2025-06-20 = 18 Tage
+    assert result['effective_return_horizon_days'].iloc[0] == 18
+    if os.path.isfile('/tmp/_test_ptr_closed_horizon.parquet'):
+        os.remove('/tmp/_test_ptr_closed_horizon.parquet')

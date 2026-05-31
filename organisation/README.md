@@ -18,7 +18,7 @@ Python + Streamlit Anwendung zur Analyse von US-Kongress-Aktienhandel. Scrapt of
 | 6 | ✅ Fertig | Vote-Timing aktiv. VoteTimingTag extrahiert Roll-Calls direkt aus `bill_actions.json` (Floor Votes in `actions[*].roll_call[*]`). Sektor-Match über `legislative_subject_mapping_complete.csv`. FloorActionSignal triggert bei `Vote_Timing_Hit_Count ≥ 1`. Smoke-Run 20.05.2026: 5.357 Hits / 111.986 Trades. |
 | 7 | ✅ Fertig (P1–P7) | Signal-Architektur (Gate/Tag/Signal): Gates+Tags ✅, Branch-1 Signale ✅ (P2+P3+P3.5), Suspicious-Export ✅ (P4), OpenFIGI-Coverage + `share_class_figi` ✅ (P5), `issuer_ticker` Share-Class-Level ✅ (P5.5), Cross-Class Issuer Mapping via SEC EDGAR CIK ✅ (P5.6), **Schwarm-Signale ✅ (P6)** — 4 Signale auf Issuer-Group-Ebene: `swarm_buy`/`swarm_sell` (Greedy-Cluster), `swarm_conflict` (1 Gegen-Trade im erweiterten Fenster), `swarm_paradox` (≥2 Gegen-Trades, mutually exclusive). Cross-Class via `issuer_group_key` (GOOGL+GOOG → CIK:1652044). Smoke-Run: 24.926 Schwarm-Events auf 111.986 Trades. |
 | 8 | 🔧 In Arbeit | Scoring-System. Phasen 8.1–8.5 ✅. Pipeline 16 Stages, 5 Trade-Spalten + Aggregat-Spalten in Views. 61 Tests grün. Phase 8.6 (Voll-Pipeline-Smoke-Run) offen. Formel + Settings: [Filter_Instanz_Parameter.md](Filter_Instanz_Parameter.md). Historie: `../CHANGELOG.md`. |
-| 9 | 🔧 Offen | Streamlit Dashboard (sortierbare Tabelle, Filter-UI) |
+| 9 | 🔧 In Arbeit (MVP + Post-Trade-Performance-Tab FERTIG) | Streamlit Dashboard. 4 Tabs (Trades / Assets / Members / Post Trade Performance). Trade-Tab mit `trade_id` (Hash-ID). Post-Trade-Performance-Tab: Top-25 nach Kapital + Suche + Charts. |
 | 10 | 🔧 Offen | E-Mail-Benachrichtigungen (SMTP) |
 | 11 | 🔧 Offen | Automatisierung & Scheduler (APScheduler) |
 

@@ -66,3 +66,12 @@ data/raw/.claude/
 # Temporäre DB-Backups
 data/cache/*.db.bak*
 data/congress_api/.force_in_progress
+
+# yfinance-Preis-Cache (regenerierbar via Pipeline)
+data/cache/price_history.parquet
+
+# Playwright-MCP-Artefakte (temporär)
+.playwright-mcp/
+
+# opencode-Config (lokal)
+opencode.json

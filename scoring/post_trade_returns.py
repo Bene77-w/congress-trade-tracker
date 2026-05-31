@@ -391,7 +391,7 @@ def compute_post_trade_returns(
     Output-Spalten (zusaetzlich):
         post_trade_baseline_price, post_price_{X}d, post_return_{X}d,
         exit_status, exit_date, exit_price, exit_amount_max_usd,
-        effective_return_pct, opposing_trade_ids
+        effective_return_pct, effective_return_horizon_days, opposing_trade_ids
     """
     # yfinance- + urllib-Logger leiser stellen — die Stage hat ihre eigene Progress-Anzeige.
     logging.getLogger('yfinance').setLevel(logging.CRITICAL)
@@ -498,13 +498,16 @@ def compute_post_trade_returns(
     for col_name, series in exit_cols.items():
         df[col_name] = series.values
 
-    # --- effective_return_pct (vektorisiert) ---
-    # closed_*: Return bis Exit-Preis; held: Return am Max-Horizont;
+    # --- effective_return_pct + effective_return_horizon_days (vektorisiert) ---
+    # closed_*: Return bis Exit-Preis (Horizont = Tage bis Exit);
+    # held: Return am LAENGSTEN VERFUEGBAREN Horizont (120 -> 90 -> 60 -> 30),
+    #       da der Max-Horizont bei jungen Trades noch in der Zukunft liegt;
     # delisted/unknown/not_applicable -> NaN.
-    max_return_col = f'post_return_{max_horizon}d'
     df['effective_return_pct'] = np.nan
+    df['effective_return_horizon_days'] = np.nan
     status = df['exit_status']
     baseline_col = df['post_trade_baseline_price']
+
     closed_mask = (
         status.isin(['closed_full', 'closed_partial'])
         & baseline_col.notna() & (baseline_col > 0)
@@ -514,9 +517,21 @@ def compute_post_trade_returns(
         df.loc[closed_mask, 'exit_price']
         / df.loc[closed_mask, 'post_trade_baseline_price'] - 1.0
     ) * 100.0
-    if max_return_col in df.columns:
-        held_mask = status == 'held'
-        df.loc[held_mask, 'effective_return_pct'] = df.loc[held_mask, max_return_col]
+    df.loc[closed_mask, 'effective_return_horizon_days'] = (
+        (df.loc[closed_mask, 'exit_date']
+         - df.loc[closed_mask, 'transaction_date']).dt.days
+    )
+
+    # held: ersten nicht-NaN Horizont-Return von gross nach klein nehmen.
+    held_mask = status == 'held'
+    if held_mask.any():
+        for h in sorted(horizons_days, reverse=True):
+            col = f'post_return_{h}d'
+            if col not in df.columns:
+                continue
+            take = held_mask & df['effective_return_pct'].isna() & df[col].notna()
+            df.loc[take, 'effective_return_pct'] = df.loc[take, col]
+            df.loc[take, 'effective_return_horizon_days'] = h
 
     # --- Aufraeumen ---
     df.drop(columns=['_post_trade_applicable'], inplace=True)
@@ -593,10 +608,16 @@ def _compute_exit_columns(
         except Exception:  # noqa: BLE001
             delisted_tickers = set()
 
-    # Nur applicable Trades mit Purchase/Sale fuer Exit-Suche.
+    # Nur applicable Trades mit kanonischer Buy/Sell-Richtung fuer Exit-Suche.
+    # _direction_from_transaction_type normalisiert Quiver-Varianten:
+    # 'Sale (Full)'/'Sale (Partial)'/'SALE' -> 'sell', 'PURCHASE' -> 'buy',
+    # 'Exchange' -> 'other' (bleibt not_applicable). Lokaler Import wie in
+    # import_trades.py (vermeidet Modul-Lade-Reihenfolge-Probleme).
+    from signals.committee_signal import _direction_from_transaction_type
+    direction_all = df['transaction_type'].map(_direction_from_transaction_type)
     mask = (
         df['_post_trade_applicable']
-        & df['transaction_type'].isin(['Purchase', 'Sale'])
+        & direction_all.isin(['buy', 'sell'])
         & df['transaction_date'].notna()
     )
     if not mask.any():
@@ -617,6 +638,7 @@ def _compute_exit_columns(
     work['transaction_date'] = pd.to_datetime(
         work['transaction_date'], errors='coerce',
     )
+    work['_dir'] = work['transaction_type'].map(_direction_from_transaction_type)
     work['_grp'] = (
         work['name'].astype(str).str.strip() + '|||'
         + work['issuer_group_key'].astype(str).str.strip()
@@ -637,7 +659,7 @@ def _compute_exit_columns(
         for _, trade in grp_sorted.iterrows():
             idx = trade.name
             t_date = trade['transaction_date']
-            t_type = trade['transaction_type']
+            t_dir = trade['_dir']
             t_max_usd = trade['trade_amount_max_usd']
             if pd.isna(t_max_usd) or t_max_usd <= 0:
                 exit_status.at[idx] = 'not_applicable'
@@ -652,9 +674,9 @@ def _compute_exit_columns(
                 continue
 
             window_end = t_date + pd.Timedelta(days=max_horizon)
-            opposing_type = 'Sale' if t_type == 'Purchase' else 'Purchase'
+            opposing_dir = 'sell' if t_dir == 'buy' else 'buy'
             opposing = grp_sorted[
-                (grp_sorted['transaction_type'] == opposing_type)
+                (grp_sorted['_dir'] == opposing_dir)
                 & (grp_sorted['transaction_date'] > t_date)
                 & (grp_sorted['transaction_date'] <= window_end)
             ]
