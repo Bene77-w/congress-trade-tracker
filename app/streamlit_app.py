@@ -431,7 +431,22 @@ st.markdown(
     .stTextInput input, .stNumberInput input, .stSelectbox > div {
         background: #0f1622 !important;
         color: #e5e7eb !important;
-        border-color: #334155 !important;
+        border-color: #64748b !important;
+    }
+    /* Sichtbarer Rahmen sitzt auf dem BaseWeb-Wrapper, nicht auf <input> */
+    .stTextInput div[data-baseweb="input"],
+    .stTextInput div[data-baseweb="base-input"],
+    .stNumberInput div[data-baseweb="input"],
+    .stSelectbox div[data-baseweb="select"] > div {
+        border: 1px solid #64748b !important;
+        border-radius: 8px !important;
+        background: #0f1622 !important;
+    }
+    .stTextInput div[data-baseweb="input"]:focus-within,
+    .stNumberInput div[data-baseweb="input"]:focus-within,
+    .stSelectbox div[data-baseweb="select"] > div:focus-within {
+        border-color: #3b82f6 !important;
+        box-shadow: 0 0 0 1px #3b82f6 !important;
     }
 
     /* ---- Caption ---- */
@@ -501,12 +516,14 @@ with st.sidebar:
         )
         window_days = {'7 Tage': 7, '30 Tage': 30,
                        '365 Tage': 365, 'Alles': None}[window_label]
-        member_query = st.text_input(
-            'Member (Substring)', value='',
+        search_query = st.text_input(
+            'Suche (Name / Ticker / Hash-ID)', value='',
+            help='Mehrere Begriffe werden UND-verknuepft und sind '
+                 'reihenfolge-unabhaengig (z.B. "tina smith" findet '
+                 '"Smith, Tina"). Durchsucht Name, Ticker, Issuer und '
+                 'Hash-ID. Wirkt in allen Tabs; Datums-/Score-Filter '
+                 'bleiben aktiv.',
         ).strip()
-        ticker_query = st.text_input(
-            'Ticker (Substring)', value='',
-        ).strip().upper()
 
     with st.expander('🎯  Score & Sortierung', expanded=True):
         sort_dir = st.radio(
@@ -741,6 +758,33 @@ with st.sidebar:
 
 # --- Pre-Filter (Datum + Member + Ticker) --------------------------------
 
+_SEARCH_FIELDS = ['name', 'ticker', 'issuer_ticker', 'trade_id']
+
+
+def _search_mask(df: pd.DataFrame, query: str) -> pd.Series:
+    """Token-basierte, reihenfolge-unabhaengige Volltextsuche.
+
+    Pro Zeile wird ein durchsuchbarer Text aus ``name``/``ticker``/
+    ``issuer_ticker``/``trade_id`` (lowercase, space-join) gebildet. Die
+    Query wird an Whitespace in Tokens gesplittet; eine Zeile matcht, wenn
+    JEDES Token als Substring vorkommt (UND-Verknuepfung). Dadurch findet
+    z.B. "tina smith" auch den Namen "Smith, Tina".
+    """
+    tokens = query.lower().split()
+    if not tokens:
+        return pd.Series(True, index=df.index)
+    cols = [c for c in _SEARCH_FIELDS if c in df.columns]
+    haystack = pd.Series('', index=df.index)
+    for c in cols:
+        haystack = haystack.str.cat(
+            df[c].astype('string').fillna('').str.lower(), sep=' ',
+        )
+    mask = pd.Series(True, index=df.index)
+    for tok in tokens:
+        mask &= haystack.str.contains(tok, regex=False, na=False)
+    return mask
+
+
 def apply_prefilter(df: pd.DataFrame) -> pd.DataFrame:
     out = df
 
@@ -751,17 +795,8 @@ def apply_prefilter(df: pd.DataFrame) -> pd.DataFrame:
             cutoff = max_date - pd.Timedelta(days=window_days)
             out = out[date_col >= cutoff]
 
-    if member_query:
-        mask = out['name'].astype('string').str.contains(
-            member_query, case=False, na=False,
-        )
-        out = out[mask]
-
-    if ticker_query:
-        tkr = out['ticker'].astype('string').str.upper().fillna('')
-        iss = out['issuer_ticker'].astype('string').str.upper().fillna('')
-        out = out[tkr.str.contains(ticker_query, na=False)
-                  | iss.str.contains(ticker_query, na=False)]
+    if search_query:
+        out = out[_search_mask(out, search_query)]
 
     return out
 
@@ -1017,8 +1052,8 @@ with tab_members:
 
 with tab_detail:
     st.caption('Drill-Down pro Trade: Preisverlauf + Exit-Marker. '
-               'Top-Trades nach Kapital (trade_amount_max_usd) aus '
-               'der aktuellen Sidebar-Filterung.')
+               'Top-Trades nach Score (trade_score) aus '
+               'der aktuellen Sidebar-Filterung (inkl. Suche).')
 
     detail_pool = trade_rows.copy()
     has_detail_data = ('effective_return_pct' in detail_pool.columns
@@ -1033,30 +1068,9 @@ with tab_detail:
         st.info('Keine Trades im aktuellen Filter.')
     else:
         detail_pool = detail_pool.sort_values(
-            'trade_amount_max_usd', ascending=False, na_position='last',
+            'trade_score', ascending=(sort_dir == 'aufsteigend'),
+            kind='mergesort', na_position='last',
         )
-
-        search_query = st.text_input(
-            'Suche (Name / Ticker / Hash-ID)',
-            value='',
-            key='detail_search',
-        ).strip()
-        if search_query:
-            name_mask = detail_pool['name'].astype(str).str.contains(
-                search_query, case=False, na=False,
-            )
-            ticker_mask = detail_pool['ticker'].astype(str).str.contains(
-                search_query, case=False, na=False,
-            )
-            trade_id_mask = pd.Series(False, index=detail_pool.index)
-            if 'trade_id' in detail_pool.columns:
-                trade_id_mask = detail_pool['trade_id'].astype(str).str.contains(
-                    search_query, case=False, na=False,
-                )
-            detail_pool = detail_pool[name_mask | ticker_mask | trade_id_mask]
-            if detail_pool.empty:
-                st.info(f'Keine Trades gefunden fuer "{search_query}".')
-                st.stop()
 
         DEFAULT_SHOW = 25
         EXPAND_STEP = 100
@@ -1067,7 +1081,7 @@ with tab_detail:
         top_pool = detail_pool.head(n_show)
 
         top_columns = [
-            'trade_amount_max_usd', 'name', 'ticker',
+            'trade_score', 'trade_amount_max_usd', 'name', 'ticker',
             'transaction_date', 'effective_return_pct',
         ]
         if 'trade_id' in top_pool.columns:
