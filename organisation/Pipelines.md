@@ -380,19 +380,28 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
     → Neue Spalten (Suffix _yf): sector_yf, industry_yf, quote_type_yf
     → Preferred-Auto-Resolution via parent_ticker (EP$C → parent_ticker='EP' → yfinance(EP))
          ↓
-[8] Post-Trade Performance (NEU — Stage post_trade_performance)
-    → scoring/post_trade_returns.compute_post_trade_returns(df, horizons_days, cache_path)
-    → Neue Spalten (15): post_trade_baseline_price, post_price_30d/60d/90d/120d,
-      post_return_30d/60d/90d/120d, exit_status, exit_date, exit_price,
+[8] Post-Trade Performance (NEU — Stage post_trade_performance, **2026-06-04: Exit-Entkopplung**)
+    → scoring/post_trade_returns.compute_post_trade_returns(df, horizons_days, exit_window_days, cache_path)
+    → Spalten (19 = 16 bisher + 3 neu: post_price_180d, post_return_180d, first_close_offset_days):
+      post_trade_baseline_price, post_price_30d/60d/90d/120d/180d,
+      post_return_30d/60d/90d/120d/180d, first_close_offset_days, exit_status, exit_date, exit_price,
       exit_amount_max_usd, effective_return_pct, effective_return_horizon_days,
       opposing_trade_ids
+    → **Exit-Fenster-Entkopplung (2026-06-04):**
+        - Settings.EXIT_DETECTION_WINDOW_DAYS (Default None=unbegrenzt) entkoppelt vom Return-Horizont
+        - Exit-Suche nutzt exit_window_days (kann >120 Tage sein oder unbegrenzt)
+        - Return-Snapshots bleiben an POST_TRADE_HORIZONS_DAYS gebunden
+        - 180-Tage-Horizont hinzugefuegt (dynamisch mit POST_TRADE_HORIZONS_DAYS)
+        - Konsequenz: held-Trades sinken massiv (mehr Exits gefunden außerhalb 120d)
+        - Neue Spalte first_close_offset_days: Tage bis ERSTEM Gegen-Trade (Hilfe für Sichtbarkeitsfilter)
+    → **Semantik held→NaN (2026-06-04):**
+        - effective_return_pct: Nur bei closed_* gesetzt; held/delisted/unknown/not_applicable → NaN
+        - effective_return_horizon_days: Nur bei closed_* gesetzt; sonst NaN
+        - Mark-to-Market bleibt in post_return_{X}d (nicht betroffen)
     → Exit-Detection: gruppiert nach (name, issuer_group_key), chronologisch
     → Preisdaten von yfinance, gecached in data/cache/price_history.parquet
       (MultiIndex [ticker, date], Spalte close, TTL 7 Tage)
-    → Semantik-Aenderung effective_return_pct: bei held-Trades jetzt längster
-      verfügbarer (nicht-NaN) Horizont-Return (120 → 90 → 60 → 30) statt fix nur 120d.
-    → Semantik-Aenderung exit_status: kanonische Richtungserkennung via
-      _direction_from_transaction_type (handling Sale/Sale (Full)/Sale (Partial)/SALE)
+    → Kanonische Richtungserkennung via _direction_from_transaction_type (handling Sale/Sale (Full)/Sale (Partial)/SALE)
     → Reihenfolge-Begruendung: nach tickeryfinance (Sektor-Daten bereits vorhanden),
       vor trade_volume (Volume unabhaengig von Preis-Daten)
          ↓

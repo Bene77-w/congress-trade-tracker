@@ -99,20 +99,26 @@ Validierung: `_check_stage_inputs` (im import_trades.py-Stage-Runner).
 
 ---
 
-## 3. Output (15 neue Spalten, +1 seit 2026-05-31)
+## 3. Output (19 Spalten = 16 bisher + 3 neu seit 2026-06-04)
 
 | Spalte | Inhalt |
 |---|---|
 | `post_trade_baseline_price` | Close am/nach Trade-Tag |
-| `post_price_30d`/`_60d`/`_90d`/`_120d` | Close X Tage nach Trade |
-| `post_return_30d`/`_60d`/`_90d`/`_120d` | `(price/baseline-1)*100` |
+| `post_price_30d`/`_60d`/`_90d`/`_120d`/`_180d` | Close X Tage nach Trade (180d NEU 2026-06-04) |
+| `post_return_30d`/`_60d`/`_90d`/`_120d`/`_180d` | `(price/baseline-1)*100`, richtungsbewusst (180d NEU) |
 | `exit_status` | `closed_full` / `closed_partial` / `held` / `unknown` / `delisted` / `not_applicable` |
 | `exit_date` | Datum des gegensätzlichen Trades |
 | `exit_price` | Close am Exit-Datum |
 | `exit_amount_max_usd` | Kumulierte Gegenseite-USD |
-| `effective_return_pct` | Bei closed_*: Return bis Exit; bei held: längster verfügbarer Horizont-Return |
-| `effective_return_horizon_days` | Zeithorizont in Tagen auf den sich effective_return_pct bezieht (NEW) |
+| `effective_return_pct` | **NUR bei closed_***: Return bis Exit (richtungsbewusst). held/delisted/unknown/not_applicable → NaN (realisiert-only, 2026-06-04). Frühere held-Snapshot-Logik entfernt. |
+| `effective_return_horizon_days` | Tage bis Exit (nur closed_*); sonst NaN |
 | `opposing_trade_ids` | Semikolon-separierte trade_ids der Gegen-Trades |
+| `first_close_offset_days` | **NEU 2026-06-04:** Tage bis ERSTEM Gegen-Trade (erster Close, egal ob Teil/Voll); NaN bei held/not_applicable/delisted/unknown. Basis des Horizont-Sichtbarkeitsfilters im Dashboard. |
+
+**Exit-Suchfenster (2026-06-04):** vom Return-Horizont entkoppelt via
+`settings.EXIT_DETECTION_WINDOW_DAYS` (Default `None` = unbegrenzt). Vorher
+fälschlich an `max(POST_TRADE_HORIZONS_DAYS)` (=120d) gekoppelt → echte Closes
+> 120 Tage später wurden als `held` fehlklassifiziert.
 
 Spalten-Definitionen sind in `DATA_STRUCTURE.md` (Post-Trade-Sektion)
 maßgeblich; bei Diskrepanz gilt das, was `compute_post_trade_returns`

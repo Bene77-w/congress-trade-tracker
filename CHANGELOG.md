@@ -11,6 +11,26 @@ Historie abgeschlossener Module/Phasen. **Aktueller Status** steht in `CLAUDE.md
 
 ---
 
+## 2026-06-04 — Post-Trade Exit-Detection Entkopplung + Horizont-Sichtbarkeitsfilter + Partial-Close-Zerlegung
+
+**Modul 5 Refactor:** Exit-Fenster separiert vom Return-Horizont. Settings.EXIT_DETECTION_WINDOW_DAYS (Default None=unbegrenzt) bestimmt, wie weit die Exit-Suche reicht; Settings.POST_TRADE_HORIZONS_DAYS (Default [30,60,90,120,180]) bleibt für Return-Snapshots. Folge: 58.572 closed_full (vorher 29.642), 32.722 held (vorher 60.927) bei 112.692 Trades — deutlich realistische Exit-Detektionen.
+
+**Semantik-Änderungen (Modul 5):**
+- `effective_return_pct` jetzt REALISIERT-ONLY: nur bei closed_* gesetzt (vorher held=längster Horizont-Snapshot). Bei held/delisted/unknown/not_applicable → NaN.
+- `effective_return_horizon_days` jetzt CLOSED-ONLY: nur bei closed_* gesetzt. Bei held → NaN (vorher: Horizont-Tage des Snapshots).
+- Neue Spalte `first_close_offset_days`: Tage bis erstem Gegen-Trade. Basis für Horizont-Sichtbarkeitsfilter. NaN bei held/not_applicable/delisted/unknown.
+- 180-Tage-Horizont: `post_price_180d`, `post_return_180d` dynamisch mit POST_TRADE_HORIZONS_DAYS (Smoke-Run 27.05.2026 → 28.06.2026: neue Spalten).
+
+**Modul 9 Feature:** Horizont-Sichtbarkeitsfilter im Dashboard. Sidebar-Toggle (Standard an) filtert global (alle 4 Tabs) auf `first_close_offset_days ≤ primary_horizon`. Beispiel: beim 30d-Horizont sieht man nur Trades, deren Exits in 30 Tagen lagen; held bleiben immer sichtbar.
+
+**Display-Feature:** Post-Trade-Performance-Tab — neue Partial-Close-Zerlegungs-Tabelle (Build-Funktion `build_partial_close_rows` in `app/chart_helpers.py`). Zerlegt Öffnungs-Trade mit `closed_partial` in mehrere Display-Zeilen (eine pro Close-Event, trade_id `{parent}-pc{n}`, neue Spalte `parent_trade_id`). Rein UI-Ausgabe, NICHT in Master persistiert.
+
+**Tests:** 55 Modul-Tests grün (`test_post_trade_returns.py`: held→NaN angepasst + neue Tests für entkoppeltes Fenster/Cap/first_close_offset_days; `test_chart_helpers.py`: 7 neue Tests für `build_partial_close_rows`).
+
+**Beispiel-Verifikation:** Ankhor Spanberger/LHX (Kauf 2022-09-01): vorher held mit −8,01% (120d-Snapshot), jetzt closed_full mit −6,26% realisiert (first_close_offset 182 Tage).
+
+---
+
 ## 2026-05-28 — Ticker-System Vereinfachung (Preferred-Auto + Routing-Konsolidierung + Slash-Fallback Removal)
 
 - **Säule 1 — Preferred-Auto-Resolution:** `TickerClassification.parent_ticker` neu gesetzt auf Common-Stamm für 6 PREFERRED-Notationen (z.B. `BAC-PRK` → `parent_ticker='BAC'`). Klassifikator + Sektor-Stage setzen automatisch Fallback; Coverage 100% der 38 Preferreds im Master. Manuelle CSV `Vorzugsaktien_mapping.csv` → obsolet (Datei gelöscht).

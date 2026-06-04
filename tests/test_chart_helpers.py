@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pandas as pd
 import plotly.graph_objects as go
+import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -18,6 +19,7 @@ if str(ROOT) not in sys.path:
 
 from app.chart_helpers import (  # noqa: E402
     SALE_KIND_MARKERS,
+    build_partial_close_rows,
     build_sale_kind_traces,
     sale_kind_marker,
 )
@@ -107,3 +109,96 @@ def test_hover_text_includes_name_and_label():
     traces = build_sale_kind_traces(
         [_rec('2024-03-01', 50.0, 'Sale (Partial)', name='Boozman, John')])
     assert traces[0].text[0] == 'Boozman, John · Teilverkauf'
+
+
+# --- build_partial_close_rows --------------------------------------------
+
+def _opening(**ov):
+    base = {
+        'trade_id': 'abc123',
+        'transaction_date': '2024-01-01',
+        'baseline_price': 100.0,
+        'volume': 50_000.0,
+    }
+    base.update(ov)
+    return base
+
+
+def _event(date, volume, price, trade_id='X'):
+    return {'trade_id': trade_id, 'date': date, 'volume': volume, 'price': price}
+
+
+def test_single_full_close_one_row():
+    """Ein Schliessungs-Event -> genau eine Zeile mit -pc1-ID + parent."""
+    rows = build_partial_close_rows(
+        _opening(), [_event('2024-03-01', 50_000.0, 110.0)], sell_sign=1.0)
+    assert len(rows) == 1
+    assert rows[0]['trade_id'] == 'abc123-pc1'
+    assert rows[0]['parent_trade_id'] == 'abc123'
+    # (110/100 - 1) * 100 * 1 = +10 %
+    assert rows[0]['effective_return_pct'] == pytest.approx(10.0)
+
+
+def test_two_partial_closes_chronological_ids():
+    """Zwei Teil-Closes -> zwei Zeilen, -pc1/-pc2, chronologisch."""
+    rows = build_partial_close_rows(
+        _opening(),
+        [_event('2024-02-01', 20_000.0, 105.0),
+         _event('2024-03-01', 20_000.0, 110.0)],
+        sell_sign=1.0,
+    )
+    assert [r['trade_id'] for r in rows] == ['abc123-pc1', 'abc123-pc2']
+    assert all(r['parent_trade_id'] == 'abc123' for r in rows)
+    assert rows[0]['close_offset_days'] == 31   # 2024-01-01 -> 2024-02-01
+    assert rows[1]['close_offset_days'] == 60   # 2024-01-01 -> 2024-03-01
+
+
+def test_volume_capped_to_opening():
+    """Summe der exit_volume <= Eroeffnungs-Volumen (Lite-Deckelung)."""
+    rows = build_partial_close_rows(
+        _opening(volume=50_000.0),
+        [_event('2024-02-01', 40_000.0, 105.0),
+         _event('2024-03-01', 40_000.0, 110.0)],  # zusammen 80k > 50k
+        sell_sign=1.0,
+    )
+    total = sum(r['exit_volume'] for r in rows)
+    assert total == pytest.approx(50_000.0)
+    assert rows[0]['exit_volume'] == pytest.approx(40_000.0)
+    assert rows[1]['exit_volume'] == pytest.approx(10_000.0)  # gedeckelt
+
+
+def test_sell_opening_inverts_sign():
+    """Verkauf-Eroeffnung (sell_sign=-1) spiegelt den Return."""
+    buy = build_partial_close_rows(
+        _opening(), [_event('2024-03-01', 50_000.0, 110.0)], sell_sign=1.0)
+    sell = build_partial_close_rows(
+        _opening(), [_event('2024-03-01', 50_000.0, 110.0)], sell_sign=-1.0)
+    assert sell[0]['effective_return_pct'] == pytest.approx(
+        -buy[0]['effective_return_pct'])
+
+
+def test_nan_price_event_skipped_and_numbering():
+    """Event mit NaN-Preis wird uebersprungen; -pc-Nummerierung laeuft ueber
+    nur die emittierten Zeilen weiter."""
+    rows = build_partial_close_rows(
+        _opening(),
+        [_event('2024-02-01', 10_000.0, float('nan')),  # uebersprungen
+         _event('2024-03-01', 10_000.0, 110.0)],
+        sell_sign=1.0,
+    )
+    assert len(rows) == 1
+    assert rows[0]['trade_id'] == 'abc123-pc1'
+
+
+def test_invalid_baseline_returns_empty():
+    """Ungueltige baseline (NaN / <=0) -> keine Zeilen."""
+    assert build_partial_close_rows(
+        _opening(baseline_price=float('nan')),
+        [_event('2024-03-01', 50_000.0, 110.0)], 1.0) == []
+    assert build_partial_close_rows(
+        _opening(baseline_price=0.0),
+        [_event('2024-03-01', 50_000.0, 110.0)], 1.0) == []
+
+
+def test_empty_events_returns_empty():
+    assert build_partial_close_rows(_opening(), [], 1.0) == []
