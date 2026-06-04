@@ -13,6 +13,7 @@ import csv
 import json
 import logging
 import os
+import sys
 import time
 from collections import Counter
 from dataclasses import dataclass
@@ -70,6 +71,7 @@ class TickerSectorEnricher:
         cache_checkpoint_interval: int = settings.TICKER_LOOKUP_CACHE_INTERVAL,
         confirm_callback: Optional[Callable[[int], bool]] = None,
         cache_ttl_days: Optional[int] = None,
+        auto_confirm: bool = settings.TICKER_LOOKUP_AUTO_CONFIRM,
     ):
         self.cache_dir = cache_dir
         self.positive_cache_path = os.path.join(
@@ -89,6 +91,7 @@ class TickerSectorEnricher:
         )
         self.cache_checkpoint_interval = cache_checkpoint_interval
         self.confirm_callback = confirm_callback
+        self.auto_confirm = auto_confirm
         self.cache_ttl_days = (
             cache_ttl_days
             if cache_ttl_days is not None
@@ -420,10 +423,17 @@ class TickerSectorEnricher:
         return True
 
     def _confirm_large_batch(self, n_misses: int, est_minutes: float) -> bool:
-        msg = (f"      [?] {n_misses} neue Ticker zu fetchen — "
-               f"geschätzt {est_minutes:.1f}min. [Enter]/Ctrl+C: ")
         if self.confirm_callback is not None:
             return self.confirm_callback(n_misses)
+        # Autonomer Run (Flag) oder non-interaktiv (z. B. systemd-Scheduler, kein
+        # TTY): ohne Enter-Bestaetigung fetchen. Verhindert zugleich, dass ein
+        # EOFError den Fetch still ueberspringen wuerde.
+        if self.auto_confirm or not sys.stdin.isatty():
+            print(f"      [i] {n_misses} neue Ticker zu fetchen — "
+                  f"geschätzt {est_minutes:.1f}min. Auto-Confirm aktiv, fetche...")
+            return True
+        msg = (f"      [?] {n_misses} neue Ticker zu fetchen — "
+               f"geschätzt {est_minutes:.1f}min. [Enter]/Ctrl+C: ")
         try:
             input(msg)
             return True
