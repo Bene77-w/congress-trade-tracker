@@ -1,0 +1,17 @@
+[Unit]
+Description=Quiver Congress-Trading XLSX Download + Import-Pipeline
+Documentation=file://__PROJECT_DIR__/organisation/CLI_Bedienungsanleitung.md
+
+[Service]
+Type=oneshot
+WorkingDirectory=__PROJECT_DIR__
+# Host-Chromium fuer Playwright (installiert via `playwright install chromium`)
+Environment=PLAYWRIGHT_BROWSERS_PATH=%h/.cache/ms-playwright
+# 1) Scraper. Kein "-"-Praefix => bei Non-Zero-Exit STOPPT systemd hier und
+#    fuehrt den naechsten ExecStart NICHT aus (entspricht der cron-"&&"-Semantik:
+#    Import laeuft nur bei Scraper-Erfolg).
+ExecStart=__PROJECT_DIR__/venv/bin/python scrapers/quiver_scraper.py
+# 2) Import-Pipeline (nur bei Scraper-Exit 0)
+ExecStart=__PROJECT_DIR__/venv/bin/python scripts/import_trades.py
+StandardOutput=append:__PROJECT_DIR__/logs/quiver_cron.log
+StandardError=append:__PROJECT_DIR__/logs/quiver_cron.log

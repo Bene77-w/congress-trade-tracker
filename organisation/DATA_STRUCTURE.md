@@ -6,6 +6,22 @@ Vollständige Übersicht aller relevanten Dateien, ihrer Struktur und Verwendung
 
 ## 1. Trade-Daten (Scraped)
 
+### `data/raw/congress-trading-all.xlsx`
+**Quelle**: Quiver Quantitative (Auto-Download via `scrapers/quiver_scraper.py` oder manueller Download)
+**Format**: XLSX
+**Update**: Täglich 03:00 via systemd-User-Timer + Quiver-Auto-Download-Scraper
+**Credentials**: `QUIVER_EMAIL`, `QUIVER_PASSWORD` (nur in `.env`, gitignored; Vorlage in `.env.example`)
+
+**Beschreibung**: Primäre Quelle aller Congress-Trades (House + Senate). Der Auto-Scraper
+(`quiver_scraper.py`) loggt sich täglich ein, lädt die aktuelle Snapshot-Datei herunter und
+ersetzt sie atomar an diesem Pfad (via `os.replace` nach Download in Temp-Datei). Input für
+Pipeline 5 (`scripts/import_trades.py`). Plausibilitäts-Check: Dateigröße > 0 erforderlich.
+
+**Scheduler (Verkettung Download + Import):** systemd-User-Timer `quiver-import.timer`
+(täglich 03:00, `Persistent=true` holt verpasste Läufe nach). Service-Unit führt
+Scraper + Import als zwei `ExecStart`-Schritte aus; bei Scraper-Exit ≠ 0 läuft der
+Import nicht. Einrichtung/Bedienung: **`deploy/systemd/README.md`**.
+
 ### `data/raw/house_trades.csv`
 **Quelle**: `scrapers/house_scraper.py` (ZIP + PDF-Parsing von disclosures-clerk.house.gov)
 **Format**: CSV

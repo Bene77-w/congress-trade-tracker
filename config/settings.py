@@ -414,6 +414,40 @@ QUIVER_TRADES_FILE = 'congress-trading-all.xlsx'  # Quiver-Daten (primaere Quell
 HOUSE_TRADES_FILE = 'house_trades.csv'            # Eigene House-Scraper-Daten (Ergaenzung)
 SENATE_TRADES_FILE = 'senate_trades.csv'          # Eigene Senate-Scraper-Daten (Ergaenzung)
 
+# QUIVER-AUTO-DOWNLOAD-SCRAPER (scrapers/quiver_scraper.py)
+# Headless Credential-Login + XLSX-Download; taeglich 03:00 via systemd-User-Timer.
+QUIVER_LOGIN_URL = 'https://www.quiverquant.com/login/'
+QUIVER_EXPORT_URL = 'https://www.quiverquant.com/export/'  # direkte Export-Seite (Premium)
+QUIVER_SCRAPER_HEADLESS = True               # Default-Browser-Modus (per CLI ueberschreibbar)
+QUIVER_SCRAPER_TIMEOUT_MS = 30_000           # Standard-Timeout fuer goto/wait_for_selector
+QUIVER_SCRAPER_DOWNLOAD_TIMEOUT_MS = 60_000  # Timeout fuer expect_download
+QUIVER_VIEWPORT_WIDTH = 1280                  # Viewport — beeinflusst, ob Hamburger-Menue erscheint
+QUIVER_VIEWPORT_HEIGHT = 900
+# Realistischer User-Agent: Headless-Chromium sendet sonst "HeadlessChrome",
+# was Login-Seiten haeufig blocken. Bot-Schutz auf Credential-Seiten ist strenger.
+QUIVER_USER_AGENT = (
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 '
+    '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+)
+# Selektoren (per `playwright codegen` ermittelt). Playwright-`role=`-Syntax ist als
+# String in fill/click/wait_for_selector nutzbar; #id-Selektoren sind CSS.
+QUIVER_COOKIE_REJECT_SELECTOR = 'role=button[name="Reject All"]'  # optional, best-effort
+QUIVER_EMAIL_SELECTOR = 'role=textbox[name="Username"]'    # Login-Kennung (= E-Mail) ins Username-Feld
+QUIVER_PASSWORD_SELECTOR = 'role=textbox[name="Password"]'
+QUIVER_SUBMIT_SELECTOR = 'role=button[name="Sign In"]'
+# WICHTIG: ABO-UNABHAENGIGES Element. Hamburger-Menue existiert fuer jeden eingeloggten
+# Nutzer — NICHT paywalled. Nur so bleibt die Trennung Login-Fehler (Code 2) vs.
+# Download-Fehler/Abo abgelaufen (Code 3) korrekt (Login gelingt auch OHNE aktives Abo).
+QUIVER_POST_LOGIN_SELECTOR = '#hamburger-icon'
+QUIVER_TWOFA_SELECTOR = ''        # 2FA-Challenge-Element (leer => keine 2FA erwartet)
+# Download-Trigger auf der Export-Seite: href-basiert (reihenfolge-unabhaengig, da dort
+# mehrere "Download"-Links fuer verschiedene Datensaetze stehen). Fehlt der Link bei
+# abgelaufenem Abo, schlaegt der Klick fehl -> korrekt als Download-Fehler (Code 3).
+QUIVER_DOWNLOAD_SELECTOR = 'a[href*="congress-trading-all.xlsx"]'
+# Credentials NUR aus .env (nie im Code/Doku im Klartext)
+QUIVER_EMAIL = os.getenv('QUIVER_EMAIL', '')
+QUIVER_PASSWORD = os.getenv('QUIVER_PASSWORD', '')
+
 # Output-Dateien (Rebuild Teil 3): vollstaendige + kuratierte Master-Sicht
 TRADES_MASTER_COMPLETE_CSV = 'trades_master_complete.csv'  # alle Spalten — Quelle fuer Dashboard + Workflows
 TRADES_MASTER_CSV = 'trades_master.csv'                    # kuratierte Excel-Sicht fuer den User (Inspektion)

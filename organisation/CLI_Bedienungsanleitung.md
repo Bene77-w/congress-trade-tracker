@@ -10,6 +10,101 @@ source venv/bin/activate        # Linux/Mac
 
 ---
 
+## 0. Quiver Auto-Download-Scraper
+
+**Datei:** `scrapers/quiver_scraper.py`
+**Zweck:** Automatisierter täglicher Download der Congress-Trading-XLSX von Quiver Quantitative
+
+**Voraussetzung:**
+- `.env` mit `QUIVER_EMAIL` und `QUIVER_PASSWORD` gesetzt
+- Selektoren in `config/settings.py` konfiguriert (siehe unten)
+- `playwright install chromium` ausgeführt
+
+```bash
+# Standard: Download + atome Speicherung
+python scrapers/quiver_scraper.py
+
+# Browser sichtbar (Debug/Selektor-Abgleich)
+python scrapers/quiver_scraper.py --no-headless
+
+# Trockenrun: Download in Temp-Datei, Zieldatei NICHT ersetzen
+python scrapers/quiver_scraper.py --dry-run
+```
+
+**Output:** `data/raw/congress-trading-all.xlsx`
+
+**Exit-Codes:**
+```
+0   Erfolg
+1   Generischer Fehler
+2   Login fehlgeschlagen (Credentials / 2FA / Account blockiert)
+3   Eingeloggt aber Download fehlgeschlagen (abgelaufenes Abo, File-API-Error)
+```
+
+### Selektor-Setup
+
+Die Selektoren sind in `config/settings.py` bereits **konfiguriert und end-to-end
+verifiziert** (Stand 2026-06-04). Ablauf des Scrapers:
+Login → Cookie-Banner ablehnen → `/export/` direkt ansteuern → Congress-XLSX per
+href-Selektor herunterladen (kein Menü-Klicken nötig).
+
+Aktive Werte:
+```python
+QUIVER_LOGIN_URL         = 'https://www.quiverquant.com/login/'
+QUIVER_EXPORT_URL        = 'https://www.quiverquant.com/export/'
+QUIVER_COOKIE_REJECT_SELECTOR = 'role=button[name="Reject All"]'   # best-effort
+QUIVER_EMAIL_SELECTOR    = 'role=textbox[name="Username"]'         # E-Mail ins Username-Feld
+QUIVER_PASSWORD_SELECTOR = 'role=textbox[name="Password"]'
+QUIVER_SUBMIT_SELECTOR   = 'role=button[name="Sign In"]'
+QUIVER_POST_LOGIN_SELECTOR = '#hamburger-icon'                     # abo-unabhängig (s. WICHTIG)
+QUIVER_DOWNLOAD_SELECTOR = 'a[href*="congress-trading-all.xlsx"]' # href-basiert, reihenfolge-unabhängig
+```
+
+Müssen die Selektoren nach einem Quiver-Redesign neu ermittelt werden:
+`playwright codegen https://www.quiverquant.com/login/` (Python-Playwright aus dem venv),
+Interaktionen aufnehmen, Selektoren extrahieren und oben ersetzen.
+
+> **WICHTIG — `QUIVER_POST_LOGIN_SELECTOR` muss ABO-UNABHÄNGIG sein.**
+> Element, das bei *jedem* eingeloggten User existiert (hier: `#hamburger-icon`),
+> **niemals** paywalled Inhalt. Der Login gelingt auch ohne aktives Abo. Nur ein
+> abo-unabhängiges Post-Login-Element hält die Trennung Login-Fehler (Exit 2) vs.
+> abgelaufenes Abo / Download-Fehler (Exit 3) korrekt — die Premium-Gating fällt
+> erst beim Export-Download auf, nicht beim Login.
+
+### .env Datei
+
+Vorlage `.env.example` bereits vorhanden:
+```
+QUIVER_EMAIL=
+QUIVER_PASSWORD=
+```
+
+Echte `.env` Werte nicht in Git committen — `.env` ist gitignored.
+
+### Scheduler: systemd-User-Timer (täglich 03:00)
+
+Scraper + Import laufen verkettet über einen **systemd-User-Timer** (statt cron),
+weil `Persistent=true` einen verpassten 03:00-Lauf nachholt, sobald der Laptop
+wieder läuft — ein reiner cron-Job würde bei nachts ausgeschaltetem Rechner nie
+auslösen. Die Service-Unit hat zwei `ExecStart`-Schritte: schlägt der Scraper fehl
+(Exit ≠ 0), wird `import_trades.py` nicht ausgeführt (entspricht der `&&`-Semantik).
+
+Einrichtung + Bedienung (Single-Source): **`deploy/systemd/README.md`**.
+
+Kurz-Diagnose:
+```bash
+systemctl --user list-timers quiver-import.timer   # nächster/letzter Lauf
+systemctl --user start quiver-import.service        # sofort manuell auslösen
+journalctl --user -u quiver-import.service -e       # Logs (zusätzl. logs/quiver_cron.log)
+```
+
+**Voraussetzungen:**
+- Host-`venv` unter `<projekt>/venv/bin/python` (nicht `/opt/venv`, das ist nur im Docker-Image)
+- Playwright-Chromium installiert (`venv/bin/playwright install chromium`)
+- `.env` mit `QUIVER_EMAIL`/`QUIVER_PASSWORD` im Projekt-Root (wird via `WorkingDirectory` gefunden)
+
+---
+
 ## 1. Senate Scraper
 
 **Datei:** `scrapers/senate_scraper.py`

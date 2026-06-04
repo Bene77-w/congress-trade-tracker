@@ -45,6 +45,7 @@ data/processed/delisted_trades.csv
 # Archiv-Ordner und Quiver-Rohdaten
 archive/
 data/raw/congress-trading-all.xlsx
+data/raw/*.tmp
 
 # API-Fetch-Outputs (regenerierbar via fetch_congress_data.py)
 data/congress_api/bill_actions.json

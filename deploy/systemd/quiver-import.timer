@@ -1,0 +1,11 @@
+[Unit]
+Description=Taeglicher Quiver-Download + Import um 03:00 (holt verpasste Laeufe nach)
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+# Holt einen verpassten Lauf nach, sobald der Laptop wieder laeuft / die
+# User-Session startet (entscheidend, da der Rechner um 03:00 oft aus ist).
+Persistent=true
+
+[Install]
+WantedBy=timers.target
