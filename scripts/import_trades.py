@@ -267,12 +267,13 @@ STAGE_DEPS = {
                        'trade_amount_max_usd', 'ticker_type'],
         'output_cols': ['post_trade_baseline_price',
                        'post_price_30d', 'post_price_60d',
-                       'post_price_90d', 'post_price_120d',
+                       'post_price_90d', 'post_price_120d', 'post_price_180d',
                        'post_return_30d', 'post_return_60d',
-                       'post_return_90d', 'post_return_120d',
+                       'post_return_90d', 'post_return_120d', 'post_return_180d',
                        'exit_status', 'exit_date', 'exit_price',
                        'exit_amount_max_usd', 'effective_return_pct',
-                       'effective_return_horizon_days', 'opposing_trade_ids'],
+                       'effective_return_horizon_days', 'opposing_trade_ids',
+                       'first_close_offset_days'],
     },
     'asset_volume': {
         # Phase 8.2: Cross-Class rolling-window Sum(trade_volume_usd) ueber
@@ -2127,6 +2128,7 @@ class TradeImporter:
             exit_amount_tolerance=settings.POST_TRADE_EXIT_AMOUNT_TOLERANCE,
             cache_flush_every=settings.POST_TRADE_CACHE_FLUSH_EVERY,
             progress_every=settings.POST_TRADE_PROGRESS_EVERY,
+            exit_window_days=settings.EXIT_DETECTION_WINDOW_DAYS,
         )
         self._write_stage_output(df, 'post_trade_performance', delta, dry_run)
 
@@ -2529,17 +2531,19 @@ class TradeImporter:
             exit_amount_tolerance=settings.POST_TRADE_EXIT_AMOUNT_TOLERANCE,
             cache_flush_every=settings.POST_TRADE_CACHE_FLUSH_EVERY,
             progress_every=settings.POST_TRADE_PROGRESS_EVERY,
+            exit_window_days=settings.EXIT_DETECTION_WINDOW_DAYS,
         )
         # Slice zurueck: nur die Delta-Zeilen.
         ptr_out_cols = [
             'post_trade_baseline_price',
             'post_price_30d', 'post_price_60d',
-            'post_price_90d', 'post_price_120d',
+            'post_price_90d', 'post_price_120d', 'post_price_180d',
             'post_return_30d', 'post_return_60d',
-            'post_return_90d', 'post_return_120d',
+            'post_return_90d', 'post_return_120d', 'post_return_180d',
             'exit_status', 'exit_date', 'exit_price',
             'exit_amount_max_usd', 'effective_return_pct',
             'effective_return_horizon_days', 'opposing_trade_ids',
+            'first_close_offset_days',
         ]
         for col in ptr_out_cols:
             if col in ptr_combined.columns:
@@ -2820,6 +2824,7 @@ class TradeImporter:
             exit_amount_tolerance=settings.POST_TRADE_EXIT_AMOUNT_TOLERANCE,
             cache_flush_every=settings.POST_TRADE_CACHE_FLUSH_EVERY,
             progress_every=settings.POST_TRADE_PROGRESS_EVERY,
+            exit_window_days=settings.EXIT_DETECTION_WINDOW_DAYS,
         )
 
         # 10. Asset-Tradingvolume (Cross-Class rolling-window, Modul 8.2)

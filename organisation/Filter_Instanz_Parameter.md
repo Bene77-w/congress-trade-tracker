@@ -98,13 +98,19 @@ Dies ist eine reine Daten-Anreicherung (Pipeline Stage 9) — fliesst NICHT in d
 
 | Konstante | Default | Bedeutung |
 |---|---|---|
-| `POST_TRADE_HORIZONS_DAYS` | `[30, 60, 90, 120]` | Tage nach `transaction_date`, fuer die Preis-Snapshots erfasst werden. Anpassbar — Spalten `post_price_{X}d` / `post_return_{X}d` werden dynamisch erzeugt. |
+| `POST_TRADE_HORIZONS_DAYS` | `[30, 60, 90, 120, 180]` | Tage nach `transaction_date`, fuer die Preis-Snapshots erfasst werden. Anpassbar — Spalten `post_price_{X}d` / `post_return_{X}d` werden dynamisch erzeugt. **Neu (2026-06-04):** 180-Tage-Horizont hinzugefügt. |
+| `EXIT_DETECTION_WINDOW_DAYS` | `None` | **Neu (2026-06-04):** Exit-Fenster für Gegengeschäft-Suche. `None` = unbegrenzt (durchsucht alle nachfolgenden Trades). Integer = Cap in Tagen (z.B. 365 = sucht nur bis zu 1 Jahr nach dem Eröffnungs-Trade). **WICHTIG:** Entkoppelt vom Return-Horizont — Return-Snapshots bleiben an die `POST_TRADE_HORIZONS_DAYS` gebunden. Das Exit-Fenster bestimmt NUR, wie weit die Exit-Detection nach gegensätzlichen Trades sucht. |
 | `POST_TRADE_PRICE_CACHE` | `'data/cache/price_history.parquet'` | Pfad zum yfinance-Preis-Cache |
 | `POST_TRADE_PRICE_FETCH_YEARS` | `5` | yfinance `period` beim Erstabruf pro Ticker |
 | `POST_TRADE_PRICE_CACHE_TTL_DAYS` | `7` | Refresh-Schwelle pro Ticker |
 | `POST_TRADE_EXIT_AMOUNT_TOLERANCE` | `0.0` | 0.0 = strikt (kumulierter opposing-max muss >= original-max); >0.0 = relative Toleranz (z.B. 0.1 = 10% Unterdeckung erlaubt) |
 
 **Exit-Status-Werte**: `not_applicable` / `delisted` / `unknown` / `held` / `closed_full` / `closed_partial` — siehe DATA_STRUCTURE.md.
+
+**Semantik-Update (2026-06-04):**
+- `effective_return_pct`: Jetzt REALISIERT-ONLY. Bei `closed_full` oder `closed_partial` = Return bis `exit_price` (richtungsbewusst via `sell_sign`). Bei `held`, `delisted`, `unknown`, `not_applicable` = NaN. Frühere Semantik (held = längster verfügbarer Horizont-Snapshot) entfällt. Mark-to-Market bleibt in `post_return_{X}d`.
+- `effective_return_horizon_days`: Bei `closed_*` = Tage zwischen `transaction_date` und `exit_date`. Bei `held` = NaN (nicht mehr: längster verfügbarer Horizont).
+- Neue Spalte `first_close_offset_days`: Tage vom `transaction_date` bis zum ERSTEN gegensätzlichen Trade. Hilfs-Spalte für den Horizont-Sichtbarkeitsfilter im Dashboard. NaN bei `not_applicable` / `delisted` / `unknown` / `held`.
 
 ---
 

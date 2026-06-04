@@ -250,8 +250,10 @@ def test_horizon_calculation(sample_cache, monkeypatch):
     # Return check
     expected_return = (p30 / baseline - 1.0) * 100.0
     assert result['post_return_30d'].iloc[0] == pytest.approx(expected_return)
-    # effective_return_pct == post_return_max_horizon bei held
-    assert result['effective_return_pct'].iloc[0] == pytest.approx(expected_return)
+    # held -> effective_return_pct ist jetzt NaN (realisiert-only; kein
+    # willkuerlicher Horizont-Snapshot mehr).
+    assert result['exit_status'].iloc[0] == 'held'
+    assert pd.isna(result['effective_return_pct'].iloc[0])
     # Cleanup
     if os.path.isfile('/tmp/_test_ptr_cache_delete_me.parquet'):
         os.remove('/tmp/_test_ptr_cache_delete_me.parquet')
@@ -294,8 +296,9 @@ def test_sell_return_is_direction_aware(monkeypatch, sample_cache):
     assert sell['post_return_30d'] < 0
     # Exakt gespiegelt (gleiche baseline + Horizontpreis).
     assert sell['post_return_30d'] == pytest.approx(-buy['post_return_30d'])
-    assert sell['effective_return_pct'] == pytest.approx(
-        -buy['effective_return_pct'])
+    # Beide sind 'held' -> effective_return realisiert-only -> NaN.
+    assert pd.isna(buy['effective_return_pct'])
+    assert pd.isna(sell['effective_return_pct'])
     if os.path.isfile('/tmp/_test_ptr_sell_delete_me.parquet'):
         os.remove('/tmp/_test_ptr_sell_delete_me.parquet')
 
@@ -665,14 +668,17 @@ def test_exit_exchange_stays_not_applicable_regression(sample_cache):
 
 
 # ---------------------------------------------------------------------------
-# 22. held-effective_return: laengster VERFUEGBARER Horizont + Begleitspalte
-#     (Fix Root Cause #2b).
+# 22. held-effective_return: REALISIERT-ONLY -> NaN (kein Horizont-Snapshot).
+#     (Fix: held-Fallback entfernt; effective_return nur fuer closed_*.)
 # ---------------------------------------------------------------------------
 
-def test_held_effective_uses_longest_available_horizon(sample_cache, monkeypatch):
-    """held-Trade, dessen 60/90/120d-Preise nicht im Cache liegen (Cache endet
-    2025-07-31), faellt auf den verfuegbaren 30d-Horizont zurueck.
-    effective_return_horizon_days muss 30 sein.
+def test_held_effective_return_is_nan(sample_cache, monkeypatch):
+    """held-Trade -> effective_return_pct UND effective_return_horizon_days NaN.
+
+    Frueher kopierte ein Fallback den laengsten verfuegbaren Horizont-Snapshot
+    (z.B. 30d) in effective_return — ein willkuerlicher Kalendertag. Dieser
+    Fallback ist entfernt: ohne realisierten Close gibt es keinen Eff.-Return.
+    Mark-to-Market bleibt in post_return_{X}d erhalten.
     """
     import scoring.post_trade_returns as ptr
     monkeypatch.setattr(ptr, '_load_price_cache', lambda path: sample_cache)
@@ -689,14 +695,12 @@ def test_held_effective_uses_longest_available_horizon(sample_cache, monkeypatch
         df, horizons_days=[30, 60, 90, 120],
         cache_path='/tmp/_test_ptr_held_horizon.parquet',
     )
-    # 30d (Jul 2) ist im Cache, 60/90/120d (ab Aug) nicht -> NaN
+    # Mark-to-Market bleibt erhalten (30d im Cache).
     assert pd.notna(result['post_return_30d'].iloc[0])
-    assert pd.isna(result['post_return_120d'].iloc[0])
-    # effective faellt auf 30d zurueck statt NaN
+    # held -> kein realisierter Eff.-Return.
     assert result['exit_status'].iloc[0] == 'held'
-    assert result['effective_return_horizon_days'].iloc[0] == 30
-    assert result['effective_return_pct'].iloc[0] == pytest.approx(
-        result['post_return_30d'].iloc[0])
+    assert pd.isna(result['effective_return_pct'].iloc[0])
+    assert pd.isna(result['effective_return_horizon_days'].iloc[0])
     if os.path.isfile('/tmp/_test_ptr_held_horizon.parquet'):
         os.remove('/tmp/_test_ptr_held_horizon.parquet')
 
@@ -725,3 +729,73 @@ def test_closed_effective_horizon_is_days_to_exit(sample_cache, monkeypatch):
     assert result['effective_return_horizon_days'].iloc[0] == 18
     if os.path.isfile('/tmp/_test_ptr_closed_horizon.parquet'):
         os.remove('/tmp/_test_ptr_closed_horizon.parquet')
+
+
+# ---------------------------------------------------------------------------
+# 23. Exit-Fenster ENTKOPPELT vom Return-Horizont (Fix Root Cause #1).
+#     exit_window_days=None erkennt Close > 120d; ein Cap haelt ihn 'held'.
+# ---------------------------------------------------------------------------
+
+def _long_cache() -> pd.DataFrame:
+    """AAPL, monoton steigend, Werktage 2025-01-01 .. 2026-06-30."""
+    records = []
+    price = 100.0
+    for d in pd.date_range('2025-01-01', '2026-06-30', freq='B'):
+        records.append(('AAPL', d.strftime('%Y-%m-%d'), price))
+        price += 0.1
+    return _make_cache(records)
+
+
+def test_unbounded_window_detects_late_close():
+    """Verkauf ~200 Tage nach Kauf: mit unbegrenztem Fenster -> closed_full.
+
+    Frueher (Fenster = max_horizon = 120) wurde dieser echte Round-Trip
+    faelschlich 'held' genannt und der effective_return war ein 120d-Snapshot.
+    """
+    cache = _long_cache()
+    df = pd.DataFrame([
+        _make_trade_row(trade_id='T1', transaction_date='2025-01-06',
+                        transaction_type='Purchase', trade_amount_max_usd=50_000),
+        _make_trade_row(trade_id='T2', transaction_date='2025-07-25',  # ~200d
+                        transaction_type='Sale', trade_amount_max_usd=60_000),
+    ])
+    df['_post_trade_applicable'] = df.apply(_is_applicable, axis=1)
+    cols = _compute_exit_columns(df, cache, None, 0.0)  # None = unbegrenzt
+    assert cols['exit_status'].iloc[0] == 'closed_full'
+    assert cols['exit_date'].iloc[0] == pd.Timestamp('2025-07-25')
+    assert cols['opposing_trade_ids'].iloc[0] == 'T2'
+
+
+def test_window_cap_keeps_late_close_held():
+    """Mit exit_window_days=150 bleibt ein Close bei ~200d 'held' (ausserhalb)."""
+    cache = _long_cache()
+    df = pd.DataFrame([
+        _make_trade_row(trade_id='T1', transaction_date='2025-01-06',
+                        transaction_type='Purchase', trade_amount_max_usd=50_000),
+        _make_trade_row(trade_id='T2', transaction_date='2025-07-25',  # ~200d
+                        transaction_type='Sale', trade_amount_max_usd=60_000),
+    ])
+    df['_post_trade_applicable'] = df.apply(_is_applicable, axis=1)
+    cols = _compute_exit_columns(df, cache, 150, 0.0)  # 150d Cap < 200d
+    assert cols['exit_status'].iloc[0] == 'held'
+    assert pd.isna(cols['first_close_offset_days'].iloc[0])
+
+
+# ---------------------------------------------------------------------------
+# 24. first_close_offset_days: Tage bis erstem Gegen-Trade; NaN bei held.
+# ---------------------------------------------------------------------------
+
+def test_first_close_offset_days(sample_cache):
+    """Offset = Tage bis zum ersten gegensaetzlichen Trade; held -> NaN."""
+    df = pd.DataFrame([
+        _make_trade_row(trade_id='T1', transaction_date='2025-06-02',
+                        transaction_type='Purchase', trade_amount_max_usd=50_000),
+        _make_trade_row(trade_id='T2', transaction_date='2025-06-20',
+                        transaction_type='Sale', trade_amount_max_usd=60_000),
+    ])
+    df['_post_trade_applicable'] = df.apply(_is_applicable, axis=1)
+    cols = _compute_exit_columns(df, sample_cache, None, 0.0)
+    # T1: erster Gegen-Trade 18 Tage spaeter (2025-06-02 -> 2025-06-20).
+    assert cols['first_close_offset_days'].iloc[0] == 18
+    # T2 (held, kein Gegen-Trade danach) -> NaN.
+    assert pd.isna(cols['first_close_offset_days'].iloc[1])

@@ -598,23 +598,28 @@ post_price_30d,            # float: Close-Preis 30 Tage nach Trade
 post_price_60d,            # float: Close-Preis 60 Tage nach Trade
 post_price_90d,            # float: Close-Preis 90 Tage nach Trade
 post_price_120d,           # float: Close-Preis 120 Tage nach Trade
+post_price_180d,           # float: **NEU (2026-06-04):** Close-Preis 180 Tage nach Trade. Dynamisch mit POST_TRADE_HORIZONS_DAYS.
 post_return_30d,           # float: (post_price_30d/baseline - 1) * 100 in %. RICHTUNGSBEWUSST: Käufe wie üblich,
                            # Verkäufe mit invertiertem Vorzeichen (sell_sign = -1). Positiv = gutes Timing.
 post_return_60d,           # float: dito fuer 60d
 post_return_90d,           # float: dito fuer 90d
-post_return_120d,          # float: dito fuer 120d. Für Verkäufe: Vorzeichen invertiert. Details: scoring/post_trade_returns.py.
+post_return_120d,          # float: dito fuer 120d.
+post_return_180d,          # float: **NEU (2026-06-04):** dito fuer 180d. Für Verkäufe: Vorzeichen invertiert. Details: scoring/post_trade_returns.py.
+first_close_offset_days,   # float: **NEU (2026-06-04):** Kalendertage vom transaction_date bis zum ERSTEN gegensätzlichen Trade
+                           # (egal ob closed_full oder closed_partial). Hilfs-Spalte für Horizont-Sichtbarkeitsfilter im Dashboard.
+                           # NaN bei not_applicable / delisted / unknown / held. Beispiel: Kauf 2022-09-01, erstes Verkauf 2023-03-22 → 203 Tage.
 exit_status,               # str: held / closed_full / closed_partial / delisted / unknown / not_applicable
 exit_date,                 # datetime: Datum des ersten gegensätzlichen Trades (bei closed_*)
 exit_price,                # float: Close-Preis am exit_date
 exit_amount_max_usd,       # float: Kumulierte Max-USD der gegensätzlichen Trades
-effective_return_pct,      # float: Bei closed_*: (exit_price/baseline-1)*100 mit sell_sign-Multiplikation;
-                           # bei held: längster verfügbarer (nicht-NaN) Horizont-Return (120→90→60→30 Tage),
-                           # bereits sell_sign-gewichtet. RICHTUNGSBEWUSST: positive Werte = Gewinn (Kauf) oder
-                           # gutes Verkaufs-Timing (vor Kursrückgang), negative Werte = Verlust (Kauf) oder
-                           # entgangener Gewinn (vor Kursanstieg verkauft).
-effective_return_horizon_days,  # float: Zeithorizont in Tagen auf den sich effective_return_pct bezieht.
-                           # Bei closed_*: Tage zw. transaction_date und exit_date. Bei held: tatsächlich
-                           # verwendeter Horizont (120/90/60/30). Sonst NaN.
+effective_return_pct,      # float: **GEÄNDERT (2026-06-04) — REALISIERT-ONLY:** Bei closed_full/closed_partial: 
+                           # (exit_price/baseline-1)*100 mit sell_sign-Multiplikation. 
+                           # Bei held/delisted/unknown/not_applicable: NaN (nicht: längster Horizont-Snapshot).
+                           # Richtungsbewusst: positive Werte = Gewinn (Kauf) oder gutes Verkaufs-Timing,
+                           # negative Werte = Verlust (Kauf) oder entgangener Gewinn.
+effective_return_horizon_days,  # float: **GEÄNDERT (2026-06-04):**
+                           # Bei closed_*: Tage zwischen transaction_date und exit_date.
+                           # Bei held/delisted/unknown/not_applicable: NaN (nicht: Horizont-Tage des Snapshots).
 opposing_trade_ids,        # str: Semikolon-getrennte trade_ids der gegensätzlichen Trades
 # exit_status-Werte: not_applicable — ticker_type nicht in {stock,foreign_stock,shareclass,etf} oder
 #                    issuer_group_key beginnt mit SKIP: oder Exchange-Trade (kanonische Richtungserkennung
@@ -742,6 +747,20 @@ kleinbuchstabig statt der alten Großbuchstaben-Strings):
 **Asset-Class-Gate** (User-Sicht „Filter 0", Spalte `asset_class_excluded`): Setzt `True` fuer alle `ticker_type`-Werte **ausser** `stock`, `foreign_stock`, `shareclass` (siehe `config/settings.py::ASSET_CLASS_KEEP_TYPES`). Ausgefilterte Trades bleiben in der Datei, werden aber vom VoteTimingTag und nachgelagerten Scoring-Modulen uebersprungen.
 
 **Verwendung**: Hauptdatenbank fuer Analyse, Filter und Scoring
+
+**Display-Only Partial-Close-Zerlegung (2026-06-04, Modul 9):**
+Die `app/chart_helpers.py`-Funktion `build_partial_close_rows` zerlegt im Post-Trade-Performance-Tab Eröffnungs-Trades mit `closed_partial`-Status in mehrere Display-Zeilen (eine pro Schließungs-Event). Diese Zeilen werden **nicht in `trades_master_complete.csv` persistiert**, sondern nur im UI angezeigt. Spalten:
+- `trade_id`: `{parent_trade_id}-pc{event_n}` (Display-ID, nicht eindeutig in Master)
+- `parent_trade_id`: Rückverweis auf original `trade_id`
+- `close_date`: `exit_date` aus dem Event
+- `exit_volume`: Volumen dieses einzelnen Schließungs-Trades
+- `close_offset_days`: Tage zwischen `transaction_date` und dieses `close_date`
+- `effective_return_pct`: Return bis zu diesem Close-Preis (nicht aggregiert über alle Closes)
+
+**Limitierung (nicht-FIFO Partition):** Derselbe Verkauf kann bei mehreren Käufen als Gegen-Trade auftauchen. Volumen-Partitionierung erfolgt global NICHT sauber → Zerlegungs-Zeilen dürfen niemals in Volumen-Aggregate (Asset-Tab, Member-Tab) eingehen. Nur für Performance-Charts zulässig.
+
+**Horizont-Sichtbarkeitsfilter (2026-06-04, Modul 9):**
+Das Dashboard filtert global (alle 4 Tabs) nach `first_close_offset_days`. Sidebar-Toggle „Horizont-Filter aktiv" (Standard an) begrenzt Sichtbarkeit auf Trades mit `first_close_offset_days ≤ PRIMARY_HORIZON_DAYS` (benutzerwählter primärer Horizont aus 30/60/90/120/180). Bei `held` oder NaN wird kein Filter angewendet (alle `held`-Trades sichtbar, unabhängig vom Horizont). Sinn: Real geschlossene Positionen mit Exits >120d später zeigen sich erst wenn der Horizont aufgedreht wird.
 
 ---
 

@@ -301,6 +301,7 @@ TICKER_LOOKUP_PAUSE_SECONDS = 0.5    # Pause zwischen yfinance-Calls (Rate-Limit
 TICKER_LOOKUP_RETRY_ATTEMPTS = 3     # Wiederholungsversuche bei Fehler
 TICKER_LOOKUP_RETRY_DELAY = 5.0      # Wartezeit (Sekunden) zwischen Retries, verdoppelt sich
 TICKER_LOOKUP_CONFIRM_THRESHOLD = 100 # Ab dieser Anzahl neuer Ticker: User-Bestaetigung
+TICKER_LOOKUP_AUTO_CONFIRM = True     # True: große Ticker-Batches ohne Enter-Bestaetigung fetchen (autonomer Run/Scheduler). False: interaktive Rueckfrage ab CONFIRM_THRESHOLD.
 TICKER_LOOKUP_CACHE_INTERVAL = 100    # Cache alle N Ticker zwischenspeichern
 TICKER_LOOKUP_NET_ERROR_PAUSE = 30    # Pause (Sek.) nach Pause-Threshold Netzwerk-Fehlern
 TICKER_LOOKUP_NET_ERROR_PAUSE_THRESHOLD = 3  # Ab N consecutive Net-Errors -> Pause ausloesen
@@ -501,7 +502,12 @@ ARCHIVE_BACKUP_PATH = 'archive/trades_master_backup'
 # Post-Trade Returns (Modul 9.x — Historische Insider-Detection)
 # ---------------------------------------------------------------------------
 # Horizont-Tage nach dem Trade, an denen Close-Preise gezogen werden.
-POST_TRADE_HORIZONS_DAYS = [30, 60, 90, 120]
+POST_TRADE_HORIZONS_DAYS = [30, 60, 90, 120, 180]
+# Exit-Detection-Fenster — ENTKOPPELT vom Return-Horizont (war faelschlich an
+# max(POST_TRADE_HORIZONS_DAYS) gekoppelt). None = unbegrenzt (gesamter
+# Datensatz), int = Cap in Tagen. Findet den ECHTEN Close -> realisierter
+# effective_return statt willkuerlichem Kalender-Snapshot.
+EXIT_DETECTION_WINDOW_DAYS = None
 # yfinance-Daily-Cache (MultiIndex [ticker, date], Spalte close).
 POST_TRADE_PRICE_CACHE = 'data/cache/price_history.parquet'
 # Erstabruf-Fenster pro Ticker.

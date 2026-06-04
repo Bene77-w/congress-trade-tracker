@@ -87,3 +87,91 @@ def build_sale_kind_traces(records) -> list:
             ),
         ))
     return traces
+
+
+def build_partial_close_rows(opening: dict, events: list, sell_sign: float) -> list:
+    """Zerlegt einen Eroeffnungs-Trade in eine Zeile pro Schliessungs-Event.
+
+    Reine Display-Zerlegung (NICHT additiv, NICHT in den Master): pro
+    gegensaetzlichem Trade (= Schliessungs-Event) eine eigene Zeile mit ihrem
+    eigenen realisierten Return. Ein Voll-Close ohne Teilverkaeufe = genau EINE
+    Zeile (wie ein einzelnes Event).
+
+    ``opening`` Dict mit:
+        ``trade_id`` (Parent-Hash), ``transaction_date`` (Eroeffnung),
+        ``baseline_price`` (Einstands-Naeherung), ``volume`` (Eroeffnungs-USD).
+    ``events`` iterierbar ueber Dicts (Gegen-Trades, CHRONOLOGISCH) mit:
+        ``trade_id``, ``date``, ``volume``, ``price`` (Kurs am Event).
+    ``sell_sign`` (+1 Kauf-Eroeffnung / -1 Verkauf-Eroeffnung) — vom
+    Eroeffnungs-Trade geerbt; richtungsbewusster Return.
+
+    Pro Event eine Zeile:
+        ``trade_id`` = f"{parent}-pc{n}" (n = laufende Nummer EMITTIERTER Zeilen),
+        ``parent_trade_id``, ``transaction_date`` (= Eroeffnung), ``close_date``,
+        ``exit_volume`` (auf verbleibendes Eroeffnungs-Volumen gedeckelt),
+        ``close_offset_days``, ``effective_return_pct``
+        = (price/baseline - 1) * 100 * sell_sign.
+    Events mit fehlendem ``price`` (oder ungueltigem ``baseline``) werden
+    uebersprungen und zaehlen NICHT in der ``-pc{n}``-Nummerierung.
+
+    Limitierung (Lite / non-FIFO): derselbe Verkauf kann bei mehreren Kaeufen
+    als Gegen-Trade auftauchen — Volumina partitionieren global NICHT sauber.
+    Die ``exit_volume``-Deckelung haelt nur die Summe PRO Eroeffnung <=
+    Eroeffnungs-Volumen. Daher: Zerlegungs-Zeilen nie in Volumen-Aggregate.
+    """
+    parent = str(opening.get('trade_id'))
+    baseline = opening.get('baseline_price')
+    open_date = opening.get('transaction_date')
+    open_volume = opening.get('volume')
+
+    if baseline is None or pd.isna(baseline) or baseline <= 0:
+        return []
+    open_date = pd.to_datetime(open_date, errors='coerce')
+
+    try:
+        remaining = float(open_volume)
+    except (TypeError, ValueError):
+        remaining = None
+    if remaining is not None and (pd.isna(remaining) or remaining < 0):
+        remaining = None
+
+    rows = []
+    n = 0
+    for ev in events:
+        price = ev.get('price')
+        if price is None or pd.isna(price):
+            continue
+        close_date = pd.to_datetime(ev.get('date'), errors='coerce')
+
+        # Volumen auf verbleibendes Eroeffnungs-Volumen deckeln (per-Kauf-FIFO
+        # auf der Verkaufsseite). Unbekanntes Event-Volumen -> NaN (kein Verbrauch).
+        ev_vol = ev.get('volume')
+        try:
+            ev_vol = float(ev_vol)
+        except (TypeError, ValueError):
+            ev_vol = None
+        if ev_vol is not None and pd.isna(ev_vol):
+            ev_vol = None
+        if ev_vol is None or remaining is None:
+            exit_volume = ev_vol
+        else:
+            exit_volume = min(ev_vol, remaining)
+            remaining = max(0.0, remaining - exit_volume)
+
+        if pd.notna(close_date) and pd.notna(open_date):
+            offset = float((close_date - open_date).days)
+        else:
+            offset = float('nan')
+
+        n += 1
+        rows.append({
+            'trade_id': f"{parent}-pc{n}",
+            'parent_trade_id': parent,
+            'transaction_date': open_date,
+            'close_date': close_date,
+            'exit_volume': exit_volume,
+            'close_offset_days': offset,
+            'effective_return_pct': (float(price) / float(baseline) - 1.0)
+                                    * 100.0 * sell_sign,
+        })
+    return rows

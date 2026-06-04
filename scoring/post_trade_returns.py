@@ -381,6 +381,7 @@ def compute_post_trade_returns(
     exit_amount_tolerance: float = 0.0,
     cache_flush_every: int = 50,
     progress_every: int = 20000,
+    exit_window_days: int | None = None,
 ) -> pd.DataFrame:
     """Erweitert df um Post-Trade-Spalten. Idempotent. Liefert NEUE Kopie.
 
@@ -391,7 +392,12 @@ def compute_post_trade_returns(
     Output-Spalten (zusaetzlich):
         post_trade_baseline_price, post_price_{X}d, post_return_{X}d,
         exit_status, exit_date, exit_price, exit_amount_max_usd,
-        effective_return_pct, effective_return_horizon_days, opposing_trade_ids
+        effective_return_pct, effective_return_horizon_days, opposing_trade_ids,
+        first_close_offset_days
+
+    ``exit_window_days``: oberes Suchfenster der Exit-Detection in Tagen.
+    None = unbegrenzt (gesamter Datensatz). ENTKOPPELT vom Return-Horizont —
+    bestimmt, bis wann ein gegensaetzlicher Trade noch als Close zaehlt.
     """
     # yfinance- + urllib-Logger leiser stellen — die Stage hat ihre eigene Progress-Anzeige.
     logging.getLogger('yfinance').setLevel(logging.CRITICAL)
@@ -504,22 +510,26 @@ def compute_post_trade_returns(
         df[col_return] = df[col_return] * sell_sign
 
     # --- Exit-Detection ---
+    # Fenster ist vom Return-Horizont (max_horizon) ENTKOPPELT: exit_window_days
+    # steuert, bis wann ein Gegen-Trade noch als Close gilt (None = unbegrenzt).
     print("  Exit-Detection ...")
     exit_cols = _compute_exit_columns(
-        df, cache, max_horizon, exit_amount_tolerance, lookup=lookup,
+        df, cache, exit_window_days, exit_amount_tolerance, lookup=lookup,
         progress_every=progress_every,
     )
     for col_name, series in exit_cols.items():
         df[col_name] = series.values
 
     # --- effective_return_pct + effective_return_horizon_days (vektorisiert) ---
-    # closed_*: Return bis Exit-Preis (Horizont = Tage bis Exit);
-    # held: Return am LAENGSTEN VERFUEGBAREN Horizont (120 -> 90 -> 60 -> 30),
-    #       da der Max-Horizont bei jungen Trades noch in der Zukunft liegt;
-    # delisted/unknown/not_applicable -> NaN.
+    # REALISIERT-ONLY: nur closed_* bekommen einen effective_return (Return bis
+    # Exit-Preis, Horizont = Tage bis Exit). held/delisted/unknown/not_applicable
+    # -> NaN, weil es keinen realisierten Wert gibt. Mark-to-Market bleibt in
+    # post_return_{X}d erhalten. (Frueher kopierte ein held-Fallback den
+    # laengsten Horizont-Snapshot hierher — ein willkuerlicher Kalendertag, kein
+    # realisierter Return; entfernt, weil Exit-Detection jetzt entkoppelt den
+    # echten Close findet.)
     # Vorzeichen ist richtungsbewusst (s. sell_sign oben): closed_* wird hier
-    # explizit mit sell_sign multipliziert; der held-Zweig uebernimmt
-    # post_return_{X}d, das bereits geflippt ist (kein doppelter Flip).
+    # explizit mit sell_sign multipliziert.
     df['effective_return_pct'] = np.nan
     df['effective_return_horizon_days'] = np.nan
     status = df['exit_status']
@@ -539,17 +549,6 @@ def compute_post_trade_returns(
         (df.loc[closed_mask, 'exit_date']
          - df.loc[closed_mask, 'transaction_date']).dt.days
     )
-
-    # held: ersten nicht-NaN Horizont-Return von gross nach klein nehmen.
-    held_mask = status == 'held'
-    if held_mask.any():
-        for h in sorted(horizons_days, reverse=True):
-            col = f'post_return_{h}d'
-            if col not in df.columns:
-                continue
-            take = held_mask & df['effective_return_pct'].isna() & df[col].notna()
-            df.loc[take, 'effective_return_pct'] = df.loc[take, col]
-            df.loc[take, 'effective_return_horizon_days'] = h
 
     # --- Aufraeumen ---
     df.drop(columns=['_post_trade_applicable'], inplace=True)
@@ -592,7 +591,7 @@ def _is_applicable(row: pd.Series) -> bool:
 def _compute_exit_columns(
     df: pd.DataFrame,
     cache: pd.DataFrame,
-    max_horizon: int,
+    exit_window_days: int | None,
     exit_amount_tolerance: float,
     lookup: dict[str, tuple | None] | None = None,
     progress_every: int = 20000,
@@ -600,8 +599,11 @@ def _compute_exit_columns(
     """Exit-Detection: gegensaetzliche Trades im Fenster erkennen.
 
     Returns dict mit Series (exit_status, exit_date, exit_price,
-    exit_amount_max_usd, opposing_trade_ids). Jeder Trade unabhaengig
-    betrachtet (kein FIFO).
+    exit_amount_max_usd, opposing_trade_ids, first_close_offset_days).
+    Jeder Trade unabhaengig betrachtet (kein FIFO).
+
+    ``exit_window_days``: oberes Suchfenster in Tagen ab transaction_date.
+    None = unbegrenzt (kein oberer Filter). ENTKOPPELT vom Return-Horizont.
 
     ``lookup`` ist das vorgebaute Preis-Dict (:func:`_build_price_lookup`).
     Wird es nicht uebergeben (z.B. direkter Test-Aufruf), wird es hier aus
@@ -614,6 +616,11 @@ def _compute_exit_columns(
     exit_price = pd.Series(np.nan, index=df.index, dtype='float64')
     exit_amount = pd.Series(np.nan, index=df.index, dtype='float64')
     opposing_ids = pd.Series('', index=df.index, dtype='object')
+    # Tage bis zum ERSTEN gegensaetzlichen Trade (unabh. von Voll-/Teil-Close);
+    # NaN bei held / not_applicable / delisted / unknown. Guenstige Filter-
+    # Metadaten-Spalte (ein Skalar pro Trade) fuer den Horizont-Sichtbarkeits-
+    # filter im Dashboard.
+    first_close_offset = pd.Series(np.nan, index=df.index, dtype='float64')
 
     # Cache-Ticker-Set vorab — vermeidet teure .index.get_level_values()-Calls
     # pro Trade.
@@ -645,6 +652,7 @@ def _compute_exit_columns(
             'exit_price': exit_price,
             'exit_amount_max_usd': exit_amount,
             'opposing_trade_ids': opposing_ids,
+            'first_close_offset_days': first_close_offset,
         }
 
     work = df.loc[mask, [
@@ -691,19 +699,24 @@ def _compute_exit_columns(
                 exit_status.at[idx] = 'unknown'
                 continue
 
-            window_end = t_date + pd.Timedelta(days=max_horizon)
             opposing_dir = 'sell' if t_dir == 'buy' else 'buy'
             opposing = grp_sorted[
                 (grp_sorted['_dir'] == opposing_dir)
                 & (grp_sorted['transaction_date'] > t_date)
-                & (grp_sorted['transaction_date'] <= window_end)
             ]
+            if exit_window_days is not None:
+                window_end = t_date + pd.Timedelta(days=exit_window_days)
+                opposing = opposing[opposing['transaction_date'] <= window_end]
 
             if opposing.empty:
                 exit_status.at[idx] = 'held'
                 continue
 
             opposing = opposing.sort_values('transaction_date')
+            # Tage bis zum ERSTEN Gegen-Trade (egal ob er voll/teilweise schliesst).
+            first_close_offset.at[idx] = float(
+                (opposing.iloc[0]['transaction_date'] - t_date).days
+            )
             cum_amount = 0.0
             opp_ids: list[str] = []
             threshold = float(t_max_usd) * (1.0 - exit_amount_tolerance)
@@ -724,6 +737,7 @@ def _compute_exit_columns(
             if not opp_ids:
                 # alle opposing-Trades hatten NaN-Amount -> nicht aussagekraeftig
                 exit_status.at[idx] = 'held'
+                first_close_offset.at[idx] = np.nan  # held -> kein Offset
                 continue
 
             exit_amount.at[idx] = float(cum_amount)
@@ -740,4 +754,5 @@ def _compute_exit_columns(
         'exit_price': exit_price,
         'exit_amount_max_usd': exit_amount,
         'opposing_trade_ids': opposing_ids,
+        'first_close_offset_days': first_close_offset,
     }

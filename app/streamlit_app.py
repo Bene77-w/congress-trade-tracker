@@ -22,7 +22,10 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app.chart_helpers import build_sale_kind_traces  # noqa: E402
+from app.chart_helpers import (  # noqa: E402
+    build_partial_close_rows,
+    build_sale_kind_traces,
+)
 from app.score_recompute import available_signals, recompute_subset  # noqa: E402
 from app.scoring_presets import (  # noqa: E402
     DEFAULT_PRESET_NAME,
@@ -47,7 +50,8 @@ TRADE_DISPLAY_COLS = [
     'trade_score', 'committee_match', 'relevant_sectors',
     'signals_triggered', 'trade_score_breakdown', 'trade_warnings',
     'post_return_30d', 'post_return_60d', 'post_return_90d',
-    'post_return_120d', 'effective_return_pct', 'exit_status', 'exit_date',
+    'post_return_120d', 'post_return_180d', 'effective_return_pct',
+    'exit_status', 'exit_date', 'first_close_offset_days',
 ]
 
 TRADE_DEFAULT_COLS = [
@@ -550,7 +554,16 @@ with st.sidebar:
             'Primaerer Return-Horizont',
             options=settings.POST_TRADE_HORIZONS_DAYS,
             index=2,  # Default 90d
-            help='Bestimmt welcher post_return_{X}d in Asset-/Member-Aggregaten verwendet wird.',
+            help='Bestimmt welcher post_return_{X}d in Asset-/Member-Aggregaten '
+                 'verwendet wird UND (bei aktivem Horizont-Filter) bis wann der '
+                 'erste Close liegen darf, damit ein Trade sichtbar bleibt.',
+        )
+        horizon_filter_active = st.checkbox(
+            'Horizont-Filter aktiv',
+            value=True,
+            help='Blendet Trades aus, deren erster Close nach dem gewaehlten '
+                 'Horizont liegt (bzw. nie geschlossen wurde). Aus = alle Trades '
+                 'sichtbar.',
         )
 
     with st.expander('📊  Spalten', expanded=False):
@@ -806,6 +819,14 @@ def apply_prefilter(df: pd.DataFrame) -> pd.DataFrame:
     if search_query:
         out = out[_search_mask(out, search_query)]
 
+    # Horizont-Sichtbarkeitsfilter (global, deaktivierbar): nur Trades, deren
+    # erster Close <= primary_horizon liegt. NaN (held / nie geschlossen) faellt
+    # raus. Teilverkauf <= X qualifiziert (erster Offset <= X). Toggle aus ->
+    # keine Ausblendung.
+    if horizon_filter_active and 'first_close_offset_days' in out.columns:
+        off = out['first_close_offset_days']
+        out = out[off.notna() & (off <= primary_horizon)]
+
     return out
 
 
@@ -884,11 +905,15 @@ def _trade_column_config(score_max_val: int) -> dict:
             'Return 90d %', format='%.1f%%', width='small'),
         'post_return_120d': cc.NumberColumn(
             'Return 120d %', format='%.1f%%', width='small'),
+        'post_return_180d': cc.NumberColumn(
+            'Return 180d %', format='%.1f%%', width='small'),
         'effective_return_pct': cc.NumberColumn(
             'Eff. Return %', format='%.1f%%', width='small'),
         'exit_status': cc.TextColumn('Exit', width='small'),
         'exit_date': cc.DateColumn('Exit-Datum', format='DD.MM.YYYY',
                                    width='small'),
+        'first_close_offset_days': cc.NumberColumn(
+            'Erster Close (Tage)', format='%d', width='small'),
     }
 
 
@@ -1264,10 +1289,51 @@ def render_trade_detail(trade, trade_rows, key_prefix: str) -> None:
             [f'post_return_{h}d' for h in settings.POST_TRADE_HORIZONS_DAYS] + \
             ['exit_status', 'exit_date', 'exit_price',
              'exit_amount_max_usd', 'effective_return_pct',
-             'opposing_trade_ids']
+             'first_close_offset_days', 'opposing_trade_ids']
         ret_available = [f for f in ret_fields if f in trade.index]
         ret_data = {k: trade[k] for k in ret_available}
         st.dataframe(pd.Series(ret_data, name='Wert'), width='stretch')
+
+    # --- Partial-Close-Zerlegung (Display-only, Lite/non-FIFO) -----------
+    # Pro Schliessungs-Event (Gegen-Trade aus opposing_trade_ids) eine eigene
+    # Zeile mit ihrem realisierten Return. Bewusst NICHT in den Master und NICHT
+    # in Volumen-Aggregate (Volumina partitionieren global nicht sauber).
+    opp_raw = trade.get('opposing_trade_ids')
+    if isinstance(opp_raw, str) and opp_raw.strip():
+        from scoring.post_trade_returns import _price_at_or_after  # noqa: E402
+        opp_ids = [x for x in opp_raw.split(';') if x]
+        # Gegen-Trades aus dem VOLLEN Datensatz nachschlagen — sie koennen aus
+        # dem gefilterten/sichtbaren Subset gefallen sein.
+        opp_df = trades[trades['trade_id'].astype(str).isin(opp_ids)].copy()
+        opp_df['_d'] = pd.to_datetime(opp_df['transaction_date'], errors='coerce')
+        opp_df = opp_df.sort_values('_d')
+        events = []
+        for _, orow in opp_df.iterrows():
+            ed = orow['_d']
+            price = (_price_at_or_after(cache, ticker, ed)
+                     if pd.notna(ed) else None)
+            events.append({
+                'trade_id': orow['trade_id'],
+                'date': ed,
+                'volume': orow.get('trade_amount_max_usd'),
+                'price': price,
+            })
+        sel_sign = -1.0 if _direction_from_transaction_type(
+            trade['transaction_type']) == 'sell' else 1.0
+        opening = {
+            'trade_id': trade['trade_id'],
+            'transaction_date': t_date,
+            'baseline_price': trade.get('post_trade_baseline_price'),
+            'volume': trade.get('trade_amount_max_usd'),
+        }
+        pc_rows = build_partial_close_rows(opening, events, sel_sign)
+        if pc_rows:
+            st.subheader('Partial-Close-Zerlegung (Lite · Display-only)')
+            st.caption('Eine Zeile pro Schliessungs-Event mit eigenem '
+                       'realisiertem Return. Volumina non-FIFO -> nicht '
+                       'aggregieren.')
+            st.dataframe(pd.DataFrame(pc_rows), hide_index=True,
+                         width='stretch')
 
 
 # --- Tabs ----------------------------------------------------------------
