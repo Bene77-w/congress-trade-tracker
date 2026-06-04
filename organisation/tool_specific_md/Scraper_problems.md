@@ -131,7 +131,15 @@ Stand: 2026-03-21
 
 ## 6. Datenqualitaet (trades_master.csv)
 
-### 6.1 Fehlende Ticker (kombiniert) — DESIGNBEDINGT
+### 6.1 Ticker-Reuse / Delisting → falsche Kurshistorie im Preis-Cache — OFFEN
+- **Symptom:** Delistete/wiederverwendete Ticker werden im `data/cache/price_history.parquet`-Cache mit der Kurshistorie eines NEUEN, anderen Unternehmens desselben Symbols gematcht
+- **Belege:** Ticker `NYC` (Baseline $1,77 → ausgewiesener Return +466 %), Ticker `PW` (Baseline $0,53 → +302 %)
+- **Erkennungsmerkmal:** Extrem niedrige Baseline-Preise + absurd hohe Post-Trade-Returns (Dezimalstellen-Bereich)
+- **Ursache:** yfinance liefert für wiederverwendete Symbole die Historie des NEUEN Unternehmens, nicht des Ursprungs-Tickers zum Zeitpunkt des Trades
+- **Auswirkung:** Verfälscht einzelne Post-Trade-Returns in der Streamlit-App (Asset- und Member-Aggregate, Post-Trade-Performance-Tab). **NICHT im Scoring enthalten** (post_return_* sind display-only)
+- **Status:** OFFEN, nicht gefixt (bewusst zurückgestellt, Priorität niedrig)
+
+### 6.2 Fehlende Ticker (kombiniert) — DESIGNBEDINGT
 - **Anzahl:** ~49% aller Trades ohne Ticker
 - **Aufschluesselung:** House 51% (Paper-Formulare), Senate 37% (e-Filing erlaubt kein Ticker)
 - **Auswirkung:** Ticker-basierte Analyse (Filter, Scoring) nicht moeglich fuer diese Trades

@@ -2,10 +2,42 @@
 
 > **Zielgruppe**: Folge-Agenten, die an `--stage_post_trade_performance`
 > debuggen, erweitern oder Architektur-Entscheidungen treffen.
-> **Stand**: 2026-05-31 (Stage-Rename + 3 Änderungen: neue Spalte + Semantik-Updates).
+> **Stand**: 2026-06-04 (Richtungsbewusste Return-Semantik + UI-Marker-Update).
 > **Single-Source**: Pipeline-Details in `Pipelines.md`, Spalten in
 > `DATA_STRUCTURE.md`. Dieses Briefing fasst aktiv genutzte Bezüge
 > zusammen und markiert veraltete Konzepte.
+
+---
+
+## Änderungen 2026-06-04 — Richtungsbewusste Returns + UI-Marker-Redesign
+
+### Return-Spalten-Semantik (Vorzeichen-Inversion für Verkäufe)
+- **Spalten betroffen**: `post_return_30d`, `post_return_60d`, `post_return_90d`, `post_return_120d`, `effective_return_pct`
+- **Änderung**: Für Verkäufe (`transaction_type`-Richtung = sell) wird `sell_sign = −1` auf alle Return-Werte angewandt
+- **Semantik jetzt**: 
+  - **Positiv** = gutes Timing (Kauf: Kurs stieg; Verkauf: Kurs fiel nach dem Trade)
+  - **Negativ** = schlechtes Timing (Kauf: Kurs fiel; Verkauf: Kurs stieg nach dem Trade)
+- **Implementierung**: `scoring/post_trade_returns.py`, Funktion `_apply_sell_sign()` (Z. ~380)
+- **Display-only**: Diese Spalten fließen NICHT ins Scoring/Signale, nur in Streamlit-UI (Asset-/Member-Aggregate, Post-Trade-Performance-Tab)
+
+### UI-Marker: Teil-/Vollverkäufe jetzt `transaction_type`-getrieben
+- **Vorher**: `exit_status`-Feld (Exit-Detection) bestimmte die Marker (Problem: für Verkäufe regelmäßig `held` → Marker nie ausgelöst)
+- **Jetzt**: Direkt aus `transaction_type` (disclosed Realität)
+- **Neue Funktionen in `app/chart_helpers.py`**:
+  - `sale_kind_marker(transaction_type)` → Stil-Dict (Symbol, Farbe, Label)
+  - `build_sale_kind_traces(records)` → Plotly-Trace je Verkaufsart
+- **Marker-Stile**:
+  - `Sale (Partial)` → Dreieck nach unten (violett), Label „Teilverkauf"
+  - `Sale (Full)` → X-Symbol (orange), Label „Vollverkauf"
+- **Alte Funktion entfernt**: `build_exit_marker_trace()` (war `exit_status`-basiert)
+
+### Datenqualitäts-Notiz: Ticker-Reuse / Delisting
+- **Problem**: Delistete Ticker, deren Symbole später neu vergeben wurden, werden im Preis-Cache mit der neuen Kurshistorie gematcht
+- **Belege**: `NYC` (+466 %), `PW` (+302 %) — extrem niedrige Baseline-Preise + absurd hohe Returns
+- **Status**: Offen, nicht gefixt (bewusst zurückgestellt)
+- **Dokumentation**: `organisation/tool_specific_md/Scraper_problems.md`, Abschnitt 6.1
+
+---
 
 ---
 

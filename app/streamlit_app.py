@@ -22,6 +22,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from app.chart_helpers import build_sale_kind_traces  # noqa: E402
 from app.score_recompute import available_signals, recompute_subset  # noqa: E402
 from app.scoring_presets import (  # noqa: E402
     DEFAULT_PRESET_NAME,
@@ -31,6 +32,9 @@ from app.scoring_presets import (  # noqa: E402
     save_preset,
 )
 from config import settings  # noqa: E402
+from signals.committee_signal import (  # noqa: E402
+    _direction_from_transaction_type,
+)
 
 
 TRADES_CSV = ROOT / 'data' / 'processed' / settings.TRADES_MASTER_COMPLETE_CSV
@@ -48,7 +52,7 @@ TRADE_DISPLAY_COLS = [
 
 TRADE_DEFAULT_COLS = [
     'trade_id',
-    'transaction_date', 'name', 'asset_name', 'ticker',
+    'transaction_date', 'disclosure_date', 'name', 'asset_name', 'ticker',
     'transaction_type', 'amount', 'asset_tradingvolume_usd',
     'trade_score', 'committee_match', 'relevant_sectors',
     'signals_triggered', 'effective_return_pct', 'exit_status',
@@ -505,7 +509,10 @@ with st.sidebar:
         date_basis = st.radio(
             'Datumsbasis',
             options=['disclosure_date', 'transaction_date'],
-            index=0,
+            index=1,  # Default transaction_date (Projektregel 3): das
+                      # disclosure-Fenster zeigt sonst wegen 45-Tage-
+                      # Meldefrist Transaktionen aus weit zurueckliegenden
+                      # Jahren (z.B. 365d -> Trades aus 2024).
             horizontal=False,
         )
         window_label = st.radio(
@@ -517,11 +524,11 @@ with st.sidebar:
         window_days = {'7 Tage': 7, '30 Tage': 30,
                        '365 Tage': 365, 'Alles': None}[window_label]
         search_query = st.text_input(
-            'Suche (Name / Ticker / Hash-ID)', value='',
+            'Suche (Name / Asset / Ticker / Hash-ID)', value='',
             help='Mehrere Begriffe werden UND-verknuepft und sind '
                  'reihenfolge-unabhaengig (z.B. "tina smith" findet '
-                 '"Smith, Tina"). Durchsucht Name, Ticker, Issuer und '
-                 'Hash-ID. Wirkt in allen Tabs; Datums-/Score-Filter '
+                 '"Smith, Tina"). Durchsucht Name, Asset, Ticker, Issuer '
+                 'und Hash-ID. Wirkt in allen Tabs; Datums-/Score-Filter '
                  'bleiben aktiv.',
         ).strip()
 
@@ -758,14 +765,15 @@ with st.sidebar:
 
 # --- Pre-Filter (Datum + Member + Ticker) --------------------------------
 
-_SEARCH_FIELDS = ['name', 'ticker', 'issuer_ticker', 'trade_id']
+_SEARCH_FIELDS = ['name', 'asset_name', 'ticker', 'issuer_ticker', 'trade_id']
 
 
 def _search_mask(df: pd.DataFrame, query: str) -> pd.Series:
     """Token-basierte, reihenfolge-unabhaengige Volltextsuche.
 
-    Pro Zeile wird ein durchsuchbarer Text aus ``name``/``ticker``/
-    ``issuer_ticker``/``trade_id`` (lowercase, space-join) gebildet. Die
+    Pro Zeile wird ein durchsuchbarer Text aus ``name``/``asset_name``/
+    ``ticker``/``issuer_ticker``/``trade_id`` (lowercase, space-join)
+    gebildet. Die
     Query wird an Whitespace in Tokens gesplittet; eine Zeile matcht, wenn
     JEDES Token als Substring vorkommt (UND-Verknuepfung). Dadurch findet
     z.B. "tina smith" auch den Namen "Smith, Tina".
@@ -957,6 +965,311 @@ def _member_column_config(score_max_val: int) -> dict:
     }
 
 
+def _related_return_style(v):
+    """Hintergrund fuer effective_return_pct: >+10% gruen, <-10% rot."""
+    if pd.isna(v):
+        return ''
+    if v > 10:
+        return 'background-color: #14532d; color: #dcfce7'
+    if v < -10:
+        return 'background-color: #7f1d1d; color: #fee2e2'
+    return ''
+
+
+def _render_related_table(related: pd.DataFrame) -> None:
+    """Simple Tabelle der weiteren Trades am gleichen Issuer."""
+    st.subheader('Weitere Trades am gleichen Issuer')
+    if related.empty:
+        st.caption('Keine weiteren Trades im gewählten Scope.')
+        return
+
+    col_map = {
+        'effective_return_pct': 'Eff. Return %',
+        'trade_score': 'Score',
+        'name': 'Member',
+        'transaction_type': 'Type',
+        'signals_triggered': 'Signals',
+        'committee_match': 'Committee Match',
+        'transaction_date': 'Transaction',
+        'amount': 'Amount Range',
+        'ticker': 'Ticker',
+        'trade_id': 'Hash-ID',
+    }
+    src_cols = [c for c in col_map if c in related.columns]
+    tdf = related.sort_values(
+        'transaction_date', kind='mergesort', na_position='last',
+    )[src_cols].rename(columns=col_map)
+
+    fmt = {}
+    if 'Eff. Return %' in tdf.columns:
+        fmt['Eff. Return %'] = (
+            lambda v: f'{v:+.1f}%' if pd.notna(v) else '--'
+        )
+    if 'Score' in tdf.columns:
+        fmt['Score'] = lambda v: f'{v:.0f}' if pd.notna(v) else '--'
+    if 'Transaction' in tdf.columns:
+        fmt['Transaction'] = lambda v: str(v)[:10] if pd.notna(v) else '--'
+
+    styler = tdf.style.format(fmt, na_rep='--')
+    if 'Eff. Return %' in tdf.columns:
+        styler = styler.map(
+            _related_return_style, subset=['Eff. Return %'],
+        )
+    st.dataframe(styler, hide_index=True, width='stretch')
+
+
+def render_trade_detail(trade, trade_rows, key_prefix: str) -> None:
+    """Detail-Ansicht eines Trades: Toggles + Kursverlauf-Chart mit Events
+    + Related-Trades-Tabelle + Trade-Kontext + Post-Trade-Returns.
+
+    Wird sowohl im Performance-Tab (key_prefix='perf') als auch im
+    Trades-Tab-Popup (key_prefix='popup') verwendet; key_prefix haelt die
+    Widget-Keys eindeutig.
+    """
+    import contextlib
+    from scoring.post_trade_returns import _load_price_cache  # noqa: E402
+
+    ticker = str(trade['ticker'])
+    t_date = pd.to_datetime(trade['transaction_date'])
+    window_start = t_date - pd.Timedelta(days=30)
+    window_end = (
+        t_date + pd.Timedelta(days=max(settings.POST_TRADE_HORIZONS_DAYS) + 30)
+    )
+
+    # Toggles: steuern Chart-Marker UND Tabelle gemeinsam.
+    scope_all = st.toggle(
+        'Alle Trades (Zeitfenster ignorieren)',
+        value=False, key=f'{key_prefix}_scope_all',
+    )
+    show_others = st.toggle(
+        'Andere Politiker einbeziehen',
+        value=True, key=f'{key_prefix}_show_others',
+    )
+
+    # Bei scope_all deckt der Chart den gesamten Trade-Zeitraum (ggf. mehrere
+    # Jahre) ab -> 26-MB-Preis-Cache + breiter Kursverlauf koennen spuerbar
+    # dauern. Daher klassischer Ladebildschirm waehrend des Aufbaus.
+    spinner_ctx = (
+        st.spinner('Lade vollständigen Kursverlauf …')
+        if scope_all else contextlib.nullcontext()
+    )
+    with spinner_ctx:
+        cache_path = str(ROOT / settings.POST_TRADE_PRICE_CACHE)
+        cache = _load_price_cache(cache_path)
+
+        # Gefilterte Menge der weiteren Trades am gleichen Issuer.
+        igk = trade.get('issuer_group_key')
+        related = trade_rows.iloc[0:0]
+        if pd.notna(igk):
+            rel = trade_rows[
+                (trade_rows['issuer_group_key'] == igk)
+                & (trade_rows['trade_id'] != trade['trade_id'])
+            ].copy()
+            rel_dates = pd.to_datetime(
+                rel['transaction_date'], errors='coerce')
+            if not scope_all:
+                rel = rel[
+                    (rel_dates >= window_start) & (rel_dates <= window_end)
+                ]
+            if not show_others:
+                rel = rel[rel['name'] == trade['name']]
+            related = rel
+
+        # Chart-Fenster: bei scope_all auf den Bereich erweitern, der ALLE
+        # angezeigten Trades abdeckt; sonst das enge Standard-Fenster.
+        if scope_all:
+            rel_dates_all = pd.to_datetime(
+                related['transaction_date'], errors='coerce'
+            ).dropna()
+            chart_start = (
+                min([t_date, *rel_dates_all]) - pd.Timedelta(days=30)
+            )
+            chart_end = (
+                max([window_end, *rel_dates_all]) + pd.Timedelta(days=30)
+            )
+        else:
+            chart_start, chart_end = window_start, window_end
+
+        # Preisverlauf aus Cache
+        series = pd.DataFrame()
+        if ticker in cache.index.get_level_values(0):
+            tkr_cache = cache.loc[ticker]
+            tkr_cache = tkr_cache[
+                tkr_cache.index != pd.Timestamp('1900-01-01')]
+            series = tkr_cache[
+                (tkr_cache.index >= chart_start)
+                & (tkr_cache.index <= chart_end)
+            ]
+
+    if series.empty:
+        st.warning(
+            f'Keine Preisdaten fuer {ticker} im Cache. '
+            f'(Status: {trade.get("exit_status")})'
+        )
+    else:
+        import plotly.graph_objects as go
+
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=series.index, y=series['close'],
+            mode='lines', name=ticker,
+            line=dict(color='#888', width=2),
+        ))
+
+        # Ausgewaehlter Trade: Richtung kanonisch bestimmen.
+        sel_dir = _direction_from_transaction_type(trade['transaction_type'])
+        sel_label = {'buy': 'Kauf', 'sell': 'Verkauf'}.get(
+            sel_dir, 'Sonstige')
+        marker_color = {'buy': '#22c55e', 'sell': '#b91c1c'}.get(
+            sel_dir, 'gray')
+        baseline = trade.get('post_trade_baseline_price')
+        fig.add_trace(go.Scatter(
+            x=[t_date], y=[baseline],
+            mode='markers',
+            name=f"Dieser Trade: {sel_label} · {trade['name']}",
+            marker=dict(size=16, color=marker_color, symbol='star'),
+            hovertemplate=(
+                f"<b>Dieser Trade</b><br>{trade['name']}<br>"
+                f"{sel_label} am %{{x|%Y-%m-%d}}<br>"
+                "Kurs: %{y:.2f} USD<extra></extra>"
+            ),
+        ))
+
+        # Horizont-Vertikalen
+        for h in settings.POST_TRADE_HORIZONS_DAYS:
+            x_h = t_date + pd.Timedelta(days=h)
+            fig.add_vline(x=x_h, line_dash='dot', line_color='gray')
+            fig.add_annotation(
+                x=x_h, y=1.0, yref='paper', yanchor='bottom',
+                text=f'{h}d', showarrow=False,
+                font=dict(color='gray', size=10),
+            )
+
+        # Weitere Trades am gleichen Issuer (gefilterte `related`-Menge):
+        # getrennt nach Buy/Sell -> separate Legenden-Einträge.
+        def _add_split_series(subset, symbol, size, buy_name, sell_name):
+            close = series['close'].sort_index()
+            first_close = close.iloc[0] if len(close) else None
+            for direction, dir_name, dir_color in [
+                ('buy', buy_name, '#22c55e'),
+                ('sell', sell_name, '#b91c1c'),
+            ]:
+                dsub = subset[subset['transaction_type'].apply(
+                    lambda t: _direction_from_transaction_type(t) == direction)]
+                if dsub.empty:
+                    continue
+                xs, ys, txt = [], [], []
+                for _, row in dsub.iterrows():
+                    d = pd.to_datetime(row['transaction_date'], errors='coerce')
+                    if pd.isna(d):
+                        continue
+                    price = close.asof(d)
+                    approx = False
+                    if pd.isna(price):
+                        if first_close is None:
+                            continue
+                        price = first_close
+                        approx = True
+                    rd_label = {'buy': 'Kauf', 'sell': 'Verkauf'}.get(
+                        direction, 'Sonstige')
+                    xs.append(d)
+                    ys.append(price)
+                    label = f"{row['name']} · {rd_label}"
+                    if approx:
+                        label += ' · Kurs vor Cache-Beginn (genähert)'
+                    txt.append(label)
+                if xs:
+                    fig.add_trace(go.Scatter(
+                        x=xs, y=ys, mode='markers',
+                        name=dir_name, text=txt,
+                        marker=dict(
+                            size=size, symbol=symbol,
+                            color=dir_color,
+                            line=dict(width=2, color=dir_color),
+                        ),
+                        hovertemplate=(
+                            "<b>%{text}</b><br>%{x|%Y-%m-%d}<br>"
+                            "Kurs: %{y:.2f} USD<extra></extra>"
+                        ),
+                    ))
+
+        own = related[related['name'] == trade['name']]
+        others = related[related['name'] != trade['name']]
+        _add_split_series(own, 'star-open', 11,
+            f'Weitere Käufe von {trade["name"]}',
+            f'Weitere Verkäufe von {trade["name"]}')
+        _add_split_series(others, 'diamond-open', 7,
+            'Käufe anderer Politiker',
+            'Verkäufe anderer Politiker')
+
+        # Verkaufs-Art-Marker zuletzt -> liegt im Z-Order ueber den Buy/Sell-
+        # Markern. Markiert Teil-/Vollverkaeufe (transaction_type) mit eigenem
+        # Symbol, unabhaengig von der Exit-Detection (s. app/chart_helpers.py).
+        _close = series['close'].sort_index()
+        _first_close = _close.iloc[0] if len(_close) else None
+
+        def _price_for(d):
+            dd = pd.to_datetime(d, errors='coerce')
+            if pd.isna(dd):
+                return None
+            p = _close.asof(dd)
+            return _first_close if pd.isna(p) else p
+
+        sale_records = [{
+            'date': t_date,
+            'price': baseline if pd.notna(baseline) else _price_for(t_date),
+            'transaction_type': trade['transaction_type'],
+            'name': trade['name'],
+        }]
+        for _, _row in related.iterrows():
+            sale_records.append({
+                'date': _row['transaction_date'],
+                'price': _price_for(_row['transaction_date']),
+                'transaction_type': _row.get('transaction_type'),
+                'name': _row['name'],
+            })
+        for _tr in build_sale_kind_traces(sale_records):
+            fig.add_trace(_tr)
+
+        asset_name = trade.get('asset_name', ticker)
+        fig.update_layout(
+            title=f'{ticker} -- {asset_name}',
+            xaxis_title='Datum', yaxis_title='Kurs (USD)',
+            height=500, hovermode='x unified',
+        )
+        st.plotly_chart(fig, width='stretch')
+
+    # Related-Trades-Tabelle (zwischen Chart und Kontext-Tabellen)
+    _render_related_table(related)
+
+    # Zwei Tabellen nebeneinander
+    col_left, col_right = st.columns(2)
+    with col_left:
+        st.subheader('Trade-Kontext')
+        ctx_fields = [
+            'transaction_date', 'name', 'chamber', 'asset_name',
+            'ticker', 'transaction_type', 'amount',
+            'trade_amount_max_usd', 'trade_score',
+            'signals_triggered', 'committee_match',
+            'trade_score_breakdown',
+        ]
+        ctx_available = [f for f in ctx_fields if f in trade.index]
+        ctx_data = {k: trade[k] for k in ctx_available}
+        st.dataframe(pd.Series(ctx_data, name='Wert'), width='stretch')
+
+    with col_right:
+        st.subheader('Post-Trade Returns')
+        ret_fields = ['post_trade_baseline_price'] + \
+            [f'post_price_{h}d' for h in settings.POST_TRADE_HORIZONS_DAYS] + \
+            [f'post_return_{h}d' for h in settings.POST_TRADE_HORIZONS_DAYS] + \
+            ['exit_status', 'exit_date', 'exit_price',
+             'exit_amount_max_usd', 'effective_return_pct',
+             'opposing_trade_ids']
+        ret_available = [f for f in ret_fields if f in trade.index]
+        ret_data = {k: trade[k] for k in ret_available}
+        st.dataframe(pd.Series(ret_data, name='Wert'), width='stretch')
+
+
 # --- Tabs ----------------------------------------------------------------
 tab_trades, tab_assets, tab_members, tab_detail = st.tabs(
     ['Trades', 'Assets', 'Members', 'Post Trade Performance'])
@@ -975,13 +1288,34 @@ with tab_trades:
 
     display_cols = [c for c in TRADE_DISPLAY_COLS
                     if c in trade_rows.columns and c in trade_cols_sel]
-    st.dataframe(
+    st.caption('Tipp: Zeile anklicken öffnet die Detail-Ansicht '
+               '(Chart + Kontext) als Popup. Doppelklick auf eine Zelle '
+               'zeigt weiterhin den vollen Zellinhalt.')
+    sel_state = st.dataframe(
         trade_rows[display_cols],
         width='stretch',
         hide_index=True,
         height=_dyn_height(len(trade_rows)),
         column_config=_trade_column_config(max_score),
+        key='trades_grid',
+        on_select='rerun',
+        selection_mode='single-row',
     )
+
+    @st.dialog('Trade-Detail', width='large')
+    def _show_trade_dialog(idx):
+        render_trade_detail(trade_rows.loc[idx], trade_rows, 'popup')
+
+    _sel_rows = []
+    if sel_state and getattr(sel_state, 'selection', None):
+        _sel_rows = sel_state.selection.get('rows', [])
+    if _sel_rows:
+        _actual_idx = trade_rows.index[_sel_rows[0]]
+        if st.session_state.get('detail_last_shown') != _actual_idx:
+            st.session_state['detail_last_shown'] = _actual_idx
+            _show_trade_dialog(_actual_idx)
+    else:
+        st.session_state['detail_last_shown'] = None
 
 with tab_assets:
     st.caption('Aggregation aus dem gefilterten Trade-Subset (reaktiv auf'
@@ -1138,153 +1472,4 @@ with tab_detail:
         )
         trade = detail_pool.loc[selected_idx]
 
-        # Chart: Preisverlauf aus Cache
-        from scoring.post_trade_returns import _load_price_cache  # noqa: E402
-        cache_path = str(ROOT / settings.POST_TRADE_PRICE_CACHE)
-        cache = _load_price_cache(cache_path)
-
-        ticker = str(trade['ticker'])
-        t_date = pd.to_datetime(trade['transaction_date'])
-        window_start = t_date - pd.Timedelta(days=30)
-        window_end = (
-            t_date
-            + pd.Timedelta(days=max(settings.POST_TRADE_HORIZONS_DAYS) + 30)
-        )
-
-        series = pd.DataFrame()
-        if ticker in cache.index.get_level_values(0):
-            tkr_cache = cache.loc[ticker]
-            tkr_cache = tkr_cache[
-                tkr_cache.index != pd.Timestamp('1900-01-01')
-            ]
-            series = tkr_cache[
-                (tkr_cache.index >= window_start)
-                & (tkr_cache.index <= window_end)
-            ]
-
-        if series.empty:
-            st.warning(
-                f'Keine Preisdaten fuer {ticker} im Cache. '
-                f'(Status: {trade.get("exit_status")})'
-            )
-        else:
-            import plotly.graph_objects as go
-
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(
-                x=series.index, y=series['close'],
-                mode='lines', name=ticker,
-                line=dict(color='#888', width=2),
-            ))
-
-            # Buy/Sell-Marker
-            marker_color = (
-                'green' if trade['transaction_type'] == 'Purchase'
-                else 'red'
-            )
-            baseline = trade.get('post_trade_baseline_price')
-            fig.add_trace(go.Scatter(
-                x=[t_date], y=[baseline],
-                mode='markers',
-                name=f"Original {trade['transaction_type']}",
-                marker=dict(size=15, color=marker_color, symbol='star'),
-            ))
-
-            # Horizont-Vertikalen
-            for h in settings.POST_TRADE_HORIZONS_DAYS:
-                x_h = t_date + pd.Timedelta(days=h)
-                fig.add_vline(x=x_h, line_dash='dot', line_color='gray')
-                fig.add_annotation(
-                    x=x_h, y=1.0, yref='paper', yanchor='bottom',
-                    text=f'{h}d', showarrow=False,
-                    font=dict(color='gray', size=10),
-                )
-
-            # Exit-Marker
-            exit_date_val = trade.get('exit_date')
-            if pd.notna(exit_date_val):
-                fig.add_trace(go.Scatter(
-                    x=[pd.to_datetime(exit_date_val)],
-                    y=[trade.get('exit_price')],
-                    mode='markers',
-                    name=f"Exit ({trade['exit_status']})",
-                    marker=dict(size=15, color='orange', symbol='x'),
-                ))
-
-            # Andere Politiker (gleicher issuer_group_key)
-            igk = trade.get('issuer_group_key')
-            if pd.notna(igk):
-                other_trades = trade_rows[
-                    (trade_rows['issuer_group_key'] == igk)
-                    & (trade_rows['trade_id'] != trade['trade_id'])
-                    & (
-                        pd.to_datetime(
-                            trade_rows['transaction_date'], errors='coerce'
-                        ) >= window_start
-                    )
-                    & (
-                        pd.to_datetime(
-                            trade_rows['transaction_date'], errors='coerce'
-                        ) <= window_end
-                    )
-                ]
-                if not other_trades.empty:
-                    hover_text = (
-                        other_trades['name']
-                        + ' ('
-                        + other_trades['transaction_type']
-                        + ')'
-                    )
-                    fig.add_trace(go.Scatter(
-                        x=pd.to_datetime(
-                            other_trades['transaction_date']
-                        ),
-                        y=[baseline] * len(other_trades),
-                        mode='markers',
-                        name='Andere Politiker (gleiches Issuer)',
-                        text=hover_text,
-                        marker=dict(size=8, color='blue', symbol='diamond'),
-                    ))
-
-            asset_name = trade.get('asset_name', ticker)
-            fig.update_layout(
-                title=f'{ticker} -- {asset_name}',
-                xaxis_title='Datum', yaxis_title='Kurs (USD)',
-                height=500, hovermode='x unified',
-            )
-            st.plotly_chart(fig, width='stretch')
-
-        # Zwei Tabellen nebeneinander
-        col_left, col_right = st.columns(2)
-        with col_left:
-            st.subheader('Trade-Kontext')
-            ctx_fields = [
-                'transaction_date', 'name', 'chamber', 'asset_name',
-                'ticker', 'transaction_type', 'amount',
-                'trade_amount_max_usd', 'trade_score',
-                'signals_triggered', 'committee_match',
-                'trade_score_breakdown',
-            ]
-            ctx_available = [f for f in ctx_fields if f in trade.index]
-            ctx_data = {k: trade[k] for k in ctx_available}
-            st.dataframe(
-                pd.Series(ctx_data, name='Wert'),
-                width='stretch',
-            )
-
-        with col_right:
-            st.subheader('Post-Trade Returns')
-            ret_fields = ['post_trade_baseline_price'] + \
-                         [f'post_price_{h}d'
-                          for h in settings.POST_TRADE_HORIZONS_DAYS] + \
-                         [f'post_return_{h}d'
-                          for h in settings.POST_TRADE_HORIZONS_DAYS] + \
-                         ['exit_status', 'exit_date', 'exit_price',
-                          'exit_amount_max_usd', 'effective_return_pct',
-                          'opposing_trade_ids']
-            ret_available = [f for f in ret_fields if f in trade.index]
-            ret_data = {k: trade[k] for k in ret_available}
-            st.dataframe(
-                pd.Series(ret_data, name='Wert'),
-                width='stretch',
-            )
+        render_trade_detail(trade, trade_rows, 'perf')

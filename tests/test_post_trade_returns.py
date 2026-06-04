@@ -258,6 +258,49 @@ def test_horizon_calculation(sample_cache, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# 8b. Richtungsbewusster Return (Bug B): Verkauf invertiert das Vorzeichen
+# ---------------------------------------------------------------------------
+
+def test_sell_return_is_direction_aware(monkeypatch, sample_cache):
+    """Ein Verkauf muss das Return-Vorzeichen invertieren.
+
+    ``sample_cache`` steigt monoton (100 -> ...). Ein Kauf am 2025-06-02 hat
+    daher POSITIVEN Return (gut gekauft), ein Verkauf am selben Tag NEGATIVEN
+    (verkauft vor dem Anstieg = entgangener Gewinn). Bei gleicher Baseline +
+    Horizont-Preis muss der Sell-Return exakt das Negative des Buy-Returns sein.
+    Gilt fuer post_return_{X}d UND effective_return_pct (beide held).
+    """
+    import scoring.post_trade_returns as ptr
+    monkeypatch.setattr(ptr, '_load_price_cache', lambda path: sample_cache)
+    monkeypatch.setattr(ptr, '_save_price_cache', lambda df, path: None)
+    monkeypatch.setattr(
+        ptr, '_ensure_cache_for_tickers',
+        lambda cache, tickers, **kw: cache,
+    )
+    df = pd.DataFrame([
+        _make_trade_row(trade_id='B1', transaction_date='2025-06-02',
+                        transaction_type='Purchase'),
+        _make_trade_row(trade_id='S1', transaction_date='2025-06-02',
+                        transaction_type='Sale (Partial)'),
+    ])
+    result = compute_post_trade_returns(
+        df, horizons_days=[30],
+        cache_path='/tmp/_test_ptr_sell_delete_me.parquet',
+    )
+    buy = result[result['trade_id'] == 'B1'].iloc[0]
+    sell = result[result['trade_id'] == 'S1'].iloc[0]
+    # Kurs steigt -> Buy positiv, Sell negativ.
+    assert buy['post_return_30d'] > 0
+    assert sell['post_return_30d'] < 0
+    # Exakt gespiegelt (gleiche baseline + Horizontpreis).
+    assert sell['post_return_30d'] == pytest.approx(-buy['post_return_30d'])
+    assert sell['effective_return_pct'] == pytest.approx(
+        -buy['effective_return_pct'])
+    if os.path.isfile('/tmp/_test_ptr_sell_delete_me.parquet'):
+        os.remove('/tmp/_test_ptr_sell_delete_me.parquet')
+
+
+# ---------------------------------------------------------------------------
 # 9. Tolerance > 0 verschiebt closed_partial -> closed_full
 # ---------------------------------------------------------------------------
 

@@ -414,6 +414,17 @@ def compute_post_trade_returns(
         df['transaction_date'], errors='coerce',
     )
 
+    # Richtungsbewusster Return: ein Verkauf invertiert das Vorzeichen, sodass
+    # "positiv" = vor einem Kursrueckgang verkauft (gutes Timing) bedeutet, und
+    # ein Verkauf vor einem Kursanstieg korrekt negativ (entgangener Gewinn)
+    # wird. Kauf/Sonstige (Exchange) bleiben in der Long-Perspektive. Das
+    # Vorzeichen gilt fuer post_return_{X}d UND effective_return_pct.
+    from signals.committee_signal import _direction_from_transaction_type
+    _direction = df['transaction_type'].map(_direction_from_transaction_type)
+    sell_sign = pd.Series(
+        np.where(_direction.values == 'sell', -1.0, 1.0), index=df.index,
+    )
+
     # Applicability-Maske VORAB — Tickers von nicht-applicable Trades
     # gar nicht erst an yfinance schicken.
     df['_post_trade_applicable'] = df.apply(_is_applicable, axis=1)
@@ -489,6 +500,9 @@ def compute_post_trade_returns(
                 df.at[idx, col_return] = (price / baseline - 1.0) * 100.0
             _phase_progress(done, n_app, f'Horizont {h}d', t0, progress_every)
 
+        # Vorzeichen richtungsbewusst (Verkauf invertiert). NaN * sign = NaN.
+        df[col_return] = df[col_return] * sell_sign
+
     # --- Exit-Detection ---
     print("  Exit-Detection ...")
     exit_cols = _compute_exit_columns(
@@ -503,6 +517,9 @@ def compute_post_trade_returns(
     # held: Return am LAENGSTEN VERFUEGBAREN Horizont (120 -> 90 -> 60 -> 30),
     #       da der Max-Horizont bei jungen Trades noch in der Zukunft liegt;
     # delisted/unknown/not_applicable -> NaN.
+    # Vorzeichen ist richtungsbewusst (s. sell_sign oben): closed_* wird hier
+    # explizit mit sell_sign multipliziert; der held-Zweig uebernimmt
+    # post_return_{X}d, das bereits geflippt ist (kein doppelter Flip).
     df['effective_return_pct'] = np.nan
     df['effective_return_horizon_days'] = np.nan
     status = df['exit_status']
@@ -514,9 +531,10 @@ def compute_post_trade_returns(
         & df['exit_price'].notna()
     )
     df.loc[closed_mask, 'effective_return_pct'] = (
-        df.loc[closed_mask, 'exit_price']
-        / df.loc[closed_mask, 'post_trade_baseline_price'] - 1.0
-    ) * 100.0
+        (df.loc[closed_mask, 'exit_price']
+         / df.loc[closed_mask, 'post_trade_baseline_price'] - 1.0)
+        * 100.0 * sell_sign.loc[closed_mask]
+    )
     df.loc[closed_mask, 'effective_return_horizon_days'] = (
         (df.loc[closed_mask, 'exit_date']
          - df.loc[closed_mask, 'transaction_date']).dt.days

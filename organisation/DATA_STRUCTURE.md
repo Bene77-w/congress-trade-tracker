@@ -582,16 +582,20 @@ post_price_30d,            # float: Close-Preis 30 Tage nach Trade
 post_price_60d,            # float: Close-Preis 60 Tage nach Trade
 post_price_90d,            # float: Close-Preis 90 Tage nach Trade
 post_price_120d,           # float: Close-Preis 120 Tage nach Trade
-post_return_30d,           # float: (post_price_30d/baseline - 1) * 100 in %
+post_return_30d,           # float: (post_price_30d/baseline - 1) * 100 in %. RICHTUNGSBEWUSST: Käufe wie üblich,
+                           # Verkäufe mit invertiertem Vorzeichen (sell_sign = -1). Positiv = gutes Timing.
 post_return_60d,           # float: dito fuer 60d
 post_return_90d,           # float: dito fuer 90d
-post_return_120d,          # float: dito fuer 120d
+post_return_120d,          # float: dito fuer 120d. Für Verkäufe: Vorzeichen invertiert. Details: scoring/post_trade_returns.py.
 exit_status,               # str: held / closed_full / closed_partial / delisted / unknown / not_applicable
 exit_date,                 # datetime: Datum des ersten gegensätzlichen Trades (bei closed_*)
 exit_price,                # float: Close-Preis am exit_date
 exit_amount_max_usd,       # float: Kumulierte Max-USD der gegensätzlichen Trades
-effective_return_pct,      # float: Bei closed_*: (exit_price/baseline-1)*100; bei held: längster
-                           # verfügbarer (nicht-NaN) Horizont-Return (120→90→60→30 Tage)
+effective_return_pct,      # float: Bei closed_*: (exit_price/baseline-1)*100 mit sell_sign-Multiplikation;
+                           # bei held: längster verfügbarer (nicht-NaN) Horizont-Return (120→90→60→30 Tage),
+                           # bereits sell_sign-gewichtet. RICHTUNGSBEWUSST: positive Werte = Gewinn (Kauf) oder
+                           # gutes Verkaufs-Timing (vor Kursrückgang), negative Werte = Verlust (Kauf) oder
+                           # entgangener Gewinn (vor Kursanstieg verkauft).
 effective_return_horizon_days,  # float: Zeithorizont in Tagen auf den sich effective_return_pct bezieht.
                            # Bei closed_*: Tage zw. transaction_date und exit_date. Bei held: tatsächlich
                            # verwendeter Horizont (120/90/60/30). Sonst NaN.
