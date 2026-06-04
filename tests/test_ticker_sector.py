@@ -214,3 +214,57 @@ class TestDelistedTracking:
         assert "GONE" in content
 
 
+# ---------------------------------------------------------------------------
+# _confirm_large_batch — Auto-Confirm / Bypass-Logik
+# ---------------------------------------------------------------------------
+
+
+class TestConfirmLargeBatch:
+    def test_auto_confirm_skips_input(self, cache_dir, tmp_path, monkeypatch):
+        """auto_confirm=True → True ohne input()-Aufruf."""
+        enricher = TickerSectorEnricher(
+            cache_dir=str(cache_dir),
+            delisted_output_path=str(tmp_path / "delisted.csv"),
+            auto_confirm=True,
+        )
+
+        def _boom(*_a, **_k):
+            raise AssertionError("input() darf bei auto_confirm nicht aufgerufen werden")
+
+        monkeypatch.setattr("builtins.input", _boom)
+        assert enricher._confirm_large_batch(500, 12.3) is True
+
+    def test_callback_has_priority_over_auto_confirm(self, cache_dir, tmp_path, monkeypatch):
+        """confirm_callback hat Vorrang vor auto_confirm."""
+        calls = []
+        enricher = TickerSectorEnricher(
+            cache_dir=str(cache_dir),
+            delisted_output_path=str(tmp_path / "delisted.csv"),
+            auto_confirm=True,
+            confirm_callback=lambda n: calls.append(n) or False,
+        )
+        monkeypatch.setattr(
+            "builtins.input",
+            lambda *_a, **_k: (_ for _ in ()).throw(
+                AssertionError("input() darf nicht aufgerufen werden")
+            ),
+        )
+        assert enricher._confirm_large_batch(500, 1.0) is False
+        assert calls == [500]
+
+    def test_non_interactive_stdin_auto_confirms(self, cache_dir, tmp_path, monkeypatch):
+        """Kein TTY (z. B. Scheduler) → True ohne input(), trotz auto_confirm=False."""
+        enricher = TickerSectorEnricher(
+            cache_dir=str(cache_dir),
+            delisted_output_path=str(tmp_path / "delisted.csv"),
+            auto_confirm=False,
+        )
+        monkeypatch.setattr("utils.ticker_sector.sys.stdin.isatty", lambda: False)
+
+        def _boom(*_a, **_k):
+            raise AssertionError("input() darf ohne TTY nicht aufgerufen werden")
+
+        monkeypatch.setattr("builtins.input", _boom)
+        assert enricher._confirm_large_batch(500, 1.0) is True
+
+
