@@ -9,6 +9,9 @@ Kompakte Uebersicht aller Daten-Pipelines, ihrer Ablaeufe und Abhaengigkeiten.
 ```bash
 cd congress_tracker && .\venv\Scripts\activate
 
+# 0. Quiver Auto-Download (optional, empfohlen täglich via systemd-User-Timer)
+python scrapers/quiver_scraper.py          # → congress-trading-all.xlsx (atomar)
+
 # 1. Scraper (erzeugen Rohdaten)
 python scrapers/house_scraper.py           # → house_trades.csv
 python scrapers/senate_scraper.py          # → senate_trades.csv
@@ -23,6 +26,80 @@ python scripts/import_trades.py            # → trades_master.csv + trades_new.
 # 4. Optional: Referenz-CSVs aktualisieren (nur bei xlsx-Aenderungen)
 python scripts/convert_xlsx_to_csv.py      # → mapping-CSVs neu generieren
 ```
+
+---
+
+## Pipeline 0: Quiver Auto-Download-Scraper
+
+**Script:** `scrapers/quiver_scraper.py`
+**Quelle:** Quiver Quantitative (headless Playwright Login)
+**Output:** `data/raw/congress-trading-all.xlsx`
+**Status:** Produktiv, täglich 03:00 via systemd-User-Timer (`quiver-import.timer`, `Persistent=true`)
+
+**Zweck:** Automatisierter Headless-Download der Congress-Trading-XLSX von Quiver.
+Ohne manuellen Eingriff; verkettet direkt mit der Import-Pipeline (Scraper-Exit ≠ 0 ⇒ kein Import).
+
+**CLI-Flags:**
+```
+--no-headless       Browser sichtbar (Debug/Selektoren-Abgleich), headless=False
+--dry-run          Download in Temp-Datei, Zieldatei NICHT ersetzen
+```
+
+**Exit-Codes:**
+```
+0   Erfolg: congress-trading-all.xlsx aktualisiert
+1   Generischer Fehler (Netzwerk, FileIO, Fehler im Script)
+2   Login fehlgeschlagen (falsche Credentials / 2FA-Challenge / geblockter Account)
+3   Eingeloggt aber Download fehlgeschlagen (abgelaufenes Abo, keine Datei vorhanden)
+```
+
+**Fehlerklassen (getrennt):**
+- `QuiverLoginError` (Exit 2): Verifizierung eines „Post-Login-Elements" misslingt
+- `QuiverDownloadError` (Exit 3): Login erfolgreich, aber Download/Plausibilität-Check fehlgeschlagen
+
+**Ablauf:**
+1. Playwright headless starten (PLAYWRIGHT_BROWSERS_PATH konfigurierbar)
+2. Login-Seite öffnen → Email/Passwort eintragen → Login-Button klicken
+3. Warten auf Post-Login-Element (Selektor aus `config/settings.py`) — prüft 2FA-Challenge
+4. Congress-Trading-Seite laden, download-Event abfangen via `expect_download()`
+5. Plausibilität: Dateigröße > 0
+6. Atomar speichern: Download nach `.congress-trading-all.xlsx.tmp`, dann `os.replace()` auf `congress-trading-all.xlsx`
+7. Logging: `logs/quiver_scraper.log` (Format `%(asctime)s [%(levelname)s] %(name)s: %(message)s`)
+
+**Wartet auf Netzwerk/UI:**
+- `wait_for_selector()` + `networkidle` (kein fixes sleep)
+- `expect_download()` (erstmalige Nutzung von Playwright Download im Projekt)
+
+**Selektor-Konfiguration** (in `config/settings.py`, Sektion „QUIVER-AUTO-DOWNLOAD-SCRAPER"):
+```python
+QUIVER_EMAIL_SELECTOR           # z.B. "input#email"  — MUSS vom User via `playwright codegen` befüllt werden
+QUIVER_PASSWORD_SELECTOR        # z.B. "input#password"
+QUIVER_SUBMIT_SELECTOR          # z.B. "button[type='submit']"
+QUIVER_POST_LOGIN_SELECTOR      # z.B. "a[href='/congress-trading']"  — testet erfolgreiches Login
+QUIVER_TWOFA_SELECTOR           # z.B. ".mfa-input"  — 2FA-Feld (falls vorhanden → QuiverLoginError)
+QUIVER_DOWNLOAD_SELECTOR        # z.B. "button:has-text('Download')"
+```
+
+**Leere Selektoren führen zu Abbruch:** Wenn Selektoren nicht gesetzt sind (oder `None`/empty-String),
+bricht der Scraper mit `QuiverLoginError` ab, statt zu hängen.
+
+**Umgebungsvariablen / Credentials:**
+- `QUIVER_EMAIL` — aus `.env` (gitignored)
+- `QUIVER_PASSWORD` — aus `.env` (gitignored)
+- `.env.example` enthält Vorlagen mit leeren Werten
+
+**Scheduler (systemd-User-Timer):** `quiver-import.timer` triggert täglich 03:00
+`quiver-import.service`. Die Service-Unit führt Scraper + Import als zwei
+`ExecStart`-Schritte aus; schlägt der Scraper fehl (Exit ≠ 0), wird `import_trades.py`
+**nicht** ausgeführt (entspricht `&&`). `Persistent=true` holt verpasste Läufe nach.
+Einrichtung/Bedienung (Single-Source): `deploy/systemd/README.md`.
+
+**Abhängigkeiten:**
+- `playwright` (Chromium headless)
+- `config/settings.py` — Selektor-Konstanten + Login-URL/Congress-URL
+- `.env` — QUIVER_EMAIL, QUIVER_PASSWORD (Vorlage: `.env.example`)
+
+**Tests:** `tests/test_quiver_scraper.py` (8 Unit-Tests, keine echte Browser-Instanz)
 
 ---
 
