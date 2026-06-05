@@ -12,6 +12,6 @@ Environment=PLAYWRIGHT_BROWSERS_PATH=%h/.cache/ms-playwright
 #    Import laeuft nur bei Scraper-Erfolg).
 ExecStart=__PROJECT_DIR__/venv/bin/python scrapers/quiver_scraper.py
 # 2) Import-Pipeline (nur bei Scraper-Exit 0)
-ExecStart=__PROJECT_DIR__/venv/bin/python scripts/import_trades.py
+ExecStart=__PROJECT_DIR__/venv/bin/python scripts/import_trades.py --delta
 StandardOutput=append:__PROJECT_DIR__/logs/quiver_cron.log
 StandardError=append:__PROJECT_DIR__/logs/quiver_cron.log
