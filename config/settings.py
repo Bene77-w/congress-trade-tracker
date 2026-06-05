@@ -169,7 +169,9 @@ SCORING_WEIGHTS = {
     'accumulative':    10,
     'swarm_buy':       20,
     'swarm_sell':      20,
-    'swarm_conflict':   5,
+    'swarm_conflict':  -5,    # Gegenindiz: mindert Score des einzelnen
+                              # Contrarian-Trades (lone opposite trade gegen
+                              # aktiven Schwarm). Negativ = bewusster Abzug.
     'trade_volume':    16,    # nomineller Max-Beitrag (Top-Tier); konkreter Wert
                               # je Trade aus SCORING_TRADE_VOLUME_TIERS, nicht aus
                               # diesem Dict. Der Wert hier steuert nur die

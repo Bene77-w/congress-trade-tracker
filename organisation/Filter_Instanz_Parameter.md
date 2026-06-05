@@ -218,7 +218,7 @@ trade_score  = round(swarm_part + other_part + volume_part + bonus)
 | `SCORING_WEIGHTS['accumulative']`    | 10    | Sequenz-Signal |
 | `SCORING_WEIGHTS['swarm_buy']`       | 20    | Branch-2 Cluster |
 | `SCORING_WEIGHTS['swarm_sell']`      | 20    | Branch-2 Cluster |
-| `SCORING_WEIGHTS['swarm_conflict']`  |  5    | Gegen-Trade-Hinweis |
+| `SCORING_WEIGHTS['swarm_conflict']`  | −5    | Gegenindiz — Abzug auf den einzelnen Contrarian-Trade im Schwarmfenster |
 | `SCORING_WEIGHTS['trade_volume']`    | 16    | Nomineller Max-Beitrag des Tier-Signals (UI-Skalierung). Faktischer Beitrag pro Trade kommt aus `SCORING_TRADE_VOLUME_TIERS`. |
 | `SCORING_EX_OFFICIO_BONUS`           | 10    | Einmaliger Summand pro Trade |
 | `SCORING_EX_OFFICIO_TRIGGERS`        | `['committee', 'floor_action']` | Welche Signale den Bonus aktivieren |
