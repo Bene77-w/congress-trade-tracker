@@ -89,4 +89,6 @@ Historische Plan-Datei (P1–P7, abgeschlossen): `archive/alt/Implementierungspl
 Schneller Themen-Einstieg (kanonische Quelle pro Thema):
 - **Spalten** → `DATA_STRUCTURE.md` · **Gate/Tag/Signal + Score** → `Filter_Instanz_Parameter.md` · **Pipeline-Stages** → `Pipelines.md` · **Signal-Schema** → `tool_specific_md/signal_info.md` · **Ticker/Issuer** → `Ticker_Architektur.md` · **CLI** → `CLI_Bedienungsanleitung.md` · **Phasen-Historie** → `CHANGELOG.md` · **Offene Pläne** → `~/.claude/plans/*.md`
 
+hallo
+
 **Voller Doku-Index + „Aktualisieren bei"-Trigger pro Datei:** `organisation/DOKU_INDEX.md` (Single-Source-of-Truth-Konvention + Routing-Quelle für Regel 4 und Skill `/doku-update`).
