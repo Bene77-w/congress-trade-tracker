@@ -1,6 +1,6 @@
 # Changelog
 
-Historie abgeschlossener Module/Phasen. **Aktueller Status** steht in `CLAUDE.md` (Modul-Tabelle). Detail-Specs zu offenen Arbeiten in `~/.claude/plans/`.
+Historie abgeschlossener Module/Phasen. **Aktiver WIP-Modul-Stand** steht im „Aktueller Stand (WIP)"-Block von `AGENTS.md`; Datei-/Modul-Historie via `git log --oneline -- <pfad>`. Detail-Specs zu offenen Arbeiten in `~/.claude/plans/`.
 
 ## Konvention
 
