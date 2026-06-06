@@ -6,21 +6,23 @@ Python + Streamlit Anwendung zur Analyse von US-Kongress-Aktienhandel. Scrapt of
 
 ---
 
-## Modul-Status (Stand: Mai 2026)
+## Modul-Status (Stand: Juni 2026)
+
+> Menschenlesbarer Überblick. Aktiver WIP-Detailstand: `../AGENTS.md` · Phasen-Historie: `../CHANGELOG.md`.
 
 | Modul | Status | Beschreibung |
 |-------|--------|--------------|
 | 1 | ✅ Fertig | Projektstruktur, Config, venv |
-| 2 | ✅ Fertig | House Scraper (ZIP + XML + PDF) + PDF Extractor v2 (OpenCV Grid + Vision API, 4 Formulartypen, 126 Tests) |
+| 2 | ✅ Fertig | House Scraper (ZIP + XML + PDF) + PDF Extractor v2 (OpenCV Grid + Vision API, Formulartypen A–D) |
 | 3 | ✅ Fertig | Senate Scraper (Playwright + DataTables API) |
-| 4 | ✅ Fertig | Ausschuss-Sektor-Mapping (CommitteeMapper + CommitteeTag, 861 Mappings, sector/industry-Match × ex-officio-Multiplikator) |
-| 5 | ⏸️ Übersprungen | Kursdaten (Yahoo Finance) — vorerst nicht benötigt |
-| 6 | ✅ Fertig | Vote-Timing aktiv. VoteTimingTag extrahiert Roll-Calls direkt aus `bill_actions.json` (Floor Votes in `actions[*].roll_call[*]`). Sektor-Match über `legislative_subject_mapping_complete.csv`. FloorActionSignal triggert bei `Vote_Timing_Hit_Count ≥ 1`. Smoke-Run 20.05.2026: 5.357 Hits / 111.986 Trades. |
-| 7 | ✅ Fertig (P1–P7) | Signal-Architektur (Gate/Tag/Signal): Gates+Tags ✅, Branch-1 Signale ✅ (P2+P3+P3.5), Suspicious-Export ✅ (P4), OpenFIGI-Coverage + `share_class_figi` ✅ (P5), `issuer_ticker` Share-Class-Level ✅ (P5.5), Cross-Class Issuer Mapping via SEC EDGAR CIK ✅ (P5.6), **Schwarm-Signale ✅ (P6)** — 4 Signale auf Issuer-Group-Ebene: `swarm_buy`/`swarm_sell` (Greedy-Cluster), `swarm_conflict` (1 Gegen-Trade im erweiterten Fenster), `swarm_paradox` (≥2 Gegen-Trades, mutually exclusive). Cross-Class via `issuer_group_key` (GOOGL+GOOG → CIK:1652044). Smoke-Run: 24.926 Schwarm-Events auf 111.986 Trades. |
-| 8 | 🔧 In Arbeit | Scoring-System. Phasen 8.1–8.5 ✅. Pipeline 16 Stages, 5 Trade-Spalten + Aggregat-Spalten in Views. 61 Tests grün. Phase 8.6 (Voll-Pipeline-Smoke-Run) offen. Formel + Settings: [Filter_Instanz_Parameter.md](Filter_Instanz_Parameter.md). Historie: `../CHANGELOG.md`. |
-| 9 | 🔧 In Arbeit (MVP + Post-Trade-Performance-Tab FERTIG) | Streamlit Dashboard. 4 Tabs (Trades / Assets / Members / Post Trade Performance). Trade-Tab mit `trade_id` (Hash-ID). Post-Trade-Performance-Tab: Top-25 nach Kapital + Suche + Charts. |
+| 4 | ✅ Fertig | Ausschuss-Sektor-Mapping (CommitteeMapper + CommitteeTag, sector/industry-Match × ex-officio-Multiplikator) |
+| 5 | 🟡 Teilweise | Post-Trade-Performance-Tracking fertig (Stage `post_trade_performance`, richtungsbewusste Returns, yfinance-Preis-Cache); kein Live-Quote. Details: [Briefing_stage_post_trade_performance.md](Briefing_stage_post_trade_performance.md) |
+| 6 | ✅ Fertig | Vote-Timing: VoteTimingTag extrahiert Roll-Calls aus `bill_actions.json`, FloorActionSignal triggert bei `Vote_Timing_Hit_Count ≥ 1` |
+| 7 | ✅ Fertig | Signal-Architektur (Gate/Tag/Signal): 11 aktive Signale inkl. Schwarm-Signale (`swarm_buy`/`swarm_sell`/`swarm_conflict`/`swarm_paradox`) + Suspicious-Export; Cross-Class via `issuer_group_key` (SEC EDGAR CIK) |
+| 8 | ✅ Fertig | Scoring-System: Pipeline **17 Stages**, `trade_score` + Tier-Signal `trade_volume`. Formel: [Filter_Instanz_Parameter.md](Filter_Instanz_Parameter.md) |
+| 9 | 🔧 In Arbeit | Streamlit Dashboard, **5 Tabs** (Trades / Assets / Members / Post Trade Performance / Recent Trades): Token-Suche, Horizont-Sichtbarkeitsfilter, Recent-Trades-Monitoring offener Positionen, Score-Gewichte-Presets |
 | 10 | 🔧 Offen | E-Mail-Benachrichtigungen (SMTP) |
-| 11 | 🔧 Offen | Automatisierung & Scheduler (APScheduler) |
+| 11 | 🟡 Teilweise | Automatisierung: Quiver-Auto-Download-Scraper + systemd-User-Timer (täglich 03:00) fertig; genereller Scheduler übriger Pipelines offen. Details: `../deploy/systemd/README.md` |
 
 ---
 
@@ -39,7 +41,7 @@ house_trades.csv + senate_trades.csv  →  scripts/import_trades.py  →  data/p
 data/mappings/*.xlsx          →  scripts/convert_xlsx_to_csv.py  →  data/mappings/*.csv
 ```
 
-**Import-Pipeline:** 16 Stages — Reihenfolge, Stage-Indizes und Details: siehe [Pipelines.md](Pipelines.md). CLI-Flags: [CLI_Bedienungsanleitung.md](CLI_Bedienungsanleitung.md).
+**Import-Pipeline:** 17 Stages — Reihenfolge, Stage-Indizes und Details: siehe [Pipelines.md](Pipelines.md). CLI-Flags: [CLI_Bedienungsanleitung.md](CLI_Bedienungsanleitung.md).
 
 ---
 
