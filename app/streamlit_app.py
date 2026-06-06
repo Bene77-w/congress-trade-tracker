@@ -44,40 +44,47 @@ from signals.committee_signal import (  # noqa: E402
 TRADES_CSV = ROOT / 'data' / 'processed' / settings.TRADES_MASTER_COMPLETE_CSV
 
 TRADE_DISPLAY_COLS = [
-    'trade_id',
-    'transaction_date', 'disclosure_date', 'name', 'chamber', 'Member_Party',
-    'asset_name', 'ticker', 'issuer_ticker', 'transaction_type', 'amount',
-    'trade_volume_usd', 'trade_amount_max_usd', 'asset_tradingvolume_usd',
-    'trade_score', 'committee_match', 'relevant_sectors',
-    'signals_triggered', 'trade_score_breakdown', 'trade_warnings',
+    # Default-Spalten in Anzeige-Reihenfolge (links -> rechts); die Display-
+    # Reihenfolge des Trades-Tabs folgt dieser Liste (s. display_cols-Aufbau).
+    'effective_return_pct', 'trade_score', 'ticker', 'asset_name', 'name',
+    'signals_triggered', 'committee_match', 'trade_id',
+    'transaction_date', 'disclosure_date', 'transaction_type', 'amount',
+    'asset_tradingvolume_usd', 'relevant_sectors', 'exit_status',
+    # Optionale Zusatzspalten (per Multiselect zuschaltbar) -> rechts angehaengt.
+    'chamber', 'Member_Party', 'issuer_ticker',
+    'trade_volume_usd', 'trade_amount_max_usd',
+    'trade_score_breakdown', 'trade_warnings',
     'post_return_30d', 'post_return_60d', 'post_return_90d',
-    'post_return_120d', 'post_return_180d', 'effective_return_pct',
-    'exit_status', 'exit_date', 'first_close_offset_days',
+    'post_return_120d', 'post_return_180d',
+    'exit_date', 'first_close_offset_days',
     'paper_return_pct', 'price_as_of',
 ]
 
 # Spalten fuer den Recent-Trades-Monitoring-Tab (Reihenfolge = Anzeige).
 RECENT_DISPLAY_COLS = [
-    'trade_id', 'transaction_date', 'days_since_trade', 'disclosure_date',
-    'name', 'chamber', 'Member_Party', 'asset_name', 'ticker', 'issuer_ticker',
-    'transaction_type', 'amount', 'trade_amount_max_usd', 'trade_score',
-    'committee_match', 'relevant_sectors', 'signals_triggered',
-    'paper_return_pct', 'price_as_of', 'exit_status', 'effective_return_pct',
+    'effective_return_pct', 'paper_return_pct', 'trade_score', 'ticker',
+    'transaction_type', 'asset_name', 'signals_triggered', 'name',
+    'relevant_sectors', 'committee_match', 'transaction_date',
+    'disclosure_date', 'days_since_trade', 'chamber', 'Member_Party',
+    'issuer_ticker', 'trade_id',
+    'amount', 'trade_amount_max_usd', 'price_as_of', 'exit_status',
 ]
 
 TRADE_DEFAULT_COLS = [
-    'trade_id',
-    'transaction_date', 'disclosure_date', 'name', 'asset_name', 'ticker',
-    'transaction_type', 'amount', 'asset_tradingvolume_usd',
-    'trade_score', 'committee_match', 'relevant_sectors',
-    'signals_triggered', 'effective_return_pct', 'exit_status',
+    'effective_return_pct', 'trade_score', 'ticker', 'asset_name', 'name',
+    'signals_triggered', 'committee_match', 'trade_id',
+    'transaction_date', 'disclosure_date', 'transaction_type', 'amount',
+    'asset_tradingvolume_usd', 'relevant_sectors', 'exit_status',
 ]
 
 ASSET_DISPLAY_COLS = [
-    'issuer_ticker', 'asset_name', 'trade_count', 'member_count',
-    'score_max', 'score_avg', 'score_total', 'total_volume_usd',
+    # Anzeige-Reihenfolge (links -> rechts); die Display-Reihenfolge des
+    # Assets-Tabs folgt dieser Liste (s. asset_display_cols-Aufbau).
+    'trade_count', 'asset_name', 'member_count',
+    'score_max', 'score_avg', 'score_total',
     'avg_return_primary', 'max_return_primary', 'pct_profitable',
-    'last_date', 'first_date', 'chambers', 'sectors', 'signals',
+    'signals', 'total_volume_usd', 'sectors',
+    'last_date', 'first_date', 'chambers', 'issuer_ticker',
 ]
 ASSET_DEFAULT_COLS = list(ASSET_DISPLAY_COLS)
 
@@ -1504,11 +1511,11 @@ with tab_detail:
         top_pool = detail_pool.head(n_show)
 
         top_columns = [
-            'trade_score', 'trade_amount_max_usd', 'name', 'ticker',
-            'transaction_date', 'effective_return_pct',
+            'effective_return_pct', 'trade_score', 'trade_amount_max_usd',
+            'name', 'ticker', 'transaction_date',
         ]
         if 'trade_id' in top_pool.columns:
-            top_columns.insert(0, 'trade_id')
+            top_columns.append('trade_id')
         top_columns = [c for c in top_columns if c in top_pool.columns]
 
         _max_score = max(
