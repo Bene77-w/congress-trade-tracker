@@ -20,6 +20,7 @@ if str(ROOT) not in sys.path:
 from app.chart_helpers import (  # noqa: E402
     SALE_KIND_MARKERS,
     build_partial_close_rows,
+    build_recent_pool,
     build_sale_kind_traces,
     sale_kind_marker,
 )
@@ -202,3 +203,48 @@ def test_invalid_baseline_returns_empty():
 
 def test_empty_events_returns_empty():
     assert build_partial_close_rows(_opening(), [], 1.0) == []
+
+
+# --- build_recent_pool ---------------------------------------------------
+
+def _recent_df():
+    ref = pd.Timestamp('2026-06-06')
+    return pd.DataFrame({
+        'trade_id': ['A', 'B', 'C'],
+        'transaction_date': [
+            ref - pd.Timedelta(days=3),    # innerhalb 7d
+            ref - pd.Timedelta(days=20),   # ausserhalb 7d, innerhalb 30d
+            ref - pd.Timedelta(days=200),  # ausserhalb 30d
+        ],
+        'first_close_offset_days': [float('nan'), 5.0, 10.0],
+    })
+
+
+def test_recent_pool_window_filters_by_transaction_date():
+    """Fenster 7d -> nur Trade A; Bezugsdatum explizit."""
+    pool = build_recent_pool(_recent_df(), 7,
+                             reference_date=pd.Timestamp('2026-06-06'))
+    assert list(pool['trade_id']) == ['A']
+
+
+def test_recent_pool_includes_open_positions():
+    """Offene Position (first_close_offset_days = NaN) bleibt sichtbar."""
+    pool = build_recent_pool(_recent_df(), 30,
+                             reference_date=pd.Timestamp('2026-06-06'))
+    assert set(pool['trade_id']) == {'A', 'B'}
+    # Trade A ist held (NaN) und trotzdem enthalten.
+    assert pd.isna(pool.loc[pool['trade_id'] == 'A',
+                            'first_close_offset_days'].iloc[0])
+
+
+def test_recent_pool_adds_days_since_trade():
+    pool = build_recent_pool(_recent_df(), 30,
+                             reference_date=pd.Timestamp('2026-06-06'))
+    assert pool.loc[pool['trade_id'] == 'A', 'days_since_trade'].iloc[0] == 3
+    assert pool.loc[pool['trade_id'] == 'B', 'days_since_trade'].iloc[0] == 20
+
+
+def test_recent_pool_missing_date_column():
+    """Fehlende date_col -> leeres Ergebnis (kein Crash)."""
+    pool = build_recent_pool(pd.DataFrame({'x': [1]}), 30)
+    assert pool.empty

@@ -380,7 +380,9 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
     → Neue Spalten (Suffix _yf): sector_yf, industry_yf, quote_type_yf
     → Preferred-Auto-Resolution via parent_ticker (EP$C → parent_ticker='EP' → yfinance(EP))
          ↓
-[8] Post-Trade Performance (NEU — Stage post_trade_performance, **2026-06-04: Exit-Entkopplung**)
+[8] Post-Trade Performance (Stage post_trade_performance, **2026-06-04: Exit-Entkopplung; 2026-06-06: Paper Returns**)
+    
+    **Sub-Phase A: Post-Trade Returns (historische Performance geschlossener Positionen)**
     → scoring/post_trade_returns.compute_post_trade_returns(df, horizons_days, exit_window_days, cache_path)
     → Spalten (19 = 16 bisher + 3 neu: post_price_180d, post_return_180d, first_close_offset_days):
       post_trade_baseline_price, post_price_30d/60d/90d/120d/180d,
@@ -392,16 +394,26 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
         - Exit-Suche nutzt exit_window_days (kann >120 Tage sein oder unbegrenzt)
         - Return-Snapshots bleiben an POST_TRADE_HORIZONS_DAYS gebunden
         - 180-Tage-Horizont hinzugefuegt (dynamisch mit POST_TRADE_HORIZONS_DAYS)
-        - Konsequenz: held-Trades sinken massiv (mehr Exits gefunden außerhalb 120d)
         - Neue Spalte first_close_offset_days: Tage bis ERSTEM Gegen-Trade (Hilfe für Sichtbarkeitsfilter)
     → **Semantik held→NaN (2026-06-04):**
         - effective_return_pct: Nur bei closed_* gesetzt; held/delisted/unknown/not_applicable → NaN
         - effective_return_horizon_days: Nur bei closed_* gesetzt; sonst NaN
-        - Mark-to-Market bleibt in post_return_{X}d (nicht betroffen)
     → Exit-Detection: gruppiert nach (name, issuer_group_key), chronologisch
     → Preisdaten von yfinance, gecached in data/cache/price_history.parquet
       (MultiIndex [ticker, date], Spalte close, TTL 7 Tage)
     → Kanonische Richtungserkennung via _direction_from_transaction_type (handling Sale/Sale (Full)/Sale (Partial)/SALE)
+    
+    **Sub-Phase B: Paper Returns (Mark-to-Market für offene/frische Positionen, DELTA-UNABHÄNGIG)**
+    → scoring/post_trade_returns.compute_paper_returns(df, cache_path, recent_window_days, max_price_age_bdays)
+    → Spalten (2 neu): paper_return_pct, price_as_of
+    → Fenster: RECENT_MONITORING_WINDOW_DAYS (Default 180d, konfig. in settings.py)
+      Nur Trades mit transaction_date >= now - recent_window_days befüllt
+    → Richtungsbewusst: Vorzeichen-Inversion für Verkäufe (sell_sign = -1)
+    → Cache-Frische: RECENT_PRICE_MAX_AGE_BUSINESS_DAYS (Default 1 BDay; relevant für 03:00-Daily-Lauf)
+      Refresht yfinance nur für Recent-Ticker mit Business-Day-Cutoff (z.B. Nachts-Lauf sieht Vortagsclose)
+    → VOLL-PASS über alle Trades (Delta-unabhängig) bei jedem Lauf, da Aktuell-Preis täglich ändert
+      Auch long-importierte offene Positionen bekommen neuen Mark-to-Market
+    → Tests: test_post_trade_returns.py (compute_paper_returns, _sell_sign_series, _latest_close_map, _apply_paper_returns)
     → Reihenfolge-Begruendung: nach tickeryfinance (Sektor-Daten bereits vorhanden),
       vor trade_volume (Volume unabhaengig von Preis-Daten)
          ↓

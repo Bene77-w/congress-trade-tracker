@@ -89,6 +89,44 @@ def build_sale_kind_traces(records) -> list:
     return traces
 
 
+def build_recent_pool(
+    df: pd.DataFrame,
+    window_days: int,
+    *,
+    reference_date=None,
+    date_col: str = 'transaction_date',
+) -> pd.DataFrame:
+    """Recent-Trades-Subset fuer das Monitoring (rein, Streamlit-unabhaengig).
+
+    Behaelt Zeilen mit ``date_col >= reference_date - window_days`` und ergaenzt
+    die abgeleitete Spalte ``days_since_trade`` (= Tage seit dem Trade, Bezug
+    ``reference_date``). Gegensatz zum Horizont-Filter: OFFENE Positionen
+    (``first_close_offset_days`` = NaN) bleiben sichtbar — hier wird allein nach
+    Handelsdatum gefiltert, NICHT nach Exit.
+
+    ``reference_date`` Standard = heute (normalisiert). Zeilen mit fehlendem
+    Datum fallen raus. Liefert eine Kopie; Sortierung/Top-N macht der Aufrufer.
+    """
+    if reference_date is None:
+        reference_date = pd.Timestamp.now().normalize()
+    else:
+        reference_date = pd.Timestamp(reference_date).normalize()
+
+    out = df.copy()
+    if date_col not in out.columns:
+        out['days_since_trade'] = pd.Series(dtype='float64')
+        return out.iloc[0:0]
+
+    dates = pd.to_datetime(out[date_col], errors='coerce')
+    cutoff = reference_date - pd.Timedelta(days=window_days)
+    mask = dates.notna() & (dates >= cutoff)
+    out = out[mask].copy()
+    out['days_since_trade'] = (
+        reference_date - pd.to_datetime(out[date_col], errors='coerce')
+    ).dt.days
+    return out
+
+
 def build_partial_close_rows(opening: dict, events: list, sell_sign: float) -> list:
     """Zerlegt einen Eroeffnungs-Trade in eine Zeile pro Schliessungs-Event.
 

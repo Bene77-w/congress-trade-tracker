@@ -61,7 +61,10 @@ from utils.trade_id import compute_trade_ids, detect_new_trades
 from utils.amount_parser import midpoint_usd, max_usd
 from scoring.asset_volume import compute_asset_tradingvolume
 from scoring.trade_score import compute_trade_scores
-from scoring.post_trade_returns import compute_post_trade_returns
+from scoring.post_trade_returns import (
+    compute_post_trade_returns,
+    compute_paper_returns,
+)
 from utils.ticker_classifier import (
     classify,
     TickerType,
@@ -273,7 +276,10 @@ STAGE_DEPS = {
                        'exit_status', 'exit_date', 'exit_price',
                        'exit_amount_max_usd', 'effective_return_pct',
                        'effective_return_horizon_days', 'opposing_trade_ids',
-                       'first_close_offset_days'],
+                       'first_close_offset_days',
+                       # Recent-Monitoring (Mark-to-Market, Voll-Pass ueber
+                       # RECENT_MONITORING_WINDOW_DAYS, delta-unabhaengig).
+                       'paper_return_pct', 'price_as_of'],
     },
     'asset_volume': {
         # Phase 8.2: Cross-Class rolling-window Sum(trade_volume_usd) ueber
@@ -2113,6 +2119,25 @@ class TradeImporter:
         print(f"      {n_sector:,}/{len(df):,} mit Sektor angereichert")
         self._write_stage_output(df, 'tickeryfinance', delta, dry_run)
 
+    def _compute_recent_paper_returns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Recent-Monitoring Papier-Return ueber den GANZEN uebergebenen Frame.
+
+        Setzt ``paper_return_pct`` + ``price_as_of`` (Mark-to-Market gegen den
+        juengsten Close) fuer Trades im RECENT_MONITORING_WINDOW_DAYS-Fenster.
+        Muss IMMER ueber den vollen Master laufen (delta-unabhaengig), weil der
+        aktuelle Kurs auch fuer laengst importierte offene Positionen taeglich
+        wechselt.
+        """
+        cache_path = os.path.join(BASE_DIR, settings.POST_TRADE_PRICE_CACHE)
+        return compute_paper_returns(
+            df,
+            cache_path=cache_path,
+            recent_window_days=settings.RECENT_MONITORING_WINDOW_DAYS,
+            max_price_age_bdays=settings.RECENT_PRICE_MAX_AGE_BUSINESS_DAYS,
+            fetch_years=settings.POST_TRADE_PRICE_FETCH_YEARS,
+            cache_flush_every=settings.POST_TRADE_CACHE_FLUSH_EVERY,
+        )
+
     def _stage_post_trade_performance(self, delta: bool = False, dry_run: bool = False):
         """Stage: Post-Trade-Preise + Exit-Detection (Modul 9.x)."""
         print(f"\n[Stage: post_trade_performance] Post-Trade-Preise + Exit-Detection...")
@@ -2130,6 +2155,9 @@ class TradeImporter:
             progress_every=settings.POST_TRADE_PROGRESS_EVERY,
             exit_window_days=settings.EXIT_DETECTION_WINDOW_DAYS,
         )
+        # Recent-Monitoring Papier-Return (Voll-Pass; im Nicht-Delta-Single-Stage
+        # ist df der komplette Master).
+        df = self._compute_recent_paper_returns(df)
         self._write_stage_output(df, 'post_trade_performance', delta, dry_run)
 
     def _stage_trade_volume(self, delta: bool = False, dry_run: bool = False):
@@ -2336,6 +2364,11 @@ class TradeImporter:
         if delta and os.path.isfile(MASTER_COMPLETE_CSV_PATH):
             df = self._merge_into_master(df)
             print(f"      Delta-Merge: {len(df):,} Trades gesamt")
+
+        # Recent-Monitoring Papier-Return: Voll-Pass ueber den ganzen Master
+        # (delta-unabhaengig, aktueller Kurs wechselt taeglich).
+        print("\n[Recent-Monitoring] Papier-Return aktualisieren...")
+        df = self._compute_recent_paper_returns(df)
 
         # 1. Complete-Master (alle Spalten)
         _strip_master_internal(df).to_csv(MASTER_COMPLETE_CSV_PATH, index=False, encoding='utf-8')
@@ -2615,6 +2648,11 @@ class TradeImporter:
         else:
             self._backup_master()
             updated_master = self._merge_into_master(enriched_df, master_df)
+            # Recent-Monitoring Papier-Return: Voll-Pass ueber den GANZEN Master
+            # (delta-unabhaengig — der aktuelle Kurs wechselt taeglich auch fuer
+            # bereits laenger gehaltene offene Positionen).
+            print("\n[Recent-Monitoring] Papier-Return aktualisieren...")
+            updated_master = self._compute_recent_paper_returns(updated_master)
             _strip_master_internal(updated_master).to_csv(MASTER_COMPLETE_CSV_PATH, index=False, encoding='utf-8')
             curated = self._export_curated_master(updated_master)
             curated.to_csv(MASTER_CSV_PATH, index=False, encoding='utf-8')
@@ -2826,6 +2864,8 @@ class TradeImporter:
             progress_every=settings.POST_TRADE_PROGRESS_EVERY,
             exit_window_days=settings.EXIT_DETECTION_WINDOW_DAYS,
         )
+        # Recent-Monitoring Papier-Return (Voll-Pass ueber den ganzen Master).
+        df = self._compute_recent_paper_returns(df)
 
         # 10. Asset-Tradingvolume (Cross-Class rolling-window, Modul 8.2)
         z = settings.SCORING_VOLUME_WINDOW_DAYS_Z
