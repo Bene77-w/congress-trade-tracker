@@ -126,16 +126,24 @@ def _ensure_cache_for_tickers(
     cache_ttl_days: int = 7,
     cache_path: str | None = None,
     flush_every: int = 50,
+    cutoff_date: pd.Timestamp | None = None,
 ) -> pd.DataFrame:
     """Stellt sicher dass alle Ticker frisch im Cache sind.
 
-    Refresh-Kriterium: max(date) pro Ticker < today - cache_ttl_days.
+    Refresh-Kriterium: max(date) pro Ticker < cutoff.
+    Standard-Cutoff: ``today - cache_ttl_days`` (Kalendertage). Wird
+    ``cutoff_date`` gesetzt, ueberschreibt es den Kalender-TTL — z.B. fuer die
+    Recent-Monitoring-Frische, die "letzter abgeschlossener Handelstag" (BDay)
+    statt fixer Kalendertage verlangt.
     Leere History -> Marker-Row (1900-01-01, NaN) = delisted.
     Inkrementelles Flushing: alle ``flush_every`` Ticker wird der Cache
     atomar nach ``cache_path`` geschrieben (falls Pfad gesetzt).
     """
     today = pd.Timestamp.now().normalize()
-    cutoff = today - pd.Timedelta(days=cache_ttl_days)
+    if cutoff_date is not None:
+        cutoff = pd.Timestamp(cutoff_date).normalize()
+    else:
+        cutoff = today - pd.Timedelta(days=cache_ttl_days)
 
     cache_idx_tickers = set(cache.index.get_level_values(0).unique()) if len(cache) else set()
     seen: set[str] = set()
@@ -372,6 +380,23 @@ def _phase_progress(
           flush=True)
 
 
+def _sell_sign_series(df: pd.DataFrame) -> pd.Series:
+    """Richtungsbewusstes Vorzeichen je Trade: Verkauf -> -1.0, sonst +1.0.
+
+    Ein Verkauf invertiert das Vorzeichen, sodass "positiv" = vor einem
+    Kursrueckgang verkauft (gutes Timing) bedeutet und ein Verkauf vor einem
+    Kursanstieg korrekt negativ (entgangener Gewinn) wird. Kauf/Sonstige
+    (Exchange) bleiben in der Long-Perspektive. Gilt fuer post_return_{X}d,
+    effective_return_pct UND paper_return_pct — gemeinsame Quelle, damit das
+    Vorzeichen nie auseinanderdriftet.
+    """
+    from signals.committee_signal import _direction_from_transaction_type
+    direction = df['transaction_type'].map(_direction_from_transaction_type)
+    return pd.Series(
+        np.where(direction.values == 'sell', -1.0, 1.0), index=df.index,
+    )
+
+
 def compute_post_trade_returns(
     df: pd.DataFrame,
     horizons_days: list[int],
@@ -420,16 +445,9 @@ def compute_post_trade_returns(
         df['transaction_date'], errors='coerce',
     )
 
-    # Richtungsbewusster Return: ein Verkauf invertiert das Vorzeichen, sodass
-    # "positiv" = vor einem Kursrueckgang verkauft (gutes Timing) bedeutet, und
-    # ein Verkauf vor einem Kursanstieg korrekt negativ (entgangener Gewinn)
-    # wird. Kauf/Sonstige (Exchange) bleiben in der Long-Perspektive. Das
-    # Vorzeichen gilt fuer post_return_{X}d UND effective_return_pct.
-    from signals.committee_signal import _direction_from_transaction_type
-    _direction = df['transaction_type'].map(_direction_from_transaction_type)
-    sell_sign = pd.Series(
-        np.where(_direction.values == 'sell', -1.0, 1.0), index=df.index,
-    )
+    # Richtungsbewusster Return (Verkauf invertiert) — zentrale Quelle, s.
+    # _sell_sign_series. Gilt fuer post_return_{X}d UND effective_return_pct.
+    sell_sign = _sell_sign_series(df)
 
     # Applicability-Maske VORAB — Tickers von nicht-applicable Trades
     # gar nicht erst an yfinance schicken.
@@ -564,6 +582,149 @@ def compute_post_trade_returns(
     print(f"  Exit-Status-Verteilung: {status_counts}")
     print(f"  Exits (closed_full + closed_partial): {n_closed:,}")
 
+    return df
+
+
+def _latest_close_map(cache: pd.DataFrame) -> dict[str, tuple[float, pd.Timestamp]]:
+    """Letzter (juengster) gueltiger Close je Ticker: ``{ticker: (close, date)}``.
+
+    Baut auf :func:`_build_price_lookup` (entfernt Delisted-Marker, sortiert nach
+    Datum) und nimmt pro Ticker den letzten nicht-NaN Close. Ticker ohne
+    gueltigen Preis erscheinen nicht im Dict. Rein (kein Netzwerk).
+    """
+    out: dict[str, tuple[float, pd.Timestamp]] = {}
+    lookup = _build_price_lookup(cache)
+    for tkr, entry in lookup.items():
+        if not entry:
+            continue
+        dates, closes = entry
+        i = len(closes) - 1
+        while i >= 0 and np.isnan(closes[i]):
+            i -= 1
+        if i < 0:
+            continue
+        out[tkr] = (float(closes[i]), pd.Timestamp(dates[i]))
+    return out
+
+
+def _apply_paper_returns(
+    df: pd.DataFrame,
+    latest_map: dict[str, tuple[float, pd.Timestamp]],
+    target_mask: pd.Series,
+    sell_sign: pd.Series,
+) -> pd.DataFrame:
+    """Setzt ``paper_return_pct`` + ``price_as_of`` (rein, kein Netzwerk).
+
+    Nur Zeilen mit ``target_mask=True`` bekommen Werte; alle anderen bleiben
+    NaN/NaT. Papier-Return = ``(latest_close / post_trade_baseline_price - 1)
+    * 100 * sell_sign`` — Einstand wird aus der vorhandenen Spalte
+    ``post_trade_baseline_price`` wiederverwendet (kein Neu-Berechnen).
+    Fehlt der letzte Close oder ein gueltiger Baseline-Preis -> NaN.
+    """
+    paper = pd.Series(np.nan, index=df.index, dtype='float64')
+    asof = pd.Series(pd.NaT, index=df.index, dtype='datetime64[ns]')
+
+    if target_mask.any():
+        idx = df.index[target_mask]
+        tkr = df.loc[idx, 'ticker'].astype('string').str.strip().str.upper()
+        close = tkr.map(
+            lambda t: latest_map.get(t, (np.nan, pd.NaT))[0]
+        ).astype('float64')
+        date = pd.to_datetime(
+            tkr.map(lambda t: latest_map.get(t, (np.nan, pd.NaT))[1])
+        )
+        baseline = pd.to_numeric(
+            df.loc[idx, 'post_trade_baseline_price'], errors='coerce'
+        )
+        ss = sell_sign.loc[idx]
+        valid = close.notna() & baseline.notna() & (baseline > 0)
+        pr = (close / baseline - 1.0) * 100.0 * ss
+        paper.loc[idx] = pr.where(valid)
+        asof.loc[idx] = date
+
+    df['paper_return_pct'] = paper
+    df['price_as_of'] = asof
+    return df
+
+
+def compute_paper_returns(
+    df: pd.DataFrame,
+    cache_path: str,
+    recent_window_days: int = 180,
+    max_price_age_bdays: int = 1,
+    fetch_years: int = 5,
+    cache_flush_every: int = 50,
+) -> pd.DataFrame:
+    """Voll-Pass: ``paper_return_pct`` + ``price_as_of`` fuer Recent-Trades.
+
+    Recent = ``transaction_date >= today - recent_window_days`` UND
+    Post-Trade-applicable. Mark-to-Market gegen den juengsten verfuegbaren Close.
+    DELTA-UNABHAENGIG: laeuft bei jedem Pipeline-Lauf voll ueber das
+    Recent-Fenster, weil der aktuelle Kurs (und damit der Papier-Return) taeglich
+    wechselt — auch fuer laengst importierte offene Positionen.
+
+    Frische: der Preis-Cache wird fuer die Recent-Ticker refetcht, wenn sein
+    juengster Close aelter ist als der letzte abgeschlossene Handelstag
+    (``today - BDay(max_price_age_bdays)``). Kein Feiertagskalender — nach dem
+    Refetch wird der juengste verfuegbare Close genommen und ``price_as_of``
+    macht die Staleness sichtbar.
+
+    Erwartete Input-Spalten: ``transaction_date``, ``transaction_type``,
+    ``ticker``, ``ticker_type``, ``post_trade_baseline_price``.
+    Idempotent. Liefert NEUE Kopie.
+    """
+    logging.getLogger('yfinance').setLevel(logging.CRITICAL)
+    logging.getLogger('urllib3').setLevel(logging.CRITICAL)
+
+    required = ['transaction_date', 'transaction_type', 'ticker',
+                'ticker_type', 'post_trade_baseline_price']
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise ValueError(
+            f"compute_paper_returns: fehlende Input-Spalten {missing}. "
+            f"Stage 'post_trade_performance' muss vorher gelaufen sein."
+        )
+
+    df = df.copy()
+    today = pd.Timestamp.now().normalize()
+    tx = pd.to_datetime(df['transaction_date'], errors='coerce')
+    recent_mask = tx >= (today - pd.Timedelta(days=recent_window_days))
+
+    # Applicability nur fuer das Recent-Fenster pruefen (begrenzt den apply-Call).
+    applicable = pd.Series(False, index=df.index)
+    if recent_mask.any():
+        applicable.loc[recent_mask] = (
+            df.loc[recent_mask].apply(_is_applicable, axis=1)
+        )
+    target_mask = recent_mask & applicable
+    sell_sign = _sell_sign_series(df)
+
+    print(f"  Recent-Monitoring: {int(target_mask.sum()):,} Trades im "
+          f"{recent_window_days}-Tage-Fenster (applicable).")
+
+    # --- Cache fuer Recent-Ticker mit Business-Day-Frische refreshen ---
+    cache = _load_price_cache(cache_path)
+    recent_tickers = (
+        df.loc[target_mask, 'ticker'].dropna().astype(str)
+        .str.strip().str.upper().unique().tolist()
+    )
+    if recent_tickers:
+        last_bday = (today - pd.offsets.BDay(max_price_age_bdays)).normalize()
+        cache = _ensure_cache_for_tickers(
+            cache,
+            recent_tickers,
+            fetch_years=fetch_years,
+            cache_path=cache_path,
+            flush_every=cache_flush_every,
+            cutoff_date=last_bday,
+        )
+
+    latest_map = _latest_close_map(cache)
+    df = _apply_paper_returns(df, latest_map, target_mask, sell_sign)
+
+    n_priced = int(df['paper_return_pct'].notna().sum())
+    print(f"  Papier-Return gesetzt: {n_priced:,}/{int(target_mask.sum()):,} "
+          f"Recent-Trades mit aktuellem Preis.")
     return df
 
 

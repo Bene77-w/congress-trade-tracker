@@ -24,6 +24,7 @@ if str(ROOT) not in sys.path:
 
 from app.chart_helpers import (  # noqa: E402
     build_partial_close_rows,
+    build_recent_pool,
     build_sale_kind_traces,
 )
 from app.score_recompute import available_signals, recompute_subset  # noqa: E402
@@ -52,6 +53,16 @@ TRADE_DISPLAY_COLS = [
     'post_return_30d', 'post_return_60d', 'post_return_90d',
     'post_return_120d', 'post_return_180d', 'effective_return_pct',
     'exit_status', 'exit_date', 'first_close_offset_days',
+    'paper_return_pct', 'price_as_of',
+]
+
+# Spalten fuer den Recent-Trades-Monitoring-Tab (Reihenfolge = Anzeige).
+RECENT_DISPLAY_COLS = [
+    'trade_id', 'transaction_date', 'days_since_trade', 'disclosure_date',
+    'name', 'chamber', 'Member_Party', 'asset_name', 'ticker', 'issuer_ticker',
+    'transaction_type', 'amount', 'trade_amount_max_usd', 'trade_score',
+    'committee_match', 'relevant_sectors', 'signals_triggered',
+    'paper_return_pct', 'price_as_of', 'exit_status', 'effective_return_pct',
 ]
 
 TRADE_DEFAULT_COLS = [
@@ -185,6 +196,9 @@ def load_trades() -> pd.DataFrame:
     else:
         df['relevant_sectors'] = pd.Series([''] * len(df), dtype='string')
         df['committee_match'] = pd.Series([''] * len(df), dtype='string')
+    # price_as_of optional (erst seit Recent-Monitoring im Master) -> defensiv.
+    if 'price_as_of' in df.columns:
+        df['price_as_of'] = pd.to_datetime(df['price_as_of'], errors='coerce')
     return df
 
 
@@ -914,6 +928,15 @@ def _trade_column_config(score_max_val: int) -> dict:
                                    width='small'),
         'first_close_offset_days': cc.NumberColumn(
             'Erster Close (Tage)', format='%d', width='small'),
+        'paper_return_pct': cc.NumberColumn(
+            'Paper Return %', format='%.1f%%', width='small',
+            help='Mark-to-Market: (aktueller Close / Einstand − 1), '
+                 'richtungsbewusst. Leer = kein aktueller Preis.'),
+        'price_as_of': cc.DateColumn(
+            'Preis-Stand', format='DD.MM.YYYY', width='small',
+            help='Datum des fuer den Paper Return verwendeten Close.'),
+        'days_since_trade': cc.NumberColumn(
+            'Tage seit Trade', format='%d', width='small'),
     }
 
 
@@ -1337,8 +1360,8 @@ def render_trade_detail(trade, trade_rows, key_prefix: str) -> None:
 
 
 # --- Tabs ----------------------------------------------------------------
-tab_trades, tab_assets, tab_members, tab_detail = st.tabs(
-    ['Trades', 'Assets', 'Members', 'Post Trade Performance'])
+tab_trades, tab_assets, tab_members, tab_detail, tab_recent = st.tabs(
+    ['Trades', 'Assets', 'Members', 'Post Trade Performance', 'Recent Trades'])
 
 with tab_trades:
     n = len(trade_rows)
@@ -1539,3 +1562,99 @@ with tab_detail:
         trade = detail_pool.loc[selected_idx]
 
         render_trade_detail(trade, trade_rows, 'perf')
+
+
+with tab_recent:
+    st.caption(
+        'Monitoring frischer Trades (offen UND geschlossen) der letzten X Tage '
+        'nach transaction_date — unabhaengig vom globalen Horizont-Filter. '
+        'Papier-Return = Mark-to-Market gegen den juengsten Close; die Spalte '
+        '„Preis-Stand" zeigt, wie aktuell der Preis ist. Eigene Controls; die '
+        'globale Suche wirkt mit, der globale Datums-/Horizont-/Min-Score-Filter '
+        'NICHT.'
+    )
+
+    if 'paper_return_pct' not in trades.columns:
+        st.info(
+            'Keine Recent-Monitoring-Daten im Master (`paper_return_pct` fehlt). '
+            'Bitte Pipeline-Stage `--stage_post_trade_performance` ausführen.'
+        )
+    else:
+        window_opts = list(settings.RECENT_MONITORING_WINDOW_OPTIONS)
+        rc1, _rc2 = st.columns([1, 3])
+        with rc1:
+            recent_window = st.selectbox(
+                'Zeitfenster (Tage, transaction_date)',
+                options=window_opts,
+                index=len(window_opts) - 1,  # Default groesstes Fenster
+                key='recent_window_days',
+            )
+
+        # Basis: globale Suche anwenden (eigene Controls — KEIN Horizont-/
+        # globaler Datums-/Min-Score-Filter), dann eigenes Fenster.
+        recent_base = trades
+        if search_query:
+            recent_base = recent_base[_search_mask(recent_base, search_query)]
+        recent_pool = build_recent_pool(recent_base, int(recent_window))
+
+        if needs_recompute and not recent_pool.empty:
+            with st.spinner(f'Score neu berechnen für {len(recent_pool):,} '
+                            f'Recent-Trades …'):
+                recent_pool = recompute_subset(
+                    recent_pool,
+                    excluded_signals,
+                    weights_override=weights_override or None,
+                    params_override=params_override or None,
+                )
+
+        if recent_pool.empty:
+            st.info('Keine Trades im gewaehlten Recent-Fenster.')
+        else:
+            n_open = (int((recent_pool['exit_status'] == 'held').sum())
+                      if 'exit_status' in recent_pool.columns else 0)
+            n_priced = int(recent_pool['paper_return_pct'].notna().sum())
+            m1, m2, m3 = st.columns(3)
+            m1.metric('Recent Trades', f'{len(recent_pool):,}')
+            m2.metric('davon offen (held)', f'{n_open:,}')
+            m3.metric('mit Paper Return', f'{n_priced:,}')
+
+            recent_pool = recent_pool.sort_values(
+                'trade_score', ascending=(sort_dir == 'aufsteigend'),
+                kind='mergesort', na_position='last',
+            )
+
+            DEFAULT_SHOW_R = 25
+            EXPAND_STEP_R = 100
+            if 'recent_show_n' not in st.session_state:
+                st.session_state['recent_show_n'] = DEFAULT_SHOW_R
+            n_show = min(st.session_state['recent_show_n'], len(recent_pool))
+            top_pool = recent_pool.head(n_show)
+
+            display_cols = [c for c in RECENT_DISPLAY_COLS
+                            if c in top_pool.columns]
+            _max_score = max(
+                int(recent_pool['trade_score'].max()) if len(recent_pool) else 200,
+                200,
+            )
+            st.dataframe(
+                top_pool[display_cols],
+                width='stretch',
+                hide_index=True,
+                height=_dyn_height(len(top_pool)),
+                column_config=_trade_column_config(_max_score),
+            )
+
+            remaining = len(recent_pool) - n_show
+            if remaining > 0:
+                cb1, cb2 = st.columns([1, 3])
+                with cb1:
+                    if st.button(f'{n_show} von {len(recent_pool):,} — '
+                                 f'{remaining:,} weitere', key='recent_expand'):
+                        st.session_state['recent_show_n'] = min(
+                            n_show + EXPAND_STEP_R, len(recent_pool),
+                        )
+                        st.rerun()
+                with cb2:
+                    if st.button('Alle anzeigen', key='recent_show_all'):
+                        st.session_state['recent_show_n'] = len(recent_pool)
+                        st.rerun()

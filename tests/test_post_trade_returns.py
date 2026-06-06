@@ -15,15 +15,20 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scoring.post_trade_returns import (  # noqa: E402
+    _apply_paper_returns,
     _build_price_lookup,
     _compute_exit_columns,
+    _ensure_cache_for_tickers,
     _is_applicable,
     _is_valid_yf_ticker,
+    _latest_close_map,
     _load_price_cache,
     _price_at_or_after,
     _price_at_or_after_fast,
     _save_price_cache,
+    _sell_sign_series,
     _yf_close_series,
+    compute_paper_returns,
     compute_post_trade_returns,
     DELISTED_MARKER_DATE,
 )
@@ -799,3 +804,137 @@ def test_first_close_offset_days(sample_cache):
     assert cols['first_close_offset_days'].iloc[0] == 18
     # T2 (held, kein Gegen-Trade danach) -> NaN.
     assert pd.isna(cols['first_close_offset_days'].iloc[1])
+
+
+# ---------------------------------------------------------------------------
+# Recent-Monitoring: Papier-Return (compute_paper_returns + Helfer)
+# ---------------------------------------------------------------------------
+
+def _no_network(*_a, **_k):
+    raise AssertionError('yfinance darf in diesem Test nicht aufgerufen werden')
+
+
+def _fresh_cache(ticker: str = 'AAPL', last_close: float = 104.0) -> pd.DataFrame:
+    """Cache mit 5 Handelstagen endend HEUTE (juengster Close = last_close)."""
+    today = pd.Timestamp.now().normalize()
+    days = pd.bdate_range(end=today, periods=5)
+    base = last_close - (len(days) - 1)
+    records = [
+        (ticker, d.strftime('%Y-%m-%d'), float(base + i))
+        for i, d in enumerate(days)
+    ]
+    return _make_cache(records)
+
+
+def test_sell_sign_series_direction():
+    """Verkauf -> -1.0, Kauf/Exchange -> +1.0."""
+    df = pd.DataFrame({'transaction_type': ['Purchase', 'Sale', 'Exchange']})
+    ss = _sell_sign_series(df)
+    assert ss.iloc[0] == 1.0
+    assert ss.iloc[1] == -1.0
+    assert ss.iloc[2] == 1.0
+
+
+def test_latest_close_map_basic():
+    """Letzter Close je Ticker; Delisted-Marker-only -> nicht im Dict."""
+    today = pd.Timestamp.now().normalize()
+    cache = _make_cache([
+        ('AAPL', '2025-06-02', 100.0),
+        ('AAPL', today.strftime('%Y-%m-%d'), 130.0),
+        ('DEAD', DELISTED_MARKER_DATE.strftime('%Y-%m-%d'), float('nan')),
+    ])
+    out = _latest_close_map(cache)
+    assert out['AAPL'][0] == 130.0
+    assert out['AAPL'][1] == today
+    assert 'DEAD' not in out
+
+
+def test_apply_paper_returns_purchase_and_sale():
+    """Kauf: positiver Return bei Kursanstieg; Verkauf invertiert das Vorzeichen."""
+    df = pd.DataFrame({
+        'ticker': ['AAPL', 'AAPL'],
+        'transaction_type': ['Purchase', 'Sale'],
+        'post_trade_baseline_price': [100.0, 100.0],
+    })
+    latest = {'AAPL': (110.0, pd.Timestamp('2025-06-10'))}
+    sell_sign = _sell_sign_series(df)
+    target = pd.Series([True, True])
+    out = _apply_paper_returns(df.copy(), latest, target, sell_sign)
+    # Kauf: (110/100-1)*100 = +10
+    assert out['paper_return_pct'].iloc[0] == pytest.approx(10.0)
+    # Verkauf: invertiert -> -10
+    assert out['paper_return_pct'].iloc[1] == pytest.approx(-10.0)
+    assert (out['price_as_of'] == pd.Timestamp('2025-06-10')).all()
+
+
+def test_apply_paper_returns_nan_without_price_or_baseline():
+    """Kein Preis im Map oder ungueltiger Baseline -> NaN / NaT."""
+    df = pd.DataFrame({
+        'ticker': ['NOPRICE', 'AAPL'],
+        'transaction_type': ['Purchase', 'Purchase'],
+        'post_trade_baseline_price': [100.0, 0.0],  # 2. Baseline=0 -> ungueltig
+    })
+    latest = {'AAPL': (110.0, pd.Timestamp('2025-06-10'))}
+    out = _apply_paper_returns(df.copy(), latest, pd.Series([True, True]),
+                               _sell_sign_series(df))
+    assert pd.isna(out['paper_return_pct'].iloc[0])  # Ticker fehlt im Map
+    assert pd.isna(out['paper_return_pct'].iloc[1])  # Baseline 0
+
+
+def test_apply_paper_returns_only_target_rows():
+    """Nur Zeilen mit target_mask=True bekommen Werte."""
+    df = pd.DataFrame({
+        'ticker': ['AAPL', 'AAPL'],
+        'transaction_type': ['Purchase', 'Purchase'],
+        'post_trade_baseline_price': [100.0, 100.0],
+    })
+    latest = {'AAPL': (110.0, pd.Timestamp('2025-06-10'))}
+    out = _apply_paper_returns(df.copy(), latest, pd.Series([True, False]),
+                               _sell_sign_series(df))
+    assert out['paper_return_pct'].iloc[0] == pytest.approx(10.0)
+    assert pd.isna(out['paper_return_pct'].iloc[1])
+    assert pd.isna(out['price_as_of'].iloc[1])
+
+
+def test_ensure_cache_cutoff_date_fresh_no_fetch(monkeypatch):
+    """cutoff_date in Vergangenheit + frischer Cache -> kein yfinance-Call."""
+    monkeypatch.setattr('scoring.post_trade_returns.yf.download', _no_network)
+    cache = _fresh_cache('AAPL')
+    out = _ensure_cache_for_tickers(
+        cache, ['AAPL'], cutoff_date=pd.Timestamp.now().normalize(),
+    )
+    # Unveraendert zurueck (warm), ohne Netzwerk (sonst AssertionError).
+    assert 'AAPL' in set(out.index.get_level_values(0))
+
+
+def test_compute_paper_returns_offline(monkeypatch, tmp_path):
+    """End-to-End offline: frischer Cache -> Papier-Return fuer Recent-Trade,
+    alter Trade ausserhalb Fenster -> NaN."""
+    monkeypatch.setattr('scoring.post_trade_returns.yf.download', _no_network)
+    cache_path = tmp_path / 'price_history.parquet'
+    _save_price_cache(_fresh_cache('AAPL', last_close=104.0), str(cache_path))
+
+    today = pd.Timestamp.now().normalize()
+    df = pd.DataFrame([
+        _make_trade_row(trade_id='RECENT', ticker='AAPL',
+                        transaction_date=(today - pd.Timedelta(days=10)),
+                        transaction_type='Purchase'),
+        _make_trade_row(trade_id='OLD', ticker='AAPL',
+                        transaction_date=(today - pd.Timedelta(days=400)),
+                        transaction_type='Purchase'),
+    ])
+    df['post_trade_baseline_price'] = [100.0, 100.0]
+
+    out = compute_paper_returns(
+        df, cache_path=str(cache_path),
+        recent_window_days=180, max_price_age_bdays=1,
+    )
+    # Recent: (104/100-1)*100 = +4 ; price_as_of = juengster Handelstag im Cache
+    # (am Wochenende = letzter Freitag, NICHT der Kalender-Heute).
+    last_trading_day = pd.bdate_range(end=today, periods=5)[-1]
+    assert out.loc[out['trade_id'] == 'RECENT', 'paper_return_pct'].iloc[0] \
+        == pytest.approx(4.0)
+    assert out.loc[out['trade_id'] == 'RECENT', 'price_as_of'].iloc[0] \
+        == last_trading_day
+    # Alt ausserhalb 180-Tage-Fenster -> NaN.
+    assert pd.isna(out.loc[out['trade_id'] == 'OLD', 'paper_return_pct'].iloc[0])

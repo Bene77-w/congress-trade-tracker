@@ -608,6 +608,16 @@ post_return_180d,          # float: **NEU (2026-06-04):** dito fuer 180d. Für V
 first_close_offset_days,   # float: **NEU (2026-06-04):** Kalendertage vom transaction_date bis zum ERSTEN gegensätzlichen Trade
                            # (egal ob closed_full oder closed_partial). Hilfs-Spalte für Horizont-Sichtbarkeitsfilter im Dashboard.
                            # NaN bei not_applicable / delisted / unknown / held. Beispiel: Kauf 2022-09-01, erstes Verkauf 2023-03-22 → 203 Tage.
+paper_return_pct,          # float: **NEU (2026-06-06):** Mark-to-Market Return gegen den AKTUELLEN jüngsten Close.
+                           # Formel: `(latest_close / post_trade_baseline_price − 1) × 100 × sell_sign`.
+                           # Nur befüllt für Trades im RECENT_MONITORING_WINDOW_DAYS-Fenster (Bezug `transaction_date`).
+                           # Außerdem: nur wenn Post-Trade-Baseline existiert (not_applicable/delisted → NaN).
+                           # Richtungsbewusst: positive Werte = Gewinn (Kauf) oder gutes Verkaufs-Timing, negative = Verlust/schlechtes Timing.
+                           # UNTERSCHIED zu effective_return_pct: `effective` ist realisiert (bis exit_date),
+                           # `paper` ist unverwirklicht (bis jüngstes verfügbares Close-Datum). Siehe `price_as_of`.
+price_as_of,               # datetime: **NEU (2026-06-06):** Datum des für `paper_return_pct` verwendeten jüngsten Close.
+                           # Macht die Staleness des Mark-to-Market sichtbar. NaT wenn kein Preis verfügbar.
+                           # Beispiel: Trade 2023-06-01, jüngstes Close in Cache: 2026-06-05 → `price_as_of=2026-06-05`.
 exit_status,               # str: held / closed_full / closed_partial / delisted / unknown / not_applicable
 exit_date,                 # datetime: Datum des ersten gegensätzlichen Trades (bei closed_*)
 exit_price,                # float: Close-Preis am exit_date
@@ -760,7 +770,7 @@ Die `app/chart_helpers.py`-Funktion `build_partial_close_rows` zerlegt im Post-T
 **Limitierung (nicht-FIFO Partition):** Derselbe Verkauf kann bei mehreren Käufen als Gegen-Trade auftauchen. Volumen-Partitionierung erfolgt global NICHT sauber → Zerlegungs-Zeilen dürfen niemals in Volumen-Aggregate (Asset-Tab, Member-Tab) eingehen. Nur für Performance-Charts zulässig.
 
 **Horizont-Sichtbarkeitsfilter (2026-06-04, Modul 9):**
-Das Dashboard filtert global (alle 4 Tabs) nach `first_close_offset_days`. Sidebar-Toggle „Horizont-Filter aktiv" (Standard an) begrenzt Sichtbarkeit auf Trades mit `first_close_offset_days ≤ PRIMARY_HORIZON_DAYS` (benutzerwählter primärer Horizont aus 30/60/90/120/180). Bei `held` oder NaN wird kein Filter angewendet (alle `held`-Trades sichtbar, unabhängig vom Horizont). Sinn: Real geschlossene Positionen mit Exits >120d später zeigen sich erst wenn der Horizont aufgedreht wird.
+Die vier historischen Tabs (Trades / Assets / Members / Post Trade Performance) filtern global nach `first_close_offset_days`. Sidebar-Toggle „Horizont-Filter aktiv" (Standard an) begrenzt Sichtbarkeit auf Trades mit `first_close_offset_days ≤ PRIMARY_HORIZON_DAYS` (benutzerwählter primärer Horizont aus 30/60/90/120/180). **Design: offene/gehaltene Positionen (held mit NaN) werden AUSGEBLENDET** (Filter-Bedingung `off.notna() & off <= horizon`). Sinn: Real geschlossene Positionen mit Exits >120d später zeigen sich erst wenn der Horizont aufgedreht wird. **Monitoring offener Positionen** erfolgt ausschließlich über den neuem 5. Tab „Recent Trades" (aktiviert über `build_recent_pool()`, überschreibt den Horizont-Filter für Fresh-Position-Überwachung mit aktuellen Papier-Returns).
 
 ---
 
