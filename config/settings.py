@@ -526,3 +526,20 @@ POST_TRADE_CACHE_FLUSH_EVERY = 50
 # alle N verarbeiteten Trades (zusaetzlich zu jedem 10%-Schritt). Reines
 # Logging — kein Einfluss auf Ergebnisse.
 POST_TRADE_PROGRESS_EVERY = 20000
+
+
+# ---------------------------------------------------------------------------
+# Recent-Trade-Monitoring (Modul 9.x — Live-Beobachtung frischer Trades)
+# ---------------------------------------------------------------------------
+# Eigener Use-Case neben der historischen Analyse: zeigt OFFENE und frisch
+# geschlossene Trades samt Papier-Return (Mark-to-Market gegen den juengsten
+# Close), statt sie wie der Horizont-Filter auszublenden.
+# Maximales Fenster (Tage, Bezug transaction_date) fuer das der Papier-Return
+# in der Pipeline ueberhaupt berechnet wird. Aeltere Trades -> NaN.
+RECENT_MONITORING_WINDOW_DAYS = 180
+# Im Dashboard waehlbare Fenstergroessen (Selectbox). <= RECENT_MONITORING_WINDOW_DAYS.
+RECENT_MONITORING_WINDOW_OPTIONS = [7, 30, 60, 90, 120, 180]
+# Frische-Anforderung an den Papier-Preis: refetch, wenn der juengste Cache-Close
+# aelter ist als der letzte abgeschlossene Handelstag (BDay). 1 = "nicht aelter
+# als ein Handelstag" (erfuellt "<=24h werktags" beim taeglichen 03:00-Lauf).
+RECENT_PRICE_MAX_AGE_BUSINESS_DAYS = 1

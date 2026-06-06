@@ -1,6 +1,6 @@
 # Filter-Instanz-Parameter
 
-**Letzte Aktualisierung:** 2026-05-19
+**Letzte Aktualisierung:** 2026-06-06
 
 Diese Datei dokumentiert die **konkreten Filter-Instanzen** des Congress Trade
 Trackers. „Filter" ist hier das User-sichtbare Sammelwort — im Code wird
@@ -96,6 +96,8 @@ Verteilung in einem Smoke-Run (112.658 Trades, 27.05.2026): 29.340 Trades (26,0%
 
 Dies ist eine reine Daten-Anreicherung (Pipeline Stage 9) — fliesst NICHT in den `trade_score` ein, sondern dient der UI/Analyse der historischen Performance von Trades.
 
+### Post-Trade Returns (historische Performance geschlossener Positionen)
+
 | Konstante | Default | Bedeutung |
 |---|---|---|
 | `POST_TRADE_HORIZONS_DAYS` | `[30, 60, 90, 120, 180]` | Tage nach `transaction_date`, fuer die Preis-Snapshots erfasst werden. Anpassbar — Spalten `post_price_{X}d` / `post_return_{X}d` werden dynamisch erzeugt. **Neu (2026-06-04):** 180-Tage-Horizont hinzugefügt. |
@@ -104,6 +106,16 @@ Dies ist eine reine Daten-Anreicherung (Pipeline Stage 9) — fliesst NICHT in d
 | `POST_TRADE_PRICE_FETCH_YEARS` | `5` | yfinance `period` beim Erstabruf pro Ticker |
 | `POST_TRADE_PRICE_CACHE_TTL_DAYS` | `7` | Refresh-Schwelle pro Ticker |
 | `POST_TRADE_EXIT_AMOUNT_TOLERANCE` | `0.0` | 0.0 = strikt (kumulierter opposing-max muss >= original-max); >0.0 = relative Toleranz (z.B. 0.1 = 10% Unterdeckung erlaubt) |
+
+### Paper Returns (Mark-to-Market für offene/frische Positionen, Modul 9 — 2026-06-06)
+
+**Neu:** Papier-Return-Berechnung für den neuen „Recent Trades"-Dashboard-Tab (Modul 9). Diese Werte sind **Delta-unabhängig** und aktualisieren sich täglich, da die Kurse sich ständig ändern (auch für lange importierte offene Positionen).
+
+| Konstante | Default | Bedeutung |
+|---|---|---|
+| `RECENT_MONITORING_WINDOW_DAYS` | `180` | Max-Fenster für Papier-Return-Berechnung (Tage, Bezug `transaction_date`). Trades älter als `now - RECENT_MONITORING_WINDOW_DAYS` bekommen `paper_return_pct = NaN`. Sinn: Recent-Trades-Tab zeigt nur Positions aus den letzten N Tagen (vorstellbar: "Letzte 6 Monate"). |
+| `RECENT_MONITORING_WINDOW_OPTIONS` | `[7, 30, 60, 90, 120, 180]` | Wählbare Fenstergrößen im Dashboard (Streamlit Selectbox im Recent-Trades-Tab). User kann zwischen diesen Werten wechseln, ohne Code zu ändern. |
+| `RECENT_PRICE_MAX_AGE_BUSINESS_DAYS` | `1` | Frische-Anforderung für yfinance-Cache bei Recent-Ticker. Wenn jüngstes Preis-Datum im Cache älter als `max_price_age_bdays` ist, wird yfinance neu abgefragt. **Relevanz:** Täglicher 03:00-Lauf sollte ≤24h werktags frische Kurse sehen. Bei Wochenende/Feiertag fällt 1 BDay=2 Kalendertage. Refresh erfolgt VOLL-PASS für Recent-Ticker. |
 
 **Exit-Status-Werte**: `not_applicable` / `delisted` / `unknown` / `held` / `closed_full` / `closed_partial` — siehe DATA_STRUCTURE.md.
 
