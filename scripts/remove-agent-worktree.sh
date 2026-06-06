@@ -20,10 +20,33 @@ for arg in "$@"; do
 done
 : "${NAME:?Name fehlt — Aufruf: remove-agent-worktree.sh <name> [--force] [--keep-branch]}"
 
-REPO="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
+# REPO muss IMMER das Haupt-Repo sein — auch wenn dieses Skript aus einer in
+# einen Worktree kopierten Skript-Kopie heraus läuft. '--show-toplevel' würde
+# dann faelschlich den Worktree selbst liefern (→ doppelter Pfad, falsches Ziel).
+# '--git-common-dir' zeigt aus JEDEM Worktree auf das geteilte .git des Hauptrepos.
+GIT_COMMON="$(git -C "$(dirname "$0")" rev-parse --path-format=absolute --git-common-dir)"
+REPO="$(dirname "$GIT_COMMON")"
 PARENT="$(dirname "$REPO")"; BASENAME="$(basename "$REPO")"
 WT="$PARENT/${BASENAME}-agent-$NAME"
 BRANCH="agent/$NAME"
+
+# Selbstmord-Schutz: nicht den Ordner loeschen, in dem die Shell gerade steht —
+# sonst landet das Terminal in einem geloeschten Verzeichnis.
+case "$PWD/" in
+  "$WT/"*)
+    echo "Du stehst im Worktree, der geloescht werden soll ($WT)." >&2
+    echo "Wechsle erst ins Hauptrepo und starte dort:" >&2
+    echo "    cd \"$REPO\" && scripts/remove-agent-worktree.sh $NAME" >&2
+    exit 1 ;;
+esac
+
+# Klare Meldung bei falschem Namen: existiert dieser Worktree ueberhaupt?
+if ! git -C "$REPO" worktree list --porcelain | grep -qx "worktree $WT"; then
+  echo "Kein Worktree unter: $WT" >&2
+  echo "Vorhandene Worktrees:" >&2
+  git -C "$REPO" worktree list >&2
+  exit 1
+fi
 
 echo "Entferne Worktree: $WT"
 if [[ "$FORCE" == 1 ]]; then
