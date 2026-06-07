@@ -1140,6 +1140,83 @@ ist reserviert (nicht überschreib-/löschbar).
 `weights_override` / `params_override` an `app/score_recompute.recompute_subset()`
 gereicht; nur tatsächlich veränderte Felder landen im Override-Dict.
 
+### `config/settings.py::DETAIL_RETURN_THRESHOLD_PCT`
+**Default**: `10.0` (Prozent). Reiner **Anzeige-Schwellwert** für das
+Member-Detail-Popup (kein Scoring-Parameter, daher nicht in
+`Filter_Instanz_Parameter.md`): bestimmt den Anteil „großer Treffer" — Trades
+mit `paper_return_terminal > x` — in den Diagrammen D1/D7. Im Popup per Slider
+live überschreibbar, ohne Recompute oder Pipeline-Lauf.
+
+---
+
+## 7c. App-Module: Member-Detail-Popup (Modul 9)
+
+Live-Berechnung pro Kongress-Mitglied — **keine neuen Master-Spalten, kein
+Pipeline-Lauf**. Datenbasis ist das bereits gefilterte Trade-Subset
+(`apply_prefilter(..., apply_horizon_filter=False)`); bei aktivem
+Signal-Ausschluss wird pro Member per `recompute_subset` neu gescort.
+
+### `app/member_metrics.py`
+Reine Metrik-/Aggregations-Logik (kein Streamlit-Code), ~563 Zeilen.
+Funktionsgruppen:
+
+- **Committee-Parsing**: `parse_committees_full`, `_split_name_role` — eigener,
+  verschachtelnder Parser für `Member_Committees_Full`
+  (Grammatik: `;`=Eintrag, `:`=neues Committee, sonst Subcommittee,
+  `|`=Name/Rolle). **Bewusst NICHT** der kanonische
+  `tags.committee_tag.CommitteeParser`, weil dieser Subcommittees
+  verlustbehaftet abflacht (s. `project_committee_parser_lossy`-Notiz).
+- **Horizont-Attribution**: `nearest_horizon`, `qualifying_horizons`,
+  `_nearest_horizon_array` (vektorisiert via `np.searchsorted`),
+  `qualifies_for_horizon`, `paper_return_terminal`. Ein Trade zählt zu seinem
+  „nearest horizon" über `first_close_offset_days`, mit Mittelpunkts-Schwellen
+  45/75/105/150 Tagen (für Standard-Horizonte `DEFAULT_HORIZONS = [30, 60, 90,
+  120, 180]`). `post_return_{h}d` ist im Master bereits richtungsbereinigt
+  (Sell → ×−1) — wird hier unverändert übernommen.
+- **Verläufe**: `trajectory_end_offset`, `compute_member_trajectories`. Die
+  Spaghetti-/Verlaufslinien enden am Voll-Close (`exit_date`,
+  `exit_status ∈ FULLY_CLOSED_STATES = {closed_full, delisted}`), gecappt bei
+  180 Tagen; offene Positionen laufen bis zum Cap. **Bewusste Divergenz** zur
+  Horizont-Attribution oben (andere Endpunkt-Logik, gleiche Datenbasis).
+- **Sektoren**: `parse_insider_sectors`, `member_oversight_sectors`,
+  `committee_full_mask`, `sector_concentration`. Aufsichts-Sektoren stammen aus
+  der Member-konstanten Spalte `Insider_Sectors`; die „committee_full"-Gruppe
+  und der Red-Flag-Overlap werden strukturell aus `signals_triggered`
+  abgeleitet (Substring-Match) — nicht rekomputiert.
+- **Chart-Aggregationen**: `horizon_mean_returns`, `horizon_bucket_shares`,
+  `terminal_distribution`, `score_bins`.
+- **Controls/Helfer**: `quarter_options`, `filter_by_quarter_range`,
+  `filter_long_trades_out`, `resolve_highlight_from_selection`
+  (Plotly-Selection → `trade_id`, robust gegen skalare ODER Listen-customdata),
+  `red_flag_summary`.
+- **Konstanten**: `DEFAULT_HORIZONS`, `FULLY_CLOSED_STATES`,
+  `_PRICE_CACHE_SENTINEL`.
+
+Beispiele/Verhalten je Funktion: `tests/test_member_metrics.py` (29 Tests).
+
+### `app/member_detail.py`
+UI- und Plotly-Schicht (~498 Zeilen), Einstieg
+`render_member_detail(member_df, bench_df, name, chamber)`. Wird als
+`@st.dialog` aus dem Members-Tab in `app/streamlit_app.py` bei Zeilenklick
+geöffnet.
+
+Inhalt:
+- Header mit verschachteltem Gremien-Panel (`parse_committees_full`) und
+  Google-Namenssuche-Button.
+- Controls: Quartal-Range-Slider, Toggle „Nur ≤180d"
+  (`filter_long_trades_out`), Schwellwert-x-Slider (Default
+  `DETAIL_RETURN_THRESHOLD_PCT`).
+- 4 Tabs: **Übersicht / Performance / Verläufe / Timing** mit Diagrammen
+  D1/D2/D5/D6/D7/Z3 sowie Spaghetti-Charts D3b/D4.
+- **Bidirektionales Highlight** zwischen Trade-Liste und Spaghetti-Plot
+  (`on_select`-Callbacks via `resolve_highlight_from_selection`,
+  most-recent-wins).
+- Timeline (Z1+Z2): Scatter über Transaktionsdatum, ★ markiert
+  Vote-Timing-Treffer, Farbe kodiert Kauf/Verkauf.
+- Red-Flag-Ampel (`red_flag_summary`).
+- Ticker-Zellen als Google-Links („Aktienkurs von {Ticker}",
+  `_ticker_google_url`).
+
 ---
 
 ## Data Flow Übersicht

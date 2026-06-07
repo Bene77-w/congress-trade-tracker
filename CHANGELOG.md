@@ -11,6 +11,48 @@ Historie abgeschlossener Module/Phasen. **Aktiver WIP-Modul-Stand** steht im „
 
 ---
 
+## 2026-06-07 — Member-Detail-Popup (Modul 9 Iteration)
+
+**Neues Feature im Streamlit-Dashboard:** Klick auf eine Zeile im Members-Tab
+öffnet ein `@st.dialog`-Popup, das einen einzelnen Kongress-Abgeordneten
+umfassend auf Insider-Trading-Auffälligkeit auswertet. Alles wird **live pro
+Member berechnet** — keine neuen Master-Spalten, kein Pipeline-Lauf.
+Datenbasis: gefiltertes Trade-Subset (`apply_prefilter(...,
+apply_horizon_filter=False)`), bei aktivem Signal-Ausschluss per
+`recompute_subset` neu gescort.
+
+- **Phase 0 — reine Metrik-Logik + Tests:** neues Modul `app/member_metrics.py`
+  (~563 Zeilen, kein Streamlit-Code): Committee-Parsing
+  (`parse_committees_full`, eigener verschachtelnder Parser, bewusst nicht der
+  kanonische `CommitteeParser`), Horizont-Attribution (`nearest_horizon` +
+  Mittelpunkts-Schwellen 45/75/105/150 Tage, vektorisiert via
+  `_nearest_horizon_array`), Verlaufs-/Spaghetti-Aggregation
+  (`compute_member_trajectories`, Cap bei 180 Tagen, Ende am Voll-Close —
+  bewusste Divergenz zur Horizont-Attribution), Sektor-Konzentration,
+  Chart-Aggregationen und Controls/Helfer. 29 Tests grün
+  (`tests/test_member_metrics.py`).
+- **Phase 1–4 — Popup-UI:** neues Modul `app/member_detail.py` (~498 Zeilen,
+  Plotly + Streamlit), Einstieg `render_member_detail`. Header mit
+  verschachteltem Gremien-Panel + Google-Namenssuche; Controls
+  (Quartal-Range-Slider, „Nur ≤180d"-Toggle, Schwellwert-x-Slider); 4 Tabs
+  Übersicht/Performance/Verläufe/Timing mit Diagrammen D1/D2/D5/D6/D7/Z3 sowie
+  Spaghetti-Charts D3b/D4 mit bidirektionalem Highlight (Liste ↔ Plotly via
+  `on_select`); Timeline mit Vote-Timing-Markern; Red-Flag-Ampel.
+- **Phase 5 — Trades-Tab Ticker-Links:** Ticker-Spalte im Trades-Tab als
+  Google-`LinkColumn` (neue Helfer `_ticker_google_url`,
+  `_TICKER_LINK_REGEX`; `_trade_column_config(..., ticker_as_link=False)`).
+  Recent-Trades-Tab unverändert (TextColumn).
+- **Settings:** neuer Parameter `DETAIL_RETURN_THRESHOLD_PCT = 10.0` —
+  reiner Anzeige-Schwellwert (Anteil Trades mit `paper_return_terminal > x`
+  für D1/D7), live im Popup per Slider überschreibbar, kein Recompute.
+- `apply_prefilter` um Parameter `apply_horizon_filter` erweitert.
+
+**Details/Funktionsgruppen:** `organisation/DATA_STRUCTURE.md` (Abschnitt
+„7c. App-Module: Member-Detail-Popup"); Beispiele/Verhalten:
+`tests/test_member_metrics.py`.
+
+---
+
 ## 2026-06-04 — Post-Trade Exit-Detection Entkopplung + Horizont-Sichtbarkeitsfilter + Partial-Close-Zerlegung
 
 **Modul 5 Refactor:** Exit-Fenster separiert vom Return-Horizont. Settings.EXIT_DETECTION_WINDOW_DAYS (Default None=unbegrenzt) bestimmt, wie weit die Exit-Suche reicht; Settings.POST_TRADE_HORIZONS_DAYS (Default [30,60,90,120,180]) bleibt für Return-Snapshots. Folge: 58.572 closed_full (vorher 29.642), 32.722 held (vorher 60.927) bei 112.692 Trades — deutlich realistische Exit-Detektionen.
