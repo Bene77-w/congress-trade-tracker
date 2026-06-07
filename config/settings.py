@@ -527,6 +527,11 @@ POST_TRADE_CACHE_FLUSH_EVERY = 50
 # Logging — kein Einfluss auf Ergebnisse.
 POST_TRADE_PROGRESS_EVERY = 20000
 
+# Member-Detail-Popup (Modul 9.x): Default-Schwellwert x (Prozent) fuer "grosse
+# Treffer" — Anteil Trades mit paper_return_terminal > x (D1/D7). Live im Popup
+# per Slider ueberschreibbar; kein Pipeline-Recompute.
+DETAIL_RETURN_THRESHOLD_PCT = 10.0
+
 
 # ---------------------------------------------------------------------------
 # Recent-Trade-Monitoring (Modul 9.x — Live-Beobachtung frischer Trades)
