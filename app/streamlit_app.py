@@ -1480,13 +1480,48 @@ with tab_members:
                            and c in member_cols_sel]
     m_score_max = (int(members_df['score_max'].max())
                    if len(members_df) else 0)
-    st.dataframe(
+    st.caption('Tipp: Zeile anklicken öffnet die Member-Detail-Ansicht '
+               '(Gremien, Performance-Diagramme, Verläufe) als Popup.')
+    member_sel_state = st.dataframe(
         members_df[member_display_cols] if member_display_cols else members_df,
         width='stretch',
         hide_index=True,
         height=_dyn_height(len(members_df)),
         column_config=_member_column_config(m_score_max),
+        key='members_grid',
+        on_select='rerun',
+        selection_mode='single-row',
     )
+
+    @st.dialog('Member-Detail', width='large')
+    def _show_member_dialog(m_name, m_chamber):
+        # Popup-Datenpfad: Datum/Suche-Filter, ABER ohne Horizont-Filter
+        # (offene + spaet geschlossene Trades fuer Verlaeufe noetig). Score nur
+        # auf dem Member rekomputiert (billig); Sidebar-Signal-/Gewichts-Filter
+        # gelten, der Horizont-Sichtbarkeitsfilter nicht.
+        from app.member_detail import render_member_detail
+        base = apply_prefilter(trades, apply_horizon_filter=False)
+        msel = (base['name'] == m_name) & (base['chamber'] == m_chamber)
+        m_df = base[msel]
+        if needs_recompute and not m_df.empty:
+            m_df = recompute_subset(
+                m_df, excluded_signals,
+                weights_override=weights_override or None,
+                params_override=params_override or None,
+            )
+        render_member_detail(m_df, base[~msel], m_name, m_chamber)
+
+    _m_rows = []
+    if member_sel_state and getattr(member_sel_state, 'selection', None):
+        _m_rows = member_sel_state.selection.get('rows', [])
+    if _m_rows and len(members_df):
+        _m_row = members_df.iloc[_m_rows[0]]
+        _m_key = (_m_row['name'], _m_row['chamber'])
+        if st.session_state.get('member_detail_last') != _m_key:
+            st.session_state['member_detail_last'] = _m_key
+            _show_member_dialog(_m_row['name'], _m_row['chamber'])
+    else:
+        st.session_state['member_detail_last'] = None
 
 with tab_detail:
     st.caption('Drill-Down pro Trade: Preisverlauf + Exit-Marker. '
