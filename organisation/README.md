@@ -20,7 +20,7 @@ Python + Streamlit Anwendung zur Analyse von US-Kongress-Aktienhandel. Scrapt of
 | 6 | ✅ Fertig | Vote-Timing: VoteTimingTag extrahiert Roll-Calls aus `bill_actions.json`, FloorActionSignal triggert bei `Vote_Timing_Hit_Count ≥ 1` |
 | 7 | ✅ Fertig | Signal-Architektur (Gate/Tag/Signal): 11 aktive Signale inkl. Schwarm-Signale (`swarm_buy`/`swarm_sell`/`swarm_conflict`/`swarm_paradox`) + Suspicious-Export; Cross-Class via `issuer_group_key` (SEC EDGAR CIK) |
 | 8 | ✅ Fertig | Scoring-System: Pipeline **17 Stages**, `trade_score` + Tier-Signal `trade_volume`. Formel: [Filter_Instanz_Parameter.md](Filter_Instanz_Parameter.md) |
-| 9 | 🔧 In Arbeit | Streamlit Dashboard, **5 Tabs** (Trades / Assets / Members / Post Trade Performance / Recent Trades): Token-Suche, Horizont-Sichtbarkeitsfilter, Recent-Trades-Monitoring offener Positionen, Score-Gewichte-Presets |
+| 9 | 🔧 In Arbeit | Streamlit Dashboard, **5 Tabs** (Trades / Assets / Members / Post Trade Performance / Recent Trades): Token-Suche, Horizont-Sichtbarkeitsfilter, Recent-Trades-Monitoring offener Positionen, Score-Gewichte-Presets, Member-Detail-Popup (Live-Auswertung pro Abgeordnetem) |
 | 10 | 🔧 Offen | E-Mail-Benachrichtigungen (SMTP) |
 | 11 | 🟡 Teilweise | Automatisierung: Quiver-Auto-Download-Scraper + systemd-User-Timer (täglich 03:00) fertig; genereller Scheduler übriger Pipelines offen. Details: `../deploy/systemd/README.md` |
 
