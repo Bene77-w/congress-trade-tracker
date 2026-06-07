@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import math
 import sys
+import urllib.parse
 from pathlib import Path
 
 import pandas as pd
@@ -891,8 +892,27 @@ def _dyn_height(n_rows: int) -> int:
     return min(820, max(280, n_rows * 36 + 60))
 
 
-def _trade_column_config(score_max_val: int) -> dict:
+_TICKER_LINK_REGEX = r'von\+([^&]+)$'
+
+
+def _ticker_google_url(ticker) -> str | None:
+    """Google-Suchlink ``Aktienkurs von {Ticker}`` (None bei leerem Ticker)."""
+    if ticker is None or (isinstance(ticker, float) and pd.isna(ticker)):
+        return None
+    t = str(ticker).strip()
+    if not t:
+        return None
+    return ('https://www.google.com/search?q='
+            + urllib.parse.quote_plus(f'Aktienkurs von {t}'))
+
+
+def _trade_column_config(score_max_val: int, ticker_as_link: bool = False) -> dict:
     cc = st.column_config
+    ticker_cfg = (
+        cc.LinkColumn('Ticker', display_text=_TICKER_LINK_REGEX, width='small')
+        if ticker_as_link
+        else cc.TextColumn('Ticker', width='small')
+    )
     return {
         'trade_id': cc.TextColumn('Hash-ID', width='small'),
         'transaction_date': cc.DateColumn(
@@ -903,7 +923,7 @@ def _trade_column_config(score_max_val: int) -> dict:
         'chamber': cc.TextColumn('Chamber', width='small'),
         'Member_Party': cc.TextColumn('Party', width='small'),
         'asset_name': cc.TextColumn('Asset', width='large'),
-        'ticker': cc.TextColumn('Ticker', width='small'),
+        'ticker': ticker_cfg,
         'issuer_ticker': cc.TextColumn('Issuer', width='small'),
         'transaction_type': cc.TextColumn('Type', width='small'),
         'amount': cc.TextColumn('Amount Range', width='small'),
@@ -1394,13 +1414,18 @@ with tab_trades:
                     if c in trade_rows.columns and c in trade_cols_sel]
     st.caption('Tipp: Zeile anklicken öffnet die Detail-Ansicht '
                '(Chart + Kontext) als Popup. Doppelklick auf eine Zelle '
-               'zeigt weiterhin den vollen Zellinhalt.')
+               'zeigt weiterhin den vollen Zellinhalt. Ticker = Google-Link.')
+    trade_display = trade_rows[display_cols]
+    ticker_link = 'ticker' in display_cols
+    if ticker_link:
+        trade_display = trade_display.copy()
+        trade_display['ticker'] = trade_display['ticker'].map(_ticker_google_url)
     sel_state = st.dataframe(
-        trade_rows[display_cols],
+        trade_display,
         width='stretch',
         hide_index=True,
         height=_dyn_height(len(trade_rows)),
-        column_config=_trade_column_config(max_score),
+        column_config=_trade_column_config(max_score, ticker_as_link=ticker_link),
         key='trades_grid',
         on_select='rerun',
         selection_mode='single-row',
