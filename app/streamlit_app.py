@@ -827,7 +827,14 @@ def _search_mask(df: pd.DataFrame, query: str) -> pd.Series:
     return mask
 
 
-def apply_prefilter(df: pd.DataFrame) -> pd.DataFrame:
+def apply_prefilter(df: pd.DataFrame,
+                    apply_horizon_filter: bool = True) -> pd.DataFrame:
+    """Datum-/Such-Vorfilter + (optionaler) Horizont-Sichtbarkeitsfilter.
+
+    ``apply_horizon_filter=False`` ueberspringt NUR den Horizont-Filter
+    (Datum/Suche bleiben) — fuer das Member-Detail-Popup, das offene Positionen
+    und spaet geschlossene Trades fuer die Trajektorien braucht.
+    """
     out = df
 
     if window_days is not None and date_basis in out.columns:
@@ -844,7 +851,8 @@ def apply_prefilter(df: pd.DataFrame) -> pd.DataFrame:
     # erster Close <= primary_horizon liegt. NaN (held / nie geschlossen) faellt
     # raus. Teilverkauf <= X qualifiziert (erster Offset <= X). Toggle aus ->
     # keine Ausblendung.
-    if horizon_filter_active and 'first_close_offset_days' in out.columns:
+    if (apply_horizon_filter and horizon_filter_active
+            and 'first_close_offset_days' in out.columns):
         off = out['first_close_offset_days']
         out = out[off.notna() & (off <= primary_horizon)]
 
