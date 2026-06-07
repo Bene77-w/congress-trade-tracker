@@ -21,12 +21,24 @@ if str(ROOT) not in sys.path:
 
 from app.member_metrics import (  # noqa: E402
     DEFAULT_HORIZONS,
+    committee_full_mask,
     compute_member_trajectories,
+    filter_by_quarter_range,
+    filter_long_trades_out,
+    horizon_bucket_shares,
+    horizon_mean_returns,
+    member_oversight_sectors,
     nearest_horizon,
     paper_return_terminal,
     parse_committees_full,
     qualifies_for_horizon,
     qualifying_horizons,
+    quarter_options,
+    red_flag_summary,
+    resolve_highlight_from_selection,
+    score_bins,
+    sector_concentration,
+    terminal_distribution,
     trajectory_end_offset,
 )
 
@@ -317,3 +329,153 @@ def test_compute_member_trajectories_skips_missing_data():
          'exit_status': 'held', 'exit_date': pd.NaT, 'post_return_180d': 1.0},
     ])
     assert compute_member_trajectories(df_member, cache, H) == []
+
+
+# ---------------------------------------------------------------------------
+# committee_full / Aufsichts-Sektoren
+# ---------------------------------------------------------------------------
+
+def test_committee_full_mask():
+    df = pd.DataFrame({'signals_triggered': [
+        'trade_volume;committee_full;accumulative',
+        'trade_volume;committee',          # committee != committee_full
+        'committee_ex_officio;swarm_buy',  # ex_officio != committee_full
+        None,
+    ]})
+    assert committee_full_mask(df).tolist() == [True, False, False, False]
+
+
+def test_member_oversight_sectors():
+    js = ('[{"sector": "Consumer Defensive", "industry": "X"}, '
+          '{"sector": "Healthcare", "industry": "Y"}, '
+          '{"sector": "Consumer Defensive", "industry": "Z"}]')
+    df = pd.DataFrame({'Insider_Sectors': [js, js]})
+    assert member_oversight_sectors(df) == {'Consumer Defensive', 'Healthcare'}
+    assert member_oversight_sectors(pd.DataFrame({'x': [1]})) == set()
+
+
+# ---------------------------------------------------------------------------
+# D2-Gating-Konsistenz + D1-Buckets
+# ---------------------------------------------------------------------------
+
+def test_horizon_mean_returns_gating_consistency():
+    """Bei Tag 40 geschlossener Trade faellt aus h>=60 (Attributierung)."""
+    df = pd.DataFrame({
+        'first_close_offset_days': [40.0, np.nan],   # geschlossen@40 / offen
+        'post_return_30d': [10.0, 20.0],
+        'post_return_60d': [100.0, 50.0],
+    })
+    means = horizon_mean_returns(df, H)
+    assert means[30] == pytest.approx(15.0)   # beide qualifizieren bei 30
+    assert means[60] == pytest.approx(50.0)   # nur der offene Trade bei 60
+
+
+def test_horizon_bucket_shares():
+    df = pd.DataFrame({
+        'first_close_offset_days': [np.nan] * 4,
+        'post_return_30d': [20.0, 3.0, -2.0, -30.0],   # >10 / mid / mid / <-10
+    })
+    b = horizon_bucket_shares(df, 30, threshold=10.0, horizons=H)
+    assert b['n'] == 4
+    assert b['above'] == pytest.approx(0.25)
+    assert b['below'] == pytest.approx(0.25)
+    assert b['mid'] == pytest.approx(0.50)
+
+
+# ---------------------------------------------------------------------------
+# D5 / D6 / D7
+# ---------------------------------------------------------------------------
+
+def test_terminal_distribution_shares_sum_to_one():
+    term = pd.Series([1.0, 2.0, 6.0, 7.0, 12.0, np.nan])
+    dist = terminal_distribution(term, bin_pct=5.0)
+    assert not dist.empty
+    assert dist['share'].sum() == pytest.approx(1.0)
+    assert int(dist['count'].sum()) == 5   # NaN ignoriert
+
+
+def test_score_bins_mean_and_hitrate():
+    df = pd.DataFrame({'trade_score': [1, 2, 6, 7]})
+    term = pd.Series([10.0, 20.0, 0.0, 100.0])
+    # Bins 5-weit: [0,5)->Scores 1,2 (term 10,20 -> mean 15); [5,10)->6,7 (0,100 -> mean 50)
+    means = score_bins(df, term, value='mean', bin_pts=5).sort_values('bin_mid')
+    assert means['value'].tolist() == pytest.approx([15.0, 50.0])
+    hit = score_bins(df, term, value='hitrate', threshold=50.0,
+                     bin_pts=5).sort_values('bin_mid')
+    # Bin1: keiner >50 -> 0.0 ; Bin2: einer von zwei (100) -> 0.5
+    assert hit['value'].tolist() == pytest.approx([0.0, 0.5])
+
+
+# ---------------------------------------------------------------------------
+# Z3 Sektor-Konzentration
+# ---------------------------------------------------------------------------
+
+def test_sector_concentration_oversight_and_shares():
+    df = pd.DataFrame({
+        'sector_yf': ['Technology', 'Technology', 'Healthcare', None],
+        'trade_volume_usd': [100, 300, 200, 999],
+    })
+    res = sector_concentration(df, oversight={'Healthcare'})
+    assert res['sector'].tolist() == ['Technology', 'Healthcare']  # vol desc
+    assert res['volume_usd'].tolist() == [400, 200]
+    assert res['share'].sum() == pytest.approx(1.0)
+    assert res.set_index('sector')['is_oversight'].to_dict() == {
+        'Technology': False, 'Healthcare': True}
+
+
+# ---------------------------------------------------------------------------
+# Quartal-Filter + 180-Toggle
+# ---------------------------------------------------------------------------
+
+def test_quarter_options_and_range_filter():
+    df = pd.DataFrame({'transaction_date': pd.to_datetime([
+        '2024-02-01', '2024-05-01', '2024-08-01', '2025-01-15'])})
+    assert quarter_options(df) == ['2024Q1', '2024Q2', '2024Q3', '2025Q1']
+    sub = filter_by_quarter_range(df, '2024Q2', '2024Q3')
+    assert len(sub) == 2
+    # invertierte Reihenfolge wird normalisiert
+    assert len(filter_by_quarter_range(df, '2024Q3', '2024Q2')) == 2
+
+
+def test_filter_long_trades_out():
+    df = pd.DataFrame({'first_close_offset_days': [30.0, 200.0, np.nan]})
+    assert len(filter_long_trades_out(df, enabled=False, horizons=H)) == 3
+    out = filter_long_trades_out(df, enabled=True, horizons=H)
+    assert out['first_close_offset_days'].tolist() == [30.0]   # >180 + offen raus
+
+
+# ---------------------------------------------------------------------------
+# Selektions-Aufloeser — pinnt den im Spike gefundenen customdata-Bug
+# ---------------------------------------------------------------------------
+
+def test_resolve_highlight_scalar_and_list_customdata():
+    # 1D-customdata -> Skalar (der Bug-Fall aus dem Spike)
+    assert resolve_highlight_from_selection(
+        {'points': [{'curve_number': 0, 'customdata': 'A0'}]}) == 'A0'
+    # 2D-customdata -> Liste (Streamlit-Doku-Form)
+    assert resolve_highlight_from_selection(
+        {'points': [{'curve_number': 2, 'customdata': [2.5]}]}) == 2.5
+    # leere/fehlende Auswahl
+    assert resolve_highlight_from_selection({'points': []}) is None
+    assert resolve_highlight_from_selection({}) is None
+    assert resolve_highlight_from_selection(None) is None
+
+
+# ---------------------------------------------------------------------------
+# Red-Flag-Summary
+# ---------------------------------------------------------------------------
+
+def test_red_flag_summary():
+    df = pd.DataFrame({
+        'Vote_Timing_Hit': [True, False, False, False],     # 25%
+        'signals_triggered': ['committee_full', 'x', 'x', 'x'],  # 25%
+    })
+    member_means = {30: 12.0, 60: 8.0}
+    bench_means = {30: 4.0, 60: 5.0}      # diff 8, 3 -> Ø 5.5
+    terminal = pd.Series([5.0, 40.0, np.nan, 1.0])
+    s = red_flag_summary(df, member_means, bench_means, terminal, horizons=[30, 60])
+    assert s['n'] == 4
+    assert s['vote_timing_rate'] == pytest.approx(0.25)
+    assert s['committee_full_rate'] == pytest.approx(0.25)
+    assert s['outperformance'] == pytest.approx(5.5)
+    assert s['top_terminal'] == pytest.approx(40.0)
