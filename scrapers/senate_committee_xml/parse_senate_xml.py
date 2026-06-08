@@ -18,8 +18,6 @@ import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from fetch_senate_xml import COMMITTEE_CODES  # type: ignore
-
 RAW_DIR = Path(__file__).resolve().parent / "raw"
 COLUMNS = ["Name", "Party", "State", "Committees", "ExOfficio"]
 
@@ -64,13 +62,20 @@ def _display_name(last: str, first: str) -> str:
     return re.sub(r"\s+", " ", name)
 
 
+def _xml_files(raw_dir: Path) -> list[Path]:
+    """Alle Committee-XMLs in raw/ (ohne _-präfixierte wie _manifest.json)."""
+    return sorted(p for p in raw_dir.glob("*.xml") if not p.name.startswith("_"))
+
+
 def parse_all(raw_dir: Path = RAW_DIR) -> list[dict]:
-    """Aggregiert alle Member über alle raw/*.xml. Returnt Zeilen-Dicts (COLUMNS)."""
+    """Aggregiert alle Member über alle raw/*.xml. Returnt Zeilen-Dicts (COLUMNS).
+
+    Quell-Liste = was fetch_senate_xml.py (Discovery) abgelegt hat — kein Hardcoding.
+    """
     # key (last,first,state) -> record
     members: dict[tuple, dict] = {}
 
-    for code in COMMITTEE_CODES:
-        path = raw_dir / f"{code}.xml"
+    for path in _xml_files(raw_dir):
         root = ET.fromstring(path.read_text(encoding="utf-8"))
         comm = root.find("committees")
         committee_name = comm.findtext("committee_name", "").strip()
