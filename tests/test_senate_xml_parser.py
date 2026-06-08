@@ -64,7 +64,7 @@ def test_to_row_f2_structure_and_exofficio():
     )
 
 
-def test_parse_aggregates_member_across_committee_and_sub():
+def test_parse_aggregates_member_across_committee_and_sub(tmp_path):
     """Sub-Membership wird unter dasselbe Committee aggregiert (eine ';'-Gruppe)."""
     xml = (
         '<committee_membership><committees>'
@@ -82,17 +82,10 @@ def test_parse_aggregates_member_across_committee_and_sub():
         '</members></subcommittee>'
         '</committees></committee_membership>'
     )
-    tmp = _PROD_DIR / "raw" / "_TESTTMP.xml"
-    tmp.parent.mkdir(parents=True, exist_ok=True)
-    tmp.write_text(xml, encoding="utf-8")
-    try:
-        # parse_all iteriert COMMITTEE_CODES → temporär nur unseren Test-Code nutzen
-        orig = P.COMMITTEE_CODES
-        P.COMMITTEE_CODES = ["_TESTTMP"]
-        rows = P.parse_all()
-    finally:
-        P.COMMITTEE_CODES = orig
-        tmp.unlink(missing_ok=True)
+    (tmp_path / "SSTT.xml").write_text(xml, encoding="utf-8")
+    # _manifest.json muss ignoriert werden (kein Committee-XML)
+    (tmp_path / "_manifest.json").write_text("{}", encoding="utf-8")
+    rows = P.parse_all(tmp_path)
     assert len(rows) == 1
     r = rows[0]
     assert r["Name"] == "Doe, Jane"
