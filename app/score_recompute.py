@@ -70,8 +70,9 @@ def build_settings_proxy(
       2. ``weights_override`` auf ``SCORING_WEIGHTS`` anwenden.
       3. ``params_override`` auf die Skalar-Parameter anwenden
          (Keys siehe ``PARAMS_OVERRIDE_KEYS``).
-      4. ``excluded`` nullt Gewichte / deaktiviert Volume / 1.0-Damper —
-         Exclude gewinnt also immer ueber einen positiven Override.
+      4. ``excluded`` nullt Gewichte / deaktiviert Volume / 1.0-Damper /
+         leert die Ex-Officio-Bonus-Tabelle — Exclude gewinnt also immer
+         ueber einen positiven Override.
     """
     excluded_set = set(excluded or [])
     proxy_kwargs: dict[str, object] = {}
@@ -100,6 +101,9 @@ def build_settings_proxy(
 
     if 'trade_volume' in excluded_set:
         proxy_kwargs['SCORING_TRADE_VOLUME_ENABLED'] = False
+
+    if 'committee_ex_officio' in excluded_set:
+        proxy_kwargs['SCORING_EX_OFFICIO_ROLE_BONUSES'] = {}
 
     triggers = list(proxy_kwargs.get('SCORING_EX_OFFICIO_TRIGGERS') or [])
     triggers = [t for t in triggers if t not in excluded_set]
