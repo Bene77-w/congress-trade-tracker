@@ -46,23 +46,24 @@ H = [30, 60, 90, 120, 180]
 
 
 # ---------------------------------------------------------------------------
-# Committee-Parser — an realen Roster-Strings gepinnt
+# Committee-Parser — an realen Roster-Strings gepinnt (F2-Format:
+# ';' = Committees, ':' = Header->Sub-Liste, '~' = Subcommittees, '|' = Rolle)
 # ---------------------------------------------------------------------------
 
 WALBERG = ('Education And Workforce|Chairman:Early Childhood, Elementary, And '
-           'Secondary Education|Ex Officio;Health, Employment, Labor, And '
-           'Pensions|Ex Officio;Higher Education And Workforce Development|Ex '
-           'Officio;Workforce Protections|Ex Officio;Natural Resources|:Indian '
-           'And Insular Affairs|;Water, Wildlife And Fisheries|')
+           'Secondary Education|Ex Officio~Health, Employment, Labor, And '
+           'Pensions|Ex Officio~Higher Education And Workforce Development|Ex '
+           'Officio~Workforce Protections|Ex Officio;Natural Resources|:Indian '
+           'And Insular Affairs|~Water, Wildlife And Fisheries|')
 
-AUCHINCLOSS = ('Energy And Commerce|:Energy|;Environment|;Health|')
+AUCHINCLOSS = ('Energy And Commerce|:Energy|~Environment|~Health|')
 
 MOORE = ('Budget|;Financial Services|:Digital Assets, Financial Technology, '
-         'And Artificial Intelligence|;Financial Institutions|;Oversight And '
-         'Investigations|Vice Chairman')
+         'And Artificial Intelligence|~Financial Institutions|~Oversight And '
+         'Investigations|Vice Chair')
 
-GOTTHEIMER = ('Financial Services|:Capital Markets|;Digital Assets, Financial '
-              'Technology, And Artificial Intelligence|;National Security, '
+GOTTHEIMER = ('Financial Services|:Capital Markets|~Digital Assets, Financial '
+              'Technology, And Artificial Intelligence|~National Security, '
               'Illicit Finance, And International Financial Institutions|;'
               'Permanent Select Committee On Intelligence|')
 
@@ -110,21 +111,19 @@ def test_parse_moore_committee_without_subs_then_with():
         'Financial Institutions',
         'Oversight And Investigations',
     ]
-    assert fs['subcommittees'][-1]['role'] == 'Vice Chairman'
+    assert fs['subcommittees'][-1]['role'] == 'Vice Chair'
 
 
-def test_parse_gottheimer_lossy_limitation_documented():
-    """Dokumentierte Grenze: subcommittee-loses Folge-Committee landet als Sub.
-
-    'Permanent Select Committee On Intelligence' ist eigentlich ein eigenes
-    Committee, im Quellformat aber nicht von einem Subcommittee unterscheidbar.
-    Wir pinnen das bewusste Verhalten (nicht "falsch", sondern format-bedingt).
-    """
+def test_parse_gottheimer_intelligence_is_own_committee():
+    """F2 loest die alte Format-Mehrdeutigkeit: 'Permanent Select Committee On
+    Intelligence' ist jetzt eindeutig ein eigenes Committee (frueher landete es
+    als Subcommittee unter Financial Services — dokumentierte Grenze des alten
+    Formats)."""
     res = parse_committees_full(GOTTHEIMER)
-    assert len(res) == 1
-    assert res[0]['committee'] == 'Financial Services'
-    sub_names = [s['name'] for s in res[0]['subcommittees']]
-    assert sub_names[-1] == 'Permanent Select Committee On Intelligence'
+    assert [c['committee'] for c in res] == [
+        'Financial Services', 'Permanent Select Committee On Intelligence']
+    assert len(res[0]['subcommittees']) == 3
+    assert res[1]['subcommittees'] == []
 
 
 def test_parse_empty_and_invalid():
