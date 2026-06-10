@@ -141,6 +141,7 @@ SIGNAL_EVENT_COLUMNS = [
     'ticker', 'issuer_ticker', 'issuer_group_key', 'asset_name_figi',
     'transaction_date', 'disclosure_date',
     'transaction_amount', 'direction', 'is_ex_officio',
+    'ex_officio_role_keys',
     'match_count', 'vote_timing_hit_count',
     'committee_subcommittee', 'relevant_sectors',
 ]
@@ -291,6 +292,7 @@ STAGE_DEPS = {
         'input_cols': ['name', 'chamber', 'Member_Committees_Full', 'ticker',
                        'ticker_type', 'transaction_date'],
         'output_cols': ['MatchScore', 'MatchSource', 'Insider_Sectors', 'Relevant_Sectors',
+                        'ex_officio_role_keys',
                         'asset_class_excluded',
                         'Vote_Timing_Hit', 'Vote_Timing_Hits', 'Vote_Timing_Hit_Count'],
     },
@@ -304,7 +306,8 @@ STAGE_DEPS = {
                        'transaction_type', 'amount',
                        'Member_ExOfficio', 'Member_Committees_Full',
                        'Vote_Timing_Hit_Count',
-                       'Relevant_Sectors', 'trade_amount_max_usd'],
+                       'Relevant_Sectors', 'ex_officio_role_keys',
+                       'trade_amount_max_usd'],
         'output_cols': ['signal_count', 'signals_triggered'],
     },
     'sequence_signals': {
@@ -326,10 +329,11 @@ STAGE_DEPS = {
     },
     'scoring': {
         # trade_score + breakdown + warnings. Liest signals_triggered
-        # (Branch-1 + Sequenz + Schwarm), Member_ExOfficio, trade_amount_max_usd.
+        # (Branch-1 + Sequenz + Schwarm), ex_officio_role_keys (Bonus v2),
+        # trade_amount_max_usd.
         # trade_amount_max_usd ersetzt das frühere asset_tradingvolume_usd —
         # Volume zaehlt jetzt als eigenstaendiges Signal mit Tier-Stufen.
-        'input_cols': ['signals_triggered', 'Member_ExOfficio',
+        'input_cols': ['signals_triggered', 'ex_officio_role_keys',
                        'trade_amount_max_usd'],
         'output_cols': ['trade_score', 'trade_score_breakdown',
                         'trade_warnings'],
@@ -1021,15 +1025,18 @@ class TradeImporter:
         return df
 
     def _apply_committee_relevance(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Berechnet Insider_Sectors (alle Committee-Sektoren) und
+        """Berechnet Insider_Sectors (alle Committee-Sektoren),
         Relevant_Sectors (Intersection mit sector_yf/industry_yf, jeder
-        Eintrag mit match_type='full' oder 'sector')."""
+        Eintrag mit match_type='full' oder 'sector') und
+        ex_officio_role_keys (';'-getrennte Fuehrungsrollen-Keys der
+        relevanten Treffer, prae-Dedup — Basis des Ex-Officio-Bonus v2)."""
         from tags.committee_tag import CommitteeTag
         committee_tag = CommitteeTag()
 
         df = df.copy()
         df['Insider_Sectors'] = ''
         df['Relevant_Sectors'] = ''
+        df['ex_officio_role_keys'] = ''
 
         for idx, row in df.iterrows():
             committees_full = str(row.get('Member_Committees_Full', '') or '')
@@ -1049,6 +1056,8 @@ class TradeImporter:
                 )
                 df.at[idx, 'Insider_Sectors'] = json.dumps(relevance['insider_sectors'])
                 df.at[idx, 'Relevant_Sectors'] = json.dumps(relevance['relevant_sectors'])
+                df.at[idx, 'ex_officio_role_keys'] = \
+                    relevance.get('ex_officio_role_keys', '')
             except Exception as e:
                 logger.warning(f"Relevance-Berechnung fehlgeschlagen fuer {row.get('name', '')}: {e}")
 
@@ -2273,8 +2282,8 @@ class TradeImporter:
 
     def _stage_scoring(self, delta: bool = False, dry_run: bool = False):
         """Stage: berechnet trade_score, trade_score_breakdown, trade_warnings
-        pro Trade auf Basis von signals_triggered, Member_ExOfficio und
-        asset_tradingvolume_usd. Modul 8.3."""
+        pro Trade auf Basis von signals_triggered, ex_officio_role_keys und
+        trade_amount_max_usd. Modul 8.3."""
         print(f"\n[Stage: scoring] Trade-Score berechnen (Modul 8.3)...")
         df = self._read_stage_input('scoring', delta, dry_run)
         self._check_stage_inputs('scoring', df)

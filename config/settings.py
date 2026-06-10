@@ -74,7 +74,9 @@ VOTE_DATA_TTL_HOURS       = 24     # Skip-Schwelle fuer Auto-Refresh in Stunden
 # committee_full:   feuert wenn mindestens ein Eintrag match_type='full' hat
 #                   (Sector + Industry). Im Modus 'sector_and_industry' immer
 #                   gleichzeitig mit committee.
-# committee_ex_officio: feuert wenn committee aktiv + Member_ExOfficio truthy.
+# committee_ex_officio: feuert wenn committee aktiv + mindestens ein
+#                   relevanter Treffer eine Fuehrungsrolle traegt
+#                   (Master-Spalte ex_officio_role_keys nicht leer).
 # Code: signals/committee_signal.py, committee_full_signal.py,
 #       committee_ex_officio_signal.py.
 # Konfiguration: RELEVANT_SECTORS_MATCH_MODE (oben), COMMITTEE_EX_OFFICIO_ROLES.
@@ -180,10 +182,27 @@ SCORING_WEIGHTS = {
     # 'committee_ex_officio':  kein eigenes Gewicht — Bonus X (s.u.)
 }
 
-# Ex-Officio-Bonus: einmaliger Summand pro Trade, addiert wenn
-# is_ex_officio=True UND mindestens ein Signal aus SCORING_EX_OFFICIO_TRIGGERS
-# getriggert hat. Wird nicht pro Signal multipliziert.
-SCORING_EX_OFFICIO_BONUS    = 10
+# Ex-Officio-Bonus v2 (rollen-differenziert): pro Trade leitet der
+# CommitteeTag aus den relevanten Treffern Fuehrungsrollen-Keys ab
+# (Master-Spalte ex_officio_role_keys, prae-Dedup). Der Scorer addiert den
+# HOECHSTEN Einzelbonus der Keys (MAX, nicht Summe), sobald mindestens ein
+# Signal aus SCORING_EX_OFFICIO_TRIGGERS getriggert hat.
+# committee_*-Keys wirken committee-weit (alle Sektoren des Committees) und
+# zaehlen nur, wenn SCORING_EX_OFFICIO_COMMITTEE_GLOBAL=True;
+# subcommittee_*-Keys gelten nur fuer Treffer des eigenen Subcommittees.
+# Cochairman wird auf den Chairman-Key seiner Ebene gemappt
+# (tags/committee_tag.py: COMMITTEE_ROLE_KEYS / SUBCOMMITTEE_ROLE_KEYS).
+SCORING_EX_OFFICIO_ROLE_BONUSES = {
+    'committee_chairman':          15,
+    'committee_vice_chairman':     12,
+    'committee_ranking_member':    10,
+    'committee_ex_officio':        10,
+    'subcommittee_chair':          12,
+    'subcommittee_vice_chair':      9,
+    'subcommittee_ranking_member':  8,
+    'subcommittee_ex_officio':      8,
+}
+SCORING_EX_OFFICIO_COMMITTEE_GLOBAL = True
 SCORING_EX_OFFICIO_TRIGGERS = ['committee', 'floor_action']
 
 # Paradox-Daempfer: Multiplikator NUR auf die Schwarm-Komponente
@@ -481,6 +500,7 @@ CURATED_COLUMNS = [
     'Member_Committees',
     'Insider_Sectors',
     'Relevant_Sectors',
+    'ex_officio_role_keys',
     'asset_class_excluded',
     'Vote_Timing_Hit',
     'Vote_Timing_Hits',
