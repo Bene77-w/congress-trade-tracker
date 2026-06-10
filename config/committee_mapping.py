@@ -59,6 +59,10 @@ class CommitteeMapper:
             text = text.replace('committee on ', '', 1)
         if text.startswith('subcommittee on '):
             text = text.replace('subcommittee on ', '', 1)
+        # Befund A: Artikel nach dem Praefix strippen, sonst matcht
+        # "Committee on the Judiciary" nicht das Mapping "Judiciary".
+        if text.startswith('the '):
+            text = text[4:]
 
         return text
 

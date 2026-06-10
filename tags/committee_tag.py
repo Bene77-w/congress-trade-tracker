@@ -2,128 +2,9 @@ import logging
 from typing import Dict, List, Any, Optional
 from config import settings
 from config.committee_mapping import CommitteeMapper
+from utils.committee_parser import parse_committees_full
 
 logger = logging.getLogger(__name__)
-
-
-class CommitteeParser:
-    """
-    Parses complex committee strings from member CSVs.
-
-    Format: "Committee|Role:Subcommittee|Role;NextCommittee|..."
-    Separators: `;` = committees, `|` = role, `:` = subcommittees
-    """
-
-    @staticmethod
-    def parse_committees(committee_string: str, chamber: str) -> List[Dict[str, Any]]:
-        """
-        Parse committee string into structured data.
-
-        Args:
-            committee_string: Pipe-delimited committee string
-            chamber: 'House' or 'Senate'
-
-        Returns:
-            List of dicts:
-            [
-                {
-                    'committee': 'Armed Services',
-                    'role': 'Chairman',
-                    'subcommittees': [
-                        {'name': 'Seapower', 'role': 'Ranking Member'},
-                        {'name': 'Cyber', 'role': ''}
-                    ]
-                },
-                ...
-            ]
-        """
-        if not committee_string or not isinstance(committee_string, str):
-            return []
-
-        try:
-            committees = []
-
-            # Split by ';' to get individual committees
-            committee_parts = committee_string.split(';')
-
-            for part in committee_parts:
-                part = part.strip()
-                if not part:
-                    continue
-
-                # Check if this committee has subcommittees (contains ':')
-                if ':' in part:
-                    # Split by ':' to separate main committee from subcommittees
-                    main_and_subs = part.split(':')
-                    main_part = main_and_subs[0].strip()
-                    sub_parts = main_and_subs[1:]
-
-                    # Parse main committee (format: "Name|Role" or just "Name")
-                    committee_name, main_role = CommitteeParser._parse_name_and_role(main_part)
-
-                    # Parse subcommittees
-                    subcommittees = []
-                    for sub_part in sub_parts:
-                        sub_part = sub_part.strip()
-                        if not sub_part:
-                            continue
-
-                        sub_name, sub_role = CommitteeParser._parse_name_and_role(sub_part)
-                        if sub_name:
-                            subcommittees.append({
-                                'name': sub_name,
-                                'role': sub_role
-                            })
-
-                    committees.append({
-                        'committee': committee_name,
-                        'role': main_role,
-                        'subcommittees': subcommittees
-                    })
-
-                else:
-                    # No subcommittees, just a main committee
-                    committee_name, role = CommitteeParser._parse_name_and_role(part)
-                    if committee_name:
-                        committees.append({
-                            'committee': committee_name,
-                            'role': role,
-                            'subcommittees': []
-                        })
-
-            return committees
-
-        except Exception as e:
-            logger.warning(f"Failed to parse committee string: {e}")
-            logger.debug(f"Malformed string: {committee_string}")
-            return []
-
-    @staticmethod
-    def _parse_name_and_role(text: str) -> tuple[str, str]:
-        """
-        Parse "Name|Role" or just "Name" into name and role.
-
-        Args:
-            text: Text to parse
-
-        Returns:
-            Tuple of (name, role)
-        """
-        text = text.strip()
-        if not text:
-            return '', ''
-
-        # Split by '|' to separate name from role
-        parts = text.split('|')
-
-        if len(parts) >= 2:
-            name = parts[0].strip()
-            role = parts[1].strip()
-        else:
-            name = parts[0].strip()
-            role = ''
-
-        return name, role
 
 
 class CommitteeTag:
@@ -131,8 +12,9 @@ class CommitteeTag:
     Tagger: annotiert Trades mit Committee-Sector-Relevanzinfo.
 
     Schreibt Insider_Sectors und Relevant_Sectors in den Master. Kombiniert
-    CommitteeParser und CommitteeMapper, um zu bestimmen, ob die Committee-
-    Zugehoerigkeit eines Politikers thematisch zum Trade passt.
+    den zentralen F2-Parser (utils/committee_parser.py) und CommitteeMapper,
+    um zu bestimmen, ob die Committee-Zugehoerigkeit eines Politikers
+    thematisch zum Trade passt.
 
     In der User-Sprache entspricht dieser Tag dem historischen "Filter 3".
     """
@@ -145,7 +27,6 @@ class CommitteeTag:
             mapper: CommitteeMapper instance (creates default if None)
         """
         self.mapper = mapper or CommitteeMapper()
-        self.parser = CommitteeParser()
 
         self.ex_officio_roles = {
             r.strip().lower()
@@ -203,12 +84,15 @@ class CommitteeTag:
             'match_count': 0,
         }
 
-        # 1. Parse committee string
-        parsed = self.parser.parse_committees(committees_string, chamber)
+        # 1. Parse committee string (F2, zentraler Parser)
+        parsed = parse_committees_full(committees_string)
         if not parsed:
             return empty_result
 
-        # 2. Mapping-Einträge sammeln (mit zugehöriger Rolle)
+        # 2. Mapping-Einträge sammeln. Jeder Eintrag traegt BEIDE Rollen-Ebenen
+        #    explizit (committee_role + subcommittee_role) statt eines
+        #    vermischten 'role' — Basis der rollen-differenzierten Ex-Officio-
+        #    Boni. subcommittee == '' markiert Committee-Ebene.
         all_sectors = []
         for comm in parsed:
             if comm['subcommittees']:
@@ -216,9 +100,9 @@ class CommitteeTag:
                     sectors = self.mapper.get_sectors_for_subcommittee(
                         chamber, comm['committee'], subcom['name']
                     )
-                    role = subcom['role'] or comm['role']
                     for s in sectors:
-                        s['role'] = role
+                        s['committee_role'] = comm['role']
+                        s['subcommittee_role'] = subcom['role']
                         s['committee'] = comm['committee']
                         s['subcommittee'] = subcom['name']
                     all_sectors.extend(sectors)
@@ -227,7 +111,8 @@ class CommitteeTag:
                     chamber, comm['committee']
                 )
                 for s in sectors:
-                    s['role'] = comm['role']
+                    s['committee_role'] = comm['role']
+                    s['subcommittee_role'] = ''
                     s['committee'] = comm['committee']
                     s['subcommittee'] = ''
                 all_sectors.extend(sectors)
