@@ -76,3 +76,8 @@ data/cache/price_history.parquet
 
 # opencode-Config (lokal)
 opencode.json
+
+# Committee-Mapping-Agent: regenerierbare Artefakte (Cache, Review-xlsx, Report)
+scripts/committee_mapping_agent/cache/
+scripts/committee_mapping_agent/review_out/
+scripts/committee_mapping_agent/run_report.json
