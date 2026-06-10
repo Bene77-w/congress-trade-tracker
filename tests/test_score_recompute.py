@@ -158,6 +158,34 @@ def test_ex_officio_role_bonuses_override():
     assert over_score - base_score == expected_delta
 
 
+def test_exclude_committee_ex_officio_empties_bonus_table():
+    proxy = build_settings_proxy(excluded=['committee_ex_officio'])
+    assert proxy.SCORING_EX_OFFICIO_ROLE_BONUSES == {}
+
+
+def test_exclude_committee_ex_officio_wins_over_override():
+    proxy = build_settings_proxy(
+        excluded=['committee_ex_officio'],
+        params_override={'ex_officio_role_bonuses':
+                         {'committee_chairman': 99.0}},
+    )
+    assert proxy.SCORING_EX_OFFICIO_ROLE_BONUSES == {}
+
+
+def test_recompute_exclude_committee_ex_officio_drops_bonus():
+    df = _df([_trade_row('committee', role_keys='committee_chairman')])
+    base = recompute_subset(df, excluded=[])
+    excl = recompute_subset(df, excluded=['committee_ex_officio'])
+    expected_delta = -int(
+        _settings.SCORING_EX_OFFICIO_ROLE_BONUSES['committee_chairman']
+    )
+    assert (int(excl.iloc[0]['trade_score'])
+            - int(base.iloc[0]['trade_score'])) == expected_delta
+    # Das committee-Signal selbst bleibt aktiv, nur der Bonus faellt weg.
+    assert 'committee:' in excl.iloc[0]['trade_score_breakdown']
+    assert 'ex_officio:+0' in excl.iloc[0]['trade_score_breakdown']
+
+
 def test_ex_officio_committee_global_override_disables_committee_keys():
     df = _df([_trade_row('committee', role_keys='committee_ranking_member')])
     base = recompute_subset(df, excluded=[])

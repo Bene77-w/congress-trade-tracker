@@ -521,7 +521,8 @@ def _diff_weights(current: dict, defaults: dict) -> dict:
 def _diff_params(current: dict, defaults: dict) -> dict:
     out = {}
     for k in ('paradox_damper', 'trade_volume_enabled', 'trade_volume_tiers',
-              'trade_volume_trigger', 'ex_officio_bonus'):
+              'trade_volume_trigger', 'ex_officio_role_bonuses',
+              'ex_officio_committee_global'):
         if current.get(k) != defaults.get(k):
             out[k] = current.get(k)
     return out
@@ -634,6 +635,12 @@ with st.sidebar:
             payload = presets.get(selected_preset, DEFAULTS)
             merged_weights = dict(DEFAULTS['weights'])
             merged_weights.update(payload.get('weights') or {})
+            merged_ex_bonuses = dict(DEFAULTS['ex_officio_role_bonuses'])
+            merged_ex_bonuses.update({
+                str(k): float(v)
+                for k, v in (payload.get('ex_officio_role_bonuses')
+                             or {}).items()
+            })
             st.session_state['scoring'] = {
                 'weights': merged_weights,
                 'paradox_damper': float(payload.get(
@@ -647,8 +654,10 @@ with st.sidebar:
                 'trade_volume_trigger': float(payload.get(
                     'trade_volume_trigger',
                     DEFAULTS['trade_volume_trigger'])),
-                'ex_officio_bonus': float(payload.get(
-                    'ex_officio_bonus', DEFAULTS['ex_officio_bonus'])),
+                'ex_officio_role_bonuses': merged_ex_bonuses,
+                'ex_officio_committee_global': bool(payload.get(
+                    'ex_officio_committee_global',
+                    DEFAULTS['ex_officio_committee_global'])),
             }
             st.rerun()
 
@@ -738,14 +747,6 @@ with st.sidebar:
                         ),
                     },
                 )
-                form_ex_bonus = st.number_input(
-                    'Ex-Officio-Bonus',
-                    value=float(state['ex_officio_bonus']),
-                    step=1.0,
-                    format='%.2f',
-                    key='p_ex_bonus',
-                )
-
             save_name = st.text_input(
                 'Preset-Name (zum Speichern)', value='',
                 key='preset_save_name',
@@ -787,7 +788,15 @@ with st.sidebar:
                 'trade_volume_enabled': bool(form_vol_enabled),
                 'trade_volume_tiers': tier_list_serial,
                 'trade_volume_trigger': float(form_vol_trigger),
-                'ex_officio_bonus': float(form_ex_bonus),
+                # Ex-Officio hat (noch) keine Form-Inputs -> Werte aus dem
+                # aktuellen State durchreichen, sonst gingen geladene
+                # Preset-Werte beim Anwenden verloren.
+                'ex_officio_role_bonuses': dict(state.get(
+                    'ex_officio_role_bonuses',
+                    DEFAULTS['ex_officio_role_bonuses'])),
+                'ex_officio_committee_global': bool(state.get(
+                    'ex_officio_committee_global',
+                    DEFAULTS['ex_officio_committee_global'])),
             }
 
         if save_clicked:
