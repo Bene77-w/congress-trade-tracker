@@ -16,7 +16,10 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from tags.committee_tag import CommitteeTag  # noqa: E402
+from tags.committee_tag import (  # noqa: E402
+    CommitteeTag,
+    role_keys_for_entries,
+)
 
 # Realer Walberg-Roster-String in F2 (s. tests/test_member_metrics.py).
 WALBERG = ('Education And Workforce|Chairman:Early Childhood, Elementary, And '
@@ -103,3 +106,98 @@ def test_relevant_sectors_match_carries_role_fields(tag):
         assert entry['match_type'] in ('full', 'sector')
         assert entry['committee_role'] == ''
         assert entry['subcommittee_role'] == 'Chair'
+
+
+# ---------------------------------------------------------------------------
+# Ex-Officio-Role-Keys (Phase 4 — Basis des rollen-differenzierten Bonus)
+# ---------------------------------------------------------------------------
+
+def test_role_keys_mapping_levels_and_aliases():
+    """Ebenen-abhaengiges Mapping inkl. Cochairman->Chairman-Key und
+    Ex Officio als eigener Key pro Ebene."""
+    assert role_keys_for_entries([
+        {'committee_role': 'Chairman', 'subcommittee_role': ''},
+    ]) == ['committee_chairman']
+    assert role_keys_for_entries([
+        {'committee_role': 'Cochairman', 'subcommittee_role': ''},
+    ]) == ['committee_chairman']
+    assert role_keys_for_entries([
+        {'committee_role': 'Ex Officio', 'subcommittee_role': ''},
+    ]) == ['committee_ex_officio']
+    assert role_keys_for_entries([
+        {'committee_role': '', 'subcommittee_role': 'Vice Chair'},
+    ]) == ['subcommittee_vice_chair']
+    assert role_keys_for_entries([
+        {'committee_role': '', 'subcommittee_role': 'Ranking Member'},
+    ]) == ['subcommittee_ranking_member']
+    assert role_keys_for_entries([
+        {'committee_role': 'Chairman', 'subcommittee_role': 'Ex Officio'},
+    ]) == ['committee_chairman', 'subcommittee_ex_officio']
+    # Unbekannte/leere Rollen -> kein Key
+    assert role_keys_for_entries([
+        {'committee_role': '', 'subcommittee_role': ''},
+        {'committee_role': 'Mystery Role', 'subcommittee_role': ''},
+    ]) == []
+
+
+def test_ex_officio_role_keys_end_to_end(tag):
+    """Treffer mit Committee-Chairman + Sub-Chair -> beide Keys, sortiert."""
+    res = tag.calculate_relevance(
+        'Natural Resources|Chairman:Water, Wildlife And Fisheries|Chair',
+        'House',
+        ticker_sector='Utilities',
+        ticker_industry='Utilities - Regulated Water')
+    assert res['match_count'] >= 1
+    assert res['ex_officio_role_keys'] == \
+        'committee_chairman;subcommittee_chair'
+
+
+def test_ex_officio_role_keys_empty_without_leadership(tag):
+    res = tag.calculate_relevance(
+        'Natural Resources|:Water, Wildlife And Fisheries|', 'House',
+        ticker_sector='Utilities',
+        ticker_industry='Utilities - Regulated Water')
+    assert res['match_count'] >= 1
+    assert res['ex_officio_role_keys'] == ''
+
+
+def test_ex_officio_role_keys_empty_without_ticker_info(tag):
+    """Ohne Ticker-Sektor/Industry gibt es keine relevanten Treffer ->
+    keine Role-Keys."""
+    res = tag.calculate_relevance(WALBERG, 'House')
+    assert res['ex_officio_role_keys'] == ''
+
+
+class _FakeDedupMapper:
+    """Zwei Committees mappen dieselbe (Sector, Industry)-Kombination:
+    'Alpha' rollenlos mit Rank 1, 'Beta' (Sub-Chair) mit Rank 2. Die Dedup
+    behaelt den rollenlosen Rank-1-Eintrag."""
+
+    def get_sectors_for_subcommittee(self, chamber, committee, subcommittee):
+        if committee == 'Alpha':
+            return [{'sector': 'Technology', 'industry': 'Software',
+                     'rank': 1, 'confidence': 'Hoch'}]
+        if committee == 'Beta':
+            return [{'sector': 'Technology', 'industry': 'Software',
+                     'rank': 2, 'confidence': 'Hoch'}]
+        return []
+
+    def get_all_sectors_for_committee(self, chamber, committee):
+        return []
+
+
+def test_role_keys_survive_dedup_displacement():
+    """Prae-Dedup-Garantie: verdraengt die (sector, industry)-Dedup den
+    Fuehrungsrollen-Eintrag (rollenlos Rank 1 schlaegt Sub-Chair Rank 2),
+    muss der Role-Key trotzdem in ex_officio_role_keys stehen."""
+    t = CommitteeTag(mapper=_FakeDedupMapper())
+    t.match_mode = 'sector_or_industry'
+    res = t.calculate_relevance(
+        'Alpha|:SubA|;Beta|:SubB|Chair', 'House',
+        ticker_sector='Technology', ticker_industry='Software')
+    # Dedup behaelt nur den Alpha-Eintrag (Rank 1, rollenlos) ...
+    assert len(res['relevant_sectors']) == 1
+    assert res['relevant_sectors'][0]['committee'] == 'Alpha'
+    assert res['relevant_sectors'][0]['subcommittee_role'] == ''
+    # ... aber der Sub-Chair-Key von Beta bleibt erhalten.
+    assert res['ex_officio_role_keys'] == 'subcommittee_chair'

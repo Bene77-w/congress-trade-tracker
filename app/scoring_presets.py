@@ -78,9 +78,15 @@ def default_payload() -> dict[str, Any]:
         'trade_volume_trigger': float(getattr(
             _settings, 'SCORING_TRADE_VOLUME_TRIGGER_FLOOR', 0.0
         )),
-        'ex_officio_bonus': float(
-            getattr(_settings, 'SCORING_EX_OFFICIO_BONUS', 0.0)
-        ),
+        'ex_officio_role_bonuses': {
+            str(k): float(v)
+            for k, v in (getattr(
+                _settings, 'SCORING_EX_OFFICIO_ROLE_BONUSES', {}
+            ) or {}).items()
+        },
+        'ex_officio_committee_global': bool(getattr(
+            _settings, 'SCORING_EX_OFFICIO_COMMITTEE_GLOBAL', True
+        )),
     }
 
 

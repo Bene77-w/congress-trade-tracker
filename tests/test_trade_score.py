@@ -30,7 +30,17 @@ def _settings(**overrides):
             'swarm_conflict': 5,
             'trade_volume': 16,
         },
-        SCORING_EX_OFFICIO_BONUS=10,
+        SCORING_EX_OFFICIO_ROLE_BONUSES={
+            'committee_chairman':          15,
+            'committee_vice_chairman':     12,
+            'committee_ranking_member':    10,
+            'committee_ex_officio':        10,
+            'subcommittee_chair':          12,
+            'subcommittee_vice_chair':      9,
+            'subcommittee_ranking_member':  8,
+            'subcommittee_ex_officio':      8,
+        },
+        SCORING_EX_OFFICIO_COMMITTEE_GLOBAL=True,
         SCORING_EX_OFFICIO_TRIGGERS=['committee', 'floor_action'],
         SCORING_PARADOX_DAMPER=0.0,
         SCORING_PARADOX_WARNING_TAG='paradox_swarm',
@@ -64,21 +74,73 @@ def test_committee_only():
 
 
 # ---------------------------------------------------------------------------
-# 2. Ex-Officio-Bonus aktiv
+# 2. Ex-Officio-Bonus aktiv (Role-Key in der Bonus-Tabelle)
 # ---------------------------------------------------------------------------
 def test_committee_with_ex_officio_bonus():
-    s, b, w = compute_trade_score('committee', 'Chairman', 0, _settings())
+    s, b, w = compute_trade_score('committee', 'committee_ranking_member', 0,
+                                  _settings())
     assert s == 15 + 10
     assert 'ex_officio:+10' in b
 
 
 # ---------------------------------------------------------------------------
-# 3. Ex-Officio truthy aber kein Trigger-Signal -> kein Bonus
+# 3. Role-Key vorhanden aber kein Trigger-Signal -> kein Bonus
 # ---------------------------------------------------------------------------
 def test_ex_officio_without_trigger_signal_no_bonus():
     # extreme_report ist nicht in SCORING_EX_OFFICIO_TRIGGERS
-    s, b, w = compute_trade_score('extreme_report', 'Chairman', 0, _settings())
+    s, b, w = compute_trade_score('extreme_report', 'committee_ranking_member',
+                                  0, _settings())
     assert s == 5
+    assert 'ex_officio:+0' in b
+
+
+# ---------------------------------------------------------------------------
+# 3b. Mehrere Role-Keys -> MAX, nicht Summe
+# ---------------------------------------------------------------------------
+def test_ex_officio_multiple_keys_max_not_sum():
+    s, b, w = compute_trade_score(
+        'committee', 'committee_chairman;subcommittee_chair', 0, _settings())
+    # max(15, 12) = 15 — nicht 27
+    assert s == 15 + 15
+    assert 'ex_officio:+15' in b
+
+
+# ---------------------------------------------------------------------------
+# 3c. Committee-Global-Toggle aus -> committee_*-Keys zaehlen nicht
+# ---------------------------------------------------------------------------
+def test_ex_officio_committee_global_off_ignores_committee_keys():
+    settings = _settings(SCORING_EX_OFFICIO_COMMITTEE_GLOBAL=False)
+    # Sub-Key bleibt wirksam -> max nur ueber subcommittee_vice_chair = 9
+    s, b, w = compute_trade_score(
+        'committee', 'committee_chairman;subcommittee_vice_chair', 0, settings)
+    assert s == 15 + 9
+    assert 'ex_officio:+9' in b
+    # Nur committee_*-Keys -> Bonus 0
+    s2, b2, _ = compute_trade_score(
+        'committee', 'committee_chairman', 0, settings)
+    assert s2 == 15
+    assert 'ex_officio:+0' in b2
+
+
+# ---------------------------------------------------------------------------
+# 3d. Unbekannter Role-Key -> kein Bonus, kein Crash
+# ---------------------------------------------------------------------------
+def test_ex_officio_unknown_key_ignored():
+    s, b, w = compute_trade_score('committee', 'bogus_key', 0, _settings())
+    assert s == 15
+    assert 'ex_officio:+0' in b
+
+
+# ---------------------------------------------------------------------------
+# 3e. Settings-Modul ohne neue Konstanten -> Fallback (Bonus 0, kein Crash)
+# ---------------------------------------------------------------------------
+def test_ex_officio_fallback_defaults_without_constants():
+    mod = types.SimpleNamespace(
+        SCORING_WEIGHTS={'committee': 15},
+        SCORING_EX_OFFICIO_TRIGGERS=['committee'],
+    )
+    s, b, w = compute_trade_score('committee', 'committee_chairman', 0, mod)
+    assert s == 15
     assert 'ex_officio:+0' in b
 
 
@@ -194,7 +256,8 @@ def test_signal_weight_zero():
         'swarm_buy': 20, 'swarm_sell': 20, 'swarm_conflict': 5,
         'trade_volume': 16,
     })
-    s, b, w = compute_trade_score('committee', 'Chairman', 0, settings)
+    s, b, w = compute_trade_score('committee', 'committee_ranking_member', 0,
+                                  settings)
     # committee trifft (Bonus-Trigger), Bonus addiert sich aber Weight ist 0.
     assert s == 10
     assert 'committee:0' in b
@@ -208,7 +271,8 @@ def test_all_signals_active():
     sig = ('committee;floor_action;extreme_report;contrarian;accumulative;'
            'swarm_buy;swarm_sell;trade_volume')
     # 1.1M -> Tier 6 -> 16 Punkte
-    s, b, w = compute_trade_score(sig, 'Chairman', 1_100_000, _settings())
+    s, b, w = compute_trade_score(sig, 'committee_ranking_member', 1_100_000,
+                                  _settings())
     # 15 + 15 + 5 + 8 + 10 + 20 + 20 + 16 (volume) + 10 (bonus) = 119
     assert s == 119
     for part in ['committee:15', 'floor_action:15', 'extreme_report:5',
@@ -262,10 +326,11 @@ def test_nan_volume_with_signal_triggered_no_score():
 
 
 # ---------------------------------------------------------------------------
-# 16. ex_officio als String 'Chairman' -> truthy
+# 16. Role-Keys-Zelle: String mit Key -> Bonus; NaN/leer -> kein Bonus
 # ---------------------------------------------------------------------------
-def test_ex_officio_string_chairman_is_truthy():
-    s, b, w = compute_trade_score('committee', 'Chairman', 0, _settings())
+def test_ex_officio_role_key_string_gives_bonus():
+    s, b, w = compute_trade_score('committee', 'committee_ranking_member', 0,
+                                  _settings())
     assert 'ex_officio:+10' in b
 
 
@@ -325,7 +390,7 @@ def test_compute_trade_scores_vectorized():
     df = pd.DataFrame({
         'signals_triggered': ['committee', 'swarm_buy;swarm_paradox',
                               'trade_volume'],
-        'Member_ExOfficio': ['Chairman', '', ''],
+        'ex_officio_role_keys': ['committee_ranking_member', '', ''],
         'trade_amount_max_usd': [0, 0, 1_100_000],
     })
     out = compute_trade_scores(df, _settings())
@@ -339,7 +404,7 @@ def test_compute_trade_scores_vectorized():
 
 
 def test_compute_trade_scores_empty_df():
-    df = pd.DataFrame(columns=['signals_triggered', 'Member_ExOfficio',
+    df = pd.DataFrame(columns=['signals_triggered', 'ex_officio_role_keys',
                                'trade_amount_max_usd'])
     out = compute_trade_scores(df, _settings())
     assert out.empty

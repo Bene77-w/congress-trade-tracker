@@ -1,9 +1,11 @@
 """
-Signal: Committee Ex Officio — triggert wenn CommitteeSignal aktiv UND der
-Member zum Trade-Zeitpunkt eine ex-officio-Rolle innehat (Chairman, Ranking
-Member, Vice Chairman, ...).
+Signal: Committee Ex Officio (v2) — triggert wenn CommitteeSignal aktiv UND
+mindestens ein relevanter Committee-Treffer des Trades eine Fuehrungsrolle
+traegt. Quelle ist die Master-Spalte ex_officio_role_keys (';'-getrennte
+Rollen-Keys, prae-Dedup vom CommitteeTag abgeleitet) — nicht mehr das
+member-globale Member_ExOfficio-Flag.
 
-Trigger:         CommitteeSignal triggert UND Member_ExOfficio truthy
+Trigger:         CommitteeSignal triggert UND ex_officio_role_keys nicht leer
 Triggering-Date: transaction_date
 Scope-Key:       trade_id
 """
@@ -14,7 +16,6 @@ import pandas as pd
 
 from signals.committee_signal import (
     CommitteeSignal,
-    _to_bool,
     _to_int,
     _direction_from_transaction_type,
     parse_relevant_sectors,
@@ -26,9 +27,21 @@ from utils.signal_event_id import make_signal_event_id
 SIGNAL_TYPE = 'committee_ex_officio'
 
 
+def _role_keys_value(value: Any) -> str:
+    """Liest die ex_officio_role_keys-Zelle defensiv (NaN/None -> '')."""
+    if value is None:
+        return ''
+    try:
+        if pd.isna(value):
+            return ''
+    except (TypeError, ValueError):
+        pass
+    return str(value).strip()
+
+
 class CommitteeExOfficioSignal:
-    """Triggert nur, wenn das Committee-Signal aktiv ist und der Member
-    zum Trade-Zeitpunkt eine ex-officio-Rolle hat."""
+    """Triggert nur, wenn das Committee-Signal aktiv ist und mindestens ein
+    relevanter Treffer eine Fuehrungsrolle traegt (ex_officio_role_keys)."""
 
     SIGNAL_TYPE = SIGNAL_TYPE
 
@@ -40,7 +53,8 @@ class CommitteeExOfficioSignal:
         committee_event = self.committee_signal.evaluate_row(row)
         if committee_event is None:
             return None
-        if not _to_bool(row.get('Member_ExOfficio')):
+        role_keys = _role_keys_value(row.get('ex_officio_role_keys'))
+        if not role_keys:
             return None
 
         trade_id = row.get('trade_id', '')
@@ -70,6 +84,7 @@ class CommitteeExOfficioSignal:
                 row.get('transaction_type')
             ),
             'is_ex_officio': True,
+            'ex_officio_role_keys': role_keys,
             'match_count': len(parse_relevant_sectors(row.get('Relevant_Sectors'))),
             'vote_timing_hit_count': _to_int(
                 row.get('Vote_Timing_Hit_Count'), default=0
