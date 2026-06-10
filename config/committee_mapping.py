@@ -94,7 +94,7 @@ class CommitteeMapper:
             committee = self._normalize(row['Committee'])
             subcommittee = self._normalize(row['Subcommittee'])
 
-            if not chamber or not committee or not subcommittee:
+            if not chamber or not committee:
                 continue
 
             # Create sector/industry entry
@@ -105,11 +105,14 @@ class CommitteeMapper:
                 'confidence': str(row['Konfidenz']).strip()
             }
 
-            # Add to subcommittee mapping
-            key = (chamber, committee, subcommittee)
-            if key not in self.mapping:
-                self.mapping[key] = []
-            self.mapping[key].append(entry)
+            # Add to subcommittee mapping. Leeres Subcommittee = bewusste
+            # Committee-Level-Zeile (z.B. Joint/Select ohne Subs) -> nur ins
+            # Committee-Level-Dict, kein Pseudo-Subcommittee-Key.
+            if subcommittee:
+                key = (chamber, committee, subcommittee)
+                if key not in self.mapping:
+                    self.mapping[key] = []
+                self.mapping[key].append(entry)
 
             # Add to committee-level mapping (for aggregation)
             comm_key = (chamber, committee)
