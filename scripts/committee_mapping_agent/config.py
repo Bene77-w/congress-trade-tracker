@@ -91,6 +91,34 @@ GROUNDING_CONFIDENCE_CAP = {
 }
 
 
+def normalize_confidence(val) -> str:
+    """Bringt eine Modell-Konfidenz auf low/medium/high.
+
+    DeepSeek liefert haeufig numerische Konfidenz (0.95 oder 95) statt der
+    gewuenschten Stufen-Strings. Statt dagegen anzukaempfen, akzeptieren wir
+    Zahlen und bucketen sie. Unparsebares -> 'low'.
+    """
+    if isinstance(val, bool):
+        return "low"
+    if isinstance(val, (int, float)):
+        f = float(val)
+    else:
+        s = str(val).strip().lower()
+        if s in CONFIDENCE_LEVELS:
+            return s
+        try:
+            f = float(s)
+        except ValueError:
+            return "low"
+    if f > 1:           # 0-100-Skala -> 0-1
+        f = f / 100.0
+    if f >= 0.8:
+        return "high"
+    if f >= 0.5:
+        return "medium"
+    return "low"
+
+
 def model_for(role: str):
     """(modell, effort) fuer eine Rolle; KeyError bei unbekannter Rolle."""
     return MODELS[role]

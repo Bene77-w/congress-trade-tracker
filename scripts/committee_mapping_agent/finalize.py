@@ -31,8 +31,7 @@ _FINALIZE_SCHEMA = {
                     "sector": {"type": "string"},
                     "industry": {"type": "string"},
                     "rank": {"type": "integer", "minimum": 1},
-                    "confidence": {"type": "string",
-                                   "enum": list(config.CONFIDENCE_LEVELS)},
+                    "confidence": {"type": ["string", "number"]},
                     "ai_comment": {"type": "string"},
                 },
                 "required": ["sector", "industry", "rank", "confidence", "ai_comment"],
@@ -82,7 +81,7 @@ def _apply_comment(
             "sector": r["sector"],
             "industry": r["industry"],
             "rank": r["rank"],
-            "confidence": r["confidence"],
+            "confidence": config.normalize_confidence(r["confidence"]),
             "ai_comment": f"[User] {comment} | {r.get('ai_comment', '')}",
             "grounding_source": row.get("grounding_source", ""),
         }

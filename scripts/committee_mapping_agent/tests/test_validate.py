@@ -1,5 +1,17 @@
 """Phase-3-Tests: deterministische validate-Schicht."""
-from scripts.committee_mapping_agent import taxonomy, validate
+import pytest
+
+from scripts.committee_mapping_agent import config, taxonomy, validate
+
+
+@pytest.mark.parametrize("val,expected", [
+    ("high", "high"), ("LOW", "low"), ("medium", "medium"),
+    (0.95, "high"), (0.8, "high"), (0.79, "medium"), (0.5, "medium"),
+    (0.49, "low"), (95, "high"), (60, "medium"), (10, "low"),
+    ("0.9", "high"), ("0.3", "low"), ("quatsch", "low"), (True, "low"),
+])
+def test_normalize_confidence(val, expected):
+    assert config.normalize_confidence(val) == expected
 
 
 def _tax():

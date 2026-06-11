@@ -139,26 +139,28 @@ def build_sector_block(data: Dict[str, Any], sector: str) -> str:
 # ---------------------------------------------------------------------------
 # Anreicherung (einmalig, eingefroren)
 # ---------------------------------------------------------------------------
+# Bewusst PERMISSIV: das Modell variiert die Schluesselnamen (industry/name,
+# description/desc). Da die kanonische Industry-Menge ohnehin aus der Quelle
+# stammt und die Beschreibungen nur advisorisch sind, akzeptieren wir lockere
+# Objekte und gleichen in Code per Namen ab -> robust gegen Format-Drift.
 _ENRICH_SCHEMA = {
     "type": "object",
     "properties": {
         "sector_description": {"type": "string"},
-        "industries": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "industry": {"type": "string"},
-                    "description": {"type": "string"},
-                },
-                "required": ["industry", "description"],
-                "additionalProperties": False,
-            },
-        },
+        "industries": {"type": "array", "items": {"type": "object"}},
     },
     "required": ["sector_description", "industries"],
-    "additionalProperties": False,
+    "additionalProperties": True,
 }
+
+
+def _extract_industry(item: Dict[str, Any]) -> tuple:
+    """(name, description) aus einem lockeren Enrich-Item, schluesseltolerant."""
+    name = (item.get("industry") or item.get("name")
+            or item.get("Industry") or item.get("title") or "")
+    desc = (item.get("description") or item.get("desc")
+            or item.get("Description") or "")
+    return str(name), str(desc)
 
 _ENRICH_SYSTEM = (
     "Du bist ein Finanz-Taxonomie-Experte. Du beschreibst Yahoo-Finance-"
@@ -196,10 +198,11 @@ def enrich(client: Any = None, role: str = "review") -> Dict[str, Any]:
         result = llm_client.call_json(
             role, _ENRICH_SYSTEM, user, _ENRICH_SCHEMA, client=client,
         )
-        desc_by_name = {
-            _norm_name(it["industry"]): it["description"]
-            for it in result.get("industries", [])
-        }
+        desc_by_name = {}
+        for it in result.get("industries", []):
+            name, desc = _extract_industry(it)
+            if name:
+                desc_by_name[_norm_name(name)] = desc
         enriched_sectors.append({
             "sector": sector,
             "description": result.get("sector_description", ""),
