@@ -671,81 +671,120 @@ with st.sidebar:
         with st.form('score_weights_form', clear_on_submit=False):
             state = st.session_state['scoring']
 
+            # Pro Signal ein Expander: Gewicht + signal-eigene Parameter
+            # (trade_volume: Enabled/Trigger/Tiers). Pseudo-Signale ohne
+            # Gewicht (committee_ex_officio, swarm_paradox) bekommen eigene
+            # Expander danach.
             form_weights: dict[str, float] = {}
             for sig in DEFAULTS['weights'].keys():
-                form_weights[sig] = st.number_input(
-                    f'{sig}',
-                    value=float(state['weights'].get(
-                        sig, DEFAULTS['weights'][sig])),
-                    step=1.0,
-                    format='%.2f',
-                    key=f'w_{sig}',
-                )
+                with st.expander(sig):
+                    form_weights[sig] = st.number_input(
+                        'Gewicht',
+                        value=float(state['weights'].get(
+                            sig, DEFAULTS['weights'][sig])),
+                        step=1.0,
+                        format='%.2f',
+                        key=f'w_{sig}',
+                    )
+                    if sig != 'trade_volume':
+                        continue
+                    form_vol_enabled = st.checkbox(
+                        'Trade-Volume-Signal aktiv',
+                        value=bool(state['trade_volume_enabled']),
+                        key='p_tv_enabled',
+                    )
+                    form_vol_trigger = st.number_input(
+                        'Trigger-Floor (USD) — Signal triggert ab > diesem '
+                        'Wert',
+                        value=float(state['trade_volume_trigger']),
+                        min_value=0.0,
+                        step=1_000.0,
+                        format='%.2f',
+                        key='p_tv_trigger',
+                        help=(
+                            'Trades mit trade_amount_max_usd <= Trigger-Floor '
+                            'lösen kein trade_volume-Signal aus. Default '
+                            '15000 (oberer Quiver-Bucket "$1,001 - $15,000").'
+                        ),
+                    )
+                    # Tier-Editor: (max_inclusive, score). Letzter Eintrag mit
+                    # max=None bedeutet Catch-all (float('inf')).
+                    _state_tiers = state['trade_volume_tiers'] or []
+                    _tier_rows = []
+                    for upper, score in _state_tiers:
+                        _tier_rows.append({
+                            'max_inclusive_usd': (
+                                None if upper is None
+                                or (isinstance(upper, float)
+                                    and upper == float('inf'))
+                                else float(upper)),
+                            'score': int(score),
+                        })
+                    tier_df_in = pd.DataFrame(
+                        _tier_rows,
+                        columns=['max_inclusive_usd', 'score'],
+                    )
+                    tier_df_out = st.data_editor(
+                        tier_df_in,
+                        width='stretch',
+                        num_rows='dynamic',
+                        key='p_tv_tiers',
+                        column_config={
+                            'max_inclusive_usd': st.column_config.NumberColumn(
+                                'Obergrenze (USD)',
+                                help=(
+                                    'Trades mit trade_amount_max_usd <= '
+                                    'dieser Schwelle bekommen den Tier-Score. '
+                                    'Leer lassen für den Catch-all '
+                                    '(unendlich).'
+                                ),
+                                format='%d',
+                            ),
+                            'score': st.column_config.NumberColumn(
+                                'Score-Beitrag',
+                                help='Punkte, die das Signal beiträgt.',
+                                format='%d',
+                                min_value=0,
+                            ),
+                        },
+                    )
 
-            with st.expander('Erweiterte Parameter'):
+            with st.expander('committee_ex_officio'):
+                form_ex_global = st.checkbox(
+                    'Committee-Führung wirkt committee-weit',
+                    value=bool(state.get(
+                        'ex_officio_committee_global',
+                        DEFAULTS['ex_officio_committee_global'])),
+                    key='p_exo_global',
+                    help=(
+                        'AN: committee_*-Rollen (Chairman/Vice/Ranking/'
+                        'Ex Officio) erhalten ihren Bonus für alle Sektoren '
+                        'ihres Committees. AUS: nur Subcommittee-Führung '
+                        'erhält Boni.'
+                    ),
+                )
+                form_ex_bonuses: dict[str, float] = {}
+                _state_ex = dict(state.get(
+                    'ex_officio_role_bonuses',
+                    DEFAULTS['ex_officio_role_bonuses']) or {})
+                for role_key, default_bonus in (
+                        DEFAULTS['ex_officio_role_bonuses'].items()):
+                    form_ex_bonuses[role_key] = st.number_input(
+                        role_key,
+                        value=float(_state_ex.get(role_key, default_bonus)),
+                        min_value=0.0,
+                        step=1.0,
+                        format='%.2f',
+                        key=f'p_exo_{role_key}',
+                    )
+
+            with st.expander('swarm_paradox'):
                 form_paradox = st.slider(
                     'Paradox-Damper (Schwarm-Mult. bei swarm_paradox)',
                     min_value=0.0, max_value=1.0,
                     value=float(state['paradox_damper']),
                     step=0.05,
                     key='p_damper',
-                )
-                form_vol_enabled = st.checkbox(
-                    'Trade-Volume-Signal aktiv',
-                    value=bool(state['trade_volume_enabled']),
-                    key='p_tv_enabled',
-                )
-                form_vol_trigger = st.number_input(
-                    'Trigger-Floor (USD) — Signal triggert ab > diesem Wert',
-                    value=float(state['trade_volume_trigger']),
-                    min_value=0.0,
-                    step=1_000.0,
-                    format='%.2f',
-                    key='p_tv_trigger',
-                    help=(
-                        'Trades mit trade_amount_max_usd <= Trigger-Floor '
-                        'lösen kein trade_volume-Signal aus. Default 15000 '
-                        '(oberer Quiver-Bucket "$1,001 - $15,000").'
-                    ),
-                )
-                # Tier-Editor: (max_inclusive, score). Letzter Eintrag mit
-                # max=None bedeutet Catch-all (float('inf')).
-                _state_tiers = state['trade_volume_tiers'] or []
-                _tier_rows = []
-                for upper, score in _state_tiers:
-                    _tier_rows.append({
-                        'max_inclusive_usd': (None if upper is None
-                                              or (isinstance(upper, float)
-                                                  and upper == float('inf'))
-                                              else float(upper)),
-                        'score': int(score),
-                    })
-                tier_df_in = pd.DataFrame(
-                    _tier_rows,
-                    columns=['max_inclusive_usd', 'score'],
-                )
-                tier_df_out = st.data_editor(
-                    tier_df_in,
-                    width='stretch',
-                    num_rows='dynamic',
-                    key='p_tv_tiers',
-                    column_config={
-                        'max_inclusive_usd': st.column_config.NumberColumn(
-                            'Obergrenze (USD)',
-                            help=(
-                                'Trades mit trade_amount_max_usd <= dieser '
-                                'Schwelle bekommen den Tier-Score. Leer '
-                                'lassen für den Catch-all (unendlich).'
-                            ),
-                            format='%d',
-                        ),
-                        'score': st.column_config.NumberColumn(
-                            'Score-Beitrag',
-                            help='Punkte, die das Signal beiträgt.',
-                            format='%d',
-                            min_value=0,
-                        ),
-                    },
                 )
             save_name = st.text_input(
                 'Preset-Name (zum Speichern)', value='',
@@ -788,15 +827,10 @@ with st.sidebar:
                 'trade_volume_enabled': bool(form_vol_enabled),
                 'trade_volume_tiers': tier_list_serial,
                 'trade_volume_trigger': float(form_vol_trigger),
-                # Ex-Officio hat (noch) keine Form-Inputs -> Werte aus dem
-                # aktuellen State durchreichen, sonst gingen geladene
-                # Preset-Werte beim Anwenden verloren.
-                'ex_officio_role_bonuses': dict(state.get(
-                    'ex_officio_role_bonuses',
-                    DEFAULTS['ex_officio_role_bonuses'])),
-                'ex_officio_committee_global': bool(state.get(
-                    'ex_officio_committee_global',
-                    DEFAULTS['ex_officio_committee_global'])),
+                'ex_officio_role_bonuses': {
+                    k: float(v) for k, v in form_ex_bonuses.items()
+                },
+                'ex_officio_committee_global': bool(form_ex_global),
             }
 
         if save_clicked:
