@@ -899,26 +899,28 @@ def main():
         out = os.path.join(os.path.dirname(pdf_path), f"{stem}_members.csv")
 
     print("=" * 70)
-    print("PARSING AGRICULTURE (TEST v3)")
+    print("HOUSE PDF -> F2 (Standing S4-55 + Select S56-57 + Joint S58)")
     print("=" * 70)
     print(f"PDF:    {pdf_path}")
     print(f"Output: {out}")
 
-    members = parse_agriculture(pdf_path)
+    members, _detected = parse_all_committees(pdf_path, range(4, 58),
+                                              cross_ref=False)
+    parse_joint(pdf_path, 58, members)
+    _cross_reference_alphabetical(pdf_path, members)
     write_csv(members, out)
 
     r = sum(1 for m in members.values() if m['party'] == 'R')
     d = sum(1 for m in members.values() if m['party'] == 'D')
     exoff = sum(1 for m in members.values() if m['ex_officio'])
+    comms = set()
+    for md in members.values():
+        comms.update(md['committees'].keys())
 
     print(f"\n{'=' * 70}")
-    print(f"TOTAL: {len(members)} | R: {r} | D: {d} | ExOfficio: {exoff}")
-    print(f"Expected: 53 (28R + 25D, seat 29R empty)")
+    print(f"TOTAL: {len(members)} Member | R: {r} | D: {d} | "
+          f"ExOfficio: {exoff} | Committees: {len(comms)}")
     print(f"{'=' * 70}")
-
-    print("\n--- CSV ---")
-    with open(out, 'r') as f:
-        print(f.read())
 
 
 if __name__ == '__main__':
