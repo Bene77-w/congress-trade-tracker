@@ -22,50 +22,55 @@ from .committees import slugify
 
 logger = logging.getLogger(__name__)
 
+# Bewusst PERMISSIV: DeepSeek variiert Schluesselnamen (sector/name,
+# industry/name) und laesst Felder weg. Die Korrektheit erzwingen ohnehin die
+# Allow-Liste (taxonomy.is_valid_*) + validate.validate_rows; das Schema dient
+# nur dem Parsen. Defensive Extraktion in _extract_* unten.
 _STAGE1_SCHEMA = {
     "type": "object",
-    "properties": {
-        "sectors": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "sector": {"type": "string"},
-                    "rank": {"type": "integer", "minimum": 1},
-                    "confidence": {"type": "string",
-                                   "enum": list(config.CONFIDENCE_LEVELS)},
-                    "rationale": {"type": "string"},
-                },
-                "required": ["sector", "rank", "confidence", "rationale"],
-                "additionalProperties": False,
-            },
-        }
-    },
+    "properties": {"sectors": {"type": "array", "items": {"type": "object"}}},
     "required": ["sectors"],
-    "additionalProperties": False,
+    "additionalProperties": True,
 }
 
 _STAGE2_SCHEMA = {
     "type": "object",
-    "properties": {
-        "industries": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "industry": {"type": "string"},
-                    "confidence": {"type": "string",
-                                   "enum": list(config.CONFIDENCE_LEVELS)},
-                    "rationale": {"type": "string"},
-                },
-                "required": ["industry", "confidence", "rationale"],
-                "additionalProperties": False,
-            },
-        }
-    },
+    "properties": {"industries": {"type": "array", "items": {"type": "object"}}},
     "required": ["industries"],
-    "additionalProperties": False,
+    "additionalProperties": True,
 }
+
+
+def _extract_sector(item: Dict[str, Any]) -> tuple:
+    """(name, rank, confidence, rationale) aus einem lockeren Stufe-1-Item.
+
+    Stufe 1 liefert (anders als Stufe 2) meist differenzierte Konfidenz je
+    Sektor — diese dient als Fallback-Konfidenz fuer die Zeilen, falls Stufe 2
+    keine pro-Industry-Konfidenz mitgibt. Fehlt auch hier -> 'medium'.
+    """
+    name = (item.get("sector") or item.get("name")
+            or item.get("Sector") or item.get("title") or "")
+    try:
+        rank = int(item.get("rank", item.get("Sector_Rank", 99)))
+    except (TypeError, ValueError):
+        rank = 99
+    confidence = config.normalize_confidence(item.get("confidence", "medium"))
+    rationale = item.get("rationale") or item.get("reason") or ""
+    return str(name), rank, confidence, str(rationale)
+
+
+def _extract_industry(item: Dict[str, Any]) -> tuple:
+    """(name, confidence|None, rationale) aus einem lockeren Stufe-2-Item.
+
+    confidence ist None, wenn das Modell keine mitgab -> Aufrufer nutzt dann die
+    Sektor-Konfidenz aus Stufe 1.
+    """
+    name = (item.get("industry") or item.get("name")
+            or item.get("Industry") or item.get("title") or "")
+    raw_conf = item.get("confidence", None)
+    confidence = config.normalize_confidence(raw_conf) if raw_conf is not None else None
+    rationale = item.get("rationale") or item.get("reason") or ""
+    return str(name), confidence, str(rationale)
 
 _STAGE1_INSTRUCT = (
     "\nAUFGABE (Stufe 1 — Sektoren): Du bekommst den Jurisdiktionstext einer "
@@ -138,31 +143,31 @@ def map_unit(
     stage1 = llm_client.call_json(
         "mapping", stage1_system, context, _STAGE1_SCHEMA, client=client,
     )
-    chosen_sectors = [
-        s for s in stage1.get("sectors", [])
-        if taxonomy.is_valid_sector(taxonomy_data, s.get("sector", ""))
-    ]
+    chosen_sectors = []
+    for item in stage1.get("sectors", []):
+        sector, rank, sconf, _rat = _extract_sector(item)
+        if taxonomy.is_valid_sector(taxonomy_data, sector):
+            chosen_sectors.append((sector, rank, sconf))
 
     # ---- Stufe 2: Industries je Sektor ------------------------------------
     rows: List[Dict[str, Any]] = []
-    for s in chosen_sectors:
-        sector = s["sector"]
-        rank = s.get("rank", 99)
+    for sector, rank, sector_conf in chosen_sectors:
         stage2_system = taxonomy.build_sector_block(taxonomy_data, sector) + _STAGE2_INSTRUCT
         stage2_user = context + f"\n\nZu mappender Sektor: {sector}"
         stage2 = llm_client.call_json(
             "mapping", stage2_system, stage2_user, _STAGE2_SCHEMA, client=client,
         )
-        for ind in stage2.get("industries", []):
-            industry = ind.get("industry", "")
+        for item in stage2.get("industries", []):
+            industry, ind_conf, rationale = _extract_industry(item)
             if not taxonomy.is_valid_industry(taxonomy_data, sector, industry):
                 continue
             rows.append({
                 "sector": sector,
                 "industry": industry,
                 "rank": rank,
-                "confidence": ind.get("confidence", "low"),
-                "ai_comment": ind.get("rationale", ""),
+                # Stufe-2-Konfidenz falls vorhanden, sonst Sektor-Konfidenz.
+                "confidence": ind_conf or sector_conf,
+                "ai_comment": rationale,
                 "grounding_source": grounding,
             })
 
