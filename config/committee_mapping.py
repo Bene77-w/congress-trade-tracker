@@ -1,5 +1,6 @@
 import pandas as pd
 import os
+import re
 import logging
 from typing import Dict, List, Tuple, Optional, Any
 from config import settings
@@ -53,6 +54,9 @@ class CommitteeMapper:
             return ''
 
         text = str(text).lower().strip()
+        # Innere Mehrfach-Whitespaces kollabieren — Quelldaten (z.B. Senate-XML
+        # SSBK-Sub) enthalten vereinzelt Doppel-Leerzeichen, Mapping-CSV nicht.
+        text = re.sub(r'\s+', ' ', text)
 
         # Handle Senate "Committee on X" format
         if text.startswith('committee on '):

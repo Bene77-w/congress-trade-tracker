@@ -56,10 +56,16 @@ def _member_key(member: ET.Element) -> tuple[str, str, str]:
     return last, first, state
 
 
+def _clean(text: str) -> str:
+    """Quell-XML enthält vereinzelt doppelte Leerzeichen (Member-Namen wie
+    "John  R." UND Sub-Namen wie SSBK "National Security and  International
+    Trade and Finance") → innere Whitespaces kollabieren, sonst stiller
+    Lookup-Miss gegen Mapping/Orakel (dort single-space)."""
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def _display_name(last: str, first: str) -> str:
-    # Quell-XML enthält vereinzelt doppelte Leerzeichen ("John  R.") → kollabieren.
-    name = f"{last}, {first}".strip().rstrip(",")
-    return re.sub(r"\s+", " ", name)
+    return _clean(f"{last}, {first}".strip().rstrip(","))
 
 
 def _xml_files(raw_dir: Path) -> list[Path]:
@@ -78,7 +84,7 @@ def parse_all(raw_dir: Path = RAW_DIR) -> list[dict]:
     for path in _xml_files(raw_dir):
         root = ET.fromstring(path.read_text(encoding="utf-8"))
         comm = root.find("committees")
-        committee_name = comm.findtext("committee_name", "").strip()
+        committee_name = _clean(comm.findtext("committee_name", ""))
 
         # --- Committee-Ebene ---
         comm_members = comm.find("members")
@@ -98,7 +104,7 @@ def parse_all(raw_dir: Path = RAW_DIR) -> list[dict]:
 
         # --- Subcommittee-Ebene ---
         for sub in comm.findall("subcommittee"):
-            sub_name = sub.findtext("subcommittee_name", "").strip()
+            sub_name = _clean(sub.findtext("subcommittee_name", ""))
             sub_members = sub.find("members")
             for m in (sub_members.findall("member") if sub_members is not None else []):
                 key = _member_key(m)

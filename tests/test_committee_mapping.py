@@ -68,6 +68,19 @@ def test_committee_level_rows_merge_with_sub_aggregation(tmp_path):
     assert len(sub) == 1 and sub[0]['rank'] == 2
 
 
+def test_lookup_collapses_inner_whitespace(tmp_path):
+    """Quelldaten-Doppel-Leerzeichen (Senate-XML SSBK-Sub) duerfen keinen
+    stillen Lookup-Miss erzeugen — _normalize kollabiert innere Whitespaces."""
+    m = _mapper_for(tmp_path, [
+        'Senate,"Banking, Housing, and Urban Affairs",'
+        'Subcommittee on National Security and International Trade and Finance,'
+        'Financial Services,Banks - Diversified,1,Mittel',
+    ])
+    assert m.get_sectors_for_subcommittee(
+        'Senate', 'Banking,  Housing, and Urban Affairs',
+        'Subcommittee on National Security and  International Trade and Finance')
+
+
 def test_rows_without_committee_still_skipped(tmp_path):
     m = _mapper_for(tmp_path, [
         'House,,SubA,Technology,Software,1,Hoch',
