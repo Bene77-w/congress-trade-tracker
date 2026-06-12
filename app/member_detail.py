@@ -222,8 +222,11 @@ def _empty_horizons_caption(stats: dict[int, dict]) -> str | None:
     empty = [f'{h}d' for h in HORIZONS if stats.get(h, {}).get('n', 0) == 0]
     if not empty:
         return None
-    return ('/'.join(empty) + ': keine qualifizierenden Trades im gewählten '
-            'Zeitraum.')
+    return ('/'.join(empty) + ': keine Daten — der h-Tage-Return eines '
+            'Trades existiert erst h Tage nach der Transaktion. Alle '
+            'Trades im gewählten Datumsfenster sind dafür noch zu jung. '
+            'Datumsfenster in der Sidebar vergrößern, um diese Horizonte '
+            'zu füllen.')
 
 
 def _fig_d1(mview, threshold, stats):
@@ -411,11 +414,18 @@ def _render_spaghetti_section(trajs: list[dict], key: str, caption: str,
     } for t in trajs])
 
     # Trace-Cap: nur Top-N nach |Return| zeichnen (Liste bleibt vollstaendig),
-    # per Toggle abschaltbar.
-    draw_all = st.toggle(
-        'Alle Verläufe zeichnen (kann das Interface stark verlangsamen)',
-        value=False, key=all_key)
-    cap = 0 if draw_all else int(settings.DETAIL_TRAJ_MAX_TRACES)
+    # per Toggle abschaltbar, Anzahl per number_input einstellbar.
+    cap_col, toggle_col = st.columns([1, 3])
+    with toggle_col:
+        draw_all = st.toggle(
+            'Alle Verläufe zeichnen (kann das Interface stark verlangsamen)',
+            value=False, key=all_key)
+    with cap_col:
+        max_traces = st.number_input(
+            'Max. gezeichnete Verläufe', min_value=10, max_value=5000,
+            step=50, value=int(settings.DETAIL_TRAJ_MAX_TRACES),
+            key=f'{key}_cap', disabled=draw_all)
+    cap = 0 if draw_all else int(max_traces)
     plot_trajs = mm.select_top_trajectories(trajs, cap)
     if not draw_all and len(plot_trajs) < len(trajs):
         st.caption(
@@ -641,6 +651,12 @@ def render_member_detail(member_df: pd.DataFrame, bench_df: pd.DataFrame,
                         'Max %': st.column_config.NumberColumn(
                             'Max %', format='%.1f'),
                     })
+                st.caption(
+                    'n = Trades, die für den Horizont qualifizieren '
+                    '(Haltedauer-Gating) und deren Return-Spalte bereits '
+                    'gefüllt ist.')
+                if empty_cap:
+                    st.caption(empty_cap)
             st.markdown(f'**D7 — Score → Anteil > {threshold:.0f}%**')
             st.plotly_chart(_fig_d7(mview, terminal, threshold),
                             width='stretch')
