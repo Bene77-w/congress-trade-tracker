@@ -13,18 +13,27 @@ import os
 # Verifizierte DeepSeek-V4-Modelle (Juni 2026): deepseek-v4-pro, deepseek-v4-flash.
 # ---------------------------------------------------------------------------
 MODELS = {
-    "research":  ("deepseek-v4-flash", None),    # geordnete Infos sammeln
-    "mapping":   ("deepseek-v4-pro",   "high"),  # eigentliche Klassifikation
-    "review":    ("deepseek-v4-pro",   None),    # Plausibilitaets-Kontrolle
-    "finalize":  ("deepseek-v4-pro",   "high"),  # User-Kommentare einarbeiten
+    "research":  ("deepseek-v4-flash", 'high'),   # geordnete Infos sammeln
+    "mapping":   ("deepseek-v4-pro",   "max"),  # eigentliche Klassifikation
+    "review":    ("deepseek-v4-pro",   "max"),  # Plausibilitaets-Kontrolle
+    "finalize":  ("deepseek-v4-pro",   "max"),  # User-Kommentare einarbeiten
 }
 
+# Review-LLM-Instanz an/aus. False = 'review' schreibt Pass-Through-Caches
+# (Mapping-Konfidenz unveraendert, review_flag 'not_reviewed', keine API-Calls);
+# der Pipeline-Rest (export-review/finalize/promote) laeuft identisch weiter.
+# Sinnvoll, wenn Mapping + Review dasselbe Modell mit gleichem Effort nutzen —
+# dann bringt die Zweitmeinung wenig ausser Kosten.
+REVIEW_ENABLED = True
+
 # max_tokens (Output-Limit) je Rolle. DeepSeek akzeptiert NUR max_tokens.
+# ACHTUNG: Reasoning-Tokens (Thinking-Mode) zaehlen GEGEN dieses Budget —
+# bei effort="max" muss es gross genug sein, sonst kommt leerer Content zurueck.
 MAX_TOKENS = {
-    "research":  4096,
-    "mapping":   8192,
-    "review":    8192,
-    "finalize":  8192,
+    "research":  8192,
+    "mapping":   16384,
+    "review":    16384,
+    "finalize":  16384,
 }
 
 # ---------------------------------------------------------------------------
@@ -33,8 +42,25 @@ MAX_TOKENS = {
 MAX_SEARCH_TURNS = 8       # harte Obergrenze Tool-Turns je Research-Committee
 MAX_REPAIR_RETRIES = 2     # Repair-Reprompts bei JSON/Schema-Fehler je Call
 REQUEST_TIMEOUT = 120      # Sekunden je LLM-HTTP-Call
+
+# Leeres-Mapping-Retry: bleibt eine Einheit nach dem ersten Versuch ohne valide
+# Zeile, wird das Mapping mit frischem API-Call wiederholt (die Lauf-Varianz des
+# Modells gibt so eine zweite Chance). Backoff = Abkuehlzeit (Sek.) VOR Retry i.
+# Nur wenn MAP_RETRY_ONLY_GROUNDED den Versuch zulaesst (Default: nur bei
+# grounding_quality == "direct" — bei "none"/"fallback" ist leer oft korrekt,
+# da lohnt kein Backoff). Bleibt es nach allen Versuchen leer -> no_mapping.
+MAP_EMPTY_RETRIES = 5                  # Re-Versuche bei leerem Mapping
+MAP_EMPTY_BACKOFF = (2, 4, 8, 16, 32)  # Sek. vor Retry 1..5 (exponentiell)
+MAP_RETRY_ONLY_GROUNDED = True         # nur retryen, wenn grounding == "direct"
 FETCH_TIMEOUT = 20         # Sekunden je fetch_page-HTTP-Call
 FETCH_MAX_CHARS = 12000    # Text-Kappung je gefetchter Seite (Token-Schutz)
+
+# Parallelisierung (Threads — die Calls sind I/O-bound, der OpenAI-Client ist
+# thread-safe). DeepSeek drosselt unter Last serverseitig dynamisch: werden
+# Calls auffaellig langsam, Werte senken. research bleibt bewusst sequentiell
+# (kein Hammering der Committee-Websites).
+MAP_CONCURRENCY = 6        # parallele Mapping-Einheiten
+REVIEW_CONCURRENCY = 3     # parallele Review-Committees
 
 # ---------------------------------------------------------------------------
 # DeepSeek-API
@@ -81,6 +107,22 @@ MASTER_COLUMNS = [
 CONFIDENCE_TO_CSV = {"low": "Niedrig", "medium": "Mittel", "high": "Hoch"}
 CONFIDENCE_FROM_CSV = {v: k for k, v in CONFIDENCE_TO_CSV.items()}
 CONFIDENCE_LEVELS = ("low", "medium", "high")
+
+# Kalibrierungs-Rubrik fuer die Konfidenz — identisch im Mapping- UND
+# Review-Prompt, damit beide Agenten dieselbe Skala sprechen. Verlangt die
+# Stufen ausdruecklich als Strings (DeepSeek neigt sonst zu Zahlen ~0.7, die
+# beim Bucketing alle in 'medium' landen).
+CONFIDENCE_RUBRIC = (
+    "\nKONFIDENZ-KALIBRIERUNG (Pflicht, exakt einer der Strings low|medium|high"
+    " — KEINE Zahlen):\n"
+    "- high   = das woertliche Zitat nennt die Domaene der Industry explizit "
+    "(z. B. Zitat nennt 'banks' -> Banks-Industries).\n"
+    "- medium = klarer thematischer Bezug der Jurisdiktion, aber ohne "
+    "woertliche Nennung im Zitat.\n"
+    "- low    = Bezug nur indirekt ableitbar oder spekulativ.\n"
+    "Differenziere ehrlich zwischen den Zeilen — nicht pauschal dieselbe "
+    "Stufe vergeben."
+)
 
 # Grounding-Qualitaet -> maximal erlaubte Konfidenz (Deckel gegen Halluzination).
 # Ohne echtes Zitat von der Primaerquelle darf nichts "high" sein.

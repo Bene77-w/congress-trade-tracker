@@ -130,6 +130,7 @@ pip install -r requirements.txt
 # API-Keys
 CONGRESS_API_KEY=...
 ANTHROPIC_API_KEY=...
+DEEPSEEK_API_KEY=...
 
 # SMTP (optional, für Email-Benachrichtigungen)
 SMTP_SERVER=...
@@ -141,6 +142,14 @@ EMAIL_RECIPIENT=...
 # Tesseract (nur wenn nicht am Standard-Pfad)
 # TESSERACT_PATH=/pfad/zu/tesseract
 ```
+
+`DEEPSEEK_API_KEY` wird vom Committee-Mapping-Agent (`scripts/committee_mapping_agent/`, s. `CLI_Bedienungsanleitung.md` Abschnitt 15) für die DeepSeek-V4-API benötigt (`research`/`map`/`review`/`finalize`; ohne Key Exit-Code 3). Bei `config.REVIEW_ENABLED=False` läuft `review` ohne Key.
+
+**Zusätzliche Python-Abhängigkeiten für den Committee-Mapping-Agent** (noch nicht in `requirements.txt`):
+```bash
+pip install openai jsonschema ddgs
+```
+(`beautifulsoup4`, `openpyxl`, `python-dotenv`, `requests` sind bereits in `requirements.txt`.)
 
 ---
 

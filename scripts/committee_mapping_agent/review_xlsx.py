@@ -23,7 +23,7 @@ from . import config
 
 COLUMNS = [
     "mapping_id", "Chamber", "Committee", "Subcommittee", "Sector", "Industry",
-    "Sector_Rank", "confidence", "grounding_source", "ai_comment",
+    "Sector_Rank", "confidence", "grounding_source", "review_reason",
     "review_flag", "comment",
 ]
 COMMENT_COL_IDX = COLUMNS.index("comment") + 1  # 1-basiert
@@ -35,6 +35,7 @@ _FILL = {
     "medium": PatternFill("solid", fgColor="FFEB9C"),  # gelb
     "high": PatternFill("solid", fgColor="C6EFCE"),    # gruen
 }
+_NO_MAP_FILL = PatternFill("solid", fgColor="D9D9D9")  # grau: Einheit ohne Mapping
 
 _FILES = {
     "all": "review_all.xlsx",
@@ -51,7 +52,7 @@ def _row_values(r: Dict[str, Any]) -> List[Any]:
     return [
         r["mapping_id"], r["chamber"], r["committee"], r["subcommittee"],
         r["sector"], r["industry"], r["rank"], r["confidence"],
-        r.get("grounding_source", ""), r.get("ai_comment", ""),
+        r.get("grounding_source", ""), r.get("review_reason", ""),
         r.get("review_flag", "ok"), r.get("comment", ""),
     ]
 
@@ -65,8 +66,10 @@ def _write_sheet(rows: List[Dict[str, Any]], path: str) -> None:
         cell.font = Font(bold=True)
     for r in rows:
         ws.append(_row_values(r))
-        conf = str(r.get("confidence", "")).lower()
-        fill = _FILL.get(conf)
+        if str(r.get("review_flag")) == "no_mapping":
+            fill = _NO_MAP_FILL
+        else:
+            fill = _FILL.get(str(r.get("confidence", "")).lower())
         if fill:
             ws.cell(row=ws.max_row, column=CONF_COL_IDX).fill = fill
     # Spaltenbreiten grob setzen (Lesbarkeit).
@@ -86,7 +89,11 @@ def export_review(reviewed_rows: List[Dict[str, Any]],
     paths = {k: os.path.join(review_dir, fn) for k, fn in _FILES.items()}
 
     _write_sheet(reviewed_rows, paths["all"])
-    _write_sheet([r for r in reviewed_rows if str(r.get("confidence")).lower() == "low"],
+    # Low-Datei = Aufmerksamkeits-Bucket: niedrige Konfidenz UND unmappte
+    # Einheiten (Luecken), damit der Reviewer beides an einer Stelle sieht.
+    _write_sheet([r for r in reviewed_rows
+                  if str(r.get("confidence")).lower() == "low"
+                  or str(r.get("review_flag")) == "no_mapping"],
                  paths["low"])
     _write_sheet([r for r in reviewed_rows if str(r.get("confidence")).lower() == "medium"],
                  paths["medium"])

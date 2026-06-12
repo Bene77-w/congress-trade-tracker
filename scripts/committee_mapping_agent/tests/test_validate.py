@@ -20,7 +20,7 @@ def _tax():
 
 def _row(sector, industry, rank=1, confidence="high", grounding="https://x — \"zitat\""):
     return {"sector": sector, "industry": industry, "rank": rank,
-            "confidence": confidence, "ai_comment": "c", "grounding_source": grounding}
+            "confidence": confidence, "grounding_source": grounding}
 
 
 def test_drops_non_allowlist_pair():

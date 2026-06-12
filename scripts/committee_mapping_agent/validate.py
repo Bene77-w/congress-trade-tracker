@@ -36,8 +36,7 @@ def validate_rows(
     """Validiert/bereinigt Mapping-Zeilen einer Einheit.
 
     Args:
-        rows: Liste von {sector, industry, rank, confidence, ai_comment,
-              grounding_source}
+        rows: Liste von {sector, industry, rank, confidence, grounding_source}
         taxonomy_data: geladene Taxonomie (Allow-Liste)
         grounding_quality: direct|fallback|none der Einheit -> Konfidenz-Deckel
         taxonomy_pairs: optionaler vorberechneter Allow-Pairs-Set (Perf)
@@ -111,7 +110,6 @@ def validate_rows(
             "industry": industry,
             "rank": rank,
             "confidence": conf,
-            "ai_comment": str(row.get("ai_comment", "")).strip(),
             "grounding_source": grounding,
         })
 

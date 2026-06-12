@@ -42,8 +42,8 @@ def test_call_json_valid_first_try():
     assert len(client.calls) == 1
     # JSON-Mode muss gesetzt sein.
     assert client.calls[0]["response_format"] == {"type": "json_object"}
-    # 'mapping' hat effort="high" -> Thinking-Kwargs gesetzt.
-    assert client.calls[0]["reasoning_effort"] == "high"
+    # 'mapping' hat effort gesetzt -> Thinking-Kwargs muessen mitgehen.
+    assert client.calls[0]["reasoning_effort"] == config.MODELS["mapping"][1]
     assert client.calls[0]["extra_body"] == {"thinking": {"type": "enabled"}}
 
 
@@ -79,8 +79,10 @@ def test_call_json_raises_after_exhausting_retries():
     assert len(client.calls) == 3
 
 
-def test_call_json_no_effort_omits_thinking():
-    # 'research' hat effort=None -> keine Thinking-Kwargs.
+def test_call_json_no_effort_omits_thinking(monkeypatch):
+    # effort=None -> keine Thinking-Kwargs (Rolle hier explizit gestubbt,
+    # damit der Test von der echten MODELS-Config unabhaengig ist).
+    monkeypatch.setitem(config.MODELS, "research", ("deepseek-v4-flash", None))
     client = FakeClient([make_response(json.dumps({"sector": "X", "rank": 0}))])
     call_json("research", "sys", "user", SCHEMA, client=client)
     assert "reasoning_effort" not in client.calls[0]

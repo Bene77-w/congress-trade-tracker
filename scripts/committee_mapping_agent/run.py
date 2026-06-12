@@ -24,7 +24,8 @@ import json
 import logging
 import os
 import sys
-from typing import Any, Dict, Iterator, List, Optional, Tuple
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 
 from . import (
     committees,
@@ -69,6 +70,37 @@ def _units_to_map(subcommittees: List[str]) -> List[str]:
     return list(subcommittees) if subcommittees else [COMMITTEE_KEY]
 
 
+def _run_parallel(
+    label: str,
+    tasks: List[Tuple],
+    worker: Callable[..., Any],
+    max_workers: int,
+) -> List[Tuple[Tuple, str]]:
+    """Fuehrt worker(*task) im Thread-Pool aus (I/O-bound API-Calls).
+
+    Eine fehlgeschlagene Aufgabe bricht den Lauf NICHT ab — sie wird geloggt
+    und gesammelt; die uebrigen laufen weiter (Re-Run holt dank Cache nur die
+    Fehlenden nach). Liefert die Liste (task, fehlermeldung).
+    """
+    failures: List[Tuple[Tuple, str]] = []
+    if not tasks:
+        return failures
+    # Client-Singleton VOR dem Pool initialisieren: vermeidet das Erzeugungs-
+    # Race und laesst MissingAPIKeyError frueh + eindeutig hochkommen.
+    llm_client.get_client()
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {pool.submit(worker, *task): task for task in tasks}
+        for fut in as_completed(futures):
+            task = futures[fut]
+            try:
+                fut.result()
+            except Exception as exc:  # Einzelfehler sammeln, Lauf fortsetzen
+                logger.error("%s fehlgeschlagen (%s): %s", label,
+                             " / ".join(str(p) for p in task[:3]), exc)
+                failures.append((task, str(exc)))
+    return failures
+
+
 # ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
@@ -88,6 +120,7 @@ def cmd_research(args: argparse.Namespace) -> int:
 
 def cmd_map(args: argparse.Namespace) -> int:
     tax = taxonomy.load()
+    tasks: List[Tuple] = []
     for ch, comm, subs in _select(args.chamber, args.committee):
         rpath = research.cache_path(ch, comm)
         if not os.path.exists(rpath):
@@ -98,14 +131,21 @@ def cmd_map(args: argparse.Namespace) -> int:
             rdata = json.load(fh)
         jurisdiction = rdata.get("jurisdiction", {})
         for unit in _units_to_map(subs):
-            entry = jurisdiction.get(unit, {})
-            logger.info("Map: %s / %s / %s", ch, comm, unit)
-            mapping.map_unit(ch, comm, unit, entry, tax, force=args.force)
-    return 0
+            tasks.append((ch, comm, unit, jurisdiction.get(unit, {})))
+
+    def _work(ch: str, comm: str, unit: str, entry: Dict[str, Any]) -> None:
+        logger.info("Map: %s / %s / %s", ch, comm, unit)
+        mapping.map_unit(ch, comm, unit, entry, tax, force=args.force)
+
+    failures = _run_parallel("Map", tasks, _work, config.MAP_CONCURRENCY)
+    logger.info("Map fertig: %d Einheit(en) ok, %d fehlgeschlagen.",
+                len(tasks) - len(failures), len(failures))
+    return 1 if failures else 0
 
 
 def cmd_review(args: argparse.Namespace) -> int:
     tax = taxonomy.load()
+    tasks: List[Tuple] = []
     for ch, comm, subs in _select(args.chamber, args.committee):
         rpath = research.cache_path(ch, comm)
         if not os.path.exists(rpath):
@@ -122,10 +162,32 @@ def cmd_review(args: argparse.Namespace) -> int:
         if not mapping_results:
             logger.warning("Review: keine Mapping-Caches fuer %s/%s.", ch, comm)
             continue
+        tasks.append((ch, comm, jurisdiction, mapping_results))
+
+    def _work(ch: str, comm: str, jurisdiction: Dict[str, Any],
+              mapping_results: List[Dict[str, Any]]) -> None:
         logger.info("Review: %s / %s", ch, comm)
         review_mod.review_committee(ch, comm, jurisdiction, mapping_results,
                                     tax, force=args.force)
-    return 0
+
+    if not config.REVIEW_ENABLED:
+        # Pass-Through: keine API-Calls -> sequentiell, ohne Client/Key.
+        logger.info("Review deaktiviert (config.REVIEW_ENABLED=False) — "
+                    "schreibe Pass-Through-Caches.")
+        failures = []
+        for task in tasks:
+            try:
+                _work(*task)
+            except Exception as exc:
+                logger.error("Review fehlgeschlagen (%s): %s",
+                             " / ".join(str(p) for p in task[:2]), exc)
+                failures.append((task, str(exc)))
+    else:
+        failures = _run_parallel("Review", tasks, _work,
+                                 config.REVIEW_CONCURRENCY)
+    logger.info("Review fertig: %d Committee(s) ok, %d fehlgeschlagen.",
+                len(tasks) - len(failures), len(failures))
+    return 1 if failures else 0
 
 
 def _collect_reviewed_rows(chamber: Optional[str], committee: Optional[str]

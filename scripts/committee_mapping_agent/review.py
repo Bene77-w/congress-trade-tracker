@@ -1,9 +1,12 @@
 """Review-Agent: kontrolliert die gemappten Zeilen eines Committees.
 
 Pruefkriterien (User-Vorgabe): Rechtfertigt das Zitat den Sektor? Fehlt ein
-naheliegender Sektor/Industry? Ist die Konfidenz ehrlich? Der Reviewer aendert
-die Allow-Liste NICHT — er flaggt nur (review_flag + Begruendung) und schlaegt
-fehlende Zuordnungen vor (advisory, landet im xlsx fuer den menschlichen Review).
+naheliegender Sektor/Industry? Ist die Konfidenz ehrlich? Der Reviewer setzt
+die Konfidenz je Zeile DIREKT neu (reviewed_confidence, gleiche Rubrik wie der
+Mapping-Agent — kein formelhaftes Auf-/Abstufen im Code); deterministisch bleibt
+nur der Grounding-Deckel als Halluzinations-Schutz. Die Allow-Liste aendert er
+NICHT — fehlende Zuordnungen schlaegt er advisory vor (landet im xlsx fuer den
+menschlichen Review).
 
 Output -> cache/review/{chamber}_{committee_slug}.json
 """
@@ -12,7 +15,7 @@ import logging
 import os
 from typing import Any, Dict, List, Optional
 
-from . import config, llm_client, taxonomy
+from . import config, llm_client, taxonomy, validate
 from .committees import slugify
 from .rowid import mapping_id, resolve_subcommittee_label
 
@@ -31,9 +34,14 @@ _REVIEW_SCHEMA = {
                 "properties": {
                     "index": {"type": "integer", "minimum": 0},
                     "review_flag": {"type": "string", "enum": list(REVIEW_FLAGS)},
+                    "reviewed_confidence": {
+                        "type": "string",
+                        "enum": list(config.CONFIDENCE_LEVELS),
+                    },
                     "reason": {"type": "string"},
                 },
-                "required": ["index", "review_flag", "reason"],
+                "required": ["index", "review_flag", "reviewed_confidence",
+                             "reason"],
                 "additionalProperties": False,
             },
         },
@@ -65,6 +73,10 @@ _REVIEW_INSTRUCT = (
     "nicht zu niedrig trotz klarem Bezug)?\n"
     "Setze pro Zeile genau einen review_flag aus: ok, confidence_too_high, "
     "confidence_too_low, weak_grounding, off_topic — mit knapper Begruendung.\n"
+    "Setze pro Zeile AUSSERDEM reviewed_confidence: deine eigene, unabhaengig "
+    "abgewogene Konfidenz dieser Zuordnung nach folgender Rubrik (sie ersetzt "
+    "die Mapping-Konfidenz; bei ok-Zeilen darf sie gleich bleiben)."
+    + config.CONFIDENCE_RUBRIC + "\n"
     "Nenne ausserdem in 'missing' naheliegende Sektor/Industry-Paare aus der "
     "Allow-Liste, die fehlen (mit Einheit + Begruendung). Erfinde nichts "
     "ausserhalb der Allow-Liste."
@@ -86,7 +98,6 @@ def _flatten(committee: str, jurisdiction: Dict[str, Any],
                 "industry": row["industry"],
                 "rank": row["rank"],
                 "confidence": row["confidence"],
-                "ai_comment": row.get("ai_comment", ""),
                 "grounding_source": row.get("grounding_source", ""),
                 "grounding_quality": entry.get("grounding_quality", "none"),
                 "quote": entry.get("quote", ""),
@@ -120,15 +131,25 @@ def review_committee(
     client: Any = None,
     force: bool = False,
 ) -> Dict[str, Any]:
-    """Reviewt alle gemappten Zeilen eines Committees; haengt Flags an."""
+    """Reviewt alle gemappten Zeilen eines Committees; haengt Flags an.
+
+    Bei config.REVIEW_ENABLED=False entsteht ein Pass-Through-Cache ohne
+    LLM-Call (review_flag 'not_reviewed'). Cache-Logik beim Umschalten:
+    Pass-Through-Cache + Schalter wieder an -> automatisch neu reviewen;
+    echter Review-Cache + Schalter aus -> Cache behalten (bezahltes Urteil).
+    """
     path = cache_path(chamber, committee)
     if os.path.exists(path) and not force:
         with open(path, "r", encoding="utf-8") as fh:
-            return json.load(fh)
+            cached = json.load(fh)
+        if cached.get("llm_reviewed", True) or not config.REVIEW_ENABLED:
+            return cached
+        logger.info("Review-Cache %s/%s ist Pass-Through, REVIEW_ENABLED=True "
+                    "-> reviewe neu.", chamber, committee)
 
     flat = _flatten(committee, jurisdiction, mapping_results)
 
-    if flat:
+    if flat and config.REVIEW_ENABLED:
         system = taxonomy.build_prefix_block(taxonomy_data) + _REVIEW_INSTRUCT
         user = f"Committee: {committee} ({chamber})\n\nZeilen:\n" + _render_rows(flat)
         review = llm_client.call_json("review", system, user, _REVIEW_SCHEMA,
@@ -138,9 +159,28 @@ def review_committee(
     else:
         by_index, missing = {}, []
 
+    # Bei deaktiviertem Review ehrlich 'not_reviewed' statt 'ok' ausweisen.
+    default_flag = "ok" if config.REVIEW_ENABLED else "not_reviewed"
     reviewed_rows: List[Dict[str, Any]] = []
     for i, r in enumerate(flat):
         rv = by_index.get(i, {})
+        conf = r["confidence"]
+        reason = rv.get("reason", "")
+        # Konfidenz des Reviewers uebernehmen (LLM-Urteil, keine Formel) —
+        # deterministisch bleibt nur der Grounding-Deckel. Abweichungen werden
+        # in review_reason dokumentiert (xlsx-sichtbar) + geloggt.
+        reviewed = str(rv.get("reviewed_confidence", "")).strip().lower()
+        if reviewed in config.CONFIDENCE_LEVELS:
+            cap = config.GROUNDING_CONFIDENCE_CAP.get(
+                r["grounding_quality"], "low")
+            new_conf = validate._cap_confidence(reviewed, cap)
+            if new_conf != conf:
+                reason = f"Konfidenz {conf} -> {new_conf}. {reason}".strip()
+                logger.info(
+                    "Review-Konfidenz %s/%s %s/%s: %s -> %s",
+                    committee, r["subcommittee"], r["sector"], r["industry"],
+                    conf, new_conf)
+            conf = new_conf
         reviewed_rows.append({
             "mapping_id": mapping_id(chamber, committee, r["subcommittee"],
                                      r["sector"], r["industry"]),
@@ -150,16 +190,42 @@ def review_committee(
             "sector": r["sector"],
             "industry": r["industry"],
             "rank": r["rank"],
-            "confidence": r["confidence"],
-            "ai_comment": r["ai_comment"],
+            "confidence": conf,
             "grounding_source": r["grounding_source"],
-            "review_flag": rv.get("review_flag", "ok"),
-            "review_reason": rv.get("reason", ""),
+            "review_flag": rv.get("review_flag", default_flag),
+            "review_reason": reason,
+        })
+
+    # Unmappte Einheiten (no_mapping nach allen Retries) als Platzhalter-Zeile
+    # listen — Transparenz fuer den menschlichen Reviewer. Leere Sector/Industry
+    # -> erscheint grau im xlsx, wird in der finalen Master-CSV uebersprungen.
+    for mres in mapping_results:
+        if not mres.get("no_mapping"):
+            continue
+        unit_key = mres["unit_key"]
+        sub_label = resolve_subcommittee_label(committee, unit_key)
+        entry = jurisdiction.get(unit_key, {})
+        reviewed_rows.append({
+            "mapping_id": mapping_id(chamber, committee, sub_label, "", ""),
+            "chamber": chamber,
+            "committee": committee,
+            "subcommittee": sub_label,
+            "sector": "",
+            "industry": "",
+            "rank": "",
+            "confidence": "",
+            "grounding_source": entry.get("source_url", ""),
+            "review_flag": "no_mapping",
+            "review_reason": (
+                f"Kein valides Mapping nach {mres.get('attempts', 1)} "
+                f"Versuch(en) (grounding={mres.get('grounding_quality', 'none')})."
+            ),
         })
 
     result = {
         "chamber": chamber,
         "committee": committee,
+        "llm_reviewed": config.REVIEW_ENABLED,
         "reviewed_rows": reviewed_rows,
         "missing": missing,
     }
