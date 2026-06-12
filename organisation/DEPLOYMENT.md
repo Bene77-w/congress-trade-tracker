@@ -1,6 +1,6 @@
-# Migrations-Anleitung: Plattformwechsel & USB-Portabilität
+# Deployment: Plattformwechsel, USB-Portabilität & Docker
 
-Diese Anleitung beschreibt alle Schritte um das Projekt auf einem neuen System (Linux, Mac, Windows) einzurichten — auch beim Betrieb von einem USB-Stick.
+Referenz für das Aufsetzen des Projekts auf einem neuen System (Linux, Mac, Windows) — inkl. USB-Stick-Betrieb und Docker-Alternative. Nur relevant beim Einrichten/Umzug, nicht für den täglichen Lauf (dafür → `README.md` Quick-Start).
 
 ---
 
@@ -130,6 +130,7 @@ pip install -r requirements.txt
 # API-Keys
 CONGRESS_API_KEY=...
 ANTHROPIC_API_KEY=...
+DEEPSEEK_API_KEY=...
 
 # SMTP (optional, für Email-Benachrichtigungen)
 SMTP_SERVER=...
@@ -141,6 +142,14 @@ EMAIL_RECIPIENT=...
 # Tesseract (nur wenn nicht am Standard-Pfad)
 # TESSERACT_PATH=/pfad/zu/tesseract
 ```
+
+`DEEPSEEK_API_KEY` wird vom Committee-Mapping-Agent (`scripts/committee_mapping_agent/`, s. `CLI_Bedienungsanleitung.md` Abschnitt 15) für die DeepSeek-V4-API benötigt (`research`/`map`/`review`/`finalize`; ohne Key Exit-Code 3). Bei `config.REVIEW_ENABLED=False` läuft `review` ohne Key.
+
+**Zusätzliche Python-Abhängigkeiten für den Committee-Mapping-Agent** (noch nicht in `requirements.txt`):
+```bash
+pip install openai jsonschema ddgs
+```
+(`beautifulsoup4`, `openpyxl`, `python-dotenv`, `requests` sind bereits in `requirements.txt`.)
 
 ---
 

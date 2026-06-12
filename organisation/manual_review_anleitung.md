@@ -13,6 +13,7 @@ Dieses Dokument erklärt **alle manuellen Review-Vorgänge** im Congress-Trade-T
 | 1. **Namen** (Politiker) | `data/processed/unmatched_names.csv` | `data/mappings/name_aliases.csv` | NameMatcher liest Alias bei nächstem Lauf |
 | 2. **Manual-Review-Tickers** | `data/processed/manual_review_tickers.csv` | (Klassifikator-Regeln in `utils/ticker_classifier.py` oder Whitelist) | Klassifikator markiert mehrdeutige Ticker |
 | 3. **Duplikate** | `data/processed/duplicate_inspection_sample.csv` | (keine — nur Sichtprüfung; ggf. `DEDUP_STRATEGY` in `config/settings.py`) | Sichtprüfung der Trade-ID-Hash-Strategie |
+| 4. **Committee-Mapping-Agent** (`comment`-Spalte) | `scripts/committee_mapping_agent/review_out/review_{all,low,medium}.xlsx` | `data/mappings/subcommittee_sector_industry_mapping_generated.csv` (Staging, via `finalize`) → `subcommittee_sector_industry_mapping.csv` (Master, via `promote`) | `finalize` liest `comment`-Spalte je `mapping_id`, schreibt Staging-CSV |
 
 Reine **Output-Dateien ohne Review-Pflicht** (Information / Diagnose):
 
@@ -178,7 +179,51 @@ Zwei Zeilen mit **gleicher** `trade_id` ⇒ Pipeline hält sie für Duplikate.
 
 ---
 
-## 4. Reine Output-Dateien (kein Review nötig)
+## 4. Committee-Mapping-Agent — xlsx-Round-Trip (in Arbeit)
+
+### Worum geht es?
+
+Der Committee-Mapping-Agent (`scripts/committee_mapping_agent/`, CLI s. `CLI_Bedienungsanleitung.md` Abschnitt 15, Datenstrukturen s. `DATA_STRUCTURE.md` Abschnitt 3a) erzeugt den Master `subcommittee_sector_industry_mapping.csv` aus LLM-Klassifikationen neu. Vor der Übernahme prüft ein Mensch die Vorschläge in 3 Excel-Dateien und kann per Freitext-Kommentar Korrekturen anweisen.
+
+### Die 3 Review-Dateien (`scripts/committee_mapping_agent/review_out/`)
+
+| Datei | Inhalt |
+|-------|--------|
+| `review_all.xlsx` | Alle Mapping-Zeilen |
+| `review_low.xlsx` | Konfidenz `low` **plus** alle `no_mapping`-Zeilen (Aufmerksamkeits-Bucket) |
+| `review_medium.xlsx` | Konfidenz `medium` |
+
+**Spalten:** `mapping_id, Chamber, Committee, Subcommittee, Sector, Industry, Sector_Rank, confidence, grounding_source, review_reason, review_flag, comment`
+
+**Farbcodes** (Zelle `confidence`):
+- rot = `low`, gelb = `medium`, grün = `high`
+- grau = `review_flag == no_mapping` (Einheit ohne valides Mapping — Platzhalterzeile, leere Sector/Industry/confidence-Felder)
+
+### Schritt-für-Schritt
+
+1. **Dateien öffnen** in `scripts/committee_mapping_agent/review_out/`.
+2. **`review_low.xlsx` zuerst** (größter Hebel: niedrige Konfidenz + fehlende Mappings).
+3. **Pro Zeile** `review_reason` und `grounding_source` prüfen. Bei Konfidenz-Abweichung des Reviewers steht ein Präfix `"Konfidenz X -> Y."` in `review_reason`.
+4. **`comment`-Spalte ausfüllen** (nur bei gewünschter Korrektur, sonst leer lassen):
+   - Freitext-Anweisung an `finalize`, z. B. Sektor/Industry korrigieren, Zeile entfernen, fehlendes Mapping ergänzen.
+   - Gleiche `mapping_id` in mehreren Dateien (z. B. `review_all.xlsx` und `review_low.xlsx`) → Kommentare müssen **identisch** sein, sonst bricht `finalize` mit Exit-Code 2 ab (Konflikt-Report).
+   - Grau markierte `no_mapping`-Zeilen: leere Sector/Industry/confidence — Kommentar kann hier ein Mapping vorschlagen, sonst bleibt die Zeile in der finalen CSV weg.
+5. **Speichern** (xlsx, UTF-8 intern via openpyxl).
+6. **Finalize laufen lassen:**
+   ```bash
+   python -m scripts.committee_mapping_agent.run finalize
+   ```
+   Kommentarlose Zeilen werden unverändert übernommen (Pass-Through); Ergebnis ist `data/mappings/subcommittee_sector_industry_mapping_generated.csv` (Staging).
+7. **Staging-CSV prüfen** (7-Spalten-Schema, `DATA_STRUCTURE.md` Abschnitt 3a).
+8. **Promote:**
+   ```bash
+   python -m scripts.committee_mapping_agent.run promote
+   ```
+   Ersetzt `subcommittee_sector_industry_mapping.csv` (Master), legt vom alten Master ein Timestamp-Backup an.
+
+---
+
+## 5. Reine Output-Dateien (kein Review nötig)
 
 ### `data/processed/delisted_trades.csv`
 
@@ -208,6 +253,7 @@ Empfohlene Abarbeitungs-Reihenfolge (nach Hebelwirkung):
 1. **`unmatched_names.csv`** — größter Hebel: ein Alias kann tausende Trades anreichern.
 2. **`manual_review_tickers.csv`** — Top-10 nach `count_of_trades` durcharbeiten.
 3. **`duplicate_inspection_sample.csv`** — nur stichprobenartig, einmal pro Major-Release.
-4. **`delisted_trades.csv` / `ticker_liste_index.csv`** — nur lesen, nicht bearbeiten.
+4. **Committee-Mapping-Agent Review-xlsx** — nur bei Full-Run/Re-Run des Agents (s. Abschnitt 4).
+5. **`delisted_trades.csv` / `ticker_liste_index.csv`** — nur lesen, nicht bearbeiten.
 
 > **Faustregel:** Nach 3–4 Review-Iterationen sollte `unmatched_names.csv` auf <50 Zeilen schrumpfen, `manual_review_tickers.csv` auf <100. Was dann übrigbleibt, ist meist „long tail" und erfordert Pipeline-Code-Änderungen, nicht mehr nur Mapping-Pflege.

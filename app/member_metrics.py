@@ -35,77 +35,12 @@ _PRICE_CACHE_SENTINEL = pd.Timestamp('1900-01-01')
 
 
 # ---------------------------------------------------------------------------
-# Committee-Parser (Member_Committees_Full)
+# Committee-Parser (Member_Committees_Full) — zentral in utils/committee_parser
 # ---------------------------------------------------------------------------
 
-def _split_name_role(token: str) -> tuple[str, str]:
-    """``"Name|Role"`` oder ``"Name"`` -> ``(name, role)`` (beide getrimmt)."""
-    name, _, role = token.partition('|')
-    return name.strip(), role.strip()
-
-
-def parse_committees_full(committee_string: Any) -> list[dict]:
-    """Parst ``Member_Committees_Full`` in eine verschachtelte Struktur.
-
-    Grammatik (Quell-Roster ``data/mappings/*_member&(sub)committees.csv``,
-    Spalte ``Committees`` -> 1:1 in ``Member_Committees_Full``):
-      - ``;`` trennt EINTRAEGE (Committees UND Subcommittees gemischt)
-      - ``:`` markiert den Beginn der Subcommittee-Liste eines Committees
-      - ``|`` trennt ``Name|Rolle`` (Rolle optional)
-
-    Ein ``;``-Eintrag startet ein NEUES Committee genau dann, wenn er ein ``:``
-    enthaelt; sonst ist er Subcommittee des zuletzt geoeffneten Committees. Der
-    erste Eintrag ist immer ein Committee.
-
-    Bekannte Grenze (verlustbehaftetes Quellformat): Ein Committee OHNE
-    Subcommittees, das auf ein anderes Committee folgt, ist im String nicht von
-    einem Subcommittee unterscheidbar und wird als Subcommittee angehaengt
-    (z. B. 'Permanent Select Committee On Intelligence' bei Josh Gottheimer).
-    Der pipeline-eigene ``tags.committee_tag.CommitteeParser`` flacht dagegen
-    ALLE ``;``-Subcommittees zu Top-Level-Committees ab -> fuer die Anzeige
-    schlechter; daher dieser eigene, verschachtelnde Parser.
-
-    Returns:
-        ``[{'committee': str, 'role': str,
-            'subcommittees': [{'name': str, 'role': str}, ...]}, ...]``
-    """
-    if not isinstance(committee_string, str) or not committee_string.strip():
-        return []
-
-    committees: list[dict] = []
-    current: dict | None = None
-
-    for raw in committee_string.split(';'):
-        entry = raw.strip()
-        if not entry:
-            continue
-
-        if ':' in entry:
-            # Neues Committee + (mind.) erstes Subcommittee.
-            parts = entry.split(':')
-            cname, crole = _split_name_role(parts[0])
-            if not cname:
-                continue
-            current = {'committee': cname, 'role': crole, 'subcommittees': []}
-            committees.append(current)
-            for sub in parts[1:]:
-                sname, srole = _split_name_role(sub.strip())
-                if sname:
-                    current['subcommittees'].append(
-                        {'name': sname, 'role': srole})
-        else:
-            name, role = _split_name_role(entry)
-            if not name:
-                continue
-            if current is None:
-                # Erster Eintrag ohne ':' -> Committee ohne Subcommittees.
-                current = {'committee': name, 'role': role,
-                           'subcommittees': []}
-                committees.append(current)
-            else:
-                current['subcommittees'].append({'name': name, 'role': role})
-
-    return committees
+# Re-Export: der F2-Parser lebt zentral in utils/committee_parser.py (EIN Parser
+# fuer Pipeline-Tag UND App). Bestehende Importe aus diesem Modul bleiben gueltig.
+from utils.committee_parser import parse_committees_full  # noqa: F401,E402
 
 
 # ---------------------------------------------------------------------------

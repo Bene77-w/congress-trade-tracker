@@ -1,7 +1,7 @@
 """Persistenz benannter Scoring-Konstellationen fuer das Streamlit-Dashboard.
 
 Ein Preset speichert alle vom User editierbaren Scoring-Parameter (Gewichte +
-Paradox-Damper + Trade-Volume-Tiers + Ex-Officio-Bonus). Format: JSON in
+Paradox-Damper + Trade-Volume-Tiers + Ex-Officio-Rollen-Boni). Format: JSON in
 ``data/config/scoring_presets.json``. Ein Preset namens ``Default`` wird beim
 ersten Laden synthetisch aus ``config.settings`` erzeugt, damit der User auch
 ohne vorhandene Datei umschalten kann.
@@ -14,7 +14,8 @@ Payload-Schema pro Preset::
         "trade_volume_enabled": true,
         "trade_volume_tiers": [[50000, 2], [100000, 4], ..., [null, 16]],
         "trade_volume_trigger": 15000,
-        "ex_officio_bonus": 10
+        "ex_officio_role_bonuses": {"committee_chairman": 15.0, ...},
+        "ex_officio_committee_global": true
     }
 
 JSON erlaubt kein ``float('inf')``; daher wird die Obergrenze des letzten
@@ -78,9 +79,15 @@ def default_payload() -> dict[str, Any]:
         'trade_volume_trigger': float(getattr(
             _settings, 'SCORING_TRADE_VOLUME_TRIGGER_FLOOR', 0.0
         )),
-        'ex_officio_bonus': float(
-            getattr(_settings, 'SCORING_EX_OFFICIO_BONUS', 0.0)
-        ),
+        'ex_officio_role_bonuses': {
+            str(k): float(v)
+            for k, v in (getattr(
+                _settings, 'SCORING_EX_OFFICIO_ROLE_BONUSES', {}
+            ) or {}).items()
+        },
+        'ex_officio_committee_global': bool(getattr(
+            _settings, 'SCORING_EX_OFFICIO_COMMITTEE_GLOBAL', True
+        )),
     }
 
 

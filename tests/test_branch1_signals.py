@@ -56,6 +56,7 @@ def make_row(**overrides) -> pd.Series:
         'Member_Committees_Full': 'Armed Services|Chairman',
         'Vote_Timing_Hit_Count': 0,
         'Relevant_Sectors': '',
+        'ex_officio_role_keys': '',
     }
     base.update(overrides)
     return pd.Series(base)
@@ -172,27 +173,45 @@ class TestCommitteeFullSignal:
 # ---------- CommitteeExOfficioSignal ----------------------------------------
 
 class TestCommitteeExOfficioSignal:
-    def test_triggers_when_committee_and_ex_officio(self):
+    def test_triggers_when_committee_and_role_keys(self):
         signal = CommitteeExOfficioSignal()
         event = signal.evaluate_row(make_row(
             Relevant_Sectors=_sectors(('Healthcare', 'Devices', '', 'full')),
-            Member_ExOfficio='Chairman',
+            ex_officio_role_keys='committee_chairman',
         ))
         assert event is not None
         assert event['signal_type'] == 'committee_ex_officio'
         assert event['is_ex_officio'] is True
+        assert event['ex_officio_role_keys'] == 'committee_chairman'
 
-    def test_does_not_trigger_without_ex_officio(self):
+    def test_does_not_trigger_without_role_keys(self):
         signal = CommitteeExOfficioSignal()
         assert signal.evaluate_row(make_row(
             Relevant_Sectors=_sectors(('Healthcare', 'Devices', '', 'full')),
-            Member_ExOfficio='',
+            ex_officio_role_keys='',
+        )) is None
+
+    def test_member_global_flag_alone_does_not_trigger(self):
+        """v2: das member-globale Member_ExOfficio-Flag reicht nicht mehr —
+        die Fuehrungsrolle muss an einem RELEVANTEN Treffer haengen."""
+        signal = CommitteeExOfficioSignal()
+        assert signal.evaluate_row(make_row(
+            Relevant_Sectors=_sectors(('Healthcare', 'Devices', '', 'full')),
+            Member_ExOfficio='Chairman',
+            ex_officio_role_keys='',
         )) is None
 
     def test_does_not_trigger_without_committee(self):
         signal = CommitteeExOfficioSignal()
         assert signal.evaluate_row(make_row(
-            Relevant_Sectors='[]', Member_ExOfficio='Chairman',
+            Relevant_Sectors='[]', ex_officio_role_keys='committee_chairman',
+        )) is None
+
+    def test_role_keys_nan_does_not_trigger(self):
+        signal = CommitteeExOfficioSignal()
+        assert signal.evaluate_row(make_row(
+            Relevant_Sectors=_sectors(('Healthcare', 'Devices', '', 'full')),
+            ex_officio_role_keys=float('nan'),
         )) is None
 
     def test_distinct_id_from_committee_signal(self):
@@ -200,7 +219,7 @@ class TestCommitteeExOfficioSignal:
         es = CommitteeExOfficioSignal()
         row = make_row(
             Relevant_Sectors=_sectors(('Healthcare', 'Devices', '', 'full')),
-            Member_ExOfficio='Chairman',
+            ex_officio_role_keys='committee_chairman',
         )
         assert cs.evaluate_row(row)['signal_event_id'] != \
                es.evaluate_row(row)['signal_event_id']
@@ -293,7 +312,7 @@ class TestBranch1Integration:
             Relevant_Sectors=_sectors(
                 ('Healthcare', 'Drug Manufacturers', 'Chairman', 'full')
             ),
-            Member_ExOfficio='Chairman',
+            ex_officio_role_keys='committee_chairman',
             Vote_Timing_Hit_Count=2,
             transaction_date=date(2026, 1, 1),
             disclosure_date=date(2026, 4, 1),

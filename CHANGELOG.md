@@ -11,6 +11,102 @@ Historie abgeschlossener Module/Phasen. **Aktiver WIP-Modul-Stand** steht im „
 
 ---
 
+## 2026-06-12 — Committee-Quelldaten F2 + Ex-Officio-Signal v2
+
+**Motivation:** Das alte `Member_Committees_Full`-Format war mehrdeutig (`;`
+trennte Committees UND Subcommittees) — der Pipeline-Parser verlor
+systematisch Subcommittee→Sektor-Zuordnungen (z. B. Walberg 4 statt 20
+Sektoren). Lösung: Committee-Quelldaten von Grund auf neu erzeugt im
+eindeutigen **F2-Format**, plus Überarbeitung des Ex-Officio-Bonus von
+binär/member-global auf **rollen- und ebenen-differenziert**.
+
+**F2-Format** (Spec: `scrapers/senate_pdf_parsing_tool/csv_zielstruktur.md`):
+`;` trennt nur noch Committees, `:` leitet die Sub-Liste ein, `~` (NEU)
+trennt Subcommittees, `|` trennt Name von Rolle. Rollen sind ebenen-abhängig
+(`Chairman`/`Vice Chairman`/`Ranking Member`/`Ex Officio`/`Cochairman`/leer
+auf Committee-Ebene; `Chair`/`Vice Chair`/`Ranking Member`/`Ex Officio`/leer
+auf Sub-Ebene).
+
+**Producer-Wechsel:**
+- **Senate:** alter PDF-Parser (`scrapers/senate_pdf_parsing_tool/parse_us_senate_committee_pdf.py`)
+  retiriert. Neu: `scrapers/senate_committee_xml/fetch_senate_xml.py`
+  (dynamische Committee-Discovery aus senate.gov-Dropdown, curl_cffi
+  Chrome-Impersonation gegen Akamai-403, 26 XML-Snapshots committet nach
+  `scrapers/senate_committee_xml/raw/*.xml` + `_manifest.json` + Change-Report)
+  → `scrapers/senate_committee_xml/parse_senate_xml.py` (XML→F2-CSV, 100
+  Senatoren, Name „Last, First", Rollen-Mapping XML-`position`→F2
+  ebenen-abhängig).
+- **House:** `scrapers/house_pdf_parsing_tool/parse_house_committee_pdf.py`
+  generalisiert auf alle 20 Standing + 2 Select (Intelligence mit 6 Subs,
+  China) + 4 Joint Committees (House-Hälfte, Senatoren kommen aus dem
+  Senate-XML); 436 Member, 26 Committees. Parser-Änderungen:
+  `LEFT_COL_THRESHOLD` 330→318; Select-Sub-Header sz 8.0 (statt 7.5)
+  ALL-CAPS zentriert; 2-zeilige Committee-Header werden gemergt
+  (China-Select); dedizierter `parse_joint`-Pfad mit HOUSE/SENATE-Spalten-Label
+  pro Committee (Flip real, kein Ranking-Member bei Joints); Ex-Officio-
+  Erkennung fordert jetzt das Wort „officio" (False-Positive-Fix
+  „may attend"/„authorized to sit").
+- Neu: `scrapers/generate_committee_structure.py` erzeugt
+  `data/processed/committees_structure.csv` (Chamber, Committee,
+  Subcommittee) aus beiden Quellen.
+- Producer-Outputs `data/mappings/{house,senate}_member&(sub)committees.csv`
+  (437/101 Zeilen) bleiben namens- und spaltengleich, Inhalt jetzt F2.
+
+**Reader/Tag/Signal/Scoring/UI v2:**
+- Neuer zentraler F2-Reader `utils/committee_parser.py` — einziger
+  kanonischer Parser für `Member_Committees_Full`. `app/member_metrics.py`
+  re-exportiert von dort; `tags/committee_tag.py::CommitteeParser` nutzt ihn
+  ebenfalls (alte verlustbehaftete Abflachung entfernt).
+- `tags/committee_tag.py`: jeder Sektor-Eintrag in `Insider_Sectors`/
+  `Relevant_Sectors` trägt jetzt `committee_role` UND `subcommittee_role`
+  statt eines vermischten `role`.
+- Neue Master-Spalte `ex_officio_role_keys` (`;`-getrennt, z. B.
+  `committee_chairman;subcommittee_ranking_member`), erzeugt vom CommitteeTag
+  in Stage `gates_tags`.
+- `signals/committee_ex_officio_signal.py` v2: triggert nur noch, wenn ≥1
+  relevanter Sektor-Treffer eine Führungsrolle trägt (statt global
+  `Member_ExOfficio`).
+- `scoring/trade_score.py` + `config/settings.py`: `SCORING_EX_OFFICIO_BONUS`
+  (alt, einzelner Wert 10) ersetzt durch `SCORING_EX_OFFICIO_ROLE_BONUSES`
+  (8 Role-Keys, Werte 8–15) + `SCORING_EX_OFFICIO_COMMITTEE_GLOBAL` (Toggle).
+  Bonus = MAX über die Boni der vorhandenen Role-Keys (nur wenn ein
+  Trigger-Signal getriggert hat). Breakdown-Token unverändert `ex_officio:+N`.
+- Streamlit Sidebar-Form „Score-Gewichte": Signal-Gewichte jetzt pro Signal
+  in `st.expander` gruppiert; eigener Expander „committee_ex_officio" mit
+  8 `number_input` (ein Bonus pro Role-Key) + Committee-Global-Toggle.
+  Presets/Recompute wachsen entsprechend.
+
+**Debugging-Fixes:** `config/committee_mapping.py::_normalize` strippt jetzt
+führendes `the ` nach „committee on "-Präfix (Befund: „Committee on the
+Judiciary" → 17 statt 0 Sektoren) und kollabiert innere Mehrfach-Whitespaces
+(Quell-XML enthält Doppel-Leerzeichen, z. B. SSBK-Sub); Producer härten
+Whitespace ebenfalls.
+
+**Stage-Sequenz-Korrektur:** Nach einer Roster-/Committee-Daten-Änderung ist
+die korrekte Single-Stage-Re-Run-Sequenz `--stage_committees →
+--stage_gates_tags → --stage_branch1_signals → --stage_sequence_signals →
+--stage_swarm_signals → --stage_scoring (+ --regenerate_curated)` — ohne die
+anschließenden sequence/swarm-Stages verschwinden Sequenz-/Schwarm-Signale
+aus dem Master, da `--stage_branch1_signals` `signals_triggered` von Grund
+auf neu baut. Details: `organisation/Pipelines.md`,
+`organisation/CLI_Bedienungsanleitung.md`.
+
+**Validierung:** Struktur-Orakel House 0 Abweichungen (26 Committees,
+Joint-Headcounts handverifiziert), Senate 70/70 Sub-Paare; Regression nur
+Real-World-Delta; Testsuite 774 passed (2 vorbestehende Scraper-Failures,
+nicht aus diesem Modul). Pipeline-Probelauf (112.728 Trades):
+committee/committee_full-Signale 10.571→**18.702 (+77 %)**;
+committee_ex_officio 10.571 (binär)→9.594 (rollenbasiert); Score-Summe
+1.553.123→1.668.977; Stichproben: Walberg 4→20 Insider-Sektoren, Gottheimer
+Intelligence korrekt eigenes Committee.
+
+**Tests:** `tests/test_senate_xml_parser.py`, `tests/test_committee_tag.py`,
+`tests/test_committee_mapping.py` (erweitert), Anpassungen in
+`test_member_metrics.py`, `test_branch1_signals.py`, `test_trade_score.py`,
+`test_score_recompute.py`.
+
+---
+
 ## 2026-06-07 — Member-Detail-Popup (Modul 9 Iteration)
 
 **Neues Feature im Streamlit-Dashboard:** Klick auf eine Zeile im Members-Tab

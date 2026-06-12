@@ -83,7 +83,7 @@ data/mappings/*.xlsx          →  scripts/convert_xlsx_to_csv.py  →  data/map
 
 ## Scoring-System (Modul 8 — aktiv)
 
-Trade-Score = gewichtete Summe der getriggerten Signale + Volume-Score + Ex-Officio-Bonus, mit Paradox-Dämpfer auf den Schwarm-Anteil. Kein Cap.
+Trade-Score = gewichtete Summe der getriggerten Signale + Volume-Score + rollenbasierter Ex-Officio-Bonus (MAX über Führungsrollen-Boni), mit Paradox-Dämpfer auf den Schwarm-Anteil. Kein Cap.
 
 **Vollständige Formel, Signal-Gewichte und Aggregat-Spalten:** [Filter_Instanz_Parameter.md](Filter_Instanz_Parameter.md). Konfiguration: `config/settings.py` (`SCORING_*`-Block).
 
@@ -114,15 +114,15 @@ Vollständige CLI-Referenz: siehe [CLI_Bedienungsanleitung.md](CLI_Bedienungsanl
 
 ---
 
-## Aktuelle Ergebnisse (07.03.2026)
+## Aktuelle Ergebnisse (Stand: Juni 2026)
 
 | Kennzahl | Wert |
 |----------|------|
-| Gesamt-Trades | 9.591 |
-| Match-Rate | 100% (0 unmatched) |
-| House Members | 437 (inkl. 5 Leadership ex officio) |
-| Fuzzy-Threshold | 85% |
-| Datenquelle | Eigene Scraper (kein Quiver) |
+| Gesamt-Trades (`trades_master_complete.csv`) | ~112.700 |
+| Datenquelle | Quiver (`congress-trading-all.csv`, Snapshot ab 2012) + eigene OCR-Extraktion |
+| Fuzzy-Threshold (Name-Matching) | 85 % |
+
+> Zahlen sind ein grober Stand; die exakte aktuelle Zeilenzahl liefert der letzte Pipeline-Lauf (`wc -l data/processed/trades_master_complete.csv`).
 
 ---
 
@@ -134,18 +134,11 @@ Vollständige CLI-Referenz: siehe [CLI_Bedienungsanleitung.md](CLI_Bedienungsanl
 4. **Dokumentation mitpflegen** — bei Änderungen immer mindestens eine Datei aktualisieren:
    - Neue Datenstrukturen → `DATA_STRUCTURE.md`
    - Pipeline-Änderungen → `Pipelines.md`
-   - Filter/Scoring/Features → `BMB_Tradingprogramm_Anleitung.md`
+   - Filter/Scoring/Features → `Filter_Instanz_Parameter.md`
 
 ---
 
 ## Dokumentations-Index
 
-| Datei | Inhalt |
-|-------|--------|
-| [DATA_STRUCTURE.md](DATA_STRUCTURE.md) | Vollständige Spalten-Definitionen aller CSV/JSON/xlsx-Dateien |
-| [Pipelines.md](Pipelines.md) | Ausführungsreihenfolge und Abhängigkeiten aller 7 Pipelines |
-| [Filter_Instanz_Parameter.md](Filter_Instanz_Parameter.md) | Gate/Tag/Signal-Instanzen mit Parametern, Schwellen und Implementierungsstatus |
-| [CLI_Bedienungsanleitung.md](CLI_Bedienungsanleitung.md) | Alle CLI-Befehle mit Flags und Beispielen |
-| [Aufgaben_Uebersicht](Aufgaben_Uebersicht) | Detaillierter Entwicklungsplan für alle Module |
-| [DEDUP_PROBLEM_PITCH.md](DEDUP_PROBLEM_PITCH.md) | Bekannte Deduplizierungs-Problematik |
-| [HAND_DELIVERED_PDF_ANALYSE.md](HAND_DELIVERED_PDF_ANALYSE.md) | Analyse der OCR-Methodik für gescannte PDFs |
+Kanonische Quelle pro Thema + „Aktualisieren bei"-Trigger: **[DOKU_INDEX.md](DOKU_INDEX.md)**.
+Schnell-Einstieg: Spalten → [DATA_STRUCTURE.md](DATA_STRUCTURE.md) · Pipeline-Stages → [Pipelines.md](Pipelines.md) · Gate/Tag/Signal + Score → [Filter_Instanz_Parameter.md](Filter_Instanz_Parameter.md) · CLI → [CLI_Bedienungsanleitung.md](CLI_Bedienungsanleitung.md) · Scraper-Status → [tool_specific_md/Trade_scraper_status.md](tool_specific_md/Trade_scraper_status.md) · Deployment → [DEPLOYMENT.md](DEPLOYMENT.md).
