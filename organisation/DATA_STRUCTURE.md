@@ -186,6 +186,87 @@ Wird von `CommitteeMapper` geladen.
 
 ---
 
+## 3a. Committee-Mapping-Agent (`scripts/committee_mapping_agent/`, in Arbeit)
+
+3-Rollen-LLM-Agent (DeepSeek V4), der `subcommittee_sector_industry_mapping.csv` (Abschnitt 3)
+reproduzierbar aus den Roh-Committee-Listen neu erzeugt. Pipeline + CLI: `CLI_Bedienungsanleitung.md`.
+Allow-Liste-Taxonomie (`yf_sectors_with_industries_enriched.json`): Abschnitt 4.
+
+### `data/mappings/subcommittee_sector_industry_mapping_generated.csv` (Staging)
+**Quelle**: `python -m scripts.committee_mapping_agent.run finalize`
+**Format**: CSV, identisches 7-Spalten-Schema wie der Master (Abschnitt 3, `Industry_Mapping`-Sheet):
+```csv
+Chamber,Committee,Subcommittee,Sector,Industry,Sector_Rank,Konfidenz
+```
+**Verwendung**: Review-Stage vor `promote` — `promote` ersetzt `subcommittee_sector_industry_mapping.csv` (Master) durch diese Datei und legt vom alten Master ein Timestamp-Backup an.
+
+### Caches `scripts/committee_mapping_agent/cache/` (gitignored)
+Jede Pipeline-Stufe cached ihr Ergebnis als JSON → Resume/Delta-Faehigkeit (`--force` erzwingt Neuberechnung).
+
+**`research/{chamber}_{committee_slug}.json`**:
+```json
+{
+  "chamber": "House", "committee": "Budget", "subcommittees": [...],
+  "jurisdiction": {
+    "<unit_key>": {
+      "text": "...", "source_url": "...", "quote": "...",
+      "grounding_quality": "direct|fallback|none"
+    }
+  },
+  "search_log": [...]
+}
+```
+`unit_key` = Subcommittee-Name oder `__committee__` (Platzhalter fuer Committees ohne Subcommittees).
+`grounding_quality`: `direct` = woertliches Zitat von der offiziellen Committee-Site, `fallback` = Zitat aus Fallback-Quelle (GovInfo/Rules-PDF), `none` = kein verwertbares Zitat. Deckelt die maximal erlaubte Konfidenz (`config.GROUNDING_CONFIDENCE_CAP`).
+
+**`mapping/{chamber}_{committee}_{sub_slug}.json`**:
+```json
+{
+  "chamber": "House", "committee": "Budget", "unit_key": "__committee__",
+  "grounding_quality": "direct",
+  "rows": [
+    {"sector": "...", "industry": "...", "rank": 1, "confidence": "high", "grounding_source": "..."}
+  ],
+  "no_mapping": false, "attempts": 1, "validation_messages": []
+}
+```
+`no_mapping: true` = nach `MAP_EMPTY_RETRIES` Versuchen keine valide Zeile gefunden → erscheint im Review-xlsx als graue Platzhalterzeile (flag `no_mapping`) und wird in der finalen CSV uebersprungen.
+
+**`review/{chamber}_{committee_slug}.json`**:
+```json
+{
+  "chamber": "House", "committee": "Budget",
+  "reviewed_rows": [
+    {
+      "mapping_id": "af9c03d639", "chamber": "House", "committee": "Budget",
+      "subcommittee": "Budget", "sector": "", "industry": "", "rank": "",
+      "confidence": "", "grounding_source": "...",
+      "review_flag": "no_mapping", "review_reason": "..."
+    }
+  ],
+  "missing": [],
+  "llm_reviewed": true
+}
+```
+`reviewed_rows[].confidence` = vom Reviewer ggf. neu gesetzte Konfidenz (`reviewed_confidence`, direktes LLM-Urteil statt Formel). `review_reason` enthaelt bei Konfidenz-Abweichungen ein Praefix `"Konfidenz X -> Y."`. `missing` = advisory vorgeschlagene, im Mapping fehlende Sektor/Industry-Paare. `llm_reviewed`: `true` = echter LLM-Review-Cache, `false` = Pass-Through-Cache (`config.REVIEW_ENABLED=False`) — steuert automatischen Re-Review beim naechsten Lauf mit aktiviertem Review.
+
+`review_flag`-Werte: `ok`, `confidence_too_high`, `confidence_too_low`, `weak_grounding`, `off_topic`, `no_mapping`, `not_reviewed`.
+
+### Review-xlsx `scripts/committee_mapping_agent/review_out/`
+**Quelle**: `python -m scripts.committee_mapping_agent.run export-review`
+**Format**: 3 Excel-Dateien — `review_all.xlsx` (alle Zeilen), `review_low.xlsx` (confidence `low` + alle `no_mapping`-Zeilen), `review_medium.xlsx` (confidence `medium`)
+
+**Spalten**:
+```
+mapping_id, Chamber, Committee, Subcommittee, Sector, Industry, Sector_Rank,
+confidence, grounding_source, review_reason, review_flag, comment
+```
+- `mapping_id` = `sha1(chamber|committee|subcommittee|sector|industry)[:10]`, stabil über Re-Runs — Merge-Schlüssel beim Kommentar-Reimport.
+- `confidence`-Zelle farbig: `low` rot, `medium` gelb, `high` gruen; `no_mapping`-Zeilen grau (statt Konfidenz-Farbe).
+- `comment`: leer beim Export — manuelle Anweisungen des Reviewers, eingearbeitet von `finalize`.
+
+**Verwendung**: manueller Review-Prozess, s. `manual_review_anleitung.md` (Prozess 4).
+
 ## 4. Yahoo Finance Sektoren
 
 ### `data/raw/yf_secotors_with_industries.xlsx`
@@ -245,6 +326,23 @@ Credit Services,14.38%
 **Quelle**: Automatisch generiert aus JSON
 **Format**: Excel (flache Struktur: Sector, Industry)
 **Zeilen**: 145
+
+### `data/mappings/yf_sectors_with_industries_enriched.json`
+**Quelle**: Einmalig generiert via `python -m scripts.committee_mapping_agent.run enrich-taxonomy` (Committee-Mapping-Agent, s. Abschnitt 3a)
+**Format**: JSON (hierarchisch: Sector → Industries, wie die Quelle, zusaetzlich je Sektor/Industry eine deutsche Kurzbeschreibung)
+**Inhalt**: identische Mengen wie `yf_sectors_with_industries.json` (11 Sektoren, 145 Industries) + `description`-Feld je Sektor/Industry
+
+**Struktur**:
+```json
+{"sectors": [
+  {"sector": "Technology", "description": "...", "industries": [
+    {"industry": "Semiconductors", "description": "..."},
+    ...
+  ]}
+]}
+```
+
+**Verwendung**: `scripts/committee_mapping_agent/taxonomy.py::load()` bevorzugt diese Datei (Fallback auf `yf_sectors_with_industries.json`) als Allow-Liste + Entscheidungshilfe fuer die Mapping-/Review-Prompts. Die Mengen (Sektoren/Industries) sind eingefroren und identisch zur Quelle — die Anreicherung fuegt nur Beschreibungen hinzu, kann die Allow-Liste also nicht korrumpieren.
 
 ### `data/mappings/ticker_industry_cache.json`
 **Quelle**: Automatisch von `scripts/import_trades.py` (yfinance API)

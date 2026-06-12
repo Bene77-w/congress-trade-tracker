@@ -15,7 +15,7 @@ def _reviewed_row(mid, conf="high", sector="Energy", industry="Uranium",
     return {
         "mapping_id": mid, "chamber": "House", "committee": "Science",
         "subcommittee": sub, "sector": sector, "industry": industry,
-        "rank": 1, "confidence": conf, "ai_comment": "c",
+        "rank": 1, "confidence": conf,
         "grounding_source": "https://x — \"zitat\"", "review_flag": "ok",
         "review_reason": "", "comment": comment,
     }
@@ -131,7 +131,7 @@ def test_finalize_applies_comment_overrides_cap():
     # User: auf high setzen. Finalize-Agent liefert high; Deckel ist aus.
     resp = make_response(json.dumps({"rows": [
         {"sector": "Energy", "industry": "Uranium", "rank": 1,
-         "confidence": "high", "ai_comment": "user wollte high"}]}))
+         "confidence": "high"}]}))
     client = FakeClient([resp])
     final, log = finalize.finalize_rows(
         rows, {"id1": "Konfidenz auf hoch"}, tax, client=client,
@@ -140,6 +140,57 @@ def test_finalize_applies_comment_overrides_cap():
     assert final[0]["confidence"] == "high"  # NICHT gedeckelt (User-Override)
     assert final[0]["committee"] == "Science"
     assert any("Kommentar angewandt" in m for m in log)
+
+
+def _no_map_row(mid="id_nomap", sub="Research And Technology", comment=""):
+    return {
+        "mapping_id": mid, "chamber": "House", "committee": "Science",
+        "subcommittee": sub, "sector": "", "industry": "", "rank": "",
+        "confidence": "",
+        "grounding_source": "https://science.house.gov",
+        "review_flag": "no_mapping", "review_reason": "leer", "comment": comment,
+    }
+
+
+def test_no_mapping_row_in_xlsx_grey_and_in_low(tmp_path):
+    """no_mapping-Zeile erscheint grau in 'all' UND in 'low' (Aufmerksamkeit)."""
+    rows = [_reviewed_row("id_high", "high"), _no_map_row("id_nomap")]
+    paths = review_xlsx.export_review(rows, review_dir=str(tmp_path))
+
+    low_wb = load_workbook(paths["low"])
+    low_ids = [r[review_xlsx.ID_COL_IDX - 1]
+               for r in low_wb.active.iter_rows(min_row=2, values_only=True)]
+    assert "id_nomap" in low_ids  # Luecke landet im Aufmerksamkeits-Bucket
+
+    all_wb = load_workbook(paths["all"])
+    for r in all_wb.active.iter_rows(min_row=2):
+        if r[review_xlsx.ID_COL_IDX - 1].value == "id_nomap":
+            assert r[review_xlsx.CONF_COL_IDX - 1].fill.fgColor.rgb.endswith("D9D9D9")
+
+
+def test_no_mapping_skipped_in_staging_csv():
+    """no_mapping ohne Kommentar -> NICHT in der Master-CSV (kein 'nan'-Leak)."""
+    rows = [_reviewed_row("id1", "high"), _no_map_row("id_nomap")]
+    final, log = finalize.finalize_rows(rows, {}, taxonomy.load_source())
+    assert len(final) == 1                       # nur die echte Zeile
+    assert all(r["sector"] for r in final)       # keine leere Sector-Zeile
+    assert any("uebersprungen" in m for m in log)
+
+
+def test_no_mapping_filled_via_comment():
+    """User-Kommentar auf einer no_mapping-Zeile -> Finalize-Agent fuellt sie."""
+    tax = taxonomy.load_source()
+    rows = [_no_map_row("id_nomap", comment="")]
+    resp = make_response(json.dumps({"rows": [
+        {"sector": "Energy", "industry": "Uranium", "rank": 1,
+         "confidence": "high"}]}))
+    client = FakeClient([resp])
+    final, log = finalize.finalize_rows(
+        rows, {"id_nomap": "Bitte Energy/Uranium ergaenzen"}, tax, client=client,
+    )
+    assert len(final) == 1
+    assert final[0]["sector"] == "Energy"
+    assert final[0]["industry"] == "Uranium"
 
 
 def test_finalize_comment_delete():

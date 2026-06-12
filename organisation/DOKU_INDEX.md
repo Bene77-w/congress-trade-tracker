@@ -30,7 +30,7 @@ Dieser Index ist die **Routing-Quelle** für den Skill `/doku-update` und den `d
 | `Ticker_Architektur.md` | Design-Doku der Ticker-/Issuer-Spalten (3 Ebenen, Fallback-Ketten). | Neuer Ticker-Spalten-Typ, Fallback-Kette geändert, neue Cross-Class-Logik. |
 | `Briefing_stage_post_trade_performance.md` | Tiefendoku der Pipeline-Stage `post_trade_performance` (Return-Semantik, Exit-Detection, Preis-Cache). | Return-/Exit-Logik geändert, neue Post-Trade-Spalte, yfinance-Robustheit. |
 | `DEPLOYMENT.md` | Deployment-/Plattformwechsel-Referenz (Linux↔Windows, USB-Betrieb, Docker). | Neue Python-Abhängigkeit, neue ENV-Variable, neue plattformspezifische Permission, Docker-Setup. |
-| `manual_review_anleitung.md` | Anleitung für 4 manuelle Review-Prozesse (Namen, Ticker, Preferred, Duplicate). | Neuer Manual-Review-Typ, Review-Datei-Struktur geändert, neue Mapping-CSV. |
+| `manual_review_anleitung.md` | Anleitung für 4 manuelle Review-Prozesse (Namen, Ticker, Duplikate, Committee-Mapping-xlsx). | Neuer Manual-Review-Typ, Review-Datei-Struktur geändert, neue Mapping-CSV. |
 
 ## `organisation/tool_specific_md/`
 

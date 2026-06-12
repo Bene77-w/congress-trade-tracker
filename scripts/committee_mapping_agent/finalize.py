@@ -32,9 +32,8 @@ _FINALIZE_SCHEMA = {
                     "industry": {"type": "string"},
                     "rank": {"type": "integer", "minimum": 1},
                     "confidence": {"type": ["string", "number"]},
-                    "ai_comment": {"type": "string"},
                 },
-                "required": ["sector", "industry", "rank", "confidence", "ai_comment"],
+                "required": ["sector", "industry", "rank", "confidence"],
                 "additionalProperties": False,
             },
         }
@@ -82,7 +81,6 @@ def _apply_comment(
             "industry": r["industry"],
             "rank": r["rank"],
             "confidence": config.normalize_confidence(r["confidence"]),
-            "ai_comment": f"[User] {comment} | {r.get('ai_comment', '')}",
             "grounding_source": row.get("grounding_source", ""),
         }
         for r in result.get("rows", [])
@@ -110,7 +108,11 @@ def finalize_rows(
     log: List[str] = []
     for row in reviewed_rows:
         comment = comments.get(row["mapping_id"], "").strip()
+        is_no_mapping = (str(row.get("review_flag")) == "no_mapping"
+                         or not str(row.get("sector", "")).strip())
         if comment:
+            # Auch unmappte Einheiten lassen sich per Kommentar fuellen — der
+            # Finalize-Agent erzeugt aus der Anweisung valide Ersatzzeilen.
             replacements, msgs = _apply_comment(row, comment, taxonomy_data,
                                                 client=client)
             log.append(
@@ -120,6 +122,14 @@ def finalize_rows(
             )
             log.extend(msgs)
             final.extend(replacements)
+        elif is_no_mapping:
+            # Unmappte Einheit ohne Kommentar -> NICHT in die Master-CSV
+            # schreiben (leere Sector/Industry-Zeile wuerde downstream als
+            # 'nan'-Geistereintrag landen). Nur im Review-xlsx sichtbar.
+            log.append(
+                f"{row['mapping_id']} ({row['committee']}/{row['subcommittee']}): "
+                f"no_mapping ohne Kommentar -> uebersprungen."
+            )
         else:
             final.append({
                 "chamber": row["chamber"], "committee": row["committee"],

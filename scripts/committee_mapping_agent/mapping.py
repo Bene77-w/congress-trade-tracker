@@ -15,6 +15,7 @@ deterministische validate-Schicht deckelt die Konfidenz gemaess grounding.
 import json
 import logging
 import os
+import time
 from typing import Any, Dict, List, Optional
 
 from . import config, llm_client, taxonomy, validate
@@ -78,13 +79,17 @@ _STAGE1_INSTRUCT = (
     "Sektoren, zu denen die Jurisdiktion einen echten thematischen Bezug hat. "
     "Sei konservativ — kein Sektor ohne klaren Bezug. Ranke sie nach Staerke "
     "des Bezugs (rank=1 staerkster). Begruende jeden Sektor knapp mit Bezug "
-    "zum Text. Nutze exakt die Sektor-Namen der Allow-Liste."
+    "zum Text. Nutze exakt die Sektor-Namen der Allow-Liste. Gib je Sektor "
+    "eine confidence an." + config.CONFIDENCE_RUBRIC
 )
 
 _STAGE2_INSTRUCT = (
     "\nAUFGABE (Stufe 2 — Industries): Fuer den genannten Sektor: waehle aus "
     "den obigen Industries NUR die, die die Jurisdiktion konkret beruehrt. "
-    "Konservativ bleiben. Nutze exakt die Industry-Namen der Liste."
+    "Konservativ bleiben. Nutze exakt die Industry-Namen der Liste. Gib je "
+    "Industry eine EIGENE, einzeln abgewogene confidence an (nicht die "
+    "Sektor-Konfidenz kopieren) plus eine knappe Begruendung (rationale)."
+    + config.CONFIDENCE_RUBRIC
 )
 
 
@@ -138,42 +143,70 @@ def map_unit(
     grounding = _grounding_source(entry)
     context = _unit_context(committee, unit_key, entry)
 
-    # ---- Stufe 1: Sektoren -------------------------------------------------
-    stage1_system = taxonomy.build_prefix_block(taxonomy_data) + _STAGE1_INSTRUCT
-    stage1 = llm_client.call_json(
-        "mapping", stage1_system, context, _STAGE1_SCHEMA, client=client,
-    )
-    chosen_sectors = []
-    for item in stage1.get("sectors", []):
-        sector, rank, sconf, _rat = _extract_sector(item)
-        if taxonomy.is_valid_sector(taxonomy_data, sector):
-            chosen_sectors.append((sector, rank, sconf))
+    def _map_once() -> tuple:
+        """Ein vollstaendiger Stufe-1+2-Durchlauf -> (clean_rows, messages).
 
-    # ---- Stufe 2: Industries je Sektor ------------------------------------
-    rows: List[Dict[str, Any]] = []
-    for sector, rank, sector_conf in chosen_sectors:
-        stage2_system = taxonomy.build_sector_block(taxonomy_data, sector) + _STAGE2_INSTRUCT
-        stage2_user = context + f"\n\nZu mappender Sektor: {sector}"
-        stage2 = llm_client.call_json(
-            "mapping", stage2_system, stage2_user, _STAGE2_SCHEMA, client=client,
+        Frischer API-Call je Aufruf -> die Lauf-Varianz des Modells gibt einem
+        Retry eine echte zweite Chance (kein Caching auf dieser Ebene)."""
+        # ---- Stufe 1: Sektoren --------------------------------------------
+        stage1_system = taxonomy.build_prefix_block(taxonomy_data) + _STAGE1_INSTRUCT
+        stage1 = llm_client.call_json(
+            "mapping", stage1_system, context, _STAGE1_SCHEMA, client=client,
         )
-        for item in stage2.get("industries", []):
-            industry, ind_conf, rationale = _extract_industry(item)
-            if not taxonomy.is_valid_industry(taxonomy_data, sector, industry):
-                continue
-            rows.append({
-                "sector": sector,
-                "industry": industry,
-                "rank": rank,
-                # Stufe-2-Konfidenz falls vorhanden, sonst Sektor-Konfidenz.
-                "confidence": ind_conf or sector_conf,
-                "ai_comment": rationale,
-                "grounding_source": grounding,
-            })
+        chosen_sectors = []
+        for item in stage1.get("sectors", []):
+            sector, rank, sconf, _rat = _extract_sector(item)
+            if taxonomy.is_valid_sector(taxonomy_data, sector):
+                chosen_sectors.append((sector, rank, sconf))
 
-    clean_rows, messages = validate.validate_rows(
-        rows, taxonomy_data, grounding_quality,
-    )
+        # ---- Stufe 2: Industries je Sektor --------------------------------
+        rows: List[Dict[str, Any]] = []
+        for sector, rank, sector_conf in chosen_sectors:
+            stage2_system = taxonomy.build_sector_block(taxonomy_data, sector) + _STAGE2_INSTRUCT
+            stage2_user = context + f"\n\nZu mappender Sektor: {sector}"
+            stage2 = llm_client.call_json(
+                "mapping", stage2_system, stage2_user, _STAGE2_SCHEMA, client=client,
+            )
+            for item in stage2.get("industries", []):
+                industry, ind_conf, _rationale = _extract_industry(item)
+                if not taxonomy.is_valid_industry(taxonomy_data, sector, industry):
+                    continue
+                rows.append({
+                    "sector": sector,
+                    "industry": industry,
+                    "rank": rank,
+                    # Stufe-2-Konfidenz (Pflicht lt. Prompt); Sektor-Konfidenz
+                    # nur als defensiver Fallback, falls das Feld doch fehlt.
+                    "confidence": ind_conf or sector_conf,
+                    "grounding_source": grounding,
+                })
+        return validate.validate_rows(rows, taxonomy_data, grounding_quality)
+
+    clean_rows, messages = _map_once()
+    attempts = 1
+
+    # Leeres-Mapping-Retry mit exponentiellem Backoff. Gegated: bei
+    # MAP_RETRY_ONLY_GROUNDED feuert er nur, wenn echtes Grounding vorliegt
+    # ("direct") — sonst ist leer haeufig korrekt (kein Branchen-Nexus).
+    may_retry = grounding_quality == "direct" or not config.MAP_RETRY_ONLY_GROUNDED
+    if not clean_rows and may_retry:
+        for i in range(config.MAP_EMPTY_RETRIES):
+            backoff = config.MAP_EMPTY_BACKOFF[
+                min(i, len(config.MAP_EMPTY_BACKOFF) - 1)]
+            logger.warning(
+                "Mapping leer (%s/%s/%s) — Retry %d/%d in %ds.",
+                chamber, committee, unit_key, i + 1,
+                config.MAP_EMPTY_RETRIES, backoff)
+            time.sleep(backoff)
+            clean_rows, messages = _map_once()
+            attempts += 1
+            if clean_rows:
+                break
+
+    no_mapping = not clean_rows
+    if no_mapping:
+        logger.warning("Kein Mapping fuer %s/%s/%s nach %d Versuch(en).",
+                       chamber, committee, unit_key, attempts)
 
     result = {
         "chamber": chamber,
@@ -181,6 +214,8 @@ def map_unit(
         "unit_key": unit_key,
         "grounding_quality": grounding_quality,
         "rows": clean_rows,
+        "no_mapping": no_mapping,
+        "attempts": attempts,
         "validation_messages": messages,
     }
     os.makedirs(config.CACHE_MAPPING, exist_ok=True)

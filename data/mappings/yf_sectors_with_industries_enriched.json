@@ -1,0 +1,650 @@
+{
+  "sectors": [
+    {
+      "sector": "Technology",
+      "description": "Umfasst Unternehmen, die sich mit der Erforschung, Entwicklung und Herstellung technologiebasierter Produkte und Dienstleistungen befassen, darunter Halbleiter, Software, Hardware, Kommunikationsausrüstung und erneuerbare Energietechnologien.",
+      "industries": [
+        {
+          "industry": "Semiconductors",
+          "description": "Herstellung von Halbleitern und integrierten Schaltkreisen für elektronische Geräte."
+        },
+        {
+          "industry": "Software - Infrastructure",
+          "description": "Entwicklung von Software-Infrastruktur wie Betriebssystemen, Middleware und Cloud-Plattformen."
+        },
+        {
+          "industry": "Consumer Electronics",
+          "description": "Produktion von Unterhaltungselektronik wie Fernsehern, Smartphones und Audiogeräten für Endverbraucher."
+        },
+        {
+          "industry": "Software - Application",
+          "description": "Entwicklung von Anwendungssoftware für geschäftliche und private Nutzer."
+        },
+        {
+          "industry": "Semiconductor Equipment & Materials",
+          "description": "Bereitstellung von Ausrüstung und Materialien für die Halbleiterproduktion."
+        },
+        {
+          "industry": "Information Technology Services",
+          "description": "Erbringung von IT-Dienstleistungen wie Beratung, Systemintegration und Managed Services."
+        },
+        {
+          "industry": "Computer Hardware",
+          "description": "Herstellung von physischen Computerkomponenten und -systemen."
+        },
+        {
+          "industry": "Communication Equipment",
+          "description": "Produktion von Geräten für Telekommunikationsnetze, einschließlich Routern und Mobilfunkinfrastruktur."
+        },
+        {
+          "industry": "Electronic Components",
+          "description": "Herstellung von passiven und aktiven elektronischen Bauelementen abseits von Halbleitern."
+        },
+        {
+          "industry": "Scientific & Technical Instruments",
+          "description": "Entwicklung von Präzisionsinstrumenten für wissenschaftliche und technische Anwendungen."
+        },
+        {
+          "industry": "Solar",
+          "description": "Entwicklung und Herstellung von Solartechnologien und Photovoltaikanlagen zur Energiegewinnung."
+        },
+        {
+          "industry": "Electronics & Computer Distribution",
+          "description": "Vertrieb von Elektronikprodukten und Computerhardware über Groß- und Einzelhandelskanäle."
+        }
+      ]
+    },
+    {
+      "sector": "Financial Services",
+      "description": "Der Finanzdienstleistungssektor umfasst Unternehmen, die Finanzintermediation, Risikotransfer und Anlageverwaltung für private und institutionelle Kunden betreiben sowie Finanzmärkte betreiben oder unterstützen.",
+      "industries": [
+        {
+          "industry": "Banks - Diversified",
+          "description": "Diversifizierte Banken bieten ein breites Spektrum an Finanzdienstleistungen, darunter Firmenkunden-, Investment- und Privatkundengeschäft."
+        },
+        {
+          "industry": "Credit Services",
+          "description": "Kreditdienstleister bieten Kredite und Darlehen für Verbraucher und Unternehmen an."
+        },
+        {
+          "industry": "Asset Management",
+          "description": "Vermögensverwalter verwalten Anlagen und Portfolios im Auftrag von Kunden."
+        },
+        {
+          "industry": "Insurance - Diversified",
+          "description": "Diversifizierte Versicherer bieten verschiedene Versicherungsarten wie Lebens-, Schaden- und Unfallversicherung an."
+        },
+        {
+          "industry": "Banks - Regional",
+          "description": "Regionalbanken bedienen bestimmte geografische Gebiete mit Privat- und Firmenkundengeschäft."
+        },
+        {
+          "industry": "Capital Markets",
+          "description": "Kapitalmarktunternehmen sind im Handel mit Wertpapieren, im Underwriting und im Market-Making tätig."
+        },
+        {
+          "industry": "Insurance - Property & Casualty",
+          "description": "Schaden- und Unfallversicherer decken Sachschäden und Haftpflichtrisiken ab."
+        },
+        {
+          "industry": "Financial Data & Stock Exchanges",
+          "description": "Anbieter von Finanzmarktdaten und Betreiber von Wertpapierbörsen stellen Kursdaten und Handelsplätze bereit."
+        },
+        {
+          "industry": "Insurance Brokers",
+          "description": "Versicherungsmakler vermitteln Versicherungsverträge zwischen Kunden und verschiedenen Versicherern."
+        },
+        {
+          "industry": "Insurance - Life",
+          "description": "Lebensversicherer bieten Produkte zur finanziellen Absicherung im Todesfall sowie Rentenversicherungen an."
+        },
+        {
+          "industry": "Insurance - Specialty",
+          "description": "Spezialversicherer decken besondere Risiken wie Cyberversicherung, Transportversicherung und andere Nischen ab."
+        },
+        {
+          "industry": "Mortgage Finance",
+          "description": "Hypothekenfinanzierer vergeben und betreuen Hypothekendarlehen für den Wohnungsbau."
+        },
+        {
+          "industry": "Insurance - Reinsurance",
+          "description": "Rückversicherer übernehmen Risiken von Erstversicherern zur Risikominderung."
+        },
+        {
+          "industry": "Financial Conglomerates",
+          "description": "Finanzkonglomerate vereinen verschiedene Finanzdienstleistungen wie Bank- und Versicherungsgeschäfte unter einem Dach."
+        },
+        {
+          "industry": "Shell Companies",
+          "description": "Mantelgesellschaften existieren hauptsächlich zu gesellschaftsrechtlichen Zwecken ohne wesentliche operative Tätigkeit."
+        }
+      ]
+    },
+    {
+      "sector": "Consumer Cyclical",
+      "description": "Der Sektor Verbraucherzyklische Güter umfasst Branchen, die Güter und Dienstleistungen anbieten, deren Nachfrage stark von der allgemeinen Konjunkturentwicklung abhängt.",
+      "industries": [
+        {
+          "industry": "Internet Retail",
+          "description": "Unternehmen, die Waren über das Internet direkt an Endverbraucher verkaufen."
+        },
+        {
+          "industry": "Auto Manufacturers",
+          "description": "Hersteller von Personenkraftwagen und leichten Nutzfahrzeugen."
+        },
+        {
+          "industry": "Restaurants",
+          "description": "Betriebe, die Speisen und Getränke zum sofortigen Verzehr anbieten."
+        },
+        {
+          "industry": "Home Improvement Retail",
+          "description": "Einzelhandelsgeschäfte, die Materialien und Werkzeuge für Renovierung und Heimwerkerprojekte verkaufen."
+        },
+        {
+          "industry": "Travel Services",
+          "description": "Anbieter von Reisevermittlung, Buchungsplattformen und anderen touristischen Dienstleistungen."
+        },
+        {
+          "industry": "Auto Parts",
+          "description": "Hersteller und Händler von Ersatzteilen und Zubehör für Kraftfahrzeuge."
+        },
+        {
+          "industry": "Apparel Retail",
+          "description": "Geschäfte, die Kleidung und Modeartikel direkt an Konsumenten verkaufen."
+        },
+        {
+          "industry": "Specialty Retail",
+          "description": "Einzelhändler, die sich auf eine bestimmte Produktkategorie wie Elektronik, Spielzeug oder Bücher spezialisiert haben."
+        },
+        {
+          "industry": "Residential Construction",
+          "description": "Unternehmen, die Einfamilienhäuser und Eigentumswohnungen errichten."
+        },
+        {
+          "industry": "Lodging",
+          "description": "Betriebe, die Übernachtungsmöglichkeiten wie Hotels, Motels und Pensionen anbieten."
+        },
+        {
+          "industry": "Packaging & Containers",
+          "description": "Hersteller von Verpackungsmaterialien wie Kartons, Kunststoffbehältern und Glasflaschen."
+        },
+        {
+          "industry": "Auto & Truck Dealerships",
+          "description": "Vertragshändler, die neue und gebrauchte Kraftfahrzeuge verkaufen und warten."
+        },
+        {
+          "industry": "Footwear & Accessories",
+          "description": "Hersteller und Einzelhändler von Schuhen, Taschen und modischen Accessoires."
+        },
+        {
+          "industry": "Resorts & Casinos",
+          "description": "Betriebe, die Ferienanlagen und Spielbanken betreiben."
+        },
+        {
+          "industry": "Leisure",
+          "description": "Unternehmen, die Freizeitaktivitäten wie Kinos, Themenparks oder Fitnessstudios anbieten."
+        },
+        {
+          "industry": "Apparel Manufacturing",
+          "description": "Produzenten von Kleidung und Textilien für Großhandel und Einzelhandel."
+        },
+        {
+          "industry": "Furnishings, Fixtures & Appliances",
+          "description": "Hersteller und Händler von Möbeln, Beleuchtung und Haushaltsgroßgeräten."
+        },
+        {
+          "industry": "Gambling",
+          "description": "Anbieter von Sportwetten, Lotterien und anderen Glücksspielaktivitäten."
+        },
+        {
+          "industry": "Personal Services",
+          "description": "Anbieter von Dienstleistungen wie Wäscherei, Schönheitspflege oder Haushaltshilfe."
+        },
+        {
+          "industry": "Luxury Goods",
+          "description": "Anbieter von hochpreisigen Produkten wie Schmuck, Uhren und Designerkleidung."
+        },
+        {
+          "industry": "Recreational Vehicles",
+          "description": "Hersteller und Händler von Wohnmobilen, Wohnwagen und Geländefahrzeugen für den Freizeitgebrauch."
+        },
+        {
+          "industry": "Department Stores",
+          "description": "Einzelhandelsgeschäfte mit einem breiten Sortiment an Bekleidung, Haushaltswaren und Kosmetik."
+        },
+        {
+          "industry": "Textile Manufacturing",
+          "description": "Produzenten von Stoffen, Garnen und anderen textilen Materialien."
+        }
+      ]
+    },
+    {
+      "sector": "Communication Services",
+      "description": "Der Sektor Communication Services umfasst Unternehmen, die Kommunikations- und Informationsdienste über verschiedene Kanäle anbieten, einschließlich Telekommunikation, Medien und Internet.",
+      "industries": [
+        {
+          "industry": "Internet Content & Information",
+          "description": "Unternehmen, die digitale Inhalte und Informationen über das Internet bereitstellen, wie Suchmaschinen, soziale Netzwerke und Online-Portale."
+        },
+        {
+          "industry": "Telecom Services",
+          "description": "Anbieter von Telekommunikationsdiensten wie Festnetz-, Mobilfunk- und Breitband-Internetverbindungen."
+        },
+        {
+          "industry": "Entertainment",
+          "description": "Unternehmen, die audiovisuelle Unterhaltungsinhalte produzieren, vertreiben oder aufführen, einschließlich Filmstudios, Musiklabels und Freizeitparks."
+        },
+        {
+          "industry": "Advertising Agencies",
+          "description": "Agenturen, die Werbekampagnen entwickeln, planen und umsetzen, einschließlich Mediaplanung und Kreativleistungen."
+        },
+        {
+          "industry": "Electronic Gaming & Multimedia",
+          "description": "Entwickler und Publisher von Videospielen und interaktiven Multimedia-Inhalten für verschiedene Plattformen."
+        },
+        {
+          "industry": "Publishing",
+          "description": "Verlage, die gedruckte und digitale Medien wie Bücher, Zeitungen und Zeitschriften herausgeben und vertreiben."
+        },
+        {
+          "industry": "Broadcasting",
+          "description": "Rundfunkunternehmen, die Fernseh- und Radioprogramme über terrestrische, Kabel- oder Satellitennetze ausstrahlen."
+        }
+      ]
+    },
+    {
+      "sector": "Healthcare",
+      "description": "Umfasst alle wirtschaftlichen Aktivitäten im Zusammenhang mit der medizinischen Versorgung, einschließlich der Entwicklung und Herstellung von Arzneimitteln und Medizingeräten, der Erbringung von Gesundheitsdienstleistungen und der Verwaltung von Gesundheitsplänen.",
+      "industries": [
+        {
+          "industry": "Drug Manufacturers - General",
+          "description": "Unternehmen, die eine breite Palette von verschreibungspflichtigen und rezeptfreien Medikamenten für verschiedene therapeutische Bereiche entwickeln, herstellen und vertreiben."
+        },
+        {
+          "industry": "Biotechnology",
+          "description": "Unternehmen, die lebende Organismen oder biologische Systeme nutzen, um innovative Therapien, Diagnostika und Impfstoffe zu entwickeln, häufig mit Fokus auf Gentechnik und Molekularbiologie."
+        },
+        {
+          "industry": "Medical Devices",
+          "description": "Hersteller von medizinischen Geräten und Instrumenten für Diagnose, Behandlung und Überwachung, wie z. B. Herzschrittmacher, Bildgebungssysteme und chirurgische Ausrüstung."
+        },
+        {
+          "industry": "Diagnostics & Research",
+          "description": "Unternehmen, die diagnostische Tests, bildgebende Verfahren und Forschungsdienstleistungen anbieten, um Krankheiten zu erkennen und medizinische Erkenntnisse zu gewinnen."
+        },
+        {
+          "industry": "Healthcare Plans",
+          "description": "Organisationen, die Krankenversicherungspläne und Managed-Care-Dienste anbieten, um die Finanzierung und den Zugang zu medizinischer Versorgung zu gewährleisten."
+        },
+        {
+          "industry": "Medical Instruments & Supplies",
+          "description": "Hersteller und Lieferanten von medizinischem Verbrauchsmaterial und Instrumenten wie Spritzen, Handschuhen und chirurgischen Einwegartikeln."
+        },
+        {
+          "industry": "Medical Distribution",
+          "description": "Unternehmen, die Arzneimittel, medizinische Produkte und Ausrüstung von Herstellern an Krankenhäuser, Apotheken und andere Gesundheitseinrichtungen vertreiben."
+        },
+        {
+          "industry": "Medical Care Facilities",
+          "description": "Einrichtungen, die direkte medizinische Behandlungen und Pflege anbieten, einschließlich Krankenhäuser, Kliniken, Pflegeheime und Rehabilitationszentren."
+        },
+        {
+          "industry": "Drug Manufacturers - Specialty & Generic",
+          "description": "Hersteller, die sich auf patentfreie Generika oder hochspezialisierte Medikamente für seltene Krankheiten oder komplexe Therapien konzentrieren."
+        },
+        {
+          "industry": "Health Information Services",
+          "description": "Anbieter von IT-Lösungen und Datenanalyseplattformen zur Verwaltung, Speicherung und Auswertung von Gesundheitsinformationen, wie elektronische Patientenakten und Abrechnungssysteme."
+        },
+        {
+          "industry": "Pharmaceutical Retailers",
+          "description": "Einzelhandelsapotheken und Drogerien, die rezeptpflichtige und rezeptfreie Medikamente sowie Gesundheitsprodukte direkt an Endverbraucher verkaufen."
+        }
+      ]
+    },
+    {
+      "sector": "Industrials",
+      "description": "Der Sektor Industrials umfasst Unternehmen, die Ausrüstung, Maschinen, Bau- und Transportdienstleistungen sowie industrielle Serviceleistungen anbieten.",
+      "industries": [
+        {
+          "industry": "Aerospace & Defense",
+          "description": "Unternehmen, die militärische und zivile Luft- und Raumfahrtsysteme sowie Verteidigungstechnologien entwickeln und herstellen."
+        },
+        {
+          "industry": "Specialty Industrial Machinery",
+          "description": "Hersteller von Spezialmaschinen für industrielle Produktionsprozesse und spezifische Anwendungen."
+        },
+        {
+          "industry": "Farm & Heavy Construction Machinery",
+          "description": "Produzenten von Landmaschinen und schweren Baumaschinen für die Agrar- und Bauwirtschaft."
+        },
+        {
+          "industry": "Railroads",
+          "description": "Betreiber von Schienennetzen und Anbieter von Schienengüter- und -personenverkehrsdiensten."
+        },
+        {
+          "industry": "Engineering & Construction",
+          "description": "Unternehmen, die Ingenieur- und Bauleistungen für Infrastruktur- und Bauprojekte erbringen."
+        },
+        {
+          "industry": "Building Products & Equipment",
+          "description": "Hersteller von Baustoffen, Bauelementen und Ausrüstung für den Hoch- und Tiefbau."
+        },
+        {
+          "industry": "Conglomerates",
+          "description": "Diversifizierte Mischkonzerne mit Geschäftstätigkeiten in mehreren unabhängigen Industriezweigen."
+        },
+        {
+          "industry": "Industrial Distribution",
+          "description": "Händler und Distributoren von Industriebedarf, Ersatzteilen und Wartungsprodukten."
+        },
+        {
+          "industry": "Integrated Freight & Logistics",
+          "description": "Anbieter von integrierten Logistik- und Frachtdienstleistungen, einschließlich Transport, Umschlag und Lagerung."
+        },
+        {
+          "industry": "Specialty Business Services",
+          "description": "Erbringer spezialisierter Unternehmensdienstleistungen wie Outsourcing, Facility Management oder Inkasso."
+        },
+        {
+          "industry": "Waste Management",
+          "description": "Unternehmen, die Abfallentsorgungs-, Recycling- und Umweltdienstleistungen anbieten."
+        },
+        {
+          "industry": "Electrical Equipment & Parts",
+          "description": "Hersteller von elektrischen Ausrüstungen, Komponenten und Teilen für industrielle und gewerbliche Anwendungen."
+        },
+        {
+          "industry": "Rental & Leasing Services",
+          "description": "Vermieter und Verleaser von Investitionsgütern, Fahrzeugen und Ausrüstungen an gewerbliche Kunden."
+        },
+        {
+          "industry": "Airlines",
+          "description": "Fluggesellschaften, die Passagier- und/oder Frachtluftverkehrsdienste anbieten."
+        },
+        {
+          "industry": "Trucking",
+          "description": "Transportunternehmen, die Straßengüterverkehrsdienste mit Lastkraftwagen erbringen."
+        },
+        {
+          "industry": "Tools & Accessories",
+          "description": "Hersteller von Handwerkzeugen, Elektrowerkzeugen und Zubehör für den professionellen und Heimwerkereinsatz."
+        },
+        {
+          "industry": "Metal Fabrication",
+          "description": "Unternehmen, die Metallstrukturen und -teile durch Bearbeitungsprozesse wie Schmieden, Stanzen oder Schweißen fertigen."
+        },
+        {
+          "industry": "Consulting Services",
+          "description": "Anbieter von Beratungsdienstleistungen für Unternehmen in Bereichen wie Management, Strategie, IT und Personal."
+        },
+        {
+          "industry": "Security & Protection Services",
+          "description": "Unternehmen, die Sicherheitsdienste, Schutzausrüstung oder Überwachungstechnologien anbieten."
+        },
+        {
+          "industry": "Pollution & Treatment Controls",
+          "description": "Hersteller von Anlagen und Systemen zur Kontrolle von Umweltverschmutzung und zur Abwasser-/Abfallbehandlung."
+        },
+        {
+          "industry": "Marine Shipping",
+          "description": "Reedereien und Betreiber von Schiffen für den Transport von Gütern und Personen über See- und Binnenwasserstraßen."
+        },
+        {
+          "industry": "Airports & Air Services",
+          "description": "Betreiber von Flughäfen und Anbieter von damit verbundenen Dienstleistungen wie Bodenabfertigung und Wartung."
+        },
+        {
+          "industry": "Staffing & Employment Services",
+          "description": "Unternehmen, die Personalvermittlungs- und Zeitarbeitsdienstleistungen anbieten."
+        },
+        {
+          "industry": "Business Equipment & Supplies",
+          "description": "Hersteller oder Händler von Büroausstattung, -geräten und -bedarf für Unternehmen."
+        },
+        {
+          "industry": "Infrastructure Operations",
+          "description": "Betreiber von Infrastrukturanlagen wie Autobahnen, Brücken oder Tunneln, oft mit Mauterhebung."
+        }
+      ]
+    },
+    {
+      "sector": "Consumer Defensive",
+      "description": "Der Sektor der nicht-zyklischen Konsumgüter umfasst Unternehmen, die Waren des täglichen Bedarfs herstellen oder vertreiben und daher eine relativ stabile Nachfrage unabhängig von Konjunkturzyklen aufweisen.",
+      "industries": [
+        {
+          "industry": "Discount Stores",
+          "description": "Einzelhandelsunternehmen, die ein breites Sortiment an Konsumgütern zu dauerhaft niedrigen Preisen anbieten."
+        },
+        {
+          "industry": "Beverages - Non-Alcoholic",
+          "description": "Unternehmen, die alkoholfreie Getränke wie Wasser, Limonaden, Säfte und Eistee herstellen und vertreiben."
+        },
+        {
+          "industry": "Household & Personal Products",
+          "description": "Hersteller von Haushaltsreinigern, Waschmitteln, Körperpflege- und Kosmetikprodukten für den täglichen Bedarf."
+        },
+        {
+          "industry": "Tobacco",
+          "description": "Unternehmen, die Tabakwaren wie Zigaretten, Zigarren und Rauchtabak anbauen, verarbeiten und vertreiben."
+        },
+        {
+          "industry": "Packaged Foods",
+          "description": "Hersteller von verpackten Lebensmitteln wie Konserven, Tiefkühlkost, Snacks und Fertiggerichten."
+        },
+        {
+          "industry": "Confectioners",
+          "description": "Produzenten von Süßwaren wie Schokolade, Bonbons, Kaugummi und anderen Zuckerwaren."
+        },
+        {
+          "industry": "Food Distribution",
+          "description": "Unternehmen, die Lebensmittel und Getränke von Herstellern an Einzelhändler, Gastronomie und Großverbraucher vertreiben."
+        },
+        {
+          "industry": "Farm Products",
+          "description": "Agrarbetriebe und Handelshäuser, die landwirtschaftliche Rohstoffe wie Getreide, Ölsaaten, Obst und Gemüse anbauen und vermarkten."
+        },
+        {
+          "industry": "Grocery Stores",
+          "description": "Einzelhandelsgeschäfte, die überwiegend Lebensmittel und verwandte Produkte des täglichen Bedarfs verkaufen."
+        },
+        {
+          "industry": "Beverages - Brewers",
+          "description": "Brauereien, die Bier und andere gebraute alkoholische Getränke herstellen und vertreiben."
+        },
+        {
+          "industry": "Education & Training Services",
+          "description": "Unternehmen, die Bildungs- und Trainingsdienstleistungen anbieten, darunter Schulen, Nachhilfe, berufliche Weiterbildung und Online-Kurse."
+        },
+        {
+          "industry": "Beverages - Wineries & Distilleries",
+          "description": "Weingüter und Brennereien, die Wein, Likör und Spirituosen herstellen und vertreiben."
+        }
+      ]
+    },
+    {
+      "sector": "Energy",
+      "description": "Der Energiesektor umfasst Unternehmen, die in der Förderung, Verarbeitung und Verteilung von Energiequellen wie Öl, Gas, Kohle und Uran tätig sind.",
+      "industries": [
+        {
+          "industry": "Oil & Gas Integrated",
+          "description": "Unternehmen, die in der gesamten Wertschöpfungskette von Öl und Gas tätig sind, einschließlich Exploration, Produktion, Transport, Raffination und Vertrieb."
+        },
+        {
+          "industry": "Oil & Gas Midstream",
+          "description": "Unternehmen, die sich auf Transport, Lagerung und Großhandel von Rohöl, Erdgas und Flüssigerdgas spezialisiert haben."
+        },
+        {
+          "industry": "Oil & Gas E&P",
+          "description": "Unternehmen, die auf die Exploration und Förderung (Upstream) von Erdöl- und Erdgasvorkommen fokussiert sind."
+        },
+        {
+          "industry": "Oil & Gas Equipment & Services",
+          "description": "Anbieter von Ausrüstung, Dienstleistungen und Technologien für die Öl- und Gasexploration, -förderung und -produktion."
+        },
+        {
+          "industry": "Oil & Gas Refining & Marketing",
+          "description": "Unternehmen, die Rohöl zu Endprodukten wie Kraftstoffen und Schmierstoffen verarbeiten und diese vermarkten."
+        },
+        {
+          "industry": "Uranium",
+          "description": "Unternehmen, die sich mit der Exploration, dem Abbau und der Verarbeitung von Uran für die Kernenergieerzeugung befassen."
+        },
+        {
+          "industry": "Oil & Gas Drilling",
+          "description": "Unternehmen, die Bohrdienstleistungen für die Öl- und Gasindustrie anbieten, einschließlich kontraktbasierter Bohrungen."
+        },
+        {
+          "industry": "Thermal Coal",
+          "description": "Unternehmen, die sich auf den Abbau und die Verarbeitung von Kohle zur Energieerzeugung (thermische Kohle) konzentrieren."
+        }
+      ]
+    },
+    {
+      "sector": "Basic Materials",
+      "description": "Der Sektor Basic Materials umfasst Unternehmen, die natürliche Rohstoffe explorieren, fördern und zu Grundmaterialien für weiterverarbeitende Industrien veredeln.",
+      "industries": [
+        {
+          "industry": "Gold",
+          "description": "Die Goldindustrie umfasst die Exploration, Förderung und Raffination von Gold sowie den Handel mit Barren und Münzen."
+        },
+        {
+          "industry": "Specialty Chemicals",
+          "description": "Die Spezialchemikalienindustrie produziert hochwertige chemische Formulierungen wie Klebstoffe, Katalysatoren und Beschichtungen für spezielle Anwendungen."
+        },
+        {
+          "industry": "Copper",
+          "description": "Die Kupferindustrie konzentriert sich auf die Gewinnung, Raffination und Verarbeitung von Kupfererz zu Produkten wie Kabeln und Rohren."
+        },
+        {
+          "industry": "Building Materials",
+          "description": "Die Baustoffindustrie stellt Materialien wie Zement, Beton und Ziegel für den Hoch- und Tiefbau her."
+        },
+        {
+          "industry": "Steel",
+          "description": "Die Stahlindustrie produziert Stahl aus Eisenerz und Schrott und verarbeitet ihn zu Halbzeug und Endprodukten für zahlreiche Branchen."
+        },
+        {
+          "industry": "Agricultural Inputs",
+          "description": "Die Industrie für landwirtschaftliche Betriebsmittel liefert Dünger, Pestizide und Saatgut zur Steigerung der landwirtschaftlichen Produktivität."
+        },
+        {
+          "industry": "Other Industrial Metals & Mining",
+          "description": "Diese Industrie umfasst die Förderung und Aufbereitung nicht zu den Hauptgruppen zählender Industriemetalle wie Titan, Wolfram oder Zink."
+        },
+        {
+          "industry": "Chemicals",
+          "description": "Die Chemieindustrie stellt eine breite Palette von Basis- und Spezialchemikalien sowie Polymeren für industrielle und konsumnahe Anwendungen her."
+        },
+        {
+          "industry": "Other Precious Metals & Mining",
+          "description": "Diese Industrie befasst sich mit der Exploration, Gewinnung und Verarbeitung von Edelmetallen außer Gold und Silber, etwa Platin oder Palladium."
+        },
+        {
+          "industry": "Aluminum",
+          "description": "Die Aluminiumindustrie reicht vom Bauxitabbau über die Tonerdeherstellung bis zur Elektrolyse und Weiterverarbeitung zu Aluminiumprodukten."
+        },
+        {
+          "industry": "Lumber & Wood Production",
+          "description": "Die Holz- und Holzproduktion umfasst Forstwirtschaft, Sägen von Stammholz und die Herstellung von Schnittholz und Holzwerkstoffen."
+        },
+        {
+          "industry": "Silver",
+          "description": "Die Silberindustrie widmet sich der Exploration, dem Abbau und der Raffination von Silbererz zu Silberbarren und -pulver."
+        },
+        {
+          "industry": "Coking Coal",
+          "description": "Die Kokskohleindustrie fördert und veredelt spezielle Kohle, die zur Herstellung von Koks für den Hochofenprozess in der Stahlproduktion dient."
+        },
+        {
+          "industry": "Paper & Paper Products",
+          "description": "Die Papierindustrie produziert Zellstoff, Papier, Karton sowie daraus gefertigte Verpackungs- und Hygieneprodukte."
+        }
+      ]
+    },
+    {
+      "sector": "Utilities",
+      "description": "Der Sektor Versorgungsunternehmen umfasst Unternehmen, die grundlegende Dienstleistungen wie Strom, Gas, Wasser und erneuerbare Energieerzeugung bereitstellen und dabei häufig regulierten Monopolen unterliegen.",
+      "industries": [
+        {
+          "industry": "Utilities - Regulated Electric",
+          "description": "Unternehmen, die als gebietsmonopolistisch regulierte Stromversorger Elektrizität erzeugen, übertragen und an Endkunden verteilen."
+        },
+        {
+          "industry": "Utilities - Independent Power Producers",
+          "description": "Unternehmen, die ohne Gebietsmonopol Elektrizität aus verschiedenen Energiequellen erzeugen und diese am Großhandelsmarkt verkaufen."
+        },
+        {
+          "industry": "Utilities - Regulated Gas",
+          "description": "Unternehmen, die als regulierte Monopolisten Erdgas speichern, durch Pipelines transportieren und an Endverbraucher liefern."
+        },
+        {
+          "industry": "Utilities - Diversified",
+          "description": "Unternehmen, die eine Kombination aus regulierten und nicht regulierten Versorgungsdienstleistungen in mehreren Sparten wie Strom, Gas und Wasser anbieten."
+        },
+        {
+          "industry": "Utilities - Renewable",
+          "description": "Unternehmen, die hauptsächlich Strom aus erneuerbaren Energiequellen wie Wind, Sonne oder Wasserkraft erzeugen und oft durch langfristige Abnahmeverträge oder Quotenregelungen begünstigt werden."
+        },
+        {
+          "industry": "Utilities - Regulated Water",
+          "description": "Unternehmen, die als regulierte Monopolisten Wasser aufbereiten, speichern und über Leitungsnetze an Haushalte und Gewerbe liefern sowie Abwasser entsorgen."
+        }
+      ]
+    },
+    {
+      "sector": "Real Estate",
+      "description": "Der Sektor Real Estate umfasst Unternehmen, die mit Immobilienentwicklung, -verwaltung und -investition befasst sind, einschließlich Real Estate Investment Trusts (REITs).",
+      "industries": [
+        {
+          "industry": "REIT - Specialty",
+          "description": "REITs, die auf Spezialimmobilien wie Datenzentren, Selbstlagerungsanlagen oder Signaltürme fokussiert sind."
+        },
+        {
+          "industry": "REIT - Industrial",
+          "description": "REITs, die Industrieimmobilien wie Lagerhäuser und Distributionszentren besitzen und verwalten."
+        },
+        {
+          "industry": "REIT - Healthcare Facilities",
+          "description": "REITs, die in Gesundheitsimmobilien wie Krankenhäuser, Pflegeheime und medizinische Praxen investieren."
+        },
+        {
+          "industry": "REIT - Retail",
+          "description": "REITs, die Einzelhandelsimmobilien wie regionale Einkaufszentren und freistehende Geschäfte besitzen."
+        },
+        {
+          "industry": "REIT - Residential",
+          "description": "REITs, die Wohnimmobilien wie Apartmentkomplexe und Mehrfamilienhäuser halten."
+        },
+        {
+          "industry": "Real Estate Services",
+          "description": "Unternehmen, die Dienstleistungen wie Immobilienvermittlung, -verwaltung und -beratung anbieten."
+        },
+        {
+          "industry": "REIT - Mortgage",
+          "description": "REITs, die Hypothekendarlehen und hypothekenbesicherte Wertpapiere erwerben, um Zinserträge zu erzielen."
+        },
+        {
+          "industry": "REIT - Diversified",
+          "description": "REITs mit einem diversifizierten Portfolio aus verschiedenen Immobilienarten."
+        },
+        {
+          "industry": "REIT - Office",
+          "description": "REITs, die Büroimmobilien besitzen und vermieten."
+        },
+        {
+          "industry": "REIT - Hotel & Motel",
+          "description": "REITs, die Hotels und Motels betreiben oder verpachten."
+        },
+        {
+          "industry": "Real Estate - Development",
+          "description": "Unternehmen, die neue Immobilienprojekte entwickeln, bauen und verkaufen."
+        },
+        {
+          "industry": "Real Estate - Diversified",
+          "description": "Unternehmen mit breit gefächerten Immobilienaktivitäten, die Entwicklung, Verwaltung und Investment umfassen."
+        }
+      ]
+    }
+  ]
+}
