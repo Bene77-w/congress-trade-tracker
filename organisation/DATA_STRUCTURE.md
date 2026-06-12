@@ -48,12 +48,23 @@ name,ticker,asset_name,asset_type,transaction_type,amount,transaction_date,owner
 
 ## 2. Committee-Mitgliedschaften
 
-### `data/raw/house_member&(sub)committees.csv`
-**Quelle**: PDF-Extraktion (House Committee Assignments)
+> **F2-Format (2026-06-12):** Beide Roster-CSVs unten enthalten
+> `Member_Committees_Full`-kompatible Strings im **F2-Format** — `;` trennt
+> Committees, `:` leitet die Sub-Liste ein, `~` trennt Subcommittees, `|`
+> trennt Name von Rolle (Committee-Ebene: `Chairman`/`Vice Chairman`/
+> `Ranking Member`/`Ex Officio`/`Cochairman`/leer; Sub-Ebene: `Chair`/
+> `Vice Chair`/`Ranking Member`/`Ex Officio`/leer). Vollständige Spec inkl.
+> Beispiele und Begründung: `scrapers/senate_pdf_parsing_tool/csv_zielstruktur.md`
+> (Single-Source — hier nicht duplizieren). Zentraler Reader für das Format:
+> `utils/committee_parser.py`.
+
+### `data/mappings/house_member&(sub)committees.csv`
+**Quelle**: `scrapers/house_pdf_parsing_tool/parse_house_committee_pdf.py`
+(Extraktion aus `scsoal.pdf`, clerk.house.gov, committet)
 **Format**: CSV
-**Größe**: 89 KB
-**Zeilen**: 433 (432 Mitglieder + Header)
-**Update**: Bei neuen Wahlen (alle 2 Jahre)
+**Zeilen**: 437 (436 Mitglieder + Header)
+**Update**: Bei neuen Wahlen (alle 2 Jahre) oder Committee-Umstrukturierungen,
+neu erzeugt via `parse_house_committee_pdf.py --pdf <pfad> [--out <pfad>]`
 
 **Spalten**:
 ```csv
@@ -64,49 +75,66 @@ Name,Party,State,Committees,ExOfficio
 - `Name` - Vorname Nachname (z.B. "John Smith")
 - `Party` - 1 Buchstabe: `D` (Democrat), `R` (Republican)
 - `State` - 2 Buchstaben: `CA`, `TX`, etc.
-- `Committees` - Pipe-delimited String (siehe unten)
-- `ExOfficio` - `true` oder `false` (Chairman/Ranking Member von Hauptcommittee)
+- `Committees` - F2-Format-String (siehe oben / `csv_zielstruktur.md`)
+- `ExOfficio` - `true` oder `false` (Mitglied hat ≥1 Ex-Officio-Position)
 
-**Committees-Format** (siehe `member&(sub)committees_structure.md`):
-```
-Committee|Role:Subcommittee|Role;NextCommittee|...
-```
-
-**Separatoren**:
-- `;` = Trennt Committees
-- `|` = Trennt Name von Role
-- `:` = Trennt Committee von Subcommittees
-
-**Beispiel**:
-```
-"Ways And Means|Chairman:Oversight|;Social Security|;Armed Services|:Seapower|Ranking Member"
-```
-→ Chairman von Ways And Means (mit Subcommittee Oversight), Member von Social Security, Member von Armed Services/Seapower (Ranking Member)
+**Abdeckung**: alle 20 Standing + 2 Select Committees (Intelligence mit 6
+Subs, China) + 4 Joint Committees (House-Hälfte; Senatoren kommen aus dem
+Senate-XML). 26 Committees insgesamt.
 
 **Verwendung**: Name-Matching in `utils/name_matcher.py` → Anreicherung in `scripts/import_trades.py`
 
 ---
 
-### `data/raw/senate_member&(sub)committees.csv`
-**Quelle**: PDF-Extraktion (Senate Committee Assignments)
+### `data/mappings/senate_member&(sub)committees.csv`
+**Quelle**: `scrapers/senate_committee_xml/parse_senate_xml.py`
+(XML→F2-CSV aus `scrapers/senate_committee_xml/raw/*.xml`)
 **Format**: CSV
-**Größe**: 78 KB
-**Zeilen**: 239 (100 Senatoren + Header + Duplikate durch mehrere Committees)
-**Update**: Bei neuen Wahlen (alle 2 Jahre)
+**Zeilen**: 101 (100 Senatoren + Header)
+**Update**: Bei neuen Wahlen (alle 2 Jahre) oder Committee-Umstrukturierungen —
+zuerst `fetch_senate_xml.py` (neue XML-Snapshots), dann `parse_senate_xml.py
+[out_pfad]`
 
-**Spalten**: Gleiche Struktur wie House CSV
+**Spalten**: Gleiche Struktur wie House CSV (F2-Format)
 
 **Unterschiede zu House**:
-- Committee-Namen beginnen oft mit "Committee on ..." (wird normalisiert)
+- Committee-Namen beginnen oft mit "Committee on ..." (wird normalisiert,
+  s. `config/committee_mapping.py::_normalize`)
 - Ausführlichere Subcommittee-Namen
-- Weniger Mitglieder, aber komplexere Committee-Strukturen
+- Name-Format: „Last, First"
 
 **Verwendung**: Gleich wie House CSV
 
 ---
 
-### `data/raw/member&(sub)committees_structure.md`
-**Dokumentation** der Committee-String-Syntax (siehe oben)
+### `scrapers/senate_committee_xml/raw/*.xml` + `_manifest.json`
+**Quelle**: `scrapers/senate_committee_xml/fetch_senate_xml.py` — dynamische
+Committee-Discovery aus dem senate.gov-Dropdown (kein Hardcoding), lädt pro
+Committee `committee_memberships_<CODE>.xml` via curl_cffi
+(Chrome-Impersonation gegen Akamai-403)
+**Format**: XML-Snapshots (26 Dateien), **committet** für Determinismus
+**Inhalt `_manifest.json`**: Snapshot-Metadaten + Change-Report (+NEU/−ENTFALLEN
+gegenüber vorherigem Snapshot)
+**Verwendung**: Input für `parse_senate_xml.py` → `senate_member&(sub)committees.csv`
+
+---
+
+### `data/processed/committees_structure.csv` (gitignored)
+**Quelle**: `scrapers/generate_committee_structure.py`
+**Spalten**: `Chamber, Committee, Subcommittee`
+**Inhalt**: Strukturliste (Committee/Subcommittee-Paare) aus beiden Roster-
+CSVs (House + Senate), für Validierung/Vollständigkeitsprüfung.
+**Update**: Nach jeder Roster-Neuerzeugung
+
+---
+
+### `data/mappings/us_house_all_committees.csv` / `us_senate_all_committees.csv` (untracked)
+**Quelle**: Manuell/extern erstelltes Struktur-Orakel (offizielle
+Committee/Subcommittee-Listen) für die Validierung der Parser-Outputs gegen
+`committees_structure.csv`.
+**Verwendung**: Validierungslauf `scrapers/house_pdf_parsing_tool/validate_house.py`
+(House: 0 Abweichungen bei 26 Committees, Joint-Headcounts handverifiziert;
+Senate: 70/70 Sub-Paare, Stand 2026-06-12).
 
 ---
 
@@ -652,8 +680,13 @@ MatchScore,             # 0-100 (Fuzzy Match Score)
 MatchSource,            # exact, fuzzy, alias, none
 
 # Anreicherung durch Committee Filter (Modul 4)
-Member_Committees_Full, # Vollstaendiger Committee-String
-Insider_Sectors,        # JSON: ALLE (sub)committee-Sektoren des Members [{sector, industry, rank, confidence, role, committee, subcommittee}, ...]
+Member_Committees_Full, # Vollstaendiger Committee-String, F2-Format (siehe Abschnitt 2 oben
+                        # bzw. scrapers/senate_pdf_parsing_tool/csv_zielstruktur.md)
+Insider_Sectors,        # JSON: ALLE (sub)committee-Sektoren des Members
+                        # [{sector, industry, rank, confidence, committee_role, subcommittee_role, committee, subcommittee}, ...]
+                        # committee_role/subcommittee_role (NEU 2026-06-12, ersetzen das vermischte `role`):
+                        # je ebenen-spezifische Rolle des Members (Werte siehe csv_zielstruktur.md);
+                        # `subcommittee` leer = Committee-Ebene-Treffer (dann ist subcommittee_role leer)
 Relevant_Sectors,       # JSON: Intersection von Insider_Sectors mit sector_yf/industry_yf (Match-Mode konfigurierbar in settings.RELEVANT_SECTORS_MATCH_MODE)
                         # Jeder Eintrag hat Feld match_type: 'full' (Sector+Industry treffen), 'sector' (nur Sector trifft)
 
@@ -751,6 +784,12 @@ asset_tradingvolume_usd,# int64: Cross-Class rolling-window Sum(trade_volume_usd
                         # HINWEIS: Floesst NICHT mehr direkt in trade_score ein (Volume ist
                         # jetzt ein Tier-Signal auf trade_amount_max_usd). Bleibt fuer
                         # total_volume_usd in suspicious_assets.csv + Streamlit Asset-Tab.
+
+ex_officio_role_keys,   # str ";"-getrennt: NEU (2026-06-12). Fuehrungsrollen-Keys der relevanten
+                        # Sektor-Treffer eines Trades (aus Insider_Sectors/Relevant_Sectors
+                        # committee_role/subcommittee_role), z.B. "committee_chairman;subcommittee_ranking_member".
+                        # Erzeugt vom CommitteeTag in Stage gates_tags, durchgereicht von
+                        # scripts/import_trades.py, konsumiert vom Scoring (SCORING_EX_OFFICIO_ROLE_BONUSES).
 
 # Anreicherung durch Branch-1 Signale (Stage branch1_signals)
 signal_count,           # int 0-4: Anzahl ausgeloester Branch-1 Signale pro Trade
@@ -1220,7 +1259,17 @@ ist reserviert (nicht überschreib-/löschbar).
     "volume_enabled": true,
     "volume_threshold_u": 100000.0,
     "volume_slope": 0.00002,
-    "ex_officio_bonus": 10.0
+    "ex_officio_role_bonuses": {
+      "committee_chairman": 15,
+      "committee_vice_chairman": 12,
+      "committee_ranking_member": 10,
+      "committee_ex_officio": 10,
+      "subcommittee_chair": 12,
+      "subcommittee_vice_chair": 9,
+      "subcommittee_ranking_member": 8,
+      "subcommittee_ex_officio": 8
+    },
+    "ex_officio_committee_global": true
   }
 }
 ```
@@ -1232,7 +1281,14 @@ ist reserviert (nicht überschreib-/löschbar).
 - `volume_enabled` — Bool, schaltet den Volume-Score komplett aus.
 - `volume_threshold_u` — Schwellenwert U in USD (linearer Anteil ab vol > U).
 - `volume_slope` — Punkte pro USD über U.
-- `ex_officio_bonus` — additiver Bonus (Float) bei `is_ex_officio` + Trigger.
+- `ex_officio_role_bonuses` — Dict mit den 8 Keys aus
+  `SCORING_EX_OFFICIO_ROLE_BONUSES` (Default-Werte 8–15). Bonus = MAX über die
+  Boni der in `ex_officio_role_keys` vorhandenen Keys, nur wenn ein
+  Trigger-Signal getriggert hat. **NEU (2026-06-12)**, ersetzt das frühere
+  einzelne `ex_officio_bonus`.
+- `ex_officio_committee_global` — Bool, entspricht
+  `SCORING_EX_OFFICIO_COMMITTEE_GLOBAL`: wenn `false`, zählen
+  `committee_*`-Role-Keys nicht für den Bonus. **NEU (2026-06-12)**.
 
 **Recompute-Pfad:** Diffs gegen `default_payload()` werden als
 `weights_override` / `params_override` an `app/score_recompute.recompute_subset()`

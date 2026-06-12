@@ -233,6 +233,56 @@ PDF_EXTRACTOR_ROW_BATCH_SIZE = 5
 
 ---
 
+## Pipeline 3c: Committee-Roster-Producer (F2-Format)
+
+**Erzeugen die `data/mappings/{house,senate}_member&(sub)committees.csv`-
+Roster, die Stage `--stage_committees` (Pipeline 5) konsumiert. Position:
+VOR `import_trades.py`, nur bei Wahlen/Umstrukturierungen.**
+
+**Senate** (`scrapers/senate_committee_xml/`):
+```bash
+python scrapers/senate_committee_xml/fetch_senate_xml.py   # → raw/*.xml + _manifest.json (committet)
+python scrapers/senate_committee_xml/parse_senate_xml.py [out_pfad]  # → senate_member&(sub)committees.csv (F2, 100 Senatoren)
+```
+Dynamische Committee-Discovery aus dem senate.gov-Dropdown (kein
+Hardcoding), Download via curl_cffi (Chrome-Impersonation gegen
+Akamai-403). **Ersetzt** den alten
+`scrapers/senate_pdf_parsing_tool/parse_us_senate_committee_pdf.py`
+(LEGACY/retiriert, samt PDF).
+
+**House** (`scrapers/house_pdf_parsing_tool/`):
+```bash
+python scrapers/house_pdf_parsing_tool/parse_house_committee_pdf.py --pdf <pfad/scsoal.pdf> [--out <pfad>]
+```
+Generalisierter Parser für alle 20 Standing + 2 Select (Intelligence mit 6
+Subs, China) + 4 Joint Committees (House-Hälfte; Senatoren aus dem
+Senate-XML) → F2-CSV, 436 Member, 26 Committees. Quelle `scsoal.pdf`
+(clerk.house.gov, committet).
+
+**Struktur-Validierung** (beide Kammern):
+```bash
+python scrapers/generate_committee_structure.py   # → data/processed/committees_structure.csv (gitignored)
+```
+Gegen Struktur-Orakel (`data/mappings/us_{house,senate}_all_committees.csv`,
+untracked) validierbar via `scrapers/house_pdf_parsing_tool/validate_house.py`.
+
+**Format-Spec:** F2-Format (`;`/`:`/`~`/`|`), Single-Source:
+`scrapers/senate_pdf_parsing_tool/csv_zielstruktur.md`.
+
+> **WICHTIG — Re-Run-Sequenz nach Roster-Änderung:** Nach Neuerzeugung der
+> Roster-CSVs muss die folgende Single-Stage-Sequenz vollständig durchlaufen
+> werden (s. Pipeline 5):
+> ```
+> --stage_committees → --stage_gates_tags → --stage_branch1_signals →
+> --stage_sequence_signals → --stage_swarm_signals → --stage_scoring
+> (+ --regenerate_curated)
+> ```
+> Grund: `--stage_branch1_signals` baut `signals_triggered` von Grund auf
+> neu — ohne die anschließenden sequence-/swarm-Stages verschwinden
+> Sequenz-/Schwarm-Signale aus dem Master.
+
+---
+
 ## Pipeline 4: Senate PDF Extractor (OCR)
 
 **Script:** `scrapers/senate_pdf_extractor.py`
@@ -532,9 +582,11 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
     → Eingaben: signals_triggered (aus [12]/[13]/[14]), Member_ExOfficio,
       trade_amount_max_usd (aus [9]).
     → Parameter aus settings.py: SCORING_WEIGHTS, SCORING_PARADOX_DAMPER,
-      SCORING_EX_OFFICIO_BONUS, SCORING_EX_OFFICIO_TRIGGERS,
-      SCORING_TRADE_VOLUME_ENABLED, SCORING_TRADE_VOLUME_TIERS,
-      SCORING_TRADE_VOLUME_TRIGGER_FLOOR.
+      SCORING_EX_OFFICIO_ROLE_BONUSES, SCORING_EX_OFFICIO_COMMITTEE_GLOBAL,
+      SCORING_EX_OFFICIO_TRIGGERS, SCORING_TRADE_VOLUME_ENABLED,
+      SCORING_TRADE_VOLUME_TIERS, SCORING_TRADE_VOLUME_TRIGGER_FLOOR.
+    → ex_officio-Bonus = MAX über die Boni der in ex_officio_role_keys
+      vorhandenen Keys (nur wenn Trigger-Signal getriggert hat).
     → Score = 0 bei trade ohne Signal-Hit; kein Cap.
          ↓
 [16] Suspicious-Export (_stage_suspicious_export, + Modul 8.4)
@@ -1033,8 +1085,11 @@ Diese Dateien werden nicht durch Pipelines erzeugt, sondern manuell gepflegt:
 
 | Datei | Aktualisierung | Zweck |
 |-------|----------------|-------|
-| `data/mappings/house_member&(sub)committees.csv` | Alle 2 Jahre (Wahlen) | 437 House-Mitglieder + Committees (inkl. 5 Leadership ex officio) |
-| `data/mappings/senate_member&(sub)committees.csv` | Alle 2 Jahre (Wahlen) | 100 Senatoren + Committees |
+| `data/mappings/house_member&(sub)committees.csv` | Alle 2 Jahre (Wahlen), via `parse_house_committee_pdf.py` (Pipeline 3c) | 437 Zeilen, 436 House-Mitglieder + Committees, F2-Format |
+| `data/mappings/senate_member&(sub)committees.csv` | Alle 2 Jahre (Wahlen), via `fetch_senate_xml.py` + `parse_senate_xml.py` (Pipeline 3c) | 101 Zeilen, 100 Senatoren + Committees, F2-Format |
+| `scrapers/senate_committee_xml/raw/*.xml` + `_manifest.json` | Bei jedem `fetch_senate_xml.py`-Lauf | 26 Senate-Committee-XML-Snapshots (committet, Determinismus) |
+| `data/processed/committees_structure.csv` | Nach jeder Roster-Neuerzeugung, via `generate_committee_structure.py` | Chamber/Committee/Subcommittee-Strukturliste (gitignored) |
+| `data/mappings/us_{house,senate}_all_committees.csv` | Bei Bedarf (manuell/extern) | Struktur-Orakel für Validierung (untracked) |
 | `data/mappings/name_aliases.csv` | Bei Bedarf (neue Varianten) | Manuelle Namenskorrekturen (11 Eintraege) |
 | `data/mappings/ignored_tickers.csv` | Bei Bedarf | Manuelle Ignore-Liste fuer raw_ticker (z.B. private Funds ohne oeffentlichen Ticker). Wird in Stage `tickerclassify` ausgewertet → setzt `ticker_type=ignored`, kein Manual-Review-Eintrag |
 | `data/mappings/subcommittee_sector_industry_mapping.csv` | Bei Bedarf | Subcommittee→Sektor/Industry (861 Zeilen) |
