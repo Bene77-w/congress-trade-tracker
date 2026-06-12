@@ -22,11 +22,15 @@ if str(ROOT) not in sys.path:
 from app.member_metrics import (  # noqa: E402
     DEFAULT_HORIZONS,
     committee_full_mask,
+    committee_oversight_rows,
     compute_member_trajectories,
+    downsample_trajectory,
     filter_by_quarter_range,
     filter_long_trades_out,
+    horizon_agg_returns,
     horizon_bucket_shares,
     horizon_mean_returns,
+    horizon_stats,
     member_oversight_sectors,
     nearest_horizon,
     paper_return_terminal,
@@ -38,6 +42,7 @@ from app.member_metrics import (  # noqa: E402
     resolve_highlight_from_selection,
     score_bins,
     sector_concentration,
+    select_top_trajectories,
     terminal_distribution,
     trajectory_end_offset,
 )
@@ -328,6 +333,165 @@ def test_compute_member_trajectories_skips_missing_data():
          'exit_status': 'held', 'exit_date': pd.NaT, 'post_return_180d': 1.0},
     ])
     assert compute_member_trajectories(df_member, cache, H) == []
+
+
+# ---------------------------------------------------------------------------
+# Downsampling + Trace-Cap (Performance-Schutz, pure)
+# ---------------------------------------------------------------------------
+
+def test_downsample_keeps_first_last_and_nth():
+    days = list(range(0, 10))          # 0..9
+    rets = [float(d) for d in days]
+    d, r = downsample_trajectory(days, rets, sample_days=3)
+    # Vielfache von 3 (0,3,6,9) + erster/letzter -> {0,3,6,9}
+    assert d == [0, 3, 6, 9]
+    assert r == [0.0, 3.0, 6.0, 9.0]
+
+
+def test_downsample_last_point_always_kept_even_if_not_multiple():
+    days = [0, 1, 2, 3, 4, 5, 7]        # 7 ist kein Vielfaches von 3
+    rets = [float(x) for x in days]
+    d, _ = downsample_trajectory(days, rets, sample_days=3)
+    assert d[0] == 0 and d[-1] == 7    # erster + letzter immer drin
+    assert 3 in d                      # Vielfaches dazwischen
+
+
+def test_downsample_noop_for_small_or_one():
+    days, rets = [0, 5, 9], [0.0, 5.0, 9.0]
+    assert downsample_trajectory(days, rets, 1) == (days, rets)
+    assert downsample_trajectory([0, 9], [0.0, 9.0], 3) == ([0, 9], [0.0, 9.0])
+
+
+def test_select_top_trajectories_by_abs_return_nan_last():
+    trajs = [
+        {'trade_id': 'a', 'paper_return_180': 5.0},
+        {'trade_id': 'b', 'paper_return_180': -200.0},
+        {'trade_id': 'c', 'paper_return_180': np.nan},
+        {'trade_id': 'd', 'paper_return_180': 50.0},
+    ]
+    top = select_top_trajectories(trajs, max_traces=2)
+    assert [t['trade_id'] for t in top] == ['b', 'd']   # |−200|, |50| > |5|, NaN
+    # Cap >= len -> unveraendert (Reihenfolge erhalten)
+    assert select_top_trajectories(trajs, max_traces=10) == trajs
+    assert select_top_trajectories(trajs, max_traces=0) == trajs
+
+
+def test_compute_member_trajectories_downsample_param():
+    cache = _synthetic_cache()
+    df_member = pd.DataFrame([
+        {'trade_id': 't1', 'ticker': 'AAA', 'asset_name': 'Alpha',
+         'transaction_type': 'Purchase', 'post_trade_baseline_price': 100.0,
+         'transaction_date': pd.Timestamp('2020-01-01'),
+         'exit_status': 'held', 'exit_date': pd.NaT,
+         'post_return_180d': -10.0},
+    ])
+    # Punkte bei Tag 0/14/31. sample_days=10 behaelt erster+letzter -> 0 und 31
+    # (14 ist kein Vielfaches von 10) plus evtl. Vielfache; mind. Enden bleiben.
+    traj = compute_member_trajectories(df_member, cache, H, sample_days=10)
+    assert traj[0]['days'][0] == 0
+    assert traj[0]['days'][-1] == 31
+
+
+# ---------------------------------------------------------------------------
+# horizon_agg_returns (Median-Default) + horizon_stats
+# ---------------------------------------------------------------------------
+
+def test_horizon_agg_returns_median_default_robust():
+    df = pd.DataFrame({
+        'first_close_offset_days': [np.nan] * 3,
+        'post_return_30d': [1.0, 2.0, 300.0],   # Median 2, Mittel 101
+    })
+    med = horizon_agg_returns(df, H)             # default median
+    assert med[30] == pytest.approx(2.0)
+    mean = horizon_agg_returns(df, H, agg='mean')
+    assert mean[30] == pytest.approx(101.0)
+    # horizon_mean_returns delegiert -> identisch zum mean-Pfad
+    assert horizon_mean_returns(df, H)[30] == pytest.approx(101.0)
+
+
+def test_horizon_stats_n_and_aggregates():
+    df = pd.DataFrame({
+        'first_close_offset_days': [40.0, np.nan, np.nan],  # @40 nur fuer h=30
+        'post_return_30d': [10.0, 20.0, 30.0],
+        'post_return_60d': [99.0, 50.0, 70.0],
+    })
+    s = horizon_stats(df, H)
+    assert s[30]['n'] == 3
+    assert s[30]['median'] == pytest.approx(20.0)
+    assert s[30]['min'] == pytest.approx(10.0)
+    assert s[30]['max'] == pytest.approx(30.0)
+    assert s[60]['n'] == 2                       # @40-Trade faellt raus
+    assert s[60]['median'] == pytest.approx(60.0)
+    # Horizont ohne Spalte -> n=0
+    assert s[180]['n'] == 0
+
+
+# ---------------------------------------------------------------------------
+# Gremien-Tabelle (committee_oversight_rows) — Fake-Mapper
+# ---------------------------------------------------------------------------
+
+class _FakeMapper:
+    """Minimal-Mapper im API-Kontrakt der echten CommitteeMapper."""
+
+    def __init__(self, sub_map=None, comm_map=None):
+        self.sub_map = sub_map or {}
+        self.comm_map = comm_map or {}
+
+    def get_sectors_for_subcommittee(self, chamber, committee, sub):
+        return self.sub_map.get((committee, sub), [])
+
+    def get_all_sectors_for_committee(self, chamber, committee):
+        return self.comm_map.get(committee, [])
+
+
+def test_committee_oversight_rows_committee_level_first():
+    committees = parse_committees_full(AUCHINCLOSS)   # Energy And Commerce + 3 Subs
+    mapper = _FakeMapper(
+        sub_map={
+            ('Energy And Commerce', 'Energy'): [
+                {'sector': 'Energy', 'industry': 'Oil & Gas'}],
+            ('Energy And Commerce', 'Health'): [
+                {'sector': 'Healthcare', 'industry': 'Pharma'}],
+        },
+        comm_map={'Energy And Commerce': [
+            {'sector': 'Utilities', 'industry': 'Electric'}]})
+    out = committee_oversight_rows(committees, 'House', mapper)
+    assert len(out) == 1
+    rows = out[0]['rows']
+    # erste Zeile = Committee-Ebene (weil comm_map gemappt)
+    assert rows[0]['Subcommittee'] == '(Committee-Ebene)'
+    assert rows[0]['Sektoren'] == 'Utilities'
+    # danach je Subcommittee
+    energy = next(r for r in rows if r['Subcommittee'] == 'Energy')
+    assert energy['Sektoren'] == 'Energy'
+    assert energy['Industries'] == 'Oil & Gas'
+    env = next(r for r in rows if r['Subcommittee'] == 'Environment')
+    assert env['Sektoren'] == ''     # ungemappt -> leer
+
+
+def test_committee_oversight_rows_no_committee_level_when_unmapped():
+    committees = parse_committees_full(MOORE)   # Budget (keine Subs) + Fin Serv
+    mapper = _FakeMapper()    # nichts gemappt
+    out = committee_oversight_rows(committees, 'House', mapper)
+    budget = next(c for c in out if c['committee'] == 'Budget')
+    # keine Subs, kein Committee-Mapping -> keine (Committee-Ebene)-Zeile
+    assert budget['rows'] == []
+    fs = next(c for c in out if c['committee'] == 'Financial Services')
+    assert all(r['Subcommittee'] != '(Committee-Ebene)' for r in fs['rows'])
+    assert len(fs['rows']) == 3   # 3 Subcommittees
+
+
+def test_committee_oversight_rows_dedup_and_join():
+    committees = parse_committees_full('Foo|:Bar|')
+    mapper = _FakeMapper(sub_map={('Foo', 'Bar'): [
+        {'sector': 'Tech', 'industry': 'SW'},
+        {'sector': 'Tech', 'industry': 'HW'},    # Sektor-Duplikat
+        {'sector': 'Health', 'industry': 'SW'},  # Industry-Duplikat
+    ]})
+    out = committee_oversight_rows(committees, 'House', mapper)
+    row = out[0]['rows'][0]
+    assert row['Sektoren'] == 'Tech, Health'     # dedupliziert, stabil
+    assert row['Industries'] == 'SW, HW'
 
 
 # ---------------------------------------------------------------------------

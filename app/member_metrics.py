@@ -152,14 +152,59 @@ def _direction(transaction_type: Any) -> str:
     return _direction_from_transaction_type(transaction_type)
 
 
+def downsample_trajectory(days: list[int], returns: list[float],
+                          sample_days: int) -> tuple[list[int], list[float]]:
+    """Nur jeden ``sample_days``-ten Tag der Trajektorie behalten.
+
+    Erster UND letzter Punkt bleiben IMMER erhalten (sonst verschoebe sich das
+    optisch wichtige Linienende). ``sample_days <= 1`` -> unveraendert. Pure
+    Funktion (separat getestet), damit die Auswahllogik nicht in der UI haengt.
+    """
+    n = len(days)
+    if sample_days is None or sample_days <= 1 or n <= 2:
+        return list(days), list(returns)
+    keep_idx = [i for i in range(n) if (days[i] % sample_days == 0)]
+    keep_set = set(keep_idx)
+    keep_set.add(0)
+    keep_set.add(n - 1)
+    order = sorted(keep_set)
+    return [days[i] for i in order], [returns[i] for i in order]
+
+
+def select_top_trajectories(trajs: list[dict], max_traces: int,
+                            sort_key: str = 'paper_return_180') -> list[dict]:
+    """Top-N Trajektorien nach ``|sort_key|`` (NaN zuletzt) fuer den Trace-Cap.
+
+    ``max_traces <= 0`` oder ``len <= max_traces`` -> Liste unveraendert (Reihen-
+    folge erhalten). Sonst die N Verlaeufe mit groesstem Betrag des Sortier-
+    Felds, NaN-Werte landen am Ende der Rangliste. Pure Funktion (getestet).
+    """
+    if max_traces is None or max_traces <= 0 or len(trajs) <= max_traces:
+        return list(trajs)
+
+    def _abs_key(t: dict) -> tuple[int, float]:
+        v = t.get(sort_key)
+        if v is None or pd.isna(v):
+            return (1, 0.0)            # NaN -> Gruppe 1 (nach allen Zahlen)
+        return (0, -abs(float(v)))     # Zahlen -> Gruppe 0, absteigend |v|
+
+    return sorted(trajs, key=_abs_key)[:max_traces]
+
+
 def compute_member_trajectories(df_member: pd.DataFrame, cache: pd.DataFrame,
                                 horizons: list[int] | None = None,
-                                cap: int | None = None) -> list[dict]:
+                                cap: int | None = None,
+                                sample_days: int = 1) -> list[dict]:
     """Pro Trade die taegliche paper-Return-Trajektorie Tag 0 -> Linienende.
 
     Reine Logik (kein Streamlit, kein Caching) -> der UI-Wrapper in
     ``member_detail.py`` legt ein ``@st.cache_data`` darum und laedt den Cache
     intern (nicht als gehashtes Argument).
+
+    Vektorisiert: statt ``iterrows`` (bei ~28k Trades ein Browser-Haenger) wird
+    der Trade-DF EINMAL mit dem Preis-Cache gemerged, Offsets/Returns werden
+    spaltenweise berechnet und nach ``trade_id`` gruppiert. Identisches
+    Rueckgabeformat wie zuvor (Tests/UI haengen daran).
 
     Args:
         df_member: Trade-Subset eines Members (Spalten: ``trade_id``,
@@ -170,6 +215,8 @@ def compute_member_trajectories(df_member: pd.DataFrame, cache: pd.DataFrame,
             (``data/cache/price_history.parquet``).
         horizons: Return-Horizonte (Default 30/60/90/120/180).
         cap: Max-Offset in Tagen (Default = groesster Horizont).
+        sample_days: Downsampling — nur jeden n-ten Kalendertag behalten
+            (erster + letzter Punkt bleiben). 1 = kein Downsampling.
 
     Returns:
         Liste von Dicts je Trade mit Trajektorie:
@@ -181,47 +228,89 @@ def compute_member_trajectories(df_member: pd.DataFrame, cache: pd.DataFrame,
     cap = cap if cap is not None else hs[-1]
 
     out: list[dict] = []
-    if len(cache.index) == 0:
+    if len(cache.index) == 0 or df_member.empty:
         return out
     tickers_set = set(cache.index.get_level_values(0).unique())
 
-    for _, row in df_member.iterrows():
-        ticker = str(row.get('ticker'))
-        baseline = pd.to_numeric(row.get('post_trade_baseline_price'),
-                                 errors='coerce')
-        t_date = pd.to_datetime(row.get('transaction_date'), errors='coerce')
-        if (ticker not in tickers_set or pd.isna(t_date)
-                or pd.isna(baseline) or baseline <= 0):
-            continue
+    # 1) Trade-Meta vektorisiert vorbereiten + filtern (Ticker im Cache,
+    #    gueltiges Datum/Baseline). _direction ist nicht vektorisierbar
+    #    (Pipeline-reuse), aber nur 1x pro Trade (nicht pro Preis-Punkt).
+    meta = pd.DataFrame({
+        'trade_id': df_member.get('trade_id'),
+        'ticker': df_member.get('ticker').astype('string'),
+        'asset_name': df_member.get('asset_name'),
+        'transaction_type': df_member.get('transaction_type'),
+        'baseline': pd.to_numeric(df_member.get('post_trade_baseline_price'),
+                                  errors='coerce'),
+        't_date': pd.to_datetime(df_member.get('transaction_date'),
+                                 errors='coerce'),
+        'exit_status': df_member.get('exit_status'),
+        'exit_date': pd.to_datetime(df_member.get('exit_date'),
+                                    errors='coerce'),
+        'paper_return_180': pd.to_numeric(df_member.get('post_return_180d'),
+                                          errors='coerce'),
+    })
+    meta = meta[meta['ticker'].isin(tickers_set) & meta['t_date'].notna()
+                & meta['baseline'].notna() & (meta['baseline'] > 0)]
+    if meta.empty:
+        return out
 
-        end_off = trajectory_end_offset(
-            row.get('exit_status'), t_date, row.get('exit_date'), cap)
-        end_date = t_date + pd.Timedelta(days=end_off)
+    meta['direction'] = meta['transaction_type'].map(_direction)
+    meta['sign'] = np.where(meta['direction'] == 'sell', -1.0, 1.0)
+    meta['end_off'] = [
+        trajectory_end_offset(es, td, ed, cap)
+        for es, td, ed in zip(meta['exit_status'], meta['t_date'],
+                              meta['exit_date'])
+    ]
+    meta['end_date'] = meta['t_date'] + pd.to_timedelta(meta['end_off'],
+                                                        unit='D')
 
-        sign = -1.0 if _direction(row.get('transaction_type')) == 'sell' else 1.0
+    # 2) Preis-Cache auf die benoetigten Ticker reduzieren + Sentinel raus,
+    #    dann EINMAL mergen (Many-to-Many ueber ticker).
+    needed = set(meta['ticker'].dropna().unique())
+    sub = cache.loc[cache.index.get_level_values(0).isin(needed)].reset_index()
+    sub = sub[sub['date'] != _PRICE_CACHE_SENTINEL]
+    if sub.empty:
+        return out
+    sub['ticker'] = sub['ticker'].astype('string')
 
-        tkr = cache.loc[ticker]
-        tkr = tkr[tkr.index != _PRICE_CACHE_SENTINEL]
-        seg = tkr[(tkr.index >= t_date) & (tkr.index <= end_date)]
-        if seg.empty:
-            continue
+    merged = meta.merge(sub, on='ticker', how='inner')
+    in_window = ((merged['date'] >= merged['t_date'])
+                 & (merged['date'] <= merged['end_date']))
+    merged = merged[in_window]
+    if merged.empty:
+        return out
 
-        days = [int(d) for d in (seg.index - t_date).days]
-        rets = ((seg['close'].to_numpy(dtype='float64') / float(baseline) - 1.0)
-                * 100.0 * sign)
+    merged['day'] = (merged['date'] - merged['t_date']).dt.days.astype('int64')
+    merged['ret'] = ((merged['close'].to_numpy(dtype='float64')
+                      / merged['baseline'].to_numpy(dtype='float64') - 1.0)
+                     * 100.0 * merged['sign'].to_numpy(dtype='float64'))
+    merged = merged.sort_values(['trade_id', 'day'])
 
+    # 3) Pro Trade gruppieren (Reihenfolge wie urspruengliches iterrows: nach
+    #    Erst-Auftreten in df_member).
+    order = {tid: i for i, tid in enumerate(meta['trade_id'])}
+    meta_by_id = meta.set_index('trade_id')
+    for tid, g in merged.groupby('trade_id', sort=False):
+        days = g['day'].tolist()
+        rets = [float(r) for r in g['ret'].tolist()]
+        if sample_days and sample_days > 1:
+            days, rets = downsample_trajectory(days, rets, sample_days)
+        m = meta_by_id.loc[tid]
+        if isinstance(m, pd.DataFrame):
+            m = m.iloc[0]
         out.append({
-            'trade_id': row.get('trade_id'),
-            'ticker': ticker,
-            'asset_name': row.get('asset_name'),
-            'direction': _direction(row.get('transaction_type')),
-            'paper_return_180': pd.to_numeric(
-                row.get('post_return_180d'), errors='coerce'),
-            'end_offset': end_off,
+            'trade_id': tid,
+            'ticker': str(m['ticker']),
+            'asset_name': m['asset_name'],
+            'direction': m['direction'],
+            'paper_return_180': m['paper_return_180'],
+            'end_offset': int(m['end_off']),
             'days': days,
-            'returns': [float(r) for r in rets],
+            'returns': rets,
         })
 
+    out.sort(key=lambda d: order.get(d['trade_id'], 0))
     return out
 
 
@@ -252,6 +341,72 @@ def member_oversight_sectors(df_member: pd.DataFrame) -> set[str]:
     return sectors
 
 
+def committee_oversight_rows(committees: list[dict], chamber: Any,
+                             mapper: Any) -> list[dict]:
+    """Tabellenzeilen je Committee fuer die Gremien-Ansicht (Phase G).
+
+    Verknuepft die geparste F2-Struktur (:func:`parse_committees_full`) mit dem
+    Sektor/Industry-Lookup (``config.committee_mapping.CommitteeMapper``, als
+    Argument injiziert -> pure + testbar mit Fake-Mapper).
+
+    Pro Committee eine Liste von Zeilen-Dicts:
+      - erste Zeile ``"(Committee-Ebene)"`` NUR falls das Committee selbst
+        gemappt ist (``get_all_sectors_for_committee``),
+      - danach je Subcommittee eine Zeile (``get_sectors_for_subcommittee``).
+    Jede Zeile: ``{'Subcommittee','Rolle','Sektoren','Industries'}``
+    (Sektoren/Industries komma-separiert, dedupliziert, Reihenfolge stabil).
+
+    Returns: Liste ``[{'committee','role','rows':[...]}, ...]``.
+    """
+    chamber_str = '' if chamber is None else str(chamber)
+    out: list[dict] = []
+    for c in committees:
+        cname = c['committee']
+        crole = c['role'] or 'Mitglied'
+        rows: list[dict] = []
+
+        comm_entries = []
+        try:
+            comm_entries = mapper.get_all_sectors_for_committee(
+                chamber_str, cname)
+        except Exception:
+            comm_entries = []
+        if comm_entries:
+            sec, ind = _sectors_industries(comm_entries)
+            rows.append({'Subcommittee': '(Committee-Ebene)',
+                         'Rolle': c['role'] or 'Mitglied',
+                         'Sektoren': sec, 'Industries': ind})
+
+        for s in c['subcommittees']:
+            sub_entries = []
+            try:
+                sub_entries = mapper.get_sectors_for_subcommittee(
+                    chamber_str, cname, s['name'])
+            except Exception:
+                sub_entries = []
+            sec, ind = _sectors_industries(sub_entries)
+            rows.append({'Subcommittee': s['name'],
+                         'Rolle': s['role'] or 'Mitglied',
+                         'Sektoren': sec, 'Industries': ind})
+
+        out.append({'committee': cname, 'role': crole, 'rows': rows})
+    return out
+
+
+def _sectors_industries(entries: list[dict]) -> tuple[str, str]:
+    """Sektoren/Industries aus Mapper-Eintraegen komma-joinen (dedupe, stabil)."""
+    secs: list[str] = []
+    inds: list[str] = []
+    for e in entries or []:
+        s = str(e.get('sector', '')).strip()
+        i = str(e.get('industry', '')).strip()
+        if s and s.lower() not in ('nan', 'none') and s not in secs:
+            secs.append(s)
+        if i and i.lower() not in ('nan', 'none') and i not in inds:
+            inds.append(i)
+    return ', '.join(secs), ', '.join(inds)
+
+
 def committee_full_mask(df: pd.DataFrame) -> pd.Series:
     """Boolean-Series: Trade hat das ``committee_full``-Signal gefeuert.
 
@@ -269,13 +424,17 @@ def committee_full_mask(df: pd.DataFrame) -> pd.Series:
 # Horizont-Aggregate (D1/D2) — gated per Attributierung (qualifies_for_horizon)
 # ---------------------------------------------------------------------------
 
-def horizon_mean_returns(df: pd.DataFrame,
-                         horizons: list[int] | None = None) -> dict[int, float]:
-    """Ø ``post_return`` je Horizont, gated per :func:`qualifies_for_horizon`.
+def horizon_agg_returns(df: pd.DataFrame,
+                        horizons: list[int] | None = None,
+                        agg: str = 'median') -> dict[int, float]:
+    """Aggregiertes ``post_return`` je Horizont, gated per
+    :func:`qualifies_for_horizon`.
 
-    Identische Gating-Logik fuer Member, Benchmark UND committee_full-Gruppe ->
-    die D2-Balken sind vergleichbar (ein bei Tag 40 geschlossener Trade faellt
-    bei h>=60 aus ALLEN drei Reihen gleich heraus).
+    ``agg='median'`` (Default — robust gegen Ausreisser, die bei Vielhaendlern
+    den Mittelwert dominieren) oder ``agg='mean'``. Identische Gating-Logik fuer
+    Member, Benchmark UND committee_full-Gruppe -> die D2-Balken sind
+    vergleichbar (ein bei Tag 40 geschlossener Trade faellt bei h>=60 aus ALLEN
+    drei Reihen gleich heraus).
     """
     hs = sorted(horizons or DEFAULT_HORIZONS)
     out: dict[int, float] = {}
@@ -286,7 +445,47 @@ def horizon_mean_returns(df: pd.DataFrame,
             continue
         mask = qualifies_for_horizon(df, h, hs)
         vals = pd.to_numeric(df.loc[mask, col], errors='coerce').dropna()
-        out[h] = float(vals.mean()) if len(vals) else float('nan')
+        if not len(vals):
+            out[h] = float('nan')
+        elif agg == 'mean':
+            out[h] = float(vals.mean())
+        else:
+            out[h] = float(vals.median())
+    return out
+
+
+def horizon_mean_returns(df: pd.DataFrame,
+                         horizons: list[int] | None = None) -> dict[int, float]:
+    """Ø ``post_return`` je Horizont (Delegation an
+    :func:`horizon_agg_returns` mit ``agg='mean'`` — Rueckwaertskompatibilitaet
+    fuer Red-Flag-Summary u.a.)."""
+    return horizon_agg_returns(df, horizons, agg='mean')
+
+
+def horizon_stats(df: pd.DataFrame,
+                  horizons: list[int] | None = None) -> dict[int, dict]:
+    """Kennzahlen je Horizont (gated): ``n / median / mean / min / max``.
+
+    Speist die ``n``-Anzeige in D1/D2 (Hover + Captions zu leeren Horizonten)
+    UND den Expander "Datengrundlage". Pure Funktion (getestet).
+    """
+    hs = sorted(horizons or DEFAULT_HORIZONS)
+    out: dict[int, dict] = {}
+    for h in hs:
+        col = f'post_return_{h}d'
+        if col not in df.columns:
+            out[h] = {'n': 0, 'median': float('nan'), 'mean': float('nan'),
+                      'min': float('nan'), 'max': float('nan')}
+            continue
+        mask = qualifies_for_horizon(df, h, hs)
+        vals = pd.to_numeric(df.loc[mask, col], errors='coerce').dropna()
+        if not len(vals):
+            out[h] = {'n': 0, 'median': float('nan'), 'mean': float('nan'),
+                      'min': float('nan'), 'max': float('nan')}
+        else:
+            out[h] = {'n': int(len(vals)), 'median': float(vals.median()),
+                      'mean': float(vals.mean()), 'min': float(vals.min()),
+                      'max': float(vals.max())}
     return out
 
 
