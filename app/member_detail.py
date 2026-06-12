@@ -406,11 +406,21 @@ def _render_spaghetti_section(trajs: list[dict], key: str, caption: str,
     all_key = f'{key}_all'
 
     # Liste zeigt IMMER alle Verlaeufe (terminaler Return je Trade).
+    # Fallback bei offenen jungen Positionen (paper_return_terminal = NaN, weil
+    # der Voll-Horizont noch in der Zukunft liegt): letzter Trajektorien-Punkt
+    # = aktueller Mark-to-Market-Paper-Return, konsistent zum gezeichneten
+    # Linienende.
+    def _terminal(t: dict) -> float:
+        val = terminal_map.get(t['trade_id'], float('nan'))
+        if pd.isna(val) and t.get('returns'):
+            return float(t['returns'][-1])
+        return val
+
     list_df = pd.DataFrame([{
         'trade_id': t['trade_id'],
         'ticker_url': _ticker_google_url(t['ticker']),
         'asset_name': t['asset_name'],
-        'terminal': terminal_map.get(t['trade_id'], float('nan')),
+        'terminal': _terminal(t),
     } for t in trajs])
 
     # Trace-Cap: nur Top-N nach |Return| zeichnen (Liste bleibt vollstaendig),
@@ -427,6 +437,11 @@ def _render_spaghetti_section(trajs: list[dict], key: str, caption: str,
             key=f'{key}_cap', disabled=draw_all)
     cap = 0 if draw_all else int(max_traces)
     plot_trajs = mm.select_top_trajectories(trajs, cap)
+    st.caption(
+        'Linien laufen vom Transaktionstag bis zum Voll-Close, höchstens aber '
+        'bis zum letzten verfügbaren Kurstag — bei jungen Trades (kleines '
+        'Zeitfenster in der Sidebar) enden deshalb alle Linien deutlich vor '
+        'Tag 180.')
     if not draw_all and len(plot_trajs) < len(trajs):
         st.caption(
             f'Zeichne {len(plot_trajs):,} von {len(trajs):,} Verläufen '
@@ -461,7 +476,10 @@ def _render_spaghetti_section(trajs: list[dict], key: str, caption: str,
                 'asset_name': st.column_config.TextColumn('Asset',
                                                           width='medium'),
                 'terminal': st.column_config.NumberColumn(
-                    'Terminal %', format='%.1f%%', width='small'),
+                    'Terminal %', format='%.1f%%', width='small',
+                    help='Terminaler Return (Voll-Close bzw. naechster Horizont); '
+                         'bei offenen jungen Positionen der letzte verfuegbare '
+                         'Kurs (Mark-to-Market, = Linienende).'),
             })
     if hl:
         st.caption(f'Hervorgehoben: **{hl}** — Klick Linie/Liste, '
