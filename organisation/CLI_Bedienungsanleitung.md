@@ -250,7 +250,7 @@ python scripts/import_trades.py --stage_save
 > **Achtung — `--stage_save` ohne `--delta` ersetzt den Master komplett.**
 > Das ist nur sicher, wenn der vorhergehende Dry-Run eine **volle Pipeline**
 > war (`python scripts/import_trades.py --dry_run`). Bei einem Single-Stage-Dry-Run
-> (`--stage_post_trade_returns --dry_run`) enthaelt `trades_stage.csv` nur das
+> (`--stage_post_trade_performance --dry_run`) enthaelt `trades_stage.csv` nur das
 > Snapshot dieser einen Stage — ein anschliessendes `--stage_save` wuerde
 > dann den Master auf diesen Snapshot reduzieren. In dem Fall stattdessen
 > Weg 2 nehmen.

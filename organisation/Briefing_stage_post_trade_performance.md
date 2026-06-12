@@ -35,7 +35,7 @@
 - **Problem**: Delistete Ticker, deren Symbole später neu vergeben wurden, werden im Preis-Cache mit der neuen Kurshistorie gematcht
 - **Belege**: `NYC` (+466 %), `PW` (+302 %) — extrem niedrige Baseline-Preise + absurd hohe Returns
 - **Status**: Offen, nicht gefixt (bewusst zurückgestellt)
-- **Dokumentation**: `organisation/tool_specific_md/Scraper_problems.md`, Abschnitt 6.1
+- **Dokumentation**: `organisation/tool_specific_md/Trade_scraper_status.md`, Abschnitt 3 (Ticker-Reuse-Detail)
 
 ---
 
