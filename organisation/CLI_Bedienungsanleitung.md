@@ -347,6 +347,19 @@ Ab `--stage_gates_tags` neu, danach alle Signal-Stages + Scoring + Export + Save
 
 **Merksatz:** STAGE_DEPS in `scripts/import_trades.py` und [Pipelines.md](Pipelines.md) zeigen pro Stage genau, welche Spalten produziert/konsumiert werden — daraus lässt sich der minimale Re-Run ableiten.
 
+> **Re-Run-Sequenz nach Roster-/Committee-Daten-Änderung** (Abschnitt 6/7
+> neu ausgeführt → `data/mappings/{house,senate}_member&(sub)committees.csv`
+> geändert): vollständig
+> ```
+> --stage_committees → --stage_gates_tags → --stage_branch1_signals →
+> --stage_sequence_signals → --stage_swarm_signals → --stage_scoring
+> (+ --regenerate_curated)
+> ```
+> durchlaufen lassen. Grund: `--stage_branch1_signals` baut
+> `signals_triggered` von Grund auf neu — ohne die anschließenden
+> sequence-/swarm-Stages verschwinden Sequenz-/Schwarm-Signale aus dem
+> Master. Details: `organisation/Pipelines.md` (Pipeline 3c).
+
 ### Bonus-Flags (kein Master-Touch ausser Curated, exklusiv)
 
 ```bash
@@ -473,52 +486,78 @@ python scripts/diagnose_scraper.py --test consistency --runs 3 --days 14
 ## 6. House Committee PDF Parser
 
 **Datei:** `scrapers/house_pdf_parsing_tool/parse_house_committee_pdf.py`
-**Zweck:** Extrahiert Member + Subcommittee-Zugehörigkeit aus dem offiziellen House Committee PDF
+**Zweck:** Extrahiert Member + (Sub)Committee-Zugehörigkeit (F2-Format) aus
+dem offiziellen House Committee PDF (`scsoal.pdf`, clerk.house.gov, committet)
 **Wann:** Nur bei Neuwahlen (alle 2 Jahre) oder nach Committee-Umstrukturierungen
+**Status (2026-06-12):** generalisiert auf alle 20 Standing + 2 Select
+(Intelligence mit 6 Subs, China) + 4 Joint Committees (House-Hälfte;
+Senatoren kommen aus dem Senate-XML, s. Abschnitt 7) → 436 Member, 26
+Committees, 437 Zeilen.
 
 ```bash
 # Standard-Aufruf
-python scrapers/house_pdf_parsing_tool/parse_house_committee_pdf.py --pdf "C:\Pfad\zur\house_info_all.pdf"
+python scrapers/house_pdf_parsing_tool/parse_house_committee_pdf.py --pdf <pfad/zur/scsoal.pdf>
 
 # Mit eigenem Output-Pfad
 python scrapers/house_pdf_parsing_tool/parse_house_committee_pdf.py \
-  --pdf "C:\Pfad\zur\house_info_all.pdf" \
-  --out "data/raw/house_member&(sub)committees.csv"
+  --pdf <pfad/zur/scsoal.pdf> \
+  --out "data/mappings/house_member&(sub)committees.csv"
 ```
 
-**Output:** CSV mit Spalten `Name, Party, State, Committees, ExOfficio`
+**Output:** CSV mit Spalten `Name, Party, State, Committees, ExOfficio` —
+`Committees` im F2-Format (Spec: `scrapers/senate_pdf_parsing_tool/csv_zielstruktur.md`).
 
-> **Hinweis:** Das PDF `house_info_all.pdf` muss manuell von der offiziellen
-> House-Website heruntergeladen werden. Ausgabe-CSV danach nach `data/raw/` kopieren.
+**Struktur-Validierung:** `scrapers/house_pdf_parsing_tool/validate_house.py`
+prüft den Output gegen das Struktur-Orakel
+`data/mappings/us_house_all_committees.csv` (Stand 2026-06-12: 0 Abweichungen
+bei 26 Committees).
 
 ---
 
-## 7. Senate Committee PDF Parser
+## 7. Senate Committee XML-Pipeline
 
-**Datei:** `scrapers/senate_pdf_parsing_tool/parse_us_senate_committee_pdf.py`
-**Zweck:** Extrahiert Member + Subcommittee-Zugehörigkeit aus dem offiziellen Senate Committee PDF
+**Dateien:** `scrapers/senate_committee_xml/fetch_senate_xml.py` +
+`scrapers/senate_committee_xml/parse_senate_xml.py`
+**Zweck:** Extrahiert Member + (Sub)Committee-Zugehörigkeit (F2-Format) aus
+den offiziellen Senate-Committee-XML-Daten
 **Wann:** Nur bei Neuwahlen (alle 2 Jahre) oder nach Committee-Umstrukturierungen
+**Status (2026-06-12):** ersetzt den alten
+`scrapers/senate_pdf_parsing_tool/parse_us_senate_committee_pdf.py`
+(LEGACY/retiriert, samt PDF) — 100 Senatoren, 101 Zeilen.
 
 ```bash
-# Standard-Aufruf
-python scrapers/senate_pdf_parsing_tool/parse_us_senate_committee_pdf.py \
-  --pdf "C:\Pfad\zur\senate_committees.pdf"
+# 1. XML-Snapshots aktualisieren (dynamische Committee-Discovery aus dem
+#    senate.gov-Dropdown, kein Hardcoding; curl_cffi Chrome-Impersonation
+#    gegen Akamai-403)
+python scrapers/senate_committee_xml/fetch_senate_xml.py
+# → scrapers/senate_committee_xml/raw/*.xml (26 Dateien, committet) +
+#   _manifest.json (Change-Report +NEU/−ENTFALLEN)
 
-# Test-Modus: nur erste 3 Seiten (schnelle Vorschau)
-python scrapers/senate_pdf_parsing_tool/parse_us_senate_committee_pdf.py \
-  --pdf "C:\Pfad\zur\senate_committees.pdf" --test
-
-# Mit eigenem Output-Pfad
-python scrapers/senate_pdf_parsing_tool/parse_us_senate_committee_pdf.py \
-  --pdf "C:\Pfad\zur\senate_committees.pdf" \
-  --out "data/raw/senate_member&(sub)committees.csv"
+# 2. XML → F2-CSV (Produktiv-Ziel explizit angeben — Default ist
+#    /tmp/senate_f2_xml_output.csv)
+python scrapers/senate_committee_xml/parse_senate_xml.py "data/mappings/senate_member&(sub)committees.csv"
 ```
 
-**Output:** CSV mit Spalten `Name, Party, State, Committees, ExOfficio`
+**Output:** CSV mit Spalten `Name, Party, State, Committees, ExOfficio` —
+`Committees` im F2-Format (Spec: `scrapers/senate_pdf_parsing_tool/csv_zielstruktur.md`),
+Name-Format „Last, First".
 
-> **Hinweis:** Das PDF muss manuell von congress.gov heruntergeladen werden.
-> Ausgabe-CSV danach nach `data/raw/` kopieren und umbenennen in
-> `senate_member&(sub)committees.csv`.
+**Struktur-Validierung:** gegen Struktur-Orakel
+`data/mappings/us_senate_all_committees.csv` (Stand 2026-06-12: 70/70 Sub-Paare).
+
+---
+
+## 7b. Committee-Struktur-Liste (beide Kammern)
+
+**Datei:** `scrapers/generate_committee_structure.py`
+**Zweck:** Erzeugt `data/processed/committees_structure.csv`
+(`Chamber, Committee, Subcommittee`, gitignored) aus den Roster-CSVs beider
+Kammern — für Validierung/Vollständigkeitsprüfung.
+**Wann:** Nach jeder Roster-Neuerzeugung (Abschnitt 6/7)
+
+```bash
+python scrapers/generate_committee_structure.py
+```
 
 ---
 
@@ -980,8 +1019,10 @@ python -m pytest scripts/committee_mapping_agent/tests/
 | Import Pipeline | `python scripts/import_trades.py` | Trades anreichern (Name-Match + Committees) |
 | XLSX → CSV | `python scripts/convert_xlsx_to_csv.py` | Mapping-CSVs aktualisieren |
 | Senate Diagnose | `python scripts/diagnose_scraper.py` | Scraper-Tests |
-| House Committee Parser | `python scrapers/house_pdf_parsing_tool/parse_house_committee_pdf.py --pdf ...` | House Committee PDF |
-| Senate Committee Parser | `python scrapers/senate_pdf_parsing_tool/parse_us_senate_committee_pdf.py --pdf ...` | Senate Committee PDF |
+| House Committee Parser | `python scrapers/house_pdf_parsing_tool/parse_house_committee_pdf.py --pdf ...` | House Committee PDF (scsoal.pdf) → F2-Roster |
+| Senate Committee XML Fetch | `python scrapers/senate_committee_xml/fetch_senate_xml.py` | Senate-Committee-XML-Snapshots aktualisieren |
+| Senate Committee Parser | `python scrapers/senate_committee_xml/parse_senate_xml.py [out]` | Senate-XML → F2-Roster |
+| Committee-Struktur-Liste | `python scrapers/generate_committee_structure.py` | Chamber/Committee/Subcommittee-Liste (Validierung) |
 | House Scraper | `python scrapers/house_scraper.py` | House PTR-Trades scrapen |
 | House PDF Extractor | `python scrapers/house_pdf_extractor.py` | Hand-Delivered PDFs via OCR |
 | Congress Data Fetcher (Delta) | `python scrapers/fetch_congress_data.py --update` | **Empfohlen**: nur geänderte Bills (~5-30 Min, nicht-destruktiv) |

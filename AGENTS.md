@@ -74,6 +74,8 @@ python scripts/import_trades.py         # data/processed/trades_master*.csv
 
 CLI-Optionen (Delta-Mode, einzelne Stages, Dry-Run, PDF-Extraction): siehe `organisation/CLI_Bedienungsanleitung.md`.
 
+**Committee-Roster** (`data/mappings/{house,senate}_member&(sub)committees.csv`, F2-Format) werden von eigenen Producern erzeugt — `scrapers/senate_committee_xml/` (Senate, XML) und `scrapers/house_pdf_parsing_tool/` (House, PDF), Details: `organisation/Pipelines.md` Pipeline 3c. Nach einer Roster-Änderung gilt die Re-Run-Sequenz `--stage_committees → --stage_gates_tags → --stage_branch1_signals → --stage_sequence_signals → --stage_swarm_signals → --stage_scoring (+ --regenerate_curated)`.
+
 ---
 
 ## Nächste Schritte
