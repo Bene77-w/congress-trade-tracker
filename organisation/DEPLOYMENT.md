@@ -1,6 +1,6 @@
-# Migrations-Anleitung: Plattformwechsel & USB-Portabilität
+# Deployment: Plattformwechsel, USB-Portabilität & Docker
 
-Diese Anleitung beschreibt alle Schritte um das Projekt auf einem neuen System (Linux, Mac, Windows) einzurichten — auch beim Betrieb von einem USB-Stick.
+Referenz für das Aufsetzen des Projekts auf einem neuen System (Linux, Mac, Windows) — inkl. USB-Stick-Betrieb und Docker-Alternative. Nur relevant beim Einrichten/Umzug, nicht für den täglichen Lauf (dafür → `README.md` Quick-Start).
 
 ---
 

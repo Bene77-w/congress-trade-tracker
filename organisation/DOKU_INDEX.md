@@ -28,7 +28,8 @@ Dieser Index ist die **Routing-Quelle** für den Skill `/doku-update` und den `d
 | `CLI_Bedienungsanleitung.md` | Vollständige CLI-Referenz aller Scripts inkl. Flag-Matrix. | Neues CLI-Flag, neues Script, geänderter Default-Workflow. |
 | `Filter_Instanz_Parameter.md` | Konkrete Gate/Tag/Signal-Instanzen + Parameter + Scoring-Formel. | Neuer Filter/Signal, Schwelle/Gewicht geändert, neue Scoring-Komponente. |
 | `Ticker_Architektur.md` | Design-Doku der Ticker-/Issuer-Spalten (3 Ebenen, Fallback-Ketten). | Neuer Ticker-Spalten-Typ, Fallback-Kette geändert, neue Cross-Class-Logik. |
-| `migration.md` | Plattformwechsel-Anleitung (Linux↔Windows, USB-Betrieb). | Neue Python-Abhängigkeit, neue ENV-Variable, neue plattformspezifische Permission. |
+| `Briefing_stage_post_trade_performance.md` | Tiefendoku der Pipeline-Stage `post_trade_performance` (Return-Semantik, Exit-Detection, Preis-Cache). | Return-/Exit-Logik geändert, neue Post-Trade-Spalte, yfinance-Robustheit. |
+| `DEPLOYMENT.md` | Deployment-/Plattformwechsel-Referenz (Linux↔Windows, USB-Betrieb, Docker). | Neue Python-Abhängigkeit, neue ENV-Variable, neue plattformspezifische Permission, Docker-Setup. |
 | `manual_review_anleitung.md` | Anleitung für 4 manuelle Review-Prozesse (Namen, Ticker, Preferred, Duplicate). | Neuer Manual-Review-Typ, Review-Datei-Struktur geändert, neue Mapping-CSV. |
 
 ## `organisation/tool_specific_md/`
@@ -38,9 +39,7 @@ Dieser Index ist die **Routing-Quelle** für den Skill `/doku-update` und den `d
 | `signal_info.md` | **Vollständige Signal-System-Doku**: Architektur, 10 Signal-Typen, Snapshot-Konzept, Scope-Key-Konvention, 21-Spalten-Schema von `suspicious_events.csv`. | Neuer Signal-Typ, Trigger-Logik/Spalten geändert, Scope-Key-Format, Y-Tage-Persistence, Signal-Event-ID-Hash. |
 | `HAND_DELIVERED_PDF_ANALYSE.md` | Analyse der 59 gescannten Hand-Delivered House PTR PDFs (Typ A–D). | Neuer PDF-Formulartyp, Layout-Wechsel, neue OCR-Schwierigkeit, neuer Member mit Hand-Delivered-Form. |
 | `house_all_pdf_info.md` | House-Committee-PDF Layout + Parsing-Parameter (80 Seiten, Font-Größen, Schwellwerte). | PDF-Layout geändert, neue Rollen, neue Committee-Struktur, neuer Parsing-Schwellwert. |
-| `modul2_walkthrough.md` | Walkthrough House Scraper (ZIP→XML→PDF→Block-Parser). | Neuer Filing-Type, Block-Parser-Logik, neue Skip-Pattern, Output-Spalte hinzu/entfernt. |
-| `modul3_walkthrough.md` | Walkthrough Senate Scraper (Playwright + DataTables API). | API-Parameter geändert, Agreement-Flow, Report-Type-Filter, neue Test-Fälle. |
-| `Scraper_problems.md` | Bekannte Scraper-Probleme + Status (aktiv/gelöst/irrelevant). | Neues Scraper-Problem, Status geändert, neue Gegenmaßnahme, neue Fehlerrate. |
+| `Trade_scraper_status.md` | Konsolidierte Scraper-Referenz: Walkthroughs House/Senate, bekannte Probleme + Status, Senate-Paper-PTR-Format. | Neuer Filing-Type/Block-Parser-/API-Logik, neue Skip-Pattern, neues Scraper-Problem, Status/Gegenmaßnahme geändert. |
 | `Senate_website_structure.md` | efdsearch.senate.gov Selektoren + HTML-Layout. | Website-Layout/Selektoren geändert, Bond-Metadaten-Format, neue Asset-Type. |
 | `vote_timing_audit.md` | Stichproben-Audit der Vote-Timing-Hits. | Neuer Smoke-Run mit relevant abweichender Hit-Anzahl, neue Audit-Punkte hinzu, Mapping-Änderungen. |
 
