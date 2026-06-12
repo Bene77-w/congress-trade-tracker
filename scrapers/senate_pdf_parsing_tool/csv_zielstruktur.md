@@ -36,28 +36,43 @@ Name,Party,State,Committees,ExOfficio
 - 2-Buchstaben US State Code: `PA`, `TX`, `CA`, etc.
 - Territories: `AS`, `DC`, `GU`, `MP`, `PR`, `VI`
 
-### Committees (komplexes Feld)
-Verschachtelte Struktur mit Trennzeichen:
+### Committees (komplexes Feld) — F2-Format (eindeutig)
+Verschachtelte Struktur mit **vier** Trennzeichen, jedes auf genau einer Ebene:
 
 ```
-Committee1|Rolle:Subcommittee1|SubRolle;Subcommittee2|SubRolle;Committee2|Rolle:Subcommittee3|SubRolle
+Committee1|Rolle:Subcommittee1|SubRolle~Subcommittee2|SubRolle;Committee2|Rolle:Subcommittee3|SubRolle
 ```
 
-**Trennzeichen:**
-| Zeichen | Bedeutung |
-|---|---|
-| `;` | Trennt Einträge (Committees UND Subcommittees auf gleicher Ebene) |
-| `\|` | Trennt Name von Rolle |
-| `:` | Trennt Hauptcommittee von seinen Subcommittees |
+**Trennzeichen (F2):**
+| Zeichen | Ebene | Bedeutung |
+|---|---|---|
+| `;` | Top-Level | Trennt **nur Committees** voneinander |
+| `:` | Header → Sub-Liste | Trennt Hauptcommittee von seiner Subcommittee-Liste |
+| `~` | innerhalb eines Committees | Trennt **Subcommittees** (NEU — war früher `;`) |
+| `\|` | Name → Rolle | Trennt Eintrags-Name von Rolle |
 
-**Rollen:**
-| Rolle | Bedeutung |
-|---|---|
-| `Chairman` | Vorsitzender (normalisiert aus Chair/Chairman/Chairwoman) |
-| `Vice Chairman` | Stellvertreter (normalisiert aus Vice Chair/Vice Chairman/Vice Chairwoman) |
-| `Ranking Member` | Erster Democrat im jeweiligen Committee/Subcommittee |
-| `Ex Officio` | Automatisches Mitglied kraft Amtes (Chairman/Ranking des Hauptcommittees) |
-| _(leer)_ | Reguläres Mitglied ohne besondere Rolle |
+> **Warum F2?** Früher trennte `;` sowohl Committees als auch Subcommittees und `:` war optional →
+> ein sub-loses Committee war von einem Subcommittee nicht unterscheidbar. Mit `~` als eigenem
+> Subcommittee-Trennzeichen ist **jeder `;`-Teil immer ein Committee** — die Mehrdeutigkeit ist
+> strukturell beseitigt, kein verpflichtendes Trailing-`:` mehr nötig. `~` ist empirisch in **keinem**
+> Committee-/Subcommittee-/Member-Namen vorhanden (einzige Sonderzeichen in Namen: `, | ; " : . ' -`).
+
+**Rollen (ebenen-abhängig normalisiert — interne Bezeichnung zur Vermeidung von Verwechslungen):**
+| Ebene | Rolle | Bedeutung |
+|---|---|---|
+| Committee | `Chairman` | Vorsitzender des Hauptcommittees |
+| Committee | `Vice Chairman` | Stellvertreter auf Committee-Ebene |
+| Committee | `Ranking Member` | Erster Democrat im Committee |
+| **Subcommittee** | `Chair` | Vorsitzender eines **Subcommittees** |
+| **Subcommittee** | `Vice Chair` | Stellvertreter eines **Subcommittees** |
+| **Subcommittee** | `Ranking Member` | Erster Democrat im Subcommittee |
+| beide | `Ex Officio` | Automatisches Mitglied kraft Amtes (Chairman/Ranking des Hauptcommittees) |
+| beide | _(leer)_ | Reguläres Mitglied ohne besondere Rolle |
+
+> **Ebenen-Unterscheidung ist bewusst:** `Chairman`/`Vice Chairman` markieren ausschließlich
+> Committee-Führung, `Chair`/`Vice Chair` ausschließlich Subcommittee-Führung. `Ranking Member`
+> existiert auf beiden Ebenen und wird über die Position im String (vor/nach `:`/`~`) unterschieden.
+> Das ist die Datengrundlage für die rollen-differenzierten Ex-Officio-Boni im Scoring.
 
 ### ExOfficio
 - `true` = Mitglied hat mindestens eine Ex-Officio-Position
@@ -77,42 +92,47 @@ Glenn Thompson,R,PA,Agriculture|Chairman,false
 
 ### Mit Subcommittees
 ```
-Dusty Johnson,R,SD,"Agriculture|:Commodity Markets, Digital Assets, And Rural Development|Chairman;General Farm Commodities, Risk Management, And Credit|",false
+Dusty Johnson,R,SD,"Agriculture|:Commodity Markets, Digital Assets, And Rural Development|Chair~General Farm Commodities, Risk Management, And Credit|",false
 ```
 Erklärung:
 - `Agriculture|` = Agriculture Committee, keine besondere Rolle im Hauptcommittee
-- `:` = es folgen Subcommittees
-- `Commodity Markets...|Chairman` = Chairman dieses Subcommittees
-- `;` = nächstes Subcommittee
+- `:` = es folgt die Subcommittee-Liste
+- `Commodity Markets...|Chair` = **Chair** dieses Subcommittees (Sub-Ebene → `Chair`, nicht `Chairman`)
+- `~` = nächstes Subcommittee
 - `General Farm...|` = Mitglied ohne Rolle
 
 ### Mit Ex-Officio in allen Subcommittees
 ```
-Glenn Thompson,R,PA,"Agriculture|Chairman:Commodity Markets, Digital Assets, And Rural Development|Ex Officio;Conservation, Research, And Biotechnology|Ex Officio;Forestry And Horticulture|Ex Officio;...",true
+Glenn Thompson,R,PA,"Agriculture|Chairman:Commodity Markets, Digital Assets, And Rural Development|Ex Officio~Conservation, Research, And Biotechnology|Ex Officio~Forestry And Horticulture|Ex Officio~...",true
 ```
-Erklärung: Als Chairman von Agriculture ist er Ex-Officio-Mitglied aller Subcommittees.
+Erklärung: Als `Chairman` von Agriculture (Committee-Ebene) ist er `Ex Officio`-Mitglied aller
+Subcommittees (mit `~` getrennt).
 
 ### Mehrere Committees
 ```
-Mary E. Miller,R,IL,"Agriculture|:Conservation, Research, And Biotechnology|;...;Joint Committee On Printing|",false
+Mary E. Miller,R,IL,"Agriculture|:Conservation, Research, And Biotechnology|;Joint Committee On Printing|",false
 ```
-Das zweite Committee (Joint Committee On Printing) wird mit `;` angehängt. Der `:` nach dem ersten Committee leitet dessen Subcommittees ein.
+Das zweite Committee (Joint Committee On Printing) wird mit `;` angehängt — es ist eindeutig ein
+eigenes Committee (steht hinter `;`, nicht hinter `~`). Der `:` nach dem ersten Committee leitet
+dessen Subcommittee-Liste ein.
 
-### Ranking Member
+### Ranking Member (beide Ebenen)
 ```
-Angie Craig,D,MN,"Agriculture|Ranking Member:Commodity Markets...|Ex Officio;...",true
+Angie Craig,D,MN,"Agriculture|Ranking Member:Commodity Markets...|Ex Officio~...",true
 ```
-Erster Democrat im Committee = Ranking Member. Als Ranking Member ist sie Ex-Officio in allen Subcommittees.
+Erster Democrat im Committee = `Ranking Member` (Committee-Ebene, vor dem `:`). Als Ranking Member
+ist sie `Ex Officio` in allen Subcommittees. `Ranking Member` kann auch auf Subcommittee-Ebene
+stehen (nach `:`/`~`) — die Ebene ergibt sich aus der Position im String.
 
 ## Regeln für Committees-Feld
 
-### Aufbau-Logik
+### Aufbau-Logik (F2)
 ```
 Für jeden Member:
   Für jedes Committee:
-    CommitteeName|Rolle
+    CommitteeName|Rolle          (Rolle: Chairman/Vice Chairman/Ranking Member/Ex Officio/'')
     Falls Subcommittees vorhanden:
-      :SubName1|SubRolle;SubName2|SubRolle;...
+      :SubName1|SubRolle~SubName2|SubRolle~...   (SubRolle: Chair/Vice Chair/Ranking Member/Ex Officio/'')
     Falls weiteres Committee folgt:
       ;CommitteeName2|Rolle2:...
 ```
@@ -128,17 +148,17 @@ Für jeden Member:
 - AUSNAHME: Wenn sie bereits mit einer anderen Rolle im Subcommittee stehen, wird die bestehende Rolle NICHT überschrieben
 - ExOfficio-Spalte wird auf `true` gesetzt
 
-### Rollen-Normalisierung
-| PDF-Text | Normalisiert zu |
-|---|---|
-| `Chair` | `Chairman` |
-| `Chairman` | `Chairman` |
-| `Chairwoman` | `Chairman` |
-| `Vice Chair` | `Vice Chairman` |
-| `Vice Chairman` | `Vice Chairman` |
-| `Vice Chairwoman` | `Vice Chairman` |
-| `Ranking Member` | `Ranking Member` |
-| `Ex Officio` | `Ex Officio` |
+### Rollen-Normalisierung (ebenen-abhängig)
+Der PDF-Text wird je nach Ebene (Committee-Header vs. Subcommittee) unterschiedlich normalisiert:
+
+| PDF-Text | Committee-Ebene → | Subcommittee-Ebene → |
+|---|---|---|
+| `Chair` / `Chairman` / `Chairwoman` | `Chairman` | `Chair` |
+| `Vice Chair` / `Vice Chairman` / `Vice Chairwoman` | `Vice Chairman` | `Vice Chair` |
+| `Ranking Member` | `Ranking Member` | `Ranking Member` |
+| `Cochairman` (Senate) | `Cochairman` (Rolle bleibt; ExOfficio-Spalte=true) | — |
+| `Ex Officio` | `Ex Officio` | `Ex Officio` |
+| _(leer)_ | _(leer)_ | _(leer)_ |
 
 ### Committee-Namen
 - Title Case: `Agriculture`, `Armed Services`, `Energy And Commerce`

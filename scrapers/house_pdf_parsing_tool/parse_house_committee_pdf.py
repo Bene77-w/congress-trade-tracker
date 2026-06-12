@@ -12,7 +12,7 @@ from collections import OrderedDict
 PDF_PATH = None  # Muss via --pdf angegeben werden
 AGRICULTURE_PAGES = [4, 5, 6]
 ALPHA_LIST_PAGES = list(range(59, 80))  # Pages 60-80 (0-indexed)
-LEFT_COL_THRESHOLD = 330
+LEFT_COL_THRESHOLD = 318  # A4: Select-D-Spalte startet bei x0=325 (Standing nie <330)
 ALPHA_NAME_X0 = 129.6  # x0 where names start in Alphabetical List
 ALPHA_NAME_X0_TOL = 5   # tolerance for x0 matching
 ALPHA_FONT_SIZE = 9.0
@@ -98,14 +98,31 @@ def split_line_into_columns(line_words):
     # Detect center/full-width lines that should NOT be split
     is_large_header = dom_size >= 9.5 and has_bold
     is_sub_header = abs(dom_size - 7.5) < 0.3 and text.replace(' ', '').isupper()
+    # A3(a): Select-Sub-Header sind sz8.0 CAPS, zentriert ueber die Spaltengrenze
+    # -> als center behandeln, damit sie nicht zerschnitten/als Member fehlklassifiziert
+    # werden. Faengt zugleich HOUSE/SENATE-Labels (Joint) als center ab. Member-Namen
+    # enthalten Kleinbuchstaben -> fallen nicht rein.
+    is_sub8 = abs(dom_size - 8.0) < 0.3 and text.replace(' ', '').isupper()
     is_section = any(p in text.upper() for p in [
         'SUBCOMMITTEES OF', 'STANDING COMMITTEES', 'ALPHABETICAL',
     ])
     is_bracket = text.strip().startswith('[')  # [The chairman and ranking...]
     is_ratio = text.strip().startswith('Ratio')
     is_meta = 'Republicans in roman' in text or 'Resident Commissioner' in text
-    
-    if is_large_header or is_sub_header or is_section or is_bracket or is_ratio or is_meta:
+    # A3: zentrierte Einzel-Leadership-Zeile (Select-Committee-Chair, z.B.
+    # "JohnR.Moolenaar, MI, Chair" / "EricA. \"Rick\"Crawford, AR, Chairman").
+    # Startet in der Spalten-Luecke (zwischen linker Member-Kante ~140 und rechter
+    # ~325), straddelt aber den Threshold. Ohne center-Behandlung zerreisst der
+    # Split Name (links) von State/Rolle (rechts) -> parse_member=None auf beiden
+    # Haelften. Rechts-only-Member (x0>=325) und normale Zwei-Spalten-Zeilen
+    # (x0~140) liegen ausserhalb der Luecke und bleiben unberuehrt.
+    x0s = [w['x0'] for w in line_words]
+    is_centered_single = (
+        180 < min(x0s) < LEFT_COL_THRESHOLD and max(x0s) >= LEFT_COL_THRESHOLD
+    )
+
+    if (is_large_header or is_sub_header or is_sub8 or is_section
+            or is_bracket or is_ratio or is_meta or is_centered_single):
         return [{'words': line_words, 'column': 'center'}]
     
     # Split into left and right column
@@ -146,18 +163,26 @@ def classify_entry(words, column):
         if text.isupper() and len(text) > 3:
             return 'committee_header'
     
-    # Subcommittees of...
-    if 'SUBCOMMITTEES OF THE COMMITTEE ON' in text.upper():
+    # Subcommittees of... (A2: gelockert -> faengt auch "SUBCOMMITTEES OF THE
+    # PERMANENT SELECT COMMITTEE ON" (Intelligence))
+    if 'SUBCOMMITTEES OF' in text.upper():
         return 'subcommittees_of'
     
-    # Ex officio note (full line in center column)
-    if '[The chairman' in text or '[the chairman' in text:
+    # Ex-Officio-Regel-Notiz: NUR wenn die Klammer-Notiz tatsaechlich von
+    # ex-officio-MITGLIEDSCHAFT spricht. Notizen wie Foreign Affairs ("may attend
+    # ... but may not vote") oder Appropriations ("authorized to sit as members")
+    # sind KEINE Ex-Officio-Regel -> 'officio' muss vorkommen (sonst False Positive).
+    tl = text.lower()
+    if ('[the chair' in tl) and ('officio' in tl):
         return 'ex_officio_note'
-    if 'ex officio members of all' in text.lower():
+    if 'ex officio members of all' in tl:
         return 'ex_officio_note'
     
-    # Subcommittee header
-    if abs(dom_size - 7.5) < 0.3 and text.isupper() and len(text) > 5:
+    # Subcommittee header (A3(b): Standing sz7.5 ODER Select sz8.0, je CAPS).
+    # MUSS vor dem Member-Check (sz8.0) stehen; CAPS-Guard schliesst Member aus.
+    if len(text) > 5 and text.isupper() and (
+        abs(dom_size - 7.5) < 0.3 or abs(dom_size - 8.0) < 0.3
+    ):
         return 'subcommittee_header'
     
     # Member line
@@ -174,14 +199,22 @@ def fix_name(raw):
     n = re.sub(r'([a-z])([A-Z])', r'\1 \2', n)
     # Fix period+letter: A.Rick -> A. Rick  
     n = re.sub(r'\.([A-Z])', r'. \1', n)
-    # Fix quote+letter: "Rick"Crawford -> "Rick" Crawford
-    n = re.sub(r'([""\u201d])([A-Z])', r'\1 \2', n)
+    # Fix quote+letter: "Rick"Crawford -> "Rick" Crawford. NUR nach einem
+    # SCHLIESSENDEN Quote (= dem ein Kleinbuchstabe vorausgeht); sonst bekaeme
+    # bei GERADEN Quotes (Seite 56/57) auch das OEFFNENDE Quote ein Leerzeichen
+    # ("Rick -> " Rick), was ein Member-Duplikat erzeugt. Geschweifte Quotes
+    # (Seite 4) waren nur zufaellig korrekt, weil \u201c nicht in der Klasse stand.
+    n = re.sub(r'([a-z])(["\u201c\u201d])([A-Z])', r'\1\2 \3', n)
     # Normalize unicode quotes
     n = n.replace('\u201c', '"').replace('\u201d', '"')
     n = n.replace('\u2018', "'").replace('\u2019', "'")
     # Fix Mc/Des prefix splits
     n = re.sub(r'\bMc ([A-Z])', r'Mc\1', n)
     n = re.sub(r'\bDes ([A-Z])', r'Des\1', n)
+    # Suffix-Normalisierung -> kanonische Baseline-Form ",Jr." (kein Space):
+    # "Johnson , Jr." / "Johnson, Jr." kommen je nach Token-Bruch vor und wuerden
+    # sonst zwei Member-Keys fuer dieselbe Person erzeugen.
+    n = re.sub(r'\s*,\s*(Jr\.?|Sr\.?|III|IV|II)\b', r',\1', n)
     # Clean spaces
     n = re.sub(r'\s+', ' ', n).strip()
     return n
@@ -501,13 +534,331 @@ def _assign_ranking(sub_temp, members, comm, sub):
             break
 
 
+# Section-Banner (ALL-CAPS Bold), die KEINE Committees sind -> ueberspringen.
+SECTION_HEADERS = {
+    'STANDING COMMITTEES',
+    'SELECT COMMITTEES',
+    'JOINT COMMITTEES OF THE CONGRESS',
+    'ALPHABETICAL LIST OF STANDING COMMITTEES',
+}
+
+
+def normalize_committee_header(text):
+    """ALL-CAPS Committee-Header -> Title-Case-Name, oder None fuer Section-Banner."""
+    t = text.strip()
+    if t.upper() in SECTION_HEADERS:
+        return None
+    return t.title()
+
+
+def _reset_committee_state():
+    """Frischer Per-Committee-Zustand."""
+    return {
+        'current_sub': None,
+        'in_sub_section': False,
+        'has_exoff_rule': False,
+        'comm_chair': None,
+        'comm_ranking': None,
+        'all_subs': [],
+        'first_dem': {},
+        'sub_temp': [],
+    }
+
+
+def _flush_committee(members, current_comm, st):
+    """Schliesst ein Committee ab: finales Sub-Ranking + Ex-Officio-Regel anwenden.
+
+    Modul-level (explizite Args) statt Closure -> immun gegen Reordering von
+    Reset vor Flush (sonst stille Korruption der Ex-Officio-Zuweisungen).
+    """
+    if current_comm is None:
+        return
+    _assign_ranking(st['sub_temp'], members, current_comm, st['current_sub'])
+    if st['has_exoff_rule']:
+        for sub in st['all_subs']:
+            for ex in [st['comm_chair'], st['comm_ranking']]:
+                if ex and ex in members:
+                    cd = members[ex]['committees'].get(current_comm)
+                    if cd and sub not in cd['subcommittees']:
+                        cd['subcommittees'][sub] = 'Ex Officio'
+                        members[ex]['ex_officio'] = True
+
+
+def parse_all_committees(pdf_path, page_indices, cross_ref=True):
+    """Generalisierter Parser: erkennt Committee-Header dynamisch ueber die
+    gegebenen Seiten und parst alle Committees (statt nur Agriculture).
+
+    Per-Committee-Zustand wird beim Header-Wechsel geflusht (Ex-Officio-Regel)
+    und zurueckgesetzt. cross_ref=False ueberspringt die Alphabetical-List-
+    Anreicherung (fuer Spike-Validierung des reinen Committee-Skeletts).
+    """
+    words = extract_words(pdf_path, page_indices)
+    raw_lines = group_words_into_lines(words)
+
+    members = OrderedDict()
+    current_comm = None
+    st = _reset_committee_state()
+    detected = []  # Reihenfolge der erkannten Committees (fuer Spike-Assert)
+
+    for raw_line in raw_lines:
+        for entry in split_line_into_columns(raw_line):
+            ws = entry['words']
+            col = entry['column']
+            lt = classify_entry(ws, col)
+            text = ' '.join(w['text'] for w in ws).strip()
+
+            if lt == 'skip':
+                continue
+
+            if lt == 'committee_header':
+                name = normalize_committee_header(text)
+                if name is None:
+                    continue  # Section-Banner
+                # A1: mehrzeiliger Committee-Header (China-Select ueber 2 sz10-Bold-
+                # Zeilen). Trifft ein neuer Header ein, waehrend das laufende Committee
+                # noch KEINE Member hat -> Namen anhaengen statt neues Committee oeffnen.
+                if current_comm is not None and not any(
+                    current_comm in md['committees'] for md in members.values()
+                ):
+                    current_comm = f"{current_comm} {name}"
+                    detected[-1] = current_comm
+                    continue
+                # Committee-Wechsel: vorheriges abschliessen, Zustand zuruecksetzen
+                if current_comm is not None:
+                    _flush_committee(members, current_comm, st)
+                st = _reset_committee_state()
+                current_comm = name
+                detected.append(name)
+                print(f"[COMMITTEE] {current_comm}")
+                continue
+
+            if current_comm is None:
+                continue
+
+            if lt == 'subcommittees_of':
+                st['in_sub_section'] = True
+                st['current_sub'] = None
+                continue
+
+            if lt == 'ex_officio_note':
+                st['has_exoff_rule'] = True
+                continue
+
+            if lt == 'subcommittee_header':
+                # Fortsetzung eines umgebrochenen mehrzeiligen Sub-Headers:
+                # zwei aufeinanderfolgende Sub-Header OHNE Member dazwischen
+                # (laufender Sub hat noch keine Member) -> Namen zusammenfuehren.
+                if st['current_sub'] is not None and not st['sub_temp']:
+                    cd_has_members = any(
+                        st['current_sub'] in md['committees'].get(current_comm, {}).get('subcommittees', {})
+                        for md in members.values()
+                    )
+                    if not cd_has_members:
+                        merged = f"{st['current_sub']} {text.title()}"
+                        st['current_sub'] = merged
+                        st['all_subs'][-1] = merged
+                        continue
+                _assign_ranking(st['sub_temp'], members, current_comm, st['current_sub'])
+                st['sub_temp'] = []
+                st['current_sub'] = text.title()
+                st['all_subs'].append(st['current_sub'])
+                st['in_sub_section'] = True  # Sub-Header => Sub-Sektion (auch ohne Banner)
+                continue
+
+            if lt == 'member':
+                m = parse_member(ws, col)
+                if not m:
+                    continue
+                name, party, state, role = m['name'], m['party'], m['state'], m['role']
+
+                if name not in members:
+                    members[name] = {
+                        'party': party, 'state': state,
+                        'committees': OrderedDict(), 'ex_officio': False
+                    }
+                if current_comm not in members[name]['committees']:
+                    members[name]['committees'][current_comm] = {
+                        'role': '', 'subcommittees': OrderedDict()
+                    }
+                cd = members[name]['committees'][current_comm]
+
+                # Committee-Ebenen-Normalisierung (Sub-Remap erst in build_comm_string)
+                if role in ('Chairman', 'Chair'):
+                    role = 'Chairman'
+                elif role in ('Vice Chairman', 'Vice Chair'):
+                    role = 'Vice Chairman'
+
+                if not st['in_sub_section']:
+                    if role == 'Chairman':
+                        st['comm_chair'] = name
+                    k = (current_comm, None)
+                    if party == 'D' and k not in st['first_dem']:
+                        st['first_dem'][k] = True
+                        if not role:
+                            role = 'Ranking Member'
+                        st['comm_ranking'] = name
+                    cd['role'] = role
+                else:
+                    if st['current_sub']:
+                        if 'Ex Officio' in (role or ''):
+                            members[name]['ex_officio'] = True
+                        cd['subcommittees'][st['current_sub']] = role
+                        st['sub_temp'].append((name, party, role))
+
+    # Letztes Committee abschliessen
+    if current_comm is not None:
+        _flush_committee(members, current_comm, st)
+
+    if cross_ref:
+        _cross_reference_alphabetical(pdf_path, members)
+
+    return members, detected
+
+
+def _cross_reference_alphabetical(pdf_path, members):
+    """Fuegt Member aus der Alphabetical List hinzu, die keine Committees haben
+    (Leadership ohne Committee-Sitz -> ex officio). Wie in parse_agriculture."""
+    import unicodedata
+    alpha_members = parse_alphabetical_list(pdf_path)
+
+    def normalize_for_match(name):
+        n = unicodedata.normalize('NFKD', name)
+        n = ''.join(c for c in n if not unicodedata.combining(c))
+        n = re.sub(r',?\s*(Jr\.?|Sr\.?|III|II|IV)\s*$', '', n)
+        n = re.sub(r'([a-z])([A-Z])', r'\1 \2', n)
+        return re.sub(r'\s+', ' ', n).strip()
+
+    existing_normalized = {}
+    for mname in members:
+        existing_normalized[normalize_for_match(mname)] = mname
+
+    added = 0
+    for aname, adata in alpha_members.items():
+        norm = normalize_for_match(aname)
+        if aname not in members and norm not in existing_normalized:
+            members[aname] = {
+                'party': adata['party'],
+                'state': adata['state'],
+                'committees': OrderedDict(),
+                'ex_officio': True,
+            }
+            added += 1
+    print(f"  [ALPHA] Added {added} leadership members (ex officio, no committees)")
+
+
+JOINT_LEADER_RE = re.compile(
+    r'^(.*?),\s*(Representative|Senator),\s*([A-Z]{2}),\s*(.+?)\s*$'
+)
+
+
+def _norm_join_key(name):
+    """Akzent-/Suffix-/Concat-neutraler Vergleichs-Key fuer den Joint-Merge ins
+    bestehende members-Dict (analog cross_reference)."""
+    import unicodedata
+    n = unicodedata.normalize('NFKD', name)
+    n = ''.join(c for c in n if not unicodedata.combining(c))
+    n = re.sub(r',?\s*(Jr\.?|Sr\.?|III|IV|II)\s*$', '', n)
+    n = re.sub(r'([a-z])([A-Z])', r'\1 \2', n)
+    return re.sub(r'\s+', ' ', n).strip().lower()
+
+
+def parse_joint(pdf_path, page_index, members):
+    """House-Haelfte der Joint Committees (Seite 0-idx 58) -> ins members-Dict.
+
+    Eigener Pfad, weil das Format stark abweicht: Leadership-Zeilen mit
+    "Representative|Senator"-Kennung, Kammer-Label "HOUSE SENATE"/"SENATE HOUSE"
+    (Flip ist real), zwei Spalten = zwei KAMMERN (nicht Parteien). Senatoren
+    werden uebersprungen (Senate-XML liefert sie). Joint haben Chair+Vice, KEINEN
+    Ranking -> _assign_ranking laeuft hier NICHT. Partei der House-Member ueber
+    Italic-Font, nicht ueber die Spaltenseite.
+    """
+    norm_lookup = {_norm_join_key(n): n for n in members}
+
+    def add_house(name, state, party, comm, role):
+        key = norm_lookup.get(_norm_join_key(name))
+        if key is None:
+            members[name] = {'party': party, 'state': state,
+                             'committees': OrderedDict(), 'ex_officio': False}
+            norm_lookup[_norm_join_key(name)] = name
+            key = name
+        md = members[key]
+        if comm not in md['committees']:
+            md['committees'][comm] = {'role': role, 'subcommittees': OrderedDict()}
+        elif role:
+            md['committees'][comm]['role'] = role
+
+    words = extract_words(pdf_path, [page_index])
+    raw_lines = group_words_into_lines(words)
+
+    current_comm = None
+    house_col = 'left'
+    for raw_line in raw_lines:
+        text = ' '.join(w['text'] for w in raw_line).strip()
+        up = text.upper()
+        sizes = [w['size'] for w in raw_line]
+        dom = max(set(sizes), key=sizes.count)
+        bold = any('Bold' in w['fontname'] for w in raw_line)
+
+        if up in SECTION_HEADERS:
+            continue
+        if re.match(r'^\(\d+\)$', text):  # Seitenzahl, z.B. (55)
+            continue
+        if dom >= 9.5 and bold and text.isupper() and len(text) > 5:
+            current_comm = text.title()
+            print(f"[JOINT] {current_comm}")
+            continue
+        if current_comm is None:
+            continue
+        # Kammer-Label (vor jeder Klassifikation abfangen: sz8-CAPS wuerde sonst
+        # nach A3 als subcommittee_header durchgehen -> Phantom-Sub im Joint).
+        if up in ('HOUSE SENATE', 'SENATE HOUSE'):
+            house_col = 'left' if up.split()[0] == 'HOUSE' else 'right'
+            continue
+        # Leadership-Zeile
+        mlead = JOINT_LEADER_RE.match(text)
+        if mlead:
+            nm, chamber, st_, role = mlead.groups()
+            if chamber == 'Representative':
+                role = role.strip()
+                if role in ('Chair', 'Chairman'):
+                    role = 'Chairman'
+                elif role in ('Vice Chair', 'Vice Chairman'):
+                    role = 'Vice Chairman'
+                party = 'D' if any('Italic' in w['fontname'] for w in raw_line) else 'R'
+                add_house(fix_name(nm.strip()), st_, party, current_comm, role)
+                print(f"  [HOUSE-LEAD] {nm.strip()} ({st_}) -> {role}")
+            continue  # Senator -> skip
+        # Member-Zeile: nur die HOUSE-Spalte uebernehmen
+        for e in split_line_into_columns(raw_line):
+            if e['column'] == 'center' or e['column'] != house_col:
+                continue
+            mm = parse_member(e['words'], e['column'])
+            if not mm:
+                continue
+            party = 'D' if any('Italic' in w['fontname'] for w in e['words']) else 'R'
+            add_house(mm['name'], mm['state'], party, current_comm, mm['role'])
+
+
 def build_comm_string(comms):
+    """Baut den F2-Committees-String:
+      Committee|Rolle:Sub|SubRolle~Sub|SubRolle ; naechstes Committee
+    `;` trennt nur Committees, `~` Subcommittees, `:` Header->Sub-Liste.
+    Sub-Rollen werden ebenen-abhaengig auf Chair/Vice Chair normalisiert.
+    """
     parts = []
     for cname, d in comms.items():
         s = f"{cname}|{d['role']}"
         subs = d.get('subcommittees', {})
         if subs:
-            s += ':' + ';'.join(f"{sn}|{sr}" for sn, sr in subs.items())
+            sub_strs = []
+            for sn, sr in subs.items():
+                # F2: Subcommittee-Ebene nutzt Chair/Vice Chair (interne Bezeichnung).
+                if sr == 'Chairman':
+                    sr = 'Chair'
+                elif sr == 'Vice Chairman':
+                    sr = 'Vice Chair'
+                sub_strs.append(f"{sn}|{sr}")
+            s += ':' + '~'.join(sub_strs)
         parts.append(s)
     return ';'.join(parts)
 
@@ -548,26 +899,28 @@ def main():
         out = os.path.join(os.path.dirname(pdf_path), f"{stem}_members.csv")
 
     print("=" * 70)
-    print("PARSING AGRICULTURE (TEST v3)")
+    print("HOUSE PDF -> F2 (Standing S4-55 + Select S56-57 + Joint S58)")
     print("=" * 70)
     print(f"PDF:    {pdf_path}")
     print(f"Output: {out}")
 
-    members = parse_agriculture(pdf_path)
+    members, _detected = parse_all_committees(pdf_path, range(4, 58),
+                                              cross_ref=False)
+    parse_joint(pdf_path, 58, members)
+    _cross_reference_alphabetical(pdf_path, members)
     write_csv(members, out)
 
     r = sum(1 for m in members.values() if m['party'] == 'R')
     d = sum(1 for m in members.values() if m['party'] == 'D')
     exoff = sum(1 for m in members.values() if m['ex_officio'])
+    comms = set()
+    for md in members.values():
+        comms.update(md['committees'].keys())
 
     print(f"\n{'=' * 70}")
-    print(f"TOTAL: {len(members)} | R: {r} | D: {d} | ExOfficio: {exoff}")
-    print(f"Expected: 53 (28R + 25D, seat 29R empty)")
+    print(f"TOTAL: {len(members)} Member | R: {r} | D: {d} | "
+          f"ExOfficio: {exoff} | Committees: {len(comms)}")
     print(f"{'=' * 70}")
-
-    print("\n--- CSV ---")
-    with open(out, 'r') as f:
-        print(f.read())
 
 
 if __name__ == '__main__':

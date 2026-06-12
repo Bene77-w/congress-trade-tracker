@@ -37,6 +37,11 @@ Mitglieder stehen in zwei Spalten nebeneinander:
 
 **Trennlinie** (fuer Parsing): x0 < 330 = Links/Republican, x0 > 330 = Rechts/Democrat
 
+> **Parser-Update (2026-06-12):** `LEFT_COL_THRESHOLD` im Code ist **318**
+> (statt 330) — die Select-Committee-Spalte D startet bereits bei x0≈325,
+> Standing-Committees liegen nie unter 330. Siehe Tabelle „Parsing-Relevante
+> Schwellenwerte" unten.
+
 ## Font-Groessen und Bedeutung
 
 | Font-Groesse | Font-Stil | Bedeutung |
@@ -46,7 +51,8 @@ Mitglieder stehen in zwei Spalten nebeneinander:
 | 10.0 | Roman | "SUBCOMMITTEES OF THE COMMITTEE ON..." / Seitenzahlen |
 | 8.0 | Roman | Republicans (Mitglieder), Rollen, Metadaten |
 | 8.0 | Italic | Democrats (Mitglieder) |
-| 7.5 | Roman | Subcommittee-Header ("COMMODITY MARKETS, DIGITAL ASSETS...") |
+| 7.5 | Roman | Subcommittee-Header ("COMMODITY MARKETS, DIGITAL ASSETS...") — Standing Committees |
+| 8.0 | Roman, ALL-CAPS, zentriert | **NEU (2026-06-12):** Select-Committee-Sub-Header (z. B. Intelligence-Subs, China) — sz 8.0 statt 7.5 |
 
 ## Zeilen-Aufbau
 
@@ -95,11 +101,22 @@ Mitglieder stehen in zwei Spalten nebeneinander:
 - `DerrickVan Orden,WI` - Praefix im Nachnamen
 - `RobertP.Bresnahan,Jr., PA` - Jr./Sr. suffix, State auf separatem Word
 
-### Joint Committees (Seite 59)
+### Joint Committees (Seite 59, 0-indiziert Seite 58)
 - Sonderformat: `DavidSchweikert, Representative, AZ, Chairman`
 - Enthaelt Senatoren UND Repraesentanten
 - Explizites `HOUSE` / `SENATE` Label zur Trennung
 - Separate Nummerierung pro Kammer
+
+> **Parser-Update (2026-06-12):** dedizierter `parse_joint(pdf_path,
+> page_index=58, members)`-Pfad (`scrapers/house_pdf_parsing_tool/parse_house_committee_pdf.py`).
+> Eigenheiten: Leadership-Zeilen mit `Representative|Senator`-Kennung; das
+> `HOUSE`/`SENATE`-Spaltenlabel **flippt real pro Committee** und muss pro
+> Committee neu gelesen werden (zwei Spalten = zwei Kammern, nicht Parteien);
+> Senatoren werden uebersprungen (kommen aus dem Senate-XML, s.
+> `scrapers/senate_committee_xml/`); Joint Committees haben nur
+> Chair+Vice Chair, **kein** Ranking Member — `_assign_ranking` laeuft hier
+> NICHT; Partei der House-Member wird ueber den Italic-Font bestimmt, nicht
+> ueber die Spaltenseite.
 
 ### Alphabetical List (Seiten 60-80)
 - Komplett anderes Format
@@ -136,7 +153,7 @@ Mitglieder stehen in zwei Spalten nebeneinander:
 
 | Parameter | Wert | Verwendung |
 |---|---|---|
-| LEFT_COL_THRESHOLD | 330 | x0 < 330 = linke Spalte (Republican) |
+| LEFT_COL_THRESHOLD | **318** (Code, seit 2026-06-12; vorher 330) | x0 < 318 = linke Spalte (Republican). Select-Spalte D startet bei x0≈325, Standing-Committees liegen nie unter 330. |
 | GAP_THRESHOLD | 30 px | Mindestabstand fuer Spalten-Split |
 | SPLIT_RANGE | 200-500 | Gueltigkeitsbereich fuer dynamischen Split-Punkt |
 | y-Rundung | 0.1 | Gruppierung von Woertern zur selben Zeile |
@@ -149,4 +166,10 @@ Mitglieder stehen in zwei Spalten nebeneinander:
 - `ALPHABETICAL LIST` - Beginn des alphabetischen Teils
 - `[The chairman and ranking...]` - Ex-officio Hinweis
 - `ex officio` - Fussnotentext
+
+> **Parser-Update (2026-06-12):** Ex-Officio-Erkennung fordert jetzt explizit
+> das Wort „officio" im Zeilentext (z. B. `[the chair...` + `officio` oder
+> `ex officio members of all`). False-Positive-Fix: Notizen wie „may attend"
+> oder „authorized to sit" (z. B. Foreign Affairs) loesen KEINE
+> Ex-Officio-Regel mehr aus.
 - Zeilen mit `(` am Anfang - Fussnoten wie `(1)`

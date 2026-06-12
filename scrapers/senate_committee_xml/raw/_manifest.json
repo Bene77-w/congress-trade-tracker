@@ -1,0 +1,110 @@
+{
+  "fetched_at": "2026-06-08T22:27:12.287143+00:00",
+  "source": "https://www.senate.gov/committees/membership_assignments.htm",
+  "committees": [
+    {
+      "code": "SSAF",
+      "name": "Committee on Agriculture, Nutrition, and Forestry"
+    },
+    {
+      "code": "SSAP",
+      "name": "Committee on Appropriations"
+    },
+    {
+      "code": "SSAS",
+      "name": "Committee on Armed Services"
+    },
+    {
+      "code": "SSBK",
+      "name": "Committee on Banking, Housing, and Urban Affairs"
+    },
+    {
+      "code": "SSCM",
+      "name": "Committee on Commerce, Science, and Transportation"
+    },
+    {
+      "code": "SSEG",
+      "name": "Committee on Energy and Natural Resources"
+    },
+    {
+      "code": "SSEV",
+      "name": "Committee on Environment and Public Works"
+    },
+    {
+      "code": "SSFI",
+      "name": "Committee on Finance"
+    },
+    {
+      "code": "SSFR",
+      "name": "Committee on Foreign Relations"
+    },
+    {
+      "code": "SSHR",
+      "name": "Committee on Health, Education, Labor, and Pensions"
+    },
+    {
+      "code": "SSGA",
+      "name": "Committee on Homeland Security and Governmental Affairs"
+    },
+    {
+      "code": "SLIA",
+      "name": "Committee on Indian Affairs"
+    },
+    {
+      "code": "SSRA",
+      "name": "Committee on Rules and Administration"
+    },
+    {
+      "code": "SSSB",
+      "name": "Committee on Small Business and Entrepreneurship"
+    },
+    {
+      "code": "SSBU",
+      "name": "Committee on the Budget"
+    },
+    {
+      "code": "SSJU",
+      "name": "Committee on the Judiciary"
+    },
+    {
+      "code": "SSVA",
+      "name": "Committee on Veterans' Affairs"
+    },
+    {
+      "code": "JSPR",
+      "name": "Joint Committee on Printing"
+    },
+    {
+      "code": "JSTX",
+      "name": "Joint Committee on Taxation"
+    },
+    {
+      "code": "JSLC",
+      "name": "Joint Committee on the Library"
+    },
+    {
+      "code": "JSEC",
+      "name": "Joint Economic Committee"
+    },
+    {
+      "code": "SLET",
+      "name": "Select Committee on Ethics"
+    },
+    {
+      "code": "SLIN",
+      "name": "Select Committee on Intelligence"
+    },
+    {
+      "code": "SPAG",
+      "name": "Special Committee on Aging"
+    },
+    {
+      "code": "SCNC",
+      "name": "United States Senate Caucus on International Narcotics Control"
+    },
+    {
+      "code": "JCSE",
+      "name": "Commission on Security and Cooperation in Europe"
+    }
+  ]
+}

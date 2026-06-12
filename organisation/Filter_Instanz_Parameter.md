@@ -43,7 +43,7 @@ Schreibt `Insider_Sectors` und `Relevant_Sectors` in den Master.
 
 | Konstante | Wert | Bedeutung |
 |-----------|------|-----------|
-| `COMMITTEE_EX_OFFICIO_ROLES`       | `[Chairman, Ranking Member, Vice Chairman, Cochairman, EXOfficio]` | Welche Rollen als Ex Officio zählen |
+| `COMMITTEE_EX_OFFICIO_ROLES`       | `[Chairman, Ranking Member, Vice Chairman, Cochairman, EXOfficio]` | **Ungenutzt seit 2026-06-12** — das Konzept „welche Rollen als Führung zählen" lebt jetzt ebenen-differenziert in `COMMITTEE_ROLE_KEYS`/`SUBCOMMITTEE_ROLE_KEYS` (`tags/committee_tag.py`), die `committee_role`/`subcommittee_role` auf die 8 Keys von `SCORING_EX_OFFICIO_ROLE_BONUSES` mappen (s. Ex-Officio-Signal unten). |
 
 **Match-Modus** für `Relevant_Sectors` (Intersection Insider × Ticker):
 - `'sector_or_industry'` — Eintrag matcht, wenn sector ODER industry zum Ticker passen
@@ -203,8 +203,13 @@ if 'trade_volume' in signals_triggered and SCORING_TRADE_VOLUME_ENABLED:
 else:
     volume_part = 0
 
-bonus_active = is_ex_officio AND (signals_triggered ∩ SCORING_EX_OFFICIO_TRIGGERS ≠ ∅)
-bonus        = SCORING_EX_OFFICIO_BONUS if bonus_active else 0
+# Ex-Officio-Bonus v2 (2026-06-12): rollen- und ebenen-differenziert.
+role_keys    = ex_officio_role_keys (";"-getrennt, aus Stage gates_tags)
+if not SCORING_EX_OFFICIO_COMMITTEE_GLOBAL:
+    role_keys = {k for k in role_keys if not k.startswith('committee_')}
+eligible     = [SCORING_EX_OFFICIO_ROLE_BONUSES[k] for k in role_keys if k in SCORING_EX_OFFICIO_ROLE_BONUSES]
+bonus_active = bool(eligible) AND (signals_triggered ∩ SCORING_EX_OFFICIO_TRIGGERS ≠ ∅)
+bonus        = max(eligible) if bonus_active else 0   # MAX, nicht Summe
 
 trade_score  = round(swarm_part + other_part + volume_part + bonus)
 # KEIN Cap auf 100 — Score wächst unbegrenzt.
@@ -232,8 +237,22 @@ trade_score  = round(swarm_part + other_part + volume_part + bonus)
 | `SCORING_WEIGHTS['swarm_sell']`      | 20    | Branch-2 Cluster |
 | `SCORING_WEIGHTS['swarm_conflict']`  | −5    | Gegenindiz — Abzug auf den einzelnen Contrarian-Trade im Schwarmfenster |
 | `SCORING_WEIGHTS['trade_volume']`    | 16    | Nomineller Max-Beitrag des Tier-Signals (UI-Skalierung). Faktischer Beitrag pro Trade kommt aus `SCORING_TRADE_VOLUME_TIERS`. |
-| `SCORING_EX_OFFICIO_BONUS`           | 10    | Einmaliger Summand pro Trade |
+| `SCORING_EX_OFFICIO_ROLE_BONUSES`    | s. Tabelle unten | **NEU (2026-06-12)**, ersetzt `SCORING_EX_OFFICIO_BONUS` (alt, einzelner Wert 10). Bonus = MAX über die Boni der in `ex_officio_role_keys` vorhandenen Keys. |
+| `SCORING_EX_OFFICIO_COMMITTEE_GLOBAL` | `True` | **NEU (2026-06-12).** Toggle: wenn `False`, zählen `committee_*`-Role-Keys nicht für den Bonus (nur `subcommittee_*`). |
 | `SCORING_EX_OFFICIO_TRIGGERS`        | `['committee', 'floor_action']` | Welche Signale den Bonus aktivieren |
+
+**`SCORING_EX_OFFICIO_ROLE_BONUSES`** (Default-Werte):
+
+| Role-Key | Bonus | Ebene |
+|---|---|---|
+| `committee_chairman` | 15 | Committee |
+| `committee_vice_chairman` | 12 | Committee |
+| `committee_ranking_member` | 10 | Committee |
+| `committee_ex_officio` | 10 | Committee |
+| `subcommittee_chair` | 12 | Subcommittee |
+| `subcommittee_vice_chair` | 9 | Subcommittee |
+| `subcommittee_ranking_member` | 8 | Subcommittee |
+| `subcommittee_ex_officio` | 8 | Subcommittee |
 | `SCORING_PARADOX_DAMPER`             | 0.0   | Multiplikator auf Schwarm-Anteil bei `swarm_paradox` |
 | `SCORING_PARADOX_WARNING_TAG`        | `'paradox_swarm'` | Tag in `trade_warnings`-Spalte |
 | `SCORING_TRADE_VOLUME_ENABLED`       | `True` | Trade-Volume-Signal an/aus |
@@ -247,7 +266,8 @@ trade_score  = round(swarm_part + other_part + volume_part + bonus)
 - `swarm_paradox` hat kein additives Gewicht — wirkt ausschließlich als
   Multiplikator auf die Schwarm-Komponente.
 - `committee_ex_officio` hat kein eigenes Gewicht — Leadership-Effekt läuft
-  über den einmaligen Ex-Officio-Bonus.
+  über den rollenbasierten Ex-Officio-Bonus (MAX über
+  `SCORING_EX_OFFICIO_ROLE_BONUSES`).
 - Warning-Tag bleibt unabhängig vom gedämpften Schwarm-Score in
   `trade_warnings` sichtbar.
 

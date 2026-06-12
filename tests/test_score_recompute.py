@@ -21,10 +21,10 @@ from app.score_recompute import (  # noqa: E402
 from config import settings as _settings  # noqa: E402
 
 
-def _trade_row(signals: str, vol: int = 0, ex_off: str = '') -> dict:
+def _trade_row(signals: str, vol: int = 0, role_keys: str = '') -> dict:
     return {
         'signals_triggered': signals,
-        'Member_ExOfficio': ex_off,
+        'ex_officio_role_keys': role_keys,
         'trade_amount_max_usd': vol,
         'trade_score': -1,  # platzhalter, wird ueberschrieben
         'trade_score_breakdown': '',
@@ -109,8 +109,10 @@ def test_no_override_matches_settings_defaults():
         _settings.SCORING_TRADE_VOLUME_TIERS
     assert proxy.SCORING_TRADE_VOLUME_TRIGGER_FLOOR == \
         _settings.SCORING_TRADE_VOLUME_TRIGGER_FLOOR
-    assert proxy.SCORING_EX_OFFICIO_BONUS == \
-        _settings.SCORING_EX_OFFICIO_BONUS
+    assert proxy.SCORING_EX_OFFICIO_ROLE_BONUSES == \
+        _settings.SCORING_EX_OFFICIO_ROLE_BONUSES
+    assert proxy.SCORING_EX_OFFICIO_COMMITTEE_GLOBAL == \
+        _settings.SCORING_EX_OFFICIO_COMMITTEE_GLOBAL
 
 
 def test_volume_tiers_override():
@@ -138,15 +140,64 @@ def test_volume_excluded_disables_signal():
     assert int(excluded.iloc[0]['trade_score']) == 0
 
 
-def test_ex_officio_bonus_override():
-    df = _df([_trade_row('committee', ex_off='Chairman')])
+def test_ex_officio_role_bonuses_override():
+    df = _df([_trade_row('committee', role_keys='committee_ranking_member')])
     base = recompute_subset(df, excluded=[])
     base_score = int(base.iloc[0]['trade_score'])
 
     out = recompute_subset(
-        df, excluded=[], params_override={'ex_officio_bonus': 50.0},
+        df, excluded=[],
+        params_override={'ex_officio_role_bonuses':
+                         {'committee_ranking_member': 50.0}},
     )
     over_score = int(out.iloc[0]['trade_score'])
-    # Differenz = neuer Bonus - alter Bonus
-    expected_delta = 50 - int(_settings.SCORING_EX_OFFICIO_BONUS)
+    # Differenz = neuer Bonus - alter Bonus (Default aus Settings-Tabelle)
+    expected_delta = 50 - int(
+        _settings.SCORING_EX_OFFICIO_ROLE_BONUSES['committee_ranking_member']
+    )
+    assert over_score - base_score == expected_delta
+
+
+def test_exclude_committee_ex_officio_empties_bonus_table():
+    proxy = build_settings_proxy(excluded=['committee_ex_officio'])
+    assert proxy.SCORING_EX_OFFICIO_ROLE_BONUSES == {}
+
+
+def test_exclude_committee_ex_officio_wins_over_override():
+    proxy = build_settings_proxy(
+        excluded=['committee_ex_officio'],
+        params_override={'ex_officio_role_bonuses':
+                         {'committee_chairman': 99.0}},
+    )
+    assert proxy.SCORING_EX_OFFICIO_ROLE_BONUSES == {}
+
+
+def test_recompute_exclude_committee_ex_officio_drops_bonus():
+    df = _df([_trade_row('committee', role_keys='committee_chairman')])
+    base = recompute_subset(df, excluded=[])
+    excl = recompute_subset(df, excluded=['committee_ex_officio'])
+    expected_delta = -int(
+        _settings.SCORING_EX_OFFICIO_ROLE_BONUSES['committee_chairman']
+    )
+    assert (int(excl.iloc[0]['trade_score'])
+            - int(base.iloc[0]['trade_score'])) == expected_delta
+    # Das committee-Signal selbst bleibt aktiv, nur der Bonus faellt weg.
+    assert 'committee:' in excl.iloc[0]['trade_score_breakdown']
+    assert 'ex_officio:+0' in excl.iloc[0]['trade_score_breakdown']
+
+
+def test_ex_officio_committee_global_override_disables_committee_keys():
+    df = _df([_trade_row('committee', role_keys='committee_ranking_member')])
+    base = recompute_subset(df, excluded=[])
+    base_score = int(base.iloc[0]['trade_score'])
+
+    out = recompute_subset(
+        df, excluded=[],
+        params_override={'ex_officio_committee_global': False},
+    )
+    over_score = int(out.iloc[0]['trade_score'])
+    # committee_*-Key faellt weg -> Score sinkt um den Default-Bonus
+    expected_delta = -int(
+        _settings.SCORING_EX_OFFICIO_ROLE_BONUSES['committee_ranking_member']
+    )
     assert over_score - base_score == expected_delta

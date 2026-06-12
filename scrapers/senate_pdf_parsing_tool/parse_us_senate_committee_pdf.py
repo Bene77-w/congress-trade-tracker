@@ -8,7 +8,7 @@ import sys
 from collections import defaultdict
 
 # --- Configuration ---
-PDF_PATH = "us_senat_(sub)committees_all_pdf.pdf"  # Default, via --pdf ueberschreibbar
+PDF_PATH = "senate_(sub)committees_all_pdf.pdf"  # Default (committete Datei), via --pdf ueberschreibbar
 CSV_OUTPUT_PATH = "us_senate_member&(sub)committees.csv"
 TEST_CSV_OUTPUT_PATH = "us_senate_member&(sub)committees_test.csv"
 TEST_MODE = False  # Set to True via command line arg or manual toggle
@@ -166,69 +166,110 @@ def extract_text_by_style(chars):
                  
     return structured_lines
 
-def parse_member_line(line_obj, ref_majority_x, ref_minority_x):
+# Bekannte Rollen-Phrasen (laengste zuerst -> 'Chairman' vor 'Chair'), um an
+# verklebten Spalten-Uebergaengen (z.B. 'ChairmanWhitehouse') die Rolle des
+# linken Members vom Namen des rechten Members zu trennen.
+ROLE_PHRASES = sorted(
+    [
+        "Vice Chairwoman", "Vice Chairman", "Vice Chair",
+        "Chairwoman", "Chairman", "Chair",
+        "Ranking Member",
+        "Cochairman", "Co-Chairman", "Cochair",
+        "Ex Officio",
+    ],
+    key=len,
+    reverse=True,
+)
+
+STATE_RE = re.compile(r'\(([A-Z]{2})\)')
+
+
+def _normalize_role(role_raw):
+    """Normalisiert einen rohen Rollen-Text -> (role, is_ex_officio).
+
+    Committee-Ebene: Chairman/Vice Chairman/Ranking Member/Cochairman/Ex Officio.
+    Die ebenen-abhaengige Sub-Remap (Chair/Vice Chair) passiert spaeter in
+    format_assignments.
     """
-    Parses a content line to extract Name, State, Role.
-    Determines Party based on x-position relative to headers.
-    
-    ref_majority_x: x0 of the "Majority Members" header
-    ref_minority_x: x0 of the "Minority Members" header
+    role = (role_raw or "").strip()
+    is_ex_officio = False
+    if "ex officio" in role.lower():
+        is_ex_officio = True
+        role = "Ex Officio"
+    elif role:
+        rl = role.lower()
+        if "chair" in rl:
+            if "vice" in rl:
+                role = "Vice Chairman"
+            elif "co" in rl:
+                role = "Cochairman"
+            else:
+                role = "Chairman"
+        elif "ranking" in rl:
+            role = "Ranking Member"
+    return role, is_ex_officio
+
+
+def parse_member_line(line_obj, ref_majority_x, ref_minority_x):
+    """Parst eine content-Zeile -> Liste von Member-Dicts.
+
+    Eine Zeile kann mehrere Member enthalten, wenn die Spalten-Trennung im PDF
+    fehlschlug (Majority+Minority in einer Zeile verklebt, z.B. erste Reihe
+    'Chairman' | 'Ranking Member'). Wir splitten entlang der State-Codes und
+    trennen am Klebepunkt eine bekannte Rollen-Phrase ab.
+
+    Partei: erster Member nach x-Position (Majority=R in 119th); weitere Member
+    einer verklebten Zeile stehen in der Minority-Spalte -> 'D'.
     """
     text = line_obj['text']
     x0 = line_obj['x0']
-    
-    # Party Logic
-    # Default: if closer to majority x -> R, if closer to minority x -> D
-    # Or simple threshold: < 200 = L (Majority), > 250 = R (Minority)
-    # But better to use the specific references passed in.
-    
+
     dist_maj = abs(x0 - ref_majority_x) if ref_majority_x else 9999
     dist_min = abs(x0 - ref_minority_x) if ref_minority_x else 9999
-    
-    party = "R" if dist_maj < dist_min else "D" # Assumption: Majority=R in 119th. 
+    first_party = "R" if dist_maj < dist_min else "D"
     # NOTE: Majority is R in 119th Senate. If that changes, this needs config.
-    
-    # Extract Name, State, Role
-    # Format: "Last, First M. (ST), Role"
-    # Regex for State: \([A-Z]{2}\)
-    
-    match = re.search(r'^(.*?)\s*\(([A-Z]{2})\)(?:,\s*(.*))?$', text)
-    if match:
-        name = match.group(1).strip()
-        state = match.group(2).strip()
-        role_raw = match.group(3).strip() if match.group(3) else ""
-        
-        # Check if role is italic in the original chars (validating it's a role and not part of name)
-        # Though the regex structure (State) is very strong indicator.
-        
-        # Normalize Role
-        role = role_raw
-        is_ex_officio = False
-        
-        if "ex officio" in role.lower():
-            is_ex_officio = True
-            role = "Ex Officio" # Clean up "Ex Officio"
-        elif role:
-             # Normalize
-             if "chair" in role.lower():
-                 if "vice" in role.lower():
-                     role = "Vice Chairman"
-                 elif "co" in role.lower():
-                     role = "Cochairman"
-                 else:
-                     role = "Chairman"
-             elif "ranking" in role.lower():
-                 role = "Ranking Member"
-        
-        return {
-            "name": name,
-            "party": party,
-            "state": state,
-            "role": role,
-            "is_ex_officio": is_ex_officio
-        }
-        
-    return None
+
+    members = []
+    remainder = text
+    idx = 0
+    while True:
+        m = STATE_RE.search(remainder)
+        if not m:
+            break
+        name = remainder[:m.start()].strip().strip(',').strip()
+        state = m.group(1)
+        after = remainder[m.end():].lstrip()
+        if after.startswith(','):
+            after = after[1:].lstrip()
+
+        # Folgt ein weiterer State-Code? -> verklebte Zeile, Rolle ist eine
+        # bekannte Phrase am Anfang von 'after', der Rest ist der naechste Name.
+        if STATE_RE.search(after):
+            role_raw = ""
+            for ph in ROLE_PHRASES:
+                if after.startswith(ph):
+                    role_raw = ph
+                    break
+            remainder = after[len(role_raw):]
+        else:
+            role_raw = after
+            remainder = ""
+
+        if name:
+            role, is_ex_officio = _normalize_role(role_raw)
+            members.append({
+                "name": name,
+                "party": first_party if idx == 0 else "D",
+                "state": state,
+                "role": role,
+                "is_ex_officio": is_ex_officio,
+            })
+            idx += 1
+
+        if not remainder.strip():
+            break
+
+    return members
 
 def process_pdf(pdf_path, limit_pages=None):
     members_db = {} # Key: "Name" (assuming unique enough, or Name+State)
@@ -325,9 +366,8 @@ def process_pdf(pdf_path, limit_pages=None):
                         
                 elif item['type'] == 'content_line':
                     if not item['is_italic']: # Actual member list usually regular
-                        # Try parsing
-                        m_data = parse_member_line(item, ref_maj_x, ref_min_x)
-                        if m_data:
+                        # Try parsing -> Liste (verklebte Zeilen = mehrere Member)
+                        for m_data in parse_member_line(item, ref_maj_x, ref_min_x):
                             # Add to DB
                             key = m_data['name']
                             if key not in members_db:
@@ -338,13 +378,13 @@ def process_pdf(pdf_path, limit_pages=None):
                                     'ExOfficio_Global': False,
                                     'Assignments': []
                                 }
-                            
+
                             # Add Assignment
                             # Special Rule: Cochairman at Committee level is Ex Officio
                             is_cochair_comm = (current_subcommittee is None and "Cochairman" in m_data['role'])
-                            
+
                             final_ex_officio = m_data['is_ex_officio'] or is_cochair_comm
-                            
+
                             assign = {
                                 'Committee': current_committee,
                                 'Subcommittee': current_subcommittee,
@@ -352,10 +392,10 @@ def process_pdf(pdf_path, limit_pages=None):
                                 'ExOfficio': final_ex_officio
                             }
                             members_db[key]['Assignments'].append(assign)
-                            
+
                             if final_ex_officio:
                                 members_db[key]['ExOfficio_Global'] = True
-                                
+
                 idx += 1
                 
     return members_db
@@ -391,18 +431,24 @@ def format_assignments(assignments):
             r = sub['Role']
             if sub['ExOfficio']:
                 r = "Ex Officio" # Ensure consistent casing
-            
+            else:
+                # F2: Subcommittee-Ebene nutzt Chair/Vice Chair (interne Bezeichnung,
+                # um Committee- von Subcommittee-Fuehrung zu unterscheiden).
+                if r == "Chairman":
+                    r = "Chair"
+                elif r == "Vice Chairman":
+                    r = "Vice Chair"
+
             s_str = f"{sub['Subcommittee']}|{r}"
             sub_strings.append(s_str)
-            
-        # Combine
-        # Comm|Role:Sub1|R;Sub2|R
+
+        # Combine (F2): Comm|Role:Sub1|R~Sub2|R ; naechstes Committee mit ';'
         base = f"{comm_name}|{main_role}"
         if sub_strings:
-            base += ":" + ";".join(sub_strings)
-            
+            base += ":" + "~".join(sub_strings)
+
         comm_strings.append(base)
-        
+
     return ";".join(comm_strings)
 
 def main():

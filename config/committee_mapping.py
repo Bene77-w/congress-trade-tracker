@@ -1,5 +1,6 @@
 import pandas as pd
 import os
+import re
 import logging
 from typing import Dict, List, Tuple, Optional, Any
 from config import settings
@@ -53,12 +54,19 @@ class CommitteeMapper:
             return ''
 
         text = str(text).lower().strip()
+        # Innere Mehrfach-Whitespaces kollabieren — Quelldaten (z.B. Senate-XML
+        # SSBK-Sub) enthalten vereinzelt Doppel-Leerzeichen, Mapping-CSV nicht.
+        text = re.sub(r'\s+', ' ', text)
 
         # Handle Senate "Committee on X" format
         if text.startswith('committee on '):
             text = text.replace('committee on ', '', 1)
         if text.startswith('subcommittee on '):
             text = text.replace('subcommittee on ', '', 1)
+        # Befund A: Artikel nach dem Praefix strippen, sonst matcht
+        # "Committee on the Judiciary" nicht das Mapping "Judiciary".
+        if text.startswith('the '):
+            text = text[4:]
 
         return text
 
@@ -90,7 +98,7 @@ class CommitteeMapper:
             committee = self._normalize(row['Committee'])
             subcommittee = self._normalize(row['Subcommittee'])
 
-            if not chamber or not committee or not subcommittee:
+            if not chamber or not committee:
                 continue
 
             # Create sector/industry entry
@@ -101,11 +109,14 @@ class CommitteeMapper:
                 'confidence': str(row['Konfidenz']).strip()
             }
 
-            # Add to subcommittee mapping
-            key = (chamber, committee, subcommittee)
-            if key not in self.mapping:
-                self.mapping[key] = []
-            self.mapping[key].append(entry)
+            # Add to subcommittee mapping. Leeres Subcommittee = bewusste
+            # Committee-Level-Zeile (z.B. Joint/Select ohne Subs) -> nur ins
+            # Committee-Level-Dict, kein Pseudo-Subcommittee-Key.
+            if subcommittee:
+                key = (chamber, committee, subcommittee)
+                if key not in self.mapping:
+                    self.mapping[key] = []
+                self.mapping[key].append(entry)
 
             # Add to committee-level mapping (for aggregation)
             comm_key = (chamber, committee)

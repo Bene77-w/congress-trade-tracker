@@ -15,8 +15,12 @@ trade_warnings)`` nach der Formel:
                   (0 wenn SCORING_TRADE_VOLUME_ENABLED=False oder
                    'trade_volume' nicht in signals_triggered)
 
-    bonus       = SCORING_EX_OFFICIO_BONUS, falls Member_ExOfficio truthy UND
-                  signals_triggered ∩ SCORING_EX_OFFICIO_TRIGGERS ≠ ∅
+    bonus       = max(SCORING_EX_OFFICIO_ROLE_BONUSES[k] fuer k in
+                  ex_officio_role_keys), falls mindestens ein Key in der
+                  Bonus-Tabelle steht UND signals_triggered ∩
+                  SCORING_EX_OFFICIO_TRIGGERS ≠ ∅ (MAX, nicht Summe).
+                  committee_*-Keys zaehlen nur, wenn
+                  SCORING_EX_OFFICIO_COMMITTEE_GLOBAL=True.
 
     trade_score = round(swarm_part + other_part + volume_part + bonus)
 
@@ -51,20 +55,6 @@ BRANCH1_ORDER = ('committee', 'committee_full', 'floor_action', 'extreme_report'
 SEQUENCE_ORDER = ('contrarian', 'accumulative')
 
 
-def _to_bool(value: Any) -> bool:
-    """Truthy-Check fuer DataFrame-Werte. NaN/None/leer -> False."""
-    if value is None:
-        return False
-    try:
-        if pd.isna(value):
-            return False
-    except (TypeError, ValueError):
-        pass
-    if isinstance(value, str):
-        return value.strip() != ''
-    return bool(value)
-
-
 def _parse_signals(value: Any) -> set[str]:
     """Parst ``signals_triggered``-Zelle in Set. Defensiv gegen NaN/None/''."""
     if value is None:
@@ -94,7 +84,7 @@ def _to_float(value: Any, default: float = 0.0) -> float:
 
 
 def compute_trade_score(signals_value: Any,
-                        ex_officio_value: Any,
+                        ex_officio_role_keys: Any,
                         trade_amount_max_usd: Any,
                         settings_module: Any) -> Tuple[int, str, str]:
     """Berechnet ``(score, breakdown, warnings)`` fuer einen einzelnen Trade.
@@ -103,8 +93,10 @@ def compute_trade_score(signals_value: Any,
     ----------
     signals_value:
         Zellwert aus ``signals_triggered`` (``;``-getrennter String oder NaN).
-    ex_officio_value:
-        Zellwert aus ``Member_ExOfficio`` (z.B. ``"Chairman"`` oder leer/NaN).
+    ex_officio_role_keys:
+        Zellwert aus ``ex_officio_role_keys`` (``;``-getrennte Fuehrungs-
+        rollen-Keys, z.B. ``"committee_chairman;subcommittee_chair"``;
+        leer/NaN wenn kein relevanter Treffer eine Fuehrungsrolle traegt).
     trade_amount_max_usd:
         Zellwert aus ``trade_amount_max_usd`` (int, kann 0/NaN sein). Wird
         nur ausgewertet, wenn ``'trade_volume'`` in ``signals_value`` ist.
@@ -125,8 +117,13 @@ def compute_trade_score(signals_value: Any,
     volume_trigger_floor = float(getattr(
         settings_module, 'SCORING_TRADE_VOLUME_TRIGGER_FLOOR', 0.0
     ))
-    bonus_amount = float(getattr(settings_module, 'SCORING_EX_OFFICIO_BONUS',
-                                 0.0))
+    role_bonuses = getattr(settings_module,
+                           'SCORING_EX_OFFICIO_ROLE_BONUSES', {}) or {}
+    committee_global = getattr(settings_module,
+                               'SCORING_EX_OFFICIO_COMMITTEE_GLOBAL', None)
+    if committee_global is None:
+        committee_global = True
+    committee_global = bool(committee_global)
     bonus_triggers = set(getattr(settings_module,
                                  'SCORING_EX_OFFICIO_TRIGGERS', []) or [])
 
@@ -191,10 +188,14 @@ def compute_trade_score(signals_value: Any,
         volume_part = tier_score * scale
         breakdown_parts.append(f'trade_volume:{int(round(volume_part))}')
 
-    # --- Ex-Officio-Bonus: einmalig, falls truthy + Trigger getroffen ---
-    ex_officio_truthy = _to_bool(ex_officio_value)
-    bonus_active = ex_officio_truthy and bool(triggered & bonus_triggers)
-    bonus = bonus_amount if bonus_active else 0.0
+    # --- Ex-Officio-Bonus v2: hoechster Einzelbonus der Rollen-Keys ---
+    role_keys = _parse_signals(ex_officio_role_keys)
+    if not committee_global:
+        role_keys = {k for k in role_keys if not k.startswith('committee_')}
+    eligible = [_to_float(role_bonuses.get(k), 0.0)
+                for k in role_keys if k in role_bonuses]
+    bonus_active = bool(eligible) and bool(triggered & bonus_triggers)
+    bonus = max(eligible) if bonus_active else 0.0
     breakdown_parts.append(f'ex_officio:+{int(round(bonus))}')
 
     # --- Aggregation ---
@@ -222,7 +223,7 @@ def compute_trade_scores(df: pd.DataFrame, settings_module: Any) -> pd.DataFrame
 
     sig_col = df['signals_triggered'] if 'signals_triggered' in df.columns \
         else pd.Series([''] * len(df), index=df.index)
-    ex_col = df['Member_ExOfficio'] if 'Member_ExOfficio' in df.columns \
+    ex_col = df['ex_officio_role_keys'] if 'ex_officio_role_keys' in df.columns \
         else pd.Series([''] * len(df), index=df.index)
     vol_col = df['trade_amount_max_usd'] \
         if 'trade_amount_max_usd' in df.columns \
