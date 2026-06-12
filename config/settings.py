@@ -551,6 +551,15 @@ POST_TRADE_PROGRESS_EVERY = 20000
 # Treffer" — Anteil Trades mit paper_return_terminal > x (D1/D7). Live im Popup
 # per Slider ueberschreibbar; kein Pipeline-Recompute.
 DETAIL_RETURN_THRESHOLD_PCT = 10.0
+# Member-Detail Spaghetti-Verlaeufe (D3b/D4) — Performance-Schutz gegen
+# Vielhaendler (z.B. Ro Khanna ~28k Trades): pro Trade entsteht 1 SVG-Trace.
+# DETAIL_TRAJ_SAMPLE_DAYS: nur jeden n-ten Kalendertag der Trajektorie behalten
+#   (erster + letzter Punkt bleiben immer). 1 = kein Downsampling.
+DETAIL_TRAJ_SAMPLE_DAYS = 3
+# DETAIL_TRAJ_MAX_TRACES: Hoechstzahl gezeichneter Verlaeufe (Top-N nach
+#   |paper_return_180|, NaN zuletzt). Die Liste rechts zeigt weiterhin ALLE.
+#   Per Popup-Toggle ("Alle Verlaeufe zeichnen") abschaltbar.
+DETAIL_TRAJ_MAX_TRACES = 300
 
 
 # ---------------------------------------------------------------------------

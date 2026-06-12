@@ -28,6 +28,7 @@ from app.chart_helpers import (  # noqa: E402
     build_recent_pool,
     build_sale_kind_traces,
 )
+from app.glossary import help_for  # noqa: E402
 from app.score_recompute import available_signals, recompute_subset  # noqa: E402
 from app.scoring_presets import (  # noqa: E402
     DEFAULT_PRESET_NAME,
@@ -325,7 +326,6 @@ def aggregate_members(df: pd.DataFrame, date_col: str,
 
 st.set_page_config(
     page_title='Congress Trade Tracker',
-    page_icon='🏛️',
     layout='wide',
     initial_sidebar_state='expanded',
 )
@@ -489,7 +489,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.title('🏛️ Congress Trade Tracker')
+st.title('Congress Trade Tracker')
 st.markdown(
     '<div class="subtitle">US-Kongress-Trades · Live-Scoring · '
     'Signal-Filter · Asset- &amp; Member-Aggregation</div>',
@@ -532,7 +532,7 @@ def _diff_params(current: dict, defaults: dict) -> dict:
 with st.sidebar:
     st.header('Filter')
 
-    with st.expander('📅  Datum & Suche', expanded=True):
+    with st.expander('Datum & Suche', expanded=True):
         date_basis = st.radio(
             'Datumsbasis',
             options=['disclosure_date', 'transaction_date'],
@@ -541,6 +541,7 @@ with st.sidebar:
                       # Meldefrist Transaktionen aus weit zurueckliegenden
                       # Jahren (z.B. 365d -> Trades aus 2024).
             horizontal=False,
+            help=help_for('datumsbasis'),
         )
         window_label = st.radio(
             'Zeitfenster',
@@ -559,12 +560,13 @@ with st.sidebar:
                  'bleiben aktiv.',
         ).strip()
 
-    with st.expander('🎯  Score & Sortierung', expanded=True):
+    with st.expander('Score & Sortierung', expanded=True):
         sort_dir = st.radio(
             'Sortierrichtung (trade_score)',
             options=['absteigend', 'aufsteigend'],
             index=0,
             horizontal=True,
+            help=help_for('score'),
         )
         min_score = st.slider(
             'Min-Score',
@@ -572,6 +574,7 @@ with st.sidebar:
             max_value=max(50, max_observed_score),
             value=0,
             step=1,
+            help=help_for('min_score'),
         )
         primary_horizon = st.selectbox(
             'Primaerer Return-Horizont',
@@ -589,7 +592,7 @@ with st.sidebar:
                  'sichtbar.',
         )
 
-    with st.expander('📊  Spalten', expanded=False):
+    with st.expander('Spalten', expanded=False):
         trade_cols_sel = st.multiselect(
             'Trades-Tab',
             options=TRADE_DISPLAY_COLS,
@@ -609,14 +612,15 @@ with st.sidebar:
             key='cols_members',
         )
 
-    with st.expander('🚫  Signale ausschließen', expanded=False):
+    with st.expander('Signale ausschließen', expanded=False):
         excluded_signals = st.multiselect(
             'Diese Signale tragen 0 zum Score bei:',
             options=available_signals(),
             default=[],
+            help=help_for('signals'),
         )
 
-    with st.expander('⚖️  Score-Gewichte', expanded=False):
+    with st.expander('Score-Gewichte', expanded=False):
         # Preset-Auswahl (ausserhalb der Form: sofortiger Effekt)
         presets = load_presets()
         preset_options = [DEFAULT_PRESET_NAME] + sorted(
@@ -627,6 +631,7 @@ with st.sidebar:
             options=preset_options,
             index=0,
             key='preset_select',
+            help=help_for('preset'),
         )
         load_clicked = st.button(
             f'Preset „{selected_preset}" laden', width='stretch',
@@ -685,6 +690,7 @@ with st.sidebar:
                         step=1.0,
                         format='%.2f',
                         key=f'w_{sig}',
+                        help=help_for('gewicht'),
                     )
                     if sig != 'trade_volume':
                         continue
@@ -692,6 +698,7 @@ with st.sidebar:
                         'Trade-Volume-Signal aktiv',
                         value=bool(state['trade_volume_enabled']),
                         key='p_tv_enabled',
+                        help=help_for('trade_volume_signal'),
                     )
                     form_vol_trigger = st.number_input(
                         'Trigger-Floor (USD) — Signal triggert ab > diesem '
@@ -785,6 +792,7 @@ with st.sidebar:
                     value=float(state['paradox_damper']),
                     step=0.05,
                     key='p_damper',
+                    help=help_for('paradox_damper'),
                 )
             save_name = st.text_input(
                 'Preset-Name (zum Speichern)', value='',
@@ -959,53 +967,72 @@ def _trade_column_config(score_max_val: int, ticker_as_link: bool = False) -> di
     return {
         'trade_id': cc.TextColumn('Hash-ID', width='small'),
         'transaction_date': cc.DateColumn(
-            'Transaction', format='DD.MM.YYYY', width='small'),
+            'Transaction', format='DD.MM.YYYY', width='small',
+            help=help_for('transaction_date')),
         'disclosure_date': cc.DateColumn(
-            'Disclosure', format='DD.MM.YYYY', width='small'),
+            'Disclosure', format='DD.MM.YYYY', width='small',
+            help=help_for('disclosure_date')),
         'name': cc.TextColumn('Member', width='medium'),
         'chamber': cc.TextColumn('Chamber', width='small'),
         'Member_Party': cc.TextColumn('Party', width='small'),
         'asset_name': cc.TextColumn('Asset', width='large'),
         'ticker': ticker_cfg,
-        'issuer_ticker': cc.TextColumn('Issuer', width='small'),
+        'issuer_ticker': cc.TextColumn('Issuer', width='small',
+                                       help=help_for('issuer')),
         'transaction_type': cc.TextColumn('Type', width='small'),
         'amount': cc.TextColumn('Amount Range', width='small'),
         'trade_volume_usd': cc.NumberColumn(
-            'Trade Vol (USD)', format='$%d', width='medium'),
+            'Trade Vol (USD)', format='$%d', width='medium',
+            help=help_for('trade_volume')),
         'trade_amount_max_usd': cc.NumberColumn(
-            'Kapital (USD)', format='$%d', width='medium'),
+            'Kapital (USD)', format='$%d', width='medium',
+            help=help_for('kapital')),
         'asset_tradingvolume_usd': cc.NumberColumn(
-            'Asset Vol (USD)', format='$%d', width='medium'),
+            'Asset Vol (USD)', format='$%d', width='medium',
+            help=help_for('asset_volume')),
         'trade_score': cc.ProgressColumn(
             'Score',
             min_value=0,
             max_value=max(200, score_max_val),
             format='%d',
             width='small',
+            help=help_for('score'),
         ),
-        'committee_match': cc.TextColumn('Committee Match', width='large'),
-        'relevant_sectors': cc.TextColumn('Relevant Sectors', width='medium'),
-        'signals_triggered': cc.TextColumn('Signals', width='large'),
+        'committee_match': cc.TextColumn('Committee Match', width='large',
+                                         help=help_for('committee_match')),
+        'relevant_sectors': cc.TextColumn('Relevant Sectors', width='medium',
+                                          help=help_for('relevant_sectors')),
+        'signals_triggered': cc.TextColumn('Signals', width='large',
+                                           help=help_for('signals')),
         'trade_score_breakdown': cc.TextColumn(
-            'Score Breakdown', width='large'),
+            'Score Breakdown', width='large',
+            help=help_for('score_breakdown')),
         'trade_warnings': cc.TextColumn('Warnings', width='medium'),
         'post_return_30d': cc.NumberColumn(
-            'Return 30d %', format='%.1f%%', width='small'),
+            'Return 30d %', format='%.1f%%', width='small',
+            help=help_for('post_return')),
         'post_return_60d': cc.NumberColumn(
-            'Return 60d %', format='%.1f%%', width='small'),
+            'Return 60d %', format='%.1f%%', width='small',
+            help=help_for('post_return')),
         'post_return_90d': cc.NumberColumn(
-            'Return 90d %', format='%.1f%%', width='small'),
+            'Return 90d %', format='%.1f%%', width='small',
+            help=help_for('post_return')),
         'post_return_120d': cc.NumberColumn(
-            'Return 120d %', format='%.1f%%', width='small'),
+            'Return 120d %', format='%.1f%%', width='small',
+            help=help_for('post_return')),
         'post_return_180d': cc.NumberColumn(
-            'Return 180d %', format='%.1f%%', width='small'),
+            'Return 180d %', format='%.1f%%', width='small',
+            help=help_for('post_return')),
         'effective_return_pct': cc.NumberColumn(
-            'Eff. Return %', format='%.1f%%', width='small'),
-        'exit_status': cc.TextColumn('Exit', width='small'),
+            'Eff. Return %', format='%.1f%%', width='small',
+            help=help_for('effective_return')),
+        'exit_status': cc.TextColumn('Exit', width='small',
+                                     help=help_for('exit_status')),
         'exit_date': cc.DateColumn('Exit-Datum', format='DD.MM.YYYY',
                                    width='small'),
         'first_close_offset_days': cc.NumberColumn(
-            'Erster Close (Tage)', format='%d', width='small'),
+            'Erster Close (Tage)', format='%d', width='small',
+            help=help_for('first_close')),
         'paper_return_pct': cc.NumberColumn(
             'Paper Return %', format='%.1f%%', width='small',
             help='Mark-to-Market: (aktueller Close / Einstand − 1), '
@@ -1021,7 +1048,8 @@ def _trade_column_config(score_max_val: int, ticker_as_link: bool = False) -> di
 def _asset_column_config(score_max_val: int) -> dict:
     cc = st.column_config
     return {
-        'issuer_ticker': cc.TextColumn('Issuer', width='small'),
+        'issuer_ticker': cc.TextColumn('Issuer', width='small',
+                                       help=help_for('issuer')),
         'asset_name': cc.TextColumn('Asset', width='large'),
         'trade_count': cc.NumberColumn(
             'Trades', format='%d', width='small'),
@@ -1033,11 +1061,14 @@ def _asset_column_config(score_max_val: int) -> dict:
             max_value=max(200, score_max_val),
             format='%d',
             width='small',
+            help=help_for('score'),
         ),
         'score_avg': cc.NumberColumn(
-            'Score Avg', format='%.1f', width='small'),
+            'Score Avg', format='%.1f', width='small',
+            help=help_for('score')),
         'score_total': cc.NumberColumn(
-            'Score Σ', format='%d', width='small'),
+            'Score Σ', format='%d', width='small',
+            help=help_for('score')),
         'total_volume_usd': cc.NumberColumn(
             'Volume (USD)', format='$%d', width='medium'),
         'last_date': cc.DateColumn(
@@ -1046,13 +1077,17 @@ def _asset_column_config(score_max_val: int) -> dict:
             'First', format='DD.MM.YYYY', width='small'),
         'chambers': cc.TextColumn('Chambers', width='small'),
         'sectors': cc.TextColumn('Sectors', width='medium'),
-        'signals': cc.TextColumn('Signals', width='large'),
+        'signals': cc.TextColumn('Signals', width='large',
+                                 help=help_for('signals')),
         'avg_return_primary': cc.NumberColumn(
-            'Avg Return %', format='%.1f%%', width='small'),
+            'Avg Return %', format='%.1f%%', width='small',
+            help=help_for('avg_return')),
         'max_return_primary': cc.NumberColumn(
-            'Max Return %', format='%.1f%%', width='small'),
+            'Max Return %', format='%.1f%%', width='small',
+            help=help_for('max_return')),
         'pct_profitable': cc.NumberColumn(
-            '% Profitable', format='%.1f%%', width='small'),
+            '% Profitable', format='%.1f%%', width='small',
+            help=help_for('pct_profitable')),
     }
 
 
@@ -1072,22 +1107,28 @@ def _member_column_config(score_max_val: int) -> dict:
             max_value=max(200, score_max_val),
             format='%d',
             width='small',
+            help=help_for('score'),
         ),
         'score_avg': cc.NumberColumn(
-            'Score Avg', format='%.1f', width='small'),
+            'Score Avg', format='%.1f', width='small',
+            help=help_for('score')),
         'score_total': cc.NumberColumn(
-            'Score Σ', format='%d', width='small'),
+            'Score Σ', format='%d', width='small',
+            help=help_for('score')),
         'total_volume_usd': cc.NumberColumn(
             'Volume (USD)', format='$%d', width='medium'),
         'last_date': cc.DateColumn(
             'Last', format='DD.MM.YYYY', width='small'),
         'first_date': cc.DateColumn(
             'First', format='DD.MM.YYYY', width='small'),
-        'signals': cc.TextColumn('Signals', width='large'),
+        'signals': cc.TextColumn('Signals', width='large',
+                                 help=help_for('signals')),
         'avg_return_primary': cc.NumberColumn(
-            'Avg Return %', format='%.1f%%', width='small'),
+            'Avg Return %', format='%.1f%%', width='small',
+            help=help_for('avg_return')),
         'pct_profitable': cc.NumberColumn(
-            '% Profitable', format='%.1f%%', width='small'),
+            '% Profitable', format='%.1f%%', width='small',
+            help=help_for('pct_profitable')),
     }
 
 
@@ -1429,7 +1470,8 @@ def render_trade_detail(trade, trade_rows, key_prefix: str) -> None:
         }
         pc_rows = build_partial_close_rows(opening, events, sel_sign)
         if pc_rows:
-            st.subheader('Partial-Close-Zerlegung (Lite · Display-only)')
+            st.subheader('Partial-Close-Zerlegung (Lite · Display-only)',
+                          help=help_for('partial_close'))
             st.caption('Eine Zeile pro Schliessungs-Event mit eigenem '
                        'realisiertem Return. Volumina non-FIFO -> nicht '
                        'aggregieren.')
@@ -1448,10 +1490,11 @@ with tab_trades:
 
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric('Trades (gefiltert)', f'{n:,}')
-    c2.metric('Mean Score', f'{mean_score:.1f}')
-    c3.metric('Max Score', f'{max_score}')
+    c2.metric('Mean Score', f'{mean_score:.1f}', help=help_for('score'))
+    c3.metric('Max Score', f'{max_score}', help=help_for('score'))
     c4.metric('Signale ausgeschlossen', len(excluded_signals))
-    c5.metric('Override aktiv', 'Ja' if override_active else 'Nein')
+    c5.metric('Override aktiv', 'Ja' if override_active else 'Nein',
+              help=help_for('override_active'))
 
     display_cols = [c for c in TRADE_DISPLAY_COLS
                     if c in trade_rows.columns and c in trade_cols_sel]
@@ -1506,7 +1549,8 @@ with tab_assets:
     a1, a2, a3 = st.columns(3)
     a1.metric('Assets', f'{len(assets_df):,}')
     a2.metric('Max score_max',
-              f'{int(assets_df["score_max"].max()) if len(assets_df) else 0}')
+              f'{int(assets_df["score_max"].max()) if len(assets_df) else 0}',
+              help=help_for('score'))
     a3.metric('Σ Volumen (USD)',
               f'{int(assets_df["total_volume_usd"].sum()) if len(assets_df) else 0:,}')
 
@@ -1539,7 +1583,8 @@ with tab_members:
     m1, m2, m3 = st.columns(3)
     m1.metric('Members', f'{len(members_df):,}')
     m2.metric('Max score_max',
-              f'{int(members_df["score_max"].max()) if len(members_df) else 0}')
+              f'{int(members_df["score_max"].max()) if len(members_df) else 0}',
+              help=help_for('score'))
     m3.metric('Σ Volumen (USD)',
               f'{int(members_df["total_volume_usd"].sum()) if len(members_df) else 0:,}')
 
