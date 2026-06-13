@@ -612,13 +612,18 @@ def _apply_paper_returns(
     latest_map: dict[str, tuple[float, pd.Timestamp]],
     target_mask: pd.Series,
     sell_sign: pd.Series,
+    baseline_override: pd.Series | None = None,
 ) -> pd.DataFrame:
     """Setzt ``paper_return_pct`` + ``price_as_of`` (rein, kein Netzwerk).
 
     Nur Zeilen mit ``target_mask=True`` bekommen Werte; alle anderen bleiben
-    NaN/NaT. Papier-Return = ``(latest_close / post_trade_baseline_price - 1)
-    * 100 * sell_sign`` — Einstand wird aus der vorhandenen Spalte
-    ``post_trade_baseline_price`` wiederverwendet (kein Neu-Berechnen).
+    NaN/NaT. Papier-Return = ``(latest_close / baseline - 1) * 100 *
+    sell_sign``. Der Einstandspreis (``baseline``) kommt standardmaessig aus
+    der vorhandenen Spalte ``post_trade_baseline_price`` (kein Neu-Berechnen).
+    Wird ``baseline_override`` uebergeben (Series, gleicher Index wie ``df``),
+    wird stattdessen dessen Wert pro Zeile verwendet — z.B. eine live aus dem
+    aktuellen Preis-Cache berechnete Baseline (split-immun, s.
+    ``compute_paper_returns``). Default ``None`` = bisheriges Verhalten.
     Fehlt der letzte Close oder ein gueltiger Baseline-Preis -> NaN.
     """
     paper = pd.Series(np.nan, index=df.index, dtype='float64')
@@ -633,9 +638,14 @@ def _apply_paper_returns(
         date = pd.to_datetime(
             tkr.map(lambda t: latest_map.get(t, (np.nan, pd.NaT))[1])
         )
-        baseline = pd.to_numeric(
-            df.loc[idx, 'post_trade_baseline_price'], errors='coerce'
-        )
+        if baseline_override is not None:
+            baseline = pd.to_numeric(
+                baseline_override.loc[idx], errors='coerce'
+            )
+        else:
+            baseline = pd.to_numeric(
+                df.loc[idx, 'post_trade_baseline_price'], errors='coerce'
+            )
         ss = sell_sign.loc[idx]
         valid = close.notna() & baseline.notna() & (baseline > 0)
         pr = (close / baseline - 1.0) * 100.0 * ss
@@ -720,7 +730,30 @@ def compute_paper_returns(
         )
 
     latest_map = _latest_close_map(cache)
-    df = _apply_paper_returns(df, latest_map, target_mask, sell_sign)
+
+    # Baseline LIVE aus dem aktuellen Cache ableiten (identische Definition wie
+    # die Pipeline-Baseline in compute_post_trade_returns:
+    # _price_at_or_after_fast(lookup, ticker, transaction_date)). So stammen
+    # Zaehler (latest_close) und Nenner (Baseline) aus DEMSELBEN Cache-Stand
+    # -> split-immun. Die gespeicherte Master-Spalte post_trade_baseline_price
+    # kann pre-split sein, falls der Cache rueckwirkend split-adjustiert wurde.
+    lookup = _build_price_lookup(cache)
+    baseline_live = pd.Series(np.nan, index=df.index, dtype='float64')
+    if target_mask.any():
+        for idx in df.index[target_mask]:
+            t_date = df.at[idx, 'transaction_date']
+            if pd.isna(t_date):
+                continue
+            price = _price_at_or_after_fast(
+                lookup, df.at[idx, 'ticker'], pd.Timestamp(t_date),
+            )
+            if price is not None:
+                baseline_live.at[idx] = price
+
+    df = _apply_paper_returns(
+        df, latest_map, target_mask, sell_sign,
+        baseline_override=baseline_live,
+    )
 
     n_priced = int(df['paper_return_pct'].notna().sum())
     print(f"  Papier-Return gesetzt: {n_priced:,}/{int(target_mask.sum()):,} "
