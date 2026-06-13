@@ -201,6 +201,15 @@ def compute_member_trajectories(df_member: pd.DataFrame, cache: pd.DataFrame,
     ``member_detail.py`` legt ein ``@st.cache_data`` darum und laedt den Cache
     intern (nicht als gehashtes Argument).
 
+    Baseline des Returns ist der ERSTE Cache-Close >= Transaktionstag je Trade
+    (gleiche Definition wie die Pipeline-Baseline, aber LIVE aus dem aktuellen
+    Cache). Dadurch sind Zaehler (taeglicher Close) und Nenner (erster Close) aus
+    DEMSELBEN Cache-Stand -> der Return ist split-konsistent: eine rueckwirkende
+    Split-Adjustierung des Caches (z. B. KLAC 10:1) skaliert beide Faktoren
+    gleich und kuerzt sich heraus; der erste Trajektorien-Punkt ist immer ~= 0 %.
+    Die Master-Spalte ``post_trade_baseline_price`` dient nur noch als
+    Applicability-Filter (notna & > 0), nicht mehr als Rechen-Nenner.
+
     Vektorisiert: statt ``iterrows`` (bei ~28k Trades ein Browser-Haenger) wird
     der Trade-DF EINMAL mit dem Preis-Cache gemerged, Offsets/Returns werden
     spaltenweise berechnet und nach ``trade_id`` gruppiert. Identisches
@@ -282,10 +291,18 @@ def compute_member_trajectories(df_member: pd.DataFrame, cache: pd.DataFrame,
         return out
 
     merged['day'] = (merged['date'] - merged['t_date']).dt.days.astype('int64')
-    merged['ret'] = ((merged['close'].to_numpy(dtype='float64')
-                      / merged['baseline'].to_numpy(dtype='float64') - 1.0)
-                     * 100.0 * merged['sign'].to_numpy(dtype='float64'))
     merged = merged.sort_values(['trade_id', 'day'])
+    # Baseline LIVE aus dem Cache: erster Close >= Transaktionstag je Trade. Die
+    # Master-Spalte ``post_trade_baseline_price`` bleibt oben nur als
+    # Applicability-Filter (notna & > 0), geht aber NICHT in die Rechnung ein —
+    # sonst driften Zaehler (Cache-Close) und Nenner (Master-Baseline) bei
+    # rueckwirkenden Split-Adjustierungen des Caches auseinander (Linien starten
+    # bei +-90 % statt 0 %). Mit erstem Cache-Close als Nenner sind Zaehler und
+    # Nenner aus DEMSELBEN Cache-Stand -> split-invariant, erster Punkt ~= 0 %.
+    first_close = merged.groupby('trade_id')['close'].transform('first')
+    merged['ret'] = ((merged['close'].to_numpy(dtype='float64')
+                      / first_close.to_numpy(dtype='float64') - 1.0)
+                     * 100.0 * merged['sign'].to_numpy(dtype='float64'))
 
     # 3) Pro Trade gruppieren (Reihenfolge wie urspruengliches iterrows: nach
     #    Erst-Auftreten in df_member).

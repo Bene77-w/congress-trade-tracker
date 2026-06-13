@@ -912,7 +912,12 @@ def test_compute_paper_returns_offline(monkeypatch, tmp_path):
     alter Trade ausserhalb Fenster -> NaN."""
     monkeypatch.setattr('scoring.post_trade_returns.yf.download', _no_network)
     cache_path = tmp_path / 'price_history.parquet'
-    _save_price_cache(_fresh_cache('AAPL', last_close=104.0), str(cache_path))
+    fresh = _fresh_cache('AAPL', last_close=104.0)
+    _save_price_cache(fresh, str(cache_path))
+    # Baseline wird LIVE aus dem Cache abgeleitet (erster Close >=
+    # transaction_date); transaction_date liegt vor dem Cache-Beginn -> erster
+    # Cache-Eintrag (aelteste Zeile, nach Datum sortiert).
+    first_close = float(fresh.sort_index()['close'].iloc[0])
 
     today = pd.Timestamp.now().normalize()
     df = pd.DataFrame([
@@ -929,12 +934,55 @@ def test_compute_paper_returns_offline(monkeypatch, tmp_path):
         df, cache_path=str(cache_path),
         recent_window_days=180, max_price_age_bdays=1,
     )
-    # Recent: (104/100-1)*100 = +4 ; price_as_of = juengster Handelstag im Cache
-    # (am Wochenende = letzter Freitag, NICHT der Kalender-Heute).
+    # Recent: (104/first_close-1)*100 ; price_as_of = juengster Handelstag im
+    # Cache (am Wochenende = letzter Freitag, NICHT der Kalender-Heute).
     last_trading_day = pd.bdate_range(end=today, periods=5)[-1]
+    expected = (104.0 / first_close - 1.0) * 100.0
     assert out.loc[out['trade_id'] == 'RECENT', 'paper_return_pct'].iloc[0] \
-        == pytest.approx(4.0)
+        == pytest.approx(expected)
     assert out.loc[out['trade_id'] == 'RECENT', 'price_as_of'].iloc[0] \
         == last_trading_day
     # Alt ausserhalb 180-Tage-Fenster -> NaN.
     assert pd.isna(out.loc[out['trade_id'] == 'OLD', 'paper_return_pct'].iloc[0])
+
+
+def test_compute_paper_returns_split_immune(monkeypatch, tmp_path):
+    """Stale (pre-split) post_trade_baseline_price wird ignoriert -> Baseline
+    LIVE aus dem aktuellen Cache (split-immun).
+
+    Simuliert KLAC-artigen 10:1-Split: post_trade_baseline_price = 1000.0
+    (10x zu hoch, aus einem frueheren Pre-Split-Lauf). Der aktuelle Cache ist
+    bereits post-split (Closes 100..104). Mit der alten Logik wuerde
+    paper_return_pct = (104/1000-1)*100 = -89.6 berechnet -> krass falsch.
+    Mit Live-Baseline (erster Cache-Close >= transaction_date = 100) ergibt
+    sich (104/100-1)*100 = +4.0 -> korrekt, weil Zaehler+Nenner aus demselben
+    (post-split) Cache-Stand stammen.
+    """
+    monkeypatch.setattr('scoring.post_trade_returns.yf.download', _no_network)
+    cache_path = tmp_path / 'price_history.parquet'
+    fresh = _fresh_cache('AAPL', last_close=104.0)
+    _save_price_cache(fresh, str(cache_path))
+    # transaction_date liegt vor dem Cache-Beginn -> Live-Baseline = erster
+    # Close im Cache (aelteste Zeile, nach Datum sortiert).
+    first_close = float(fresh.sort_index()['close'].iloc[0])
+
+    today = pd.Timestamp.now().normalize()
+    df = pd.DataFrame([
+        _make_trade_row(trade_id='RECENT', ticker='AAPL',
+                        transaction_date=(today - pd.Timedelta(days=10)),
+                        transaction_type='Purchase'),
+    ])
+    df['post_trade_baseline_price'] = [1000.0]
+
+    out = compute_paper_returns(
+        df, cache_path=str(cache_path),
+        recent_window_days=180, max_price_age_bdays=1,
+    )
+
+    expected = (104.0 / first_close - 1.0) * 100.0
+    assert out.loc[out['trade_id'] == 'RECENT', 'paper_return_pct'].iloc[0] \
+        == pytest.approx(expected)
+    # NICHT der falsche Wert, den die alte Master-Baseline-Logik liefern wuerde.
+    wrong_value = (104.0 / 1000.0 - 1.0) * 100.0
+    assert out.loc[out['trade_id'] == 'RECENT', 'paper_return_pct'].iloc[0] \
+        != pytest.approx(wrong_value)

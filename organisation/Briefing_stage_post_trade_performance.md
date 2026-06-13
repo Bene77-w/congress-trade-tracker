@@ -41,6 +41,38 @@
 
 ---
 
+## Änderungen 2026-06-13 — `paper_return_pct` split-immun (Härtung `d1a2cf5`)
+
+**Problem**: Rückwirkende Aktiensplits (real beobachtet: KLAC 10:1) machen die
+gespeicherte Master-Spalte `post_trade_baseline_price` stale → wenn
+`compute_paper_returns` sie als Nenner gegen den aktuellen (post-split) Close
+als Zähler rechnet, ist der Return um den Split-Faktor falsch.
+
+**Lösung** (`compute_paper_returns`, Z. 660): Die Baseline für
+`paper_return_pct` wird jetzt **live aus dem aktuellen Preis-Cache**
+abgeleitet — erster Close ≥ `transaction_date` via `_price_at_or_after_fast`
+(Z. 339) — statt aus `post_trade_baseline_price` gelesen. Zähler (jüngster
+Close) und Nenner (`baseline_live`) stammen damit aus demselben Cache-Stand,
+ein rückwirkender Split kürzt sich heraus → split-immun.
+
+**Implementierung „Design A"**: `_apply_paper_returns` (Z. 610) bekam einen
+neuen optionalen Parameter `baseline_override: pd.Series | None = None`
+(gleicher Index wie `df`). Ohne Override (`None`) bleibt das alte Verhalten
+erhalten (Master-Spalte `post_trade_baseline_price` als Baseline) — dadurch
+bleiben bestehende Unit-Tests, die `_apply_paper_returns` direkt ohne Override
+aufrufen, gültig. `compute_paper_returns` baut intern eine `baseline_live`-Series
+(Z. 741, befüllt via `_price_at_or_after_fast`, Z. 747) und reicht sie als
+`baseline_override` durch (Z. 755).
+
+**Was NICHT gehärtet ist**: Die historischen Spalten
+(`post_trade_baseline_price`, `post_return_{30..180}d`, `effective_return_*`)
+bleiben unverändert gespeicherte Pre-Split-Werte — diese Härtung repariert sie
+nicht. Dafür braucht es einen vollen `--stage_post_trade_performance`-Lauf
+(kein `--delta`). Details zum Lauf-Modus-Unterschied:
+`organisation/Preis_Aktualisierung.md`.
+
+---
+
 ## 0. WICHTIG — Veraltete Konzepte (Anti-Stale-Liste)
 
 Diese Begriffe/Symbole tauchen ggf. in alten Chat-Kontexten,
