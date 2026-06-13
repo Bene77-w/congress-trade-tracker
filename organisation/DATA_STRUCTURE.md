@@ -740,12 +740,19 @@ first_close_offset_days,   # float: **NEU (2026-06-04):** Kalendertage vom trans
                            # (egal ob closed_full oder closed_partial). Hilfs-Spalte für Horizont-Sichtbarkeitsfilter im Dashboard.
                            # NaN bei not_applicable / delisted / unknown / held. Beispiel: Kauf 2022-09-01, erstes Verkauf 2023-03-22 → 203 Tage.
 paper_return_pct,          # float: **NEU (2026-06-06):** Mark-to-Market Return gegen den AKTUELLEN jüngsten Close.
-                           # Formel: `(latest_close / post_trade_baseline_price − 1) × 100 × sell_sign`.
+                           # Formel: `(latest_close / baseline_live − 1) × 100 × sell_sign`.
                            # Nur befüllt für Trades im RECENT_MONITORING_WINDOW_DAYS-Fenster (Bezug `transaction_date`).
                            # Außerdem: nur wenn Post-Trade-Baseline existiert (not_applicable/delisted → NaN).
                            # Richtungsbewusst: positive Werte = Gewinn (Kauf) oder gutes Verkaufs-Timing, negative = Verlust/schlechtes Timing.
                            # UNTERSCHIED zu effective_return_pct: `effective` ist realisiert (bis exit_date),
                            # `paper` ist unverwirklicht (bis jüngstes verfügbares Close-Datum). Siehe `price_as_of`.
+                           # **SPLIT-IMMUN (Härtung d1a2cf5, 2026-06-13):** `baseline_live` wird NICHT aus der
+                           # gespeicherten Master-Spalte `post_trade_baseline_price` gelesen, sondern live aus dem
+                           # AKTUELLEN Preis-Cache abgeleitet (erster Close ≥ `transaction_date`, via
+                           # `_price_at_or_after_fast`). Zähler (`latest_close`) und Nenner (`baseline_live`)
+                           # stammen damit aus demselben Cache-Stand — ein rückwirkender Split kürzt sich heraus.
+                           # Details/Mechanik: `organisation/Briefing_stage_post_trade_performance.md`,
+                           # Lauf-Modus-Frage: `organisation/Preis_Aktualisierung.md`.
 price_as_of,               # datetime: **NEU (2026-06-06):** Datum des für `paper_return_pct` verwendeten jüngsten Close.
                            # Macht die Staleness des Mark-to-Market sichtbar. NaT wenn kein Preis verfügbar.
                            # Beispiel: Trade 2023-06-01, jüngstes Close in Cache: 2026-06-05 → `price_as_of=2026-06-05`.
@@ -1332,6 +1339,14 @@ Funktionsgruppen:
   `exit_status ∈ FULLY_CLOSED_STATES = {closed_full, delisted}`), gecappt bei
   180 Tagen; offene Positionen laufen bis zum Cap. **Bewusste Divergenz** zur
   Horizont-Attribution oben (andere Endpunkt-Logik, gleiche Datenbasis).
+  **SPLIT-IMMUN (Härtung c10c5ec, 2026-06-13):** Die Baseline jeder
+  Trajektorie wird live aus dem Preis-Cache abgeleitet — erster Cache-Close
+  pro Trade via `merged.groupby('trade_id')['close'].transform('first')`
+  — NICHT mehr aus der Master-Spalte `post_trade_baseline_price`. Jede
+  Trajektorie startet damit bei 0 % (r0 ≡ 0) und ist split-immun (Zähler
+  und Nenner stammen aus demselben Cache-Stand). Die Master-Spalte
+  `post_trade_baseline_price` wird nur noch als Applicability-Filter
+  genutzt (vorhanden & > 0), nicht mehr als Nenner.
 - **Sektoren**: `parse_insider_sectors`, `member_oversight_sectors`,
   `committee_full_mask`, `sector_concentration`. Aufsichts-Sektoren stammen aus
   der Member-konstanten Spalte `Insider_Sectors`; die „committee_full"-Gruppe
@@ -1365,6 +1380,14 @@ Inhalt:
 - **Bidirektionales Highlight** zwischen Trade-Liste und Spaghetti-Plot
   (`on_select`-Callbacks via `resolve_highlight_from_selection`,
   most-recent-wins).
+- **Terminal-Return-Fallback in der Spaghetti-Liste** (`_render_spaghetti_section`,
+  2026-06-13): Ist `post_return_180d` für einen Trade NaN (junge, noch offene
+  Position ohne 180d-Horizont), fällt die Liste auf den letzten verfügbaren
+  Trajektorien-Punkt zurück (= aktueller Mark-to-Market-Paper-Return,
+  konsistent zur gezeichneten Linie) statt einen leeren Wert anzuzeigen.
+- **Caption** zu den Spaghetti-Charts erklärt die Linien-Endpunkt-Semantik:
+  Linien laufen vom Transaktionstag bis zum Voll-Close, höchstens aber bis
+  zum letzten verfügbaren Kurstag — junge Trades enden daher vor Tag 180.
 - Timeline (Z1+Z2): Scatter über Transaktionsdatum, ★ markiert
   Vote-Timing-Treffer, Farbe kodiert Kauf/Verkauf.
 - Red-Flag-Ampel (`red_flag_summary`).

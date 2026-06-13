@@ -320,6 +320,27 @@ def test_compute_member_trajectories_line_ends_at_full_close():
     assert traj[0]['days'] == [0, 14]
 
 
+def test_compute_member_trajectories_baseline_split_immune():
+    """Split-Mismatch: Master-Baseline ist 10x des Cache-Kurses (Cache wurde
+    rueckwirkend 10:1 split-adjustiert, Master nicht). Da der Return live gegen
+    den ersten Cache-Close gerechnet wird (nicht gegen die Master-Baseline),
+    startet die Trajektorie trotzdem bei ~0 % (nicht bei -90 %)."""
+    cache = _synthetic_cache()                 # AAA: erster Close 100.0
+    df_member = pd.DataFrame([
+        {'trade_id': 's1', 'ticker': 'AAA', 'asset_name': 'Alpha',
+         'transaction_type': 'Purchase',
+         'post_trade_baseline_price': 1000.0,   # 10x Cache (Split-Mismatch)
+         'transaction_date': pd.Timestamp('2020-01-01'),
+         'exit_status': 'held', 'exit_date': pd.NaT,
+         'post_return_180d': -10.0},
+    ])
+    traj = compute_member_trajectories(df_member, cache, H)
+    assert len(traj) == 1
+    # Erster Punkt ~0 % (split-immun), NICHT -90 %. Cache AAA: 100->110->90.
+    assert traj[0]['returns'][0] == pytest.approx(0.0)
+    assert traj[0]['returns'] == pytest.approx([0.0, 10.0, -10.0])
+
+
 def test_compute_member_trajectories_skips_missing_data():
     cache = _synthetic_cache()
     df_member = pd.DataFrame([
