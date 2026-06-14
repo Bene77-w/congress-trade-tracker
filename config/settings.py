@@ -384,6 +384,44 @@ OPENFIGI_REQUEST_PAUSE_WITHOUT_KEY = OPENFIGI_MAPPING_PAUSE_WITHOUT_KEY
 OPENFIGI_RATE_LIMIT_BACKOFF_BASE = 2.0   # 429-Backoff Basis (2^n Sek.)
 OPENFIGI_RATE_LIMIT_BACKOFF_MAX = 90.0   # 429-Backoff Cap (Sek.) — war 60
 
+# Einheitliches Netzwerk-Retry-Schema (utils/network_retry.py)
+# Abklingzeiten (Sekunden) ZWISCHEN den Versuchen bei transienten Netzwerk-
+# fehlern (Timeout, ConnectionError, DNS, HTTP 5xx/429) oder leeren Antworten.
+# 7 Backoffs = 8 Versuche, ~254s Gesamt-Wartezeit pro Operation. Bewusst KEINE
+# Max-Gesamtzeit — die Einzelzeiten geben das Budget vor. Permanente Fehler
+# (HTTP 4xx ausser 429, Parse/Schema) werden NICHT wiederholt -> sofort fail-closed.
+# Greift in: ticker_sector (yfinance .info), post_trade_returns (yfinance
+# download), issuer_group_mapper (SEC EDGAR), ticker_normalizer (OpenFIGI:
+# ergaenzt Timeout/ConnErr; der 429-Pfad behaelt seinen eigenen Backoff).
+NETWORK_RETRY_BACKOFFS = [2, 4, 8, 16, 32, 64, 128]
+NETWORK_RETRY_ENABLED = True   # False: nur 1 Versuch (kein Retry) — fuer Tests/Debug
+
+# post_trade_returns: Healthy-Network-Heuristik. Ein leeres yf.download()-
+# Ergebnis ist nicht von einem echten Delisting unterscheidbar. Solange in
+# diesem Lauf bereits ein echter Download gelang UND weniger als N Fehler in
+# Folge auftraten, gilt das Netz als gesund -> leeres Ergebnis = echtes
+# Delisting (Marker). Sonst = netzbedingt -> Retry, bei Erschoepfung ueber-
+# springen (kein falscher exit_status='delisted').
+# LEGACY (R1-R6): durch den Netzwerk-Canary (s.u.) abgeloest; bleibt fuer
+# Backcompat/Doku, wird aber nicht mehr aktiv ausgewertet.
+POST_TRADE_NETWORK_HEALTHY_TOLERANCE = 3
+
+# =============================================================================
+# NETZWERK-CANARY (utils/network_canary.py)
+# =============================================================================
+# Ein leeres yfinance-Ergebnis ist NICHT von einem echten Delisting unterscheidbar
+# (HTTP 200, keine Exception). Statt das aus dem mehrdeutigen Ergebnis selbst zu
+# raten (zirkulaere Heuristik, s. LEGACY oben), probt der Canary garantiert-live
+# Ticker als UNABHAENGIGES Out-of-Band-Signal: schlagen >= CANARY_MIN_POSITIVE der
+# CANARY_TICKERS an, gilt das Netz als GRUEN -> ein leeres Ergebnis ist ein echtes
+# Delisting; sonst ROT -> kein Marker, Fenster verwerfen, warten (fail-closed bei
+# erschoepftem Budget). Greift in post_trade_returns + ticker_sector.
+CANARY_TICKERS = ["SPY", "AAPL", "MSFT"]
+CANARY_MIN_POSITIVE = 2           # Quorum: so viele Basket-Ticker muessen positiv sein
+CANARY_VERDICT_TTL_SECONDS = 60   # Verdikt-Cache UND Fensterlaenge (s)
+CANARY_PROBE_BACKOFFS = [2, 4, 8]  # kurzes Eigen-Retry-Budget je Canary-Probe (s)
+CANARY_MAX_RED_ROUNDS = 30        # max. ROT/Throttle-Runden (~60s) vor fail-closed-Abbruch
+
 # =============================================================================
 # TRADE-ID (utils/trade_id.py)
 # WARNUNG: Aenderung von TRADE_ID_HASH_LENGTH bricht ALLE bestehenden trade_ids
@@ -542,6 +580,10 @@ POST_TRADE_EXIT_AMOUNT_TOLERANCE = 0.0
 # Verhindert Komplettverlust beim Erstlauf (~3000 Ticker, 1-2h) falls
 # yfinance/Netzwerk-Exception durchschlaegt.
 POST_TRADE_CACHE_FLUSH_EVERY = 50
+# last_checked-TTL fuer Delisted-Marker: ein als delisted markierter Ticker (Row
+# mit close=NaN, date=Pruefdatum) wird erst nach N Tagen erneut gefetcht — nicht
+# jeden Lauf. Re-Check heilt Alt-/Falsch-Marker, Re-Listings und Symbol-Reuse.
+POST_TRADE_DELISTED_RECHECK_DAYS = 30
 # Progress-Intervall fuer Baseline-/Horizont-/Exit-Phasen: Fortschrittszeile
 # alle N verarbeiteten Trades (zusaetzlich zu jedem 10%-Schritt). Reines
 # Logging — kein Einfluss auf Ergebnisse.
