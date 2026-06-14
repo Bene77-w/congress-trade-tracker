@@ -472,14 +472,28 @@ MSFT      2025-01-02    421.10
           2025-01-03    423.35
 ```
 
-**Marker-Konvention fuer delistete Ticker**:
+**Marker-Konvention fuer delistete Ticker** (Schema seit 2026-06-14, Netz-Robustheit-Haertung):
 ```
 ticker    date
-DELISTED  1900-01-01    NaN
+AAPL      2026-06-14    NaN
 ```
-Ein Eintrag mit `date='1900-01-01'` und `close=NaN` signalisiert, dass yfinance fuer diesen Ticker keine Historie liefert (delisted oder unbekannt). Verhindert wiederholte API-Calls.
+Ein Eintrag mit `close=NaN` signalisiert, dass yfinance fuer diesen Ticker keine Historie liefert
+(delisted oder unbekannt). `date` = `last_checked_date` (Tag des letzten Checks, nicht mehr fix
+`1900-01-01`). Erkennung erfolgt ueber **NaN-close** (nicht mehr ueber `date==1900-01-01`).
+Verhindert wiederholte API-Calls, solange `last_checked_date` innerhalb
+`POST_TRADE_DELISTED_RECHECK_DAYS` (30 Tage, `config/settings.py`) liegt. Alte Marker mit
+`date='1900-01-01'` werden automatisch migriert (NaN-close wird weiterhin erkannt; `date < cutoff`
+fuehrt zu einmaligem Re-Check). Sobald echte Kurse fuer den Ticker eintreffen, wird der NaN-Marker
+physisch geprunt; je Ticker wird zudem nur der juengste NaN-Marker behalten (Marker-Kollaps).
+Details/Begruendung: `organisation/Briefing_stage_post_trade_performance.md`.
 
 **Verwendung**: Wird von Stage `post_trade_returns` (Pipeline Stage 9) gelesen/geschrieben. Alle yfinance-basierten Preisdaten (5 Jahre Daily Close via `POST_TRADE_PRICE_FETCH_YEARS`). Wird geladen bevor neue Ticker abgefragt werden (Cache-Hit-Erkennung); neue Daten werden appendiert und in einem Rutsch atomar gespeichert. **Incremental-Save**: alle 100 Ticker wird der Cache zwischenpersistiert (Crash-Schutz fuer 1-2h Erstabruf).
+
+**Netz-Robustheit (seit 2026-06-14)**: Schreibvorgaenge in diesen Cache durchlaufen die
+Variante-B-Fenster-State-Machine (`scoring/post_trade_returns.py`), abgesichert durch
+`utils/network_canary.py` (NetworkCanary-Verdikt) + `utils/network_retry.py` (zentraler
+Retry/Backoff). Details: `organisation/Briefing_stage_post_trade_performance.md`,
+Modul-Uebersicht: `organisation/Pipelines.md` (Foundation- & Network-Module).
 
 ---
 
@@ -1122,6 +1136,12 @@ Nancy Pelosi,30,house,Nancy Mace,63
 **Auto-Purge**: Sobald ein Ticker im positiven `data/mappings/ticker_industry_cache.json` auftaucht, wird er beim nächsten Run entfernt (kein API-Call).
 
 **Stage-Datei**: `data/processed/delisted_trades_stage.csv` (Zwischenpuffer, wird nach Promotion gelöscht).
+
+**Schreibbedingung (seit 2026-06-14)**: Vor dem Schreiben des Stage-Files erzwingt
+`utils/ticker_sector.py::_write_delisted_stage` eine **frische** `NetworkCanary.force_reprobe()` —
+ist das Netz zu diesem Zeitpunkt ROT, wird die Datei **nicht** geschrieben (naechster Lauf erzeugt
+sie neu). Verhindert, dass ein stale-GRUENes Verdikt zu Ausfall-Beginn falsche Delisted-Eintraege
+verewigt. Details: `organisation/Briefing_stage_post_trade_performance.md`.
 
 **Spalten**:
 ```csv

@@ -78,6 +78,11 @@ Der „delta-unabhängig"-Vertrag steht explizit im Docstring von `compute_paper
 |---|---|---|
 | `compute_post_trade_returns` | Ticker refetchen, wenn jüngster Close älter als `POST_TRADE_PRICE_CACHE_TTL_DAYS = 7` Tage | historische Horizonte brauchen keine Tagesaktualität |
 | `compute_paper_returns` | Ticker refetchen, wenn jüngster Close älter als letzter Handelstag (`heute − BDay(RECENT_PRICE_MAX_AGE_BUSINESS_DAYS=1)`) | Mark-to-Market braucht den aktuellen Kurs |
+| **delistete Ticker** (NaN-Marker, seit 2026-06-14) | Re-Check nur, wenn `last_checked_date` älter als `POST_TRADE_DELISTED_RECHECK_DAYS = 30` Tage | verhindert wiederholte yfinance-Calls für tote Ticker, ohne sie dauerhaft auszuschließen |
+
+Echte Kurse folgen weiterhin der Preis-TTL (Zeile 1/2); nur die Re-Check-Frequenz
+**delisteter** Ticker ist von der separaten `last_checked`-TTL gesteuert. Details
+zum NetworkCanary-gestützten Marker-Schema: `organisation/Briefing_stage_post_trade_performance.md`.
 
 > **Wichtig:** Refresht werden in einem Lauf nur die **Ticker, die der Lauf gerade berührt** — im
 > Normal-Lauf alle applicable Ticker, im `--delta`-Lauf die Ticker aus *History ∪ Delta* (Historie
