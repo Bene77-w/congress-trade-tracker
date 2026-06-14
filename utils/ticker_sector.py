@@ -24,6 +24,8 @@ from typing import Callable, Optional
 import yfinance as yf
 
 from config import settings
+from utils.network_canary import RED, NetworkCanary
+from utils.network_retry import NetworkRetryExhausted, retry_call
 from utils.ticker_classifier import TickerType
 from utils.ticker_normalizer import NormalizedTicker
 from utils.ticker_routing import SECTOR_LOOKUP_TYPES
@@ -33,6 +35,9 @@ logger = logging.getLogger(__name__)
 
 
 # Identische Pattern-Liste wie in ticker_normalizer (bewusst dupliziert, Pitch §16).
+# Hinweis: Die Netzwerkfehler-Klassifikation laeuft jetzt zentral ueber
+# utils/network_retry.is_transient_exception (typ-basiert, breiter). Diese Liste
+# bleibt nur fuer Rueckwaertskompatibilitaet von _is_network_error stehen.
 _NETWORK_ERROR_PATTERNS = (
     "Could not resolve host",
     "TLS connect error",
@@ -41,6 +46,32 @@ _NETWORK_ERROR_PATTERNS = (
     "Connection timed out",
     "Network is unreachable",
 )
+
+
+def _info_has_identity(info: object) -> bool:
+    """True, wenn ein yfinance-``.info``-Dict mindestens ein Identitaets-Feld traegt.
+
+    Ein real existierender (auch delisteter) Ticker liefert i.d.R. zumindest
+    ``quoteType``/``symbol``/``shortName``. Ein durch einen Netzwerkfehler leeres
+    ``{}`` traegt nichts davon — es wird als verdaechtig-leer (retrybar) gewertet,
+    damit ein Netzwerkfehler nicht als delisted/null in den Null-Cache gelangt
+    (R1/R2). Ein Dict MIT Identitaet aber ohne ``sector`` ist dagegen ein echtes
+    "kein Sektor"-Ergebnis und wird akzeptiert.
+    """
+    if not isinstance(info, dict) or not info:
+        return False
+    return any(
+        info.get(k)
+        for k in ("sector", "industry", "quoteType", "symbol", "shortName", "longName")
+    )
+
+
+def _default_sector_probe(tkr: str) -> bool:
+    """Canary-Probe fuer ticker_sector: ``.info`` eines garantiert-live Tickers
+    traegt Identitaet -> True. Wirft bei Netzfehlern (Canary-Retry)."""
+    t = yf.Ticker(tkr)
+    info = getattr(t, "info", None) or {}
+    return _info_has_identity(info)
 
 
 @dataclass(frozen=True)
@@ -72,6 +103,7 @@ class TickerSectorEnricher:
         confirm_callback: Optional[Callable[[int], bool]] = None,
         cache_ttl_days: Optional[int] = None,
         auto_confirm: bool = settings.TICKER_LOOKUP_AUTO_CONFIRM,
+        canary: Optional[NetworkCanary] = None,
     ):
         self.cache_dir = cache_dir
         self.positive_cache_path = os.path.join(
@@ -98,11 +130,16 @@ class TickerSectorEnricher:
             else getattr(settings, "TICKER_SECTOR_CACHE_TTL_DAYS", 30)
         )
 
+        # Netzwerk-Canary (Out-of-Band-Gesundheitssignal). Lazy gebaut, in Tests
+        # injizierbar -> verdraengt die zirkulaere _network_healthy-Heuristik.
+        self._canary = canary
+
         # State
         self._positive_cache: dict[str, dict] = {}
         self._null_cache: set[str] = set()
         self._lookups_since_checkpoint = 0
         self._consecutive_network_errors = 0
+        self._successful_lookups = 0  # echte Sektor-Treffer (Healthy-Network-Signal)
         self._retry_queue: list[NormalizedTicker] = []
         self._delisted_records: list[dict] = []
         self._loaded = False
@@ -139,6 +176,7 @@ class TickerSectorEnricher:
 
         self._ensure_loaded()
         self._consecutive_network_errors = 0
+        self._successful_lookups = 0
 
         # 1. Vorab klassifizieren — was muss überhaupt gefetcht werden?
         targets: list[tuple[int, NormalizedTicker, Optional[str]]] = []
@@ -290,7 +328,7 @@ class TickerSectorEnricher:
         for i, ticker in enumerate(misses):
             info, error_kind = self._fetch_yf_info(ticker)
 
-            if error_kind == "network":
+            if error_kind in ("network", "network_exhausted"):
                 net_errors += 1
                 if ticker not in {n.classification.raw_ticker for n in self._retry_queue}:
                     self._retry_queue.append(self._fake_normalized_for_retry(ticker))
@@ -322,29 +360,80 @@ class TickerSectorEnricher:
               f"{net_errors} Netz-Fehler")
 
     def _fetch_yf_info(self, ticker: str) -> tuple[Optional[dict], Optional[str]]:
-        try:
+        """Holt yfinance-``.info`` mit Standard-Retry/Backoff (network_retry).
+
+        Ein leeres/identitaetsloses ``.info`` — der typische Netzfehler-Fall, bei
+        dem yfinance KEINE Exception wirft — wird wie ein transienter Fehler
+        behandelt und wiederholt. So kann ein Netzwerkfehler nicht als
+        delisted/null in den Null-Cache geschrieben werden (R1/R2).
+
+        Rueckgabe-error_kind:
+        - ``None``: Erfolg (echtes Ergebnis, ggf. ohne Sektor).
+        - ``"network_exhausted"``: Budget erschoepft -> Aufrufer cached NICHT.
+        - ``"other"``: permanenter/nicht-transienter Fehler.
+        """
+        def _fetch() -> dict:
             t = yf.Ticker(ticker)
-            info = getattr(t, "info", None) or {}
-        except Exception as exc:
-            err_str = str(exc)
-            if self._is_network_error(err_str):
-                aborted = not self._handle_network_error(err_str)
-                if aborted:
-                    raise RuntimeError(
-                        f"yfinance: {self._consecutive_network_errors} consecutive "
-                        f"network errors → Stage-Abbruch"
-                    )
-                return None, "network"
+            return getattr(t, "info", None) or {}
+
+        try:
+            info = retry_call(
+                _fetch,
+                is_empty=self._info_empty_suspicious,
+                label=f"yfinance.info[{ticker}]",
+            )
+        except NetworkRetryExhausted:
+            # Operation endgueltig gescheitert (Netz/leer): den aeusseren
+            # Consecutive-Counter EINMAL fuehren (nicht pro Einzelversuch);
+            # bei Dauerausfall Stage-Abbruch (fail-closed).
+            aborted = not self._handle_network_error(f"retry erschoepft ({ticker})")
+            if aborted:
+                raise RuntimeError(
+                    f"yfinance: {self._consecutive_network_errors} consecutive "
+                    f"network errors → Stage-Abbruch"
+                )
+            return None, "network_exhausted"
+        except Exception as exc:  # noqa: BLE001 — permanent/nicht-transient
             logger.debug(f"yfinance Exception fuer {ticker}: {exc}")
             return None, "other"
 
-        # Erfolg → Counter resetten.
+        # Erfolg (nicht-leer ODER echt-leer-mit-Identitaet) → Counter resetten.
         self._consecutive_network_errors = 0
         sector = info.get("sector") if isinstance(info, dict) else None
         if not sector:
+            # Leer trotz gesundem Netz (oder mit Identitaet ohne Sektor) =
+            # echtes delisted/unbekannt -> legitimer Null-Cache-Eintrag.
             print(f"      [i] {ticker}: kein Sektor (delisted/unbekannt)")
             return info if isinstance(info, dict) else {}, None
+        self._successful_lookups += 1  # echter Sektor-Treffer -> Netz ist gesund
         return info, None
+
+    def _get_canary(self) -> NetworkCanary:
+        """Lazy-Builder fuer den Netzwerk-Canary (Default-Probe = ``.info``-
+        Identitaet der Basket). In Tests via ``__init__(canary=…)`` injizierbar."""
+        if self._canary is None:
+            self._canary = NetworkCanary(_default_sector_probe)
+        return self._canary
+
+    def _info_empty_suspicious(self, info) -> bool:
+        """``is_empty``-Callback fuer retry_call: leeres .info als Netzfehler?
+
+        Ein leeres/identitaetsloses ``.info`` ist nicht von echtem Delisting zu
+        unterscheiden. Statt das aus dem mehrdeutigen Ergebnis zu raten (zirkulaere
+        ``_network_healthy``-Heuristik, abgeloest), entscheidet der **Canary**
+        (Out-of-Band): ROT -> transient (-> Retry); GRUEN -> echtes Delisting/
+        „kein Sektor" (akzeptiert, kein Retry).
+        """
+        if _info_has_identity(info):
+            return False
+        return self._get_canary().verdict() == RED
+
+    def _network_healthy(self) -> bool:
+        """LEGACY (durch den Canary abgeloest, nicht mehr aufgerufen): Netz galt
+        als gesund, sobald ein echter Sektor-Lookup gelang UND kein Fehler-Streak
+        lief. Bleibt fuer Backcompat/Doku stehen."""
+        return (self._successful_lookups > 0
+                and self._consecutive_network_errors < self.net_error_pause_threshold)
 
     def _run_retry_round(self) -> None:
         retries = list({n.classification.raw_ticker for n in self._retry_queue})
@@ -361,7 +450,7 @@ class TickerSectorEnricher:
         try:
             for ticker in retries:
                 info, error_kind = self._fetch_yf_info(ticker)
-                if error_kind == "network":
+                if error_kind in ("network", "network_exhausted"):
                     fail += 1
                     continue
                 if info is None or not info.get("sector"):
@@ -397,7 +486,7 @@ class TickerSectorEnricher:
         return NormalizedTicker(
             classification=cls, figi=None, ticker_figi=None,
             asset_name_figi=None, security_type_figi=None, market_sector_figi=None,
-            normalization_errors=[],
+            share_class_figi=None, normalization_errors=[],
         )
 
     # ------------------------------------------------------------------
@@ -485,6 +574,24 @@ class TickerSectorEnricher:
     def _write_delisted_stage(self) -> None:
         if not self._delisted_records or not self.delisted_output_path:
             return
+
+        # Rest-Risiko-Mitigation (stale-GRUEN): Der persistente Delisted-Report
+        # ist die einzige DAUERHAFTE „delisted"-Aussage dieser Stage. Das
+        # gecachte Canary-Verdikt, das beim Sammeln (_info_empty_suspicious)
+        # gilt, kann zu Ausfall-Beginn bis zu TTL-Sekunden alt (noch GRUEN) sein
+        # — dann landen netzbedingt leere .info faelschlich als „kein Sektor" im
+        # Null-Cache. Bevor wir das verewigen, erzwingen wir eine FRISCHE
+        # force_reprobe()-Probe: Ist das Netz JETZT ROT, sind die gesammelten
+        # Treffer nicht vertrauenswuerdig -> Report NICHT schreiben (wird
+        # naechsten Lauf neu erzeugt). Der in-memory Null-Cache bleibt bewusst
+        # auf dem gecachten Verdikt (erholbar, TTL-begrenzt) — proportional zum
+        # Datenpfad (keine volle Fenster-Maschinerie wie in post_trade).
+        if self._get_canary().force_reprobe() == RED:
+            print(f"      [!] Delisted-Report NICHT geschrieben: Netz-Canary ROT "
+                  f"bei Batch-Ende — {len(self._delisted_records)} „kein Sektor\"-"
+                  f"Treffer als netzbedingt verworfen (kein falsches Delisting).")
+            return
+
         os.makedirs(os.path.dirname(self.delisted_output_path) or ".", exist_ok=True)
         try:
             with open(self.delisted_output_path, "w", encoding="utf-8", newline="") as f:

@@ -429,6 +429,12 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
     → utils/ticker_sector.TickerSectorEnricher.enrich_batch()
     → Neue Spalten (Suffix _yf): sector_yf, industry_yf, quote_type_yf
     → Preferred-Auto-Resolution via parent_ticker (EP$C → parent_ticker='EP' → yfinance(EP))
+    → Netz-Robustheit (2026-06-14): leeres yfinance-`.info` ohne Identitaet wird via
+      utils/network_canary.py (NetworkCanary-Verdikt) disambiguiert — ROT ⇒ transient
+      (Retry), GRUEN ⇒ echtes Delisting. Ersetzt die zirkulaere `_network_healthy`-
+      Heuristik (jetzt LEGACY). Vor dem Schreiben von delisted_trades_stage.csv wird
+      eine frische force_reprobe() erzwungen (ROT ⇒ Datei wird nicht geschrieben).
+      Details: organisation/Briefing_stage_post_trade_performance.md
          ↓
 [8] Post-Trade Performance (Stage post_trade_performance, **2026-06-04: Exit-Entkopplung; 2026-06-06: Paper Returns**)
     
@@ -452,6 +458,17 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
     → Preisdaten von yfinance, gecached in data/cache/price_history.parquet
       (MultiIndex [ticker, date], Spalte close, TTL 7 Tage)
     → Kanonische Richtungserkennung via _direction_from_transaction_type (handling Sale/Sale (Full)/Sale (Partial)/SALE)
+    → **Netz-Robustheit-Haertung (2026-06-14):** Variante-B-Fenster-State-Machine — das
+      ganze Preis-Fenster ist vorlaeufig, nichts wird vor einem GRUEN-Verdikt
+      (utils/network_canary.py) in den Cache geflusht. ROT/Throttle (inkl. HTTP 429)
+      → gesamtes Fenster verworfen + ab Fenster-Beginn im selben Lauf neu verarbeitet
+      (rueckwirkende Invalidierung). Fail-closed nach CANARY_MAX_RED_ROUNDS (30) ROT-
+      Runden → RuntimeError, keine degradierten Daten geschrieben.
+      Delisted-Marker-Schema geaendert: (ticker, last_checked_date=heute, close=NaN)
+      statt (ticker, 1900-01-01, NaN); Erkennung ueber NaN-close. last_checked-TTL
+      POST_TRADE_DELISTED_RECHECK_DAYS (30 Tage) steuert Re-Check-Frequenz delisteter
+      Ticker. exit_status='delisted' wird jetzt aus dem Preis-Lookup abgeleitet (None
+      ⇒ delisted). Details: organisation/Briefing_stage_post_trade_performance.md
     
     **Sub-Phase B: Paper Returns (Mark-to-Market für offene/frische Positionen, DELTA-UNABHÄNGIG)**
     → scoring/post_trade_returns.compute_paper_returns(df, cache_path, recent_window_days, max_price_age_bdays)
@@ -734,6 +751,8 @@ Nur ausfuehren wenn xlsx-Dateien geaendert wurden.
 | `utils/ticker_sector.py` | yfinance-Wrapper, liefert `SectorInfo` | 6 |
 | `utils/signal_event_id.py` | Hash-basierte Signal-Event-ID (SHA256[:16]) für Signal-Auslösungen (gruppiert Trades bei Schwärmen) — Konvention siehe `organisation/tool_specific_md/signal_info.md` | 14 |
 | `utils/issuer_ticker.py` | `resolve_issuer_ticker(row)` — Cross-Share-Class-Aufloesung mit Fallback-Kette `share_class_figi → ticker_base → ticker`. share_class_figi (OpenFIGI shareClassFIGI) ist der Erstkandidat, faellt bei Miss zurueck auf ticker_base, dann ticker. Aufrufer (alle Signal-Module + sequence-stage Grouping) erhalten garantiert nicht-leeren Identifier solange mindestens eine der drei Quellen gesetzt ist. | 17 |
+| `utils/network_canary.py` (NEU 2026-06-14) | Out-of-Band-Verdikt-Orakel fuer Netzwerk-Gesundheit: probt garantiert-live Ticker (CANARY_TICKERS) unabhaengig vom eigentlich abgefragten Ticker. `verdict()` (TTL-gecacht 60s), `force_reprobe()`, `wait_then_reprobe()`. Konsumiert von `scoring/post_trade_returns.py` + `utils/ticker_sector.py`. Details: `organisation/Briefing_stage_post_trade_performance.md` | (in `test_network_canary.py`) |
+| `utils/network_retry.py` (NEU 2026-06-14) | Zentraler `retry_call`-Helfer (R1-R6): typ-basierte transient-Klassifikation (`is_transient_exception`), Backoff via `NETWORK_RETRY_BACKOFFS`, `NetworkRetryExhausted`, optionaler `is_empty`-Callback + `on_attempt_failed`-Hook. Genutzt von `utils/ticker_normalizer.py` + `utils/issuer_group_mapper.py` (ersetzt eigene Pattern-Listen). | (in `test_network_retry.py`) |
 | `signals/committee_signal.py` | Branch-1 Per-Trade-Signal: triggert bei `len(Relevant_Sectors) > 0` | 8 (in `test_branch1_signals.py`) |
 | `signals/committee_full_signal.py` | Branch-1 Per-Trade-Signal: triggert wenn mind. 1 Eintrag in `Relevant_Sectors` hat `match_type='full'` | (in `test_branch1_signals.py`) |
 | `signals/committee_ex_officio_signal.py` | Branch-1 Per-Trade-Signal: triggert wenn CommitteeSignal + `Member_ExOfficio` | 4 |
