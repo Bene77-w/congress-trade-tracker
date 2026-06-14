@@ -22,12 +22,16 @@ import os
 import re
 import sys
 import time
-from typing import Iterable
+from collections import deque
+from typing import Callable, Iterable
 
 import numpy as np
 import pandas as pd
 import yfinance as yf
 
+from config import settings
+from utils.network_canary import GREEN, RED, NetworkCanary
+from utils.network_retry import NetworkRetryExhausted, retry_call
 from utils.ticker_routing import POST_TRADE_PRICE_TYPES
 
 logger = logging.getLogger(__name__)
@@ -119,6 +123,72 @@ def _yf_close_series(hist: pd.DataFrame) -> pd.Series | None:
     return series.dropna()
 
 
+def _net_attempt_printer(label: str) -> Callable[[int, str], None]:
+    """Baut einen ``on_attempt_failed``-Hook, der JEDEN Timeout/Netzfehler sofort
+    im Terminal sichtbar macht (Hausstil ``[NETZ] …``, kein Emoji, ``flush``).
+
+    Der Hook feuert pro Fehlversuch (s. ``network_retry.retry_call``); die
+    naechste Backoff-Wartezeit wird aus ``settings.NETWORK_RETRY_BACKOFFS``
+    abgeleitet, damit die Pause sichtbar ist.
+    """
+    backoffs = getattr(settings, 'NETWORK_RETRY_BACKOFFS', [])
+
+    def _hook(attempt: int, reason: str) -> None:
+        nxt = backoffs[attempt] if attempt < len(backoffs) else None
+        tail = (f"naechster Versuch in {nxt}s" if nxt is not None
+                else "Budget erschoepft")
+        print(f"  [NETZ] {label}: Versuch {attempt + 1} fehlgeschlagen "
+              f"({reason}) -> {tail}.", flush=True)
+
+    return _hook
+
+
+def _download_with_retry(tkr: str, fetch_years: int,
+                         on_attempt_failed: Callable[[int, str], None] | None = None):
+    """yf.download mit Standard-Retry/Backoff (network_retry).
+
+    NUR transiente **Exceptions** (Timeout, ConnectionError, 5xx/429) werden im
+    Backoff wiederholt. Ein LEERES Ergebnis wird **sofort unveraendert**
+    zurueckgegeben — die Entscheidung „echtes Delisting vs. netzbedingt leer"
+    trifft NICHT mehr diese Funktion (zirkulaere Heuristik entfaellt), sondern
+    der Aufrufer per :class:`~utils.network_canary.NetworkCanary`.
+
+    ``on_attempt_failed`` macht jeden transienten Fehlversuch im Terminal
+    sichtbar (Default: :func:`_net_attempt_printer`).
+
+    Returns:
+        Das (ggf. leere) yfinance-Resultat.
+
+    Raises:
+        NetworkRetryExhausted: netzbedingt kein Ergebnis im Backoff-Budget.
+    """
+    if on_attempt_failed is None:
+        on_attempt_failed = _net_attempt_printer(f"yf.download[{tkr}]")
+
+    def _download():
+        return yf.download(
+            tkr,
+            period=f'{fetch_years}y',
+            auto_adjust=True,
+            progress=False,
+            threads=False,
+        )
+
+    return retry_call(_download, label=f"yf.download[{tkr}]",
+                      on_attempt_failed=on_attempt_failed)
+
+
+def _default_post_trade_probe(tkr: str) -> bool:
+    """Canary-Probe fuer post_trade: leichter 5-Tage-Download, True bei Daten.
+
+    Wirft bei Netzfehlern (wird vom Canary via ``retry_call`` mit kurzem
+    Backoff wiederholt); ein leeres Ergebnis = False (negativ).
+    """
+    hist = yf.download(tkr, period='5d', auto_adjust=True,
+                       progress=False, threads=False)
+    return _yf_close_series(hist) is not None
+
+
 def _ensure_cache_for_tickers(
     cache: pd.DataFrame,
     tickers: Iterable[str],
@@ -127,27 +197,49 @@ def _ensure_cache_for_tickers(
     cache_path: str | None = None,
     flush_every: int = 50,
     cutoff_date: pd.Timestamp | None = None,
+    delisted_recheck_days: int | None = None,
+    canary: NetworkCanary | None = None,
+    time_fn: Callable[[], float] | None = None,
+    verbose_timeouts: bool = True,
 ) -> pd.DataFrame:
-    """Stellt sicher dass alle Ticker frisch im Cache sind.
+    """Stellt sicher dass alle Ticker frisch im Cache sind — netz-robust per Canary.
 
-    Refresh-Kriterium: max(date) pro Ticker < cutoff.
-    Standard-Cutoff: ``today - cache_ttl_days`` (Kalendertage). Wird
-    ``cutoff_date`` gesetzt, ueberschreibt es den Kalender-TTL — z.B. fuer die
-    Recent-Monitoring-Frische, die "letzter abgeschlossener Handelstag" (BDay)
-    statt fixer Kalendertage verlangt.
-    Leere History -> Marker-Row (1900-01-01, NaN) = delisted.
-    Inkrementelles Flushing: alle ``flush_every`` Ticker wird der Cache
-    atomar nach ``cache_path`` geschrieben (falls Pfad gesetzt).
+    Refresh-Auswahl (Phase 0):
+    - Ticker mit echten Preisen: Refresh wenn ``max(real date) < cutoff``
+      (``cutoff_date`` oder ``today - cache_ttl_days``).
+    - **Delisted** (Ticker mit ausschliesslich ``close=NaN``-Markern): Refresh erst,
+      wenn der Marker (last_checked) aelter als ``delisted_recheck_days`` ist
+      (last_checked-TTL). Alt-Marker (1900-01-01) sind immer faellig (Heilung).
+
+    Netz-Robustheit (Variante B, s. ``~/.claude/plans/network-robustness-canary.md``):
+    - yfinance-Exceptions (Timeouts) werden im Backoff wiederholt UND sichtbar
+      (``[NETZ] …``-Zeile pro Fehlversuch).
+    - Ein **stilles Leer**-Ergebnis fragt den :class:`NetworkCanary`: GRUEN ->
+      vorlaeufiger Delisted-Marker (``close=NaN``, ``date`` = Pruefdatum);
+      ROT/Throttle -> kein Marker.
+    - **Fenster** = Ticker seit dem letzten GRUEN-Verdikt. Erst ein frisches
+      GRUEN-Verdikt (alle ``ttl`` s ODER am Lauf-Ende) committet/flusht das
+      Fenster. Bei ROT/Throttle wird das GANZE Fenster verworfen und ab
+      Fenster-Beginn neu verarbeitet (rueckwirkende Invalidierung).
+    - Erholt sich das Netz nach ``CANARY_MAX_RED_ROUNDS`` Runden nicht ->
+      ``RuntimeError`` (fail-closed; KEINE degradierten Daten geschrieben).
+
+    ``canary`` / ``time_fn`` sind injizierbar (Tests). ``flush_every`` bleibt aus
+    Kompatibilitaet erhalten, steuert aber nicht mehr den Commit (Fenster tut das).
     """
     today = pd.Timestamp.now().normalize()
     if cutoff_date is not None:
         cutoff = pd.Timestamp(cutoff_date).normalize()
     else:
         cutoff = today - pd.Timedelta(days=cache_ttl_days)
+    if delisted_recheck_days is None:
+        delisted_recheck_days = getattr(
+            settings, 'POST_TRADE_DELISTED_RECHECK_DAYS', 30)
+    delisted_cutoff = today - pd.Timedelta(days=int(delisted_recheck_days))
 
-    cache_idx_tickers = set(cache.index.get_level_values(0).unique()) if len(cache) else set()
+    # --- Phase 0: Refresh-Auswahl -------------------------------------------
     seen: set[str] = set()
-    need_refresh: list[str] = []
+    unique_valid: list[str] = []
     invalid_skipped = 0
     for raw in tickers:
         if not _is_valid_yf_ticker(raw):
@@ -157,14 +249,39 @@ def _ensure_cache_for_tickers(
         if tkr in seen:
             continue
         seen.add(tkr)
-        if tkr in cache_idx_tickers:
-            try:
-                max_date = cache.loc[tkr].index.max()
-            except (KeyError, ValueError):
-                max_date = None
-            if max_date is not None and max_date >= cutoff:
-                continue  # fresh
-        need_refresh.append(tkr)
+        unique_valid.append(tkr)
+
+    # Pro relevantem Ticker juengsten ECHTEN Preis + juengsten Marker (last_checked)
+    # in EINEM Pass bestimmen (Marker = close==NaN).
+    freshness: dict[str, tuple] = {}
+    if len(cache) and seen:
+        rel = cache[cache.index.get_level_values(0).isin(seen)]
+        for tkr, sub in rel.groupby(level=0, sort=False):
+            dts = sub.index.get_level_values(1)
+            is_nan = sub['close'].isna().to_numpy()
+            real = dts[~is_nan]
+            mark = dts[is_nan]
+            freshness[str(tkr)] = (
+                real.max() if len(real) else None,
+                mark.max() if len(mark) else None,
+            )
+
+    need_refresh: list[str] = []
+    for tkr in unique_valid:
+        f = freshness.get(tkr)
+        if f is None:
+            need_refresh.append(tkr)  # nicht im Cache
+            continue
+        max_real, max_marker = f
+        if max_real is not None:
+            if max_real < cutoff:
+                need_refresh.append(tkr)  # echte Preise veraltet
+            # sonst: frische Preise -> skip
+        else:
+            # nur Marker (delisted) -> last_checked-TTL
+            if max_marker is None or max_marker < delisted_cutoff:
+                need_refresh.append(tkr)
+            # sonst: innerhalb Delisted-TTL -> skip
 
     if invalid_skipped:
         print(f"  Ticker-Validierung: {invalid_skipped} ungueltige Symbole "
@@ -172,95 +289,194 @@ def _ensure_cache_for_tickers(
 
     if not need_refresh:
         print(f"  Cache warm: alle {len(seen)} validen Ticker frisch "
-              f"(TTL {cache_ttl_days}d).")
+              f"(Preis-TTL {cache_ttl_days}d, Delisted-TTL "
+              f"{delisted_recheck_days}d).")
         return cache
 
     n_need = len(need_refresh)
     print(f"  Cache-Refresh: {n_need} von {len(seen)} validen Tickern "
           f"brauchen yfinance-Fetch ({fetch_years}y daily).")
-    print(f"  Inkrementelles Flushen alle {flush_every} Ticker -> "
-          f"{cache_path or '(kein Save)'}.")
 
-    new_rows: list[pd.DataFrame] = []
-    fetched = 0
-    delisted = 0
-    errors = 0
-    flushed_at = 0
+    # --- Canary + Fenster-State (Variante B) --------------------------------
+    if canary is None:
+        canary = NetworkCanary(_default_post_trade_probe, verbose=verbose_timeouts)
+    if time_fn is None:
+        time_fn = time.monotonic
+    ttl = float(getattr(settings, 'CANARY_VERDICT_TTL_SECONDS', 60))
+    max_red_rounds = int(getattr(settings, 'CANARY_MAX_RED_ROUNDS', 30))
+    print(f"  Netz-Robustheit: Canary-Fenster {int(ttl)}s, max {max_red_rounds} "
+          f"ROT/Throttle-Runden vor fail-closed-Abbruch.")
 
-    for i, tkr in enumerate(sorted(need_refresh), start=1):
-        try:
-            hist = yf.download(
-                tkr,
-                period=f'{fetch_years}y',
-                auto_adjust=True,
-                progress=False,
-                threads=False,
-            )
-        except Exception as exc:  # noqa: BLE001
-            errors += 1
-            logger.debug("yfinance-Exception fuer %s: %s", tkr, exc)
-            _progress_tick(i, n_need, tkr, fetched, delisted, errors)
-            continue
+    queue: deque = deque(sorted(need_refresh))
+    window_buffer: list[pd.DataFrame] = []
+    window_tickers: list[str] = []
+    counters = {'fetched': 0, 'delisted': 0, 'errors': 0, 'committed': 0}
+    state = {'last_boundary': time_fn(), 'processed': 0}
 
-        series = _yf_close_series(hist)
-        if series is None or series.empty:
-            # Delisted: Marker-Row (1900-01-01, NaN)
-            marker = pd.DataFrame(
-                {'close': [np.nan]},
-                index=pd.MultiIndex.from_tuples(
-                    [(tkr, DELISTED_MARKER_DATE)],
-                    names=['ticker', 'date'],
-                ),
-            )
-            new_rows.append(marker)
-            delisted += 1
-        else:
-            block = pd.DataFrame(
-                {'close': series.values},
-                index=pd.MultiIndex.from_arrays(
-                    [[tkr] * len(series), series.index],
-                    names=['ticker', 'date'],
-                ),
-            )
-            new_rows.append(block)
-            fetched += 1
-
-        _progress_tick(i, n_need, tkr, fetched, delisted, errors)
-
-        # Inkrementeller Flush
-        if cache_path and (fetched + delisted - flushed_at) >= flush_every:
-            cache = _merge_into_cache(cache, new_rows)
-            new_rows = []
-            try:
-                _save_price_cache(cache, cache_path)
-                flushed_at = fetched + delisted
-                print(f"  [flush] Cache gespeichert nach {i}/{n_need} Tickern.")
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("Cache-Flush fehlgeschlagen: %s", exc)
-
-    if new_rows:
-        cache = _merge_into_cache(cache, new_rows)
+    def _commit_window() -> None:
+        nonlocal cache
+        if not window_buffer:
+            return
+        cache = _merge_into_cache(cache, window_buffer)
+        counters['committed'] += len(window_tickers)
         if cache_path:
             try:
                 _save_price_cache(cache, cache_path)
-                print(f"  [flush] Finaler Cache-Save ({n_need}/{n_need}).")
+                print(f"  [commit] Fenster bestaetigt (GRUEN) + gespeichert: "
+                      f"{counters['committed']}/{n_need} Ticker.", flush=True)
             except Exception as exc:  # noqa: BLE001
-                logger.warning("Finaler Cache-Save fehlgeschlagen: %s", exc)
+                logger.warning("Cache-Save fehlgeschlagen: %s", exc)
+        window_buffer.clear()
+        window_tickers.clear()
 
-    print(f"  Cache-Refresh fertig: {fetched} gefetched, {delisted} delisted, "
-          f"{errors} errors (von {n_need} requested).")
+    def _invalidate_and_wait(current_tkr: str | None = None) -> None:
+        # Variante B: GANZES Fenster verwerfen, alle Fenster-Ticker (+ aktuellen)
+        # VORNE re-queuen (Restart ab Fenster-Beginn), dann auf Canary-Erholung
+        # warten (fail-closed bei erschoepftem Budget).
+        requeue = list(window_tickers)
+        if current_tkr is not None:
+            requeue.append(current_tkr)
+        window_buffer.clear()
+        window_tickers.clear()
+        for t in reversed(requeue):
+            queue.appendleft(t)
+        print(f"  [NETZ] Fenster verworfen (ROT/Throttle): {len(requeue)} Ticker "
+              f"re-queued ab Fenster-Beginn — warte auf Netz-Erholung ...",
+              flush=True)
+        rounds = 0
+        while rounds < max_red_rounds:
+            v = canary.wait_then_reprobe()
+            rounds += 1
+            print(f"  [NETZ] Canary-Runde {rounds}/{max_red_rounds}: {v} "
+                  f"(throttle={canary.saw_throttle}).", flush=True)
+            if v == GREEN and not canary.saw_throttle:
+                state['last_boundary'] = time_fn()
+                return
+        raise RuntimeError(
+            f"Netz nach {max_red_rounds} Canary-Runden weiter ROT/Throttle -> "
+            f"fail-closed: keine degradierten Post-Trade-Daten geschrieben."
+        )
+
+    def _tick(tkr: str) -> None:
+        state['processed'] += 1
+        _progress_tick(state['processed'], n_need, tkr,
+                       counters['fetched'], counters['delisted'],
+                       counters['errors'])
+
+    while True:
+        while queue:
+            tkr = queue.popleft()
+
+            # (a) periodische Fenstergrenze
+            if (time_fn() - state['last_boundary']) >= ttl:
+                v = canary.force_reprobe()
+                if v == GREEN and not canary.saw_throttle:
+                    _commit_window()
+                    state['last_boundary'] = time_fn()
+                else:
+                    _invalidate_and_wait(tkr)
+                    continue
+
+            # (b) Fetch (Exceptions retried + sichtbar)
+            try:
+                hist = _download_with_retry(
+                    tkr, fetch_years,
+                    on_attempt_failed=(
+                        _net_attempt_printer(f"yf.download[{tkr}]")
+                        if verbose_timeouts else (lambda a, r: None)),
+                )
+            except NetworkRetryExhausted:
+                # Netz fuer diesen Fetch erschoepft -> Canary entscheidet.
+                if canary.verdict() == RED:
+                    _invalidate_and_wait(tkr)
+                    continue
+                counters['errors'] += 1  # GRUEN: Einzel-Glitch -> skip, KEIN Marker
+                _tick(tkr)
+                continue
+            except Exception as exc:  # noqa: BLE001 — permanent/nicht-transient
+                counters['errors'] += 1
+                logger.debug("yfinance-Exception fuer %s: %s", tkr, exc)
+                _tick(tkr)
+                continue
+
+            series = _yf_close_series(hist)
+            if series is None or series.empty:
+                # stilles Leer -> Canary entscheidet Marker vs. Warten.
+                if canary.verdict() == RED:
+                    _invalidate_and_wait(tkr)
+                    continue
+                # GRUEN: vorlaeufiger Delisted-Marker (close=NaN, date=Pruefdatum).
+                marker = pd.DataFrame(
+                    {'close': [np.nan]},
+                    index=pd.MultiIndex.from_tuples(
+                        [(tkr, today)], names=['ticker', 'date']),
+                )
+                window_buffer.append(marker)
+                window_tickers.append(tkr)
+                counters['delisted'] += 1
+            else:
+                block = pd.DataFrame(
+                    {'close': series.values},
+                    index=pd.MultiIndex.from_arrays(
+                        [[tkr] * len(series), series.index],
+                        names=['ticker', 'date']),
+                )
+                window_buffer.append(block)
+                window_tickers.append(tkr)
+                counters['fetched'] += 1
+            _tick(tkr)
+
+        # Queue leer -> letztes Fenster bestaetigen
+        if not window_tickers:
+            break
+        v = canary.force_reprobe()
+        if v == GREEN and not canary.saw_throttle:
+            _commit_window()
+            break
+        _invalidate_and_wait()  # re-queued -> aeussere Schleife verarbeitet neu
+
+    print(f"  Cache-Refresh fertig: {counters['fetched']} gefetched, "
+          f"{counters['delisted']} delisted, {counters['errors']} errors "
+          f"(von {n_need} requested).")
     return cache
 
 
 def _merge_into_cache(cache: pd.DataFrame,
                      new_rows: list[pd.DataFrame]) -> pd.DataFrame:
-    """Hilfsfunktion: konkateniert neue Bloecke in den Cache (dedup auf Index)."""
+    """Konkateniert neue Bloecke in den Cache mit Marker-Hygiene.
+
+    1. Dedup auf ``(ticker, date)`` — letzter gewinnt (erneuter Fetch am selben Tag).
+    2. **E5**: hat ein (betroffener) Ticker echte Preise UND ``close=NaN``-Marker,
+       werden die Marker physisch entfernt (Karteileiche, sobald Preise vorliegen).
+    3. **Marker-Kollaps**: hat ein delisteter Ticker mehrere NaN-Marker (mehrere
+       Pruef-Daten ueber Laeufe), bleibt nur der juengste (= aktuelles last_checked).
+
+    Hygiene laeuft NUR ueber die in ``new_rows`` betroffenen Ticker (nicht den
+    ganzen Cache) — O(neue Ticker) statt O(Cache).
+    """
     if not new_rows:
         return cache
-    combined = pd.concat([cache, *new_rows]) if len(cache) else pd.concat(new_rows)
-    # Bei Doppel-Einträgen (z.B. erneuter Fetch nach TTL) den letzten gewinnen lassen.
+    new = pd.concat(new_rows)
+    affected = set(new.index.get_level_values(0).unique())
+    combined = pd.concat([cache, new]) if len(cache) else new
+    # (1) exakte (ticker,date)-Duplikate: letzter gewinnt.
     combined = combined[~combined.index.duplicated(keep='last')]
-    return combined.sort_index()
+
+    aff_mask = combined.index.get_level_values(0).isin(affected)
+    untouched = combined[~aff_mask]
+    aff = combined[aff_mask]
+    cleaned: list[pd.DataFrame] = []
+    for _tkr, sub in aff.groupby(level=0, sort=False):
+        is_nan = sub['close'].isna()
+        if (~is_nan).any():
+            sub = sub[~is_nan]              # (2) E5: echte Preise -> Marker droppen
+        elif int(is_nan.sum()) > 1:
+            latest = sub.index.get_level_values(1).max()
+            sub = sub[sub.index.get_level_values(1) == latest]  # (3) juengster Marker
+        cleaned.append(sub)
+
+    result = pd.concat([untouched, *cleaned]) if cleaned else untouched
+    return result.sort_index()
 
 
 def _progress_tick(i: int, total: int, tkr: str,
@@ -289,8 +505,8 @@ def _price_at_or_after(
     if tkr not in cache.index.get_level_values(0):
         return None
     series = cache.loc[tkr]
-    # Marker-Row (1900-01-01) ausfiltern
-    series = series[series.index != DELISTED_MARKER_DATE]
+    # Marker-Rows (close=NaN: delisted/last_checked) ausfiltern.
+    series = series[series['close'].notna()]
     if series.empty:
         return None
     target = pd.Timestamp(target_date).normalize()
@@ -311,20 +527,20 @@ def _build_price_lookup(cache: pd.DataFrame) -> dict[str, tuple | None]:
     der ~400k Lookups ein 3,96-Mio.-Element-Index — quadratische Laufzeit.
     Danach: O(1)-Dict-Get + ``np.searchsorted`` (O(log n) pro Ticker).
 
-    Delisted-Marker-Rows (1900-01-01, NaN) werden entfernt; ein Ticker, der
-    nur aus dem Marker bestand, wird als ``None`` hinterlegt (= kein Preis).
-    Pro Ticker nach Datum sortiert (verlaesst sich nicht auf Cache-Sortierung).
+    Delisted-Marker-Rows (``close=NaN``; Datum = last_checked, bzw. 1900-01-01 bei
+    Alt-Bestand) werden ueber den NaN-Close entfernt; ein Ticker, der nur aus
+    Markern bestand, wird als ``None`` hinterlegt (= kein Preis). Pro Ticker nach
+    Datum sortiert (verlaesst sich nicht auf Cache-Sortierung).
     """
     lookup: dict[str, tuple | None] = {}
     if cache is None or not len(cache):
         return lookup
-    marker = np.datetime64(DELISTED_MARKER_DATE.to_datetime64())
     for tkr, sub in cache.groupby(level=0, sort=False):
         dates = np.asarray(
             sub.index.get_level_values(1).values, dtype='datetime64[ns]',
         )
         closes = sub['close'].to_numpy(dtype='float64')
-        keep = dates != marker
+        keep = ~np.isnan(closes)
         if not keep.all():
             dates = dates[keep]
             closes = closes[keep]
@@ -816,16 +1032,13 @@ def _compute_exit_columns(
     # filter im Dashboard.
     first_close_offset = pd.Series(np.nan, index=df.index, dtype='float64')
 
-    # Cache-Ticker-Set vorab — vermeidet teure .index.get_level_values()-Calls
-    # pro Trade.
-    cache_tickers = set(cache.index.get_level_values(0).unique()) if len(cache) else set()
-    delisted_tickers = set()
-    if cache_tickers:
-        try:
-            marker_slice = cache[cache.index.get_level_values(1) == DELISTED_MARKER_DATE]
-            delisted_tickers = set(marker_slice.index.get_level_values(0).unique())
-        except Exception:  # noqa: BLE001
-            delisted_tickers = set()
+    # Befund-2-Fix: delisted/known aus dem LOOKUP ableiten (nicht aus rohem
+    # Marker-Slice). Im Lookup ist ein delisteter Ticker als ``None`` hinterlegt;
+    # ein Ticker mit Marker UND echten Preisen hat dort eine echte Serie (E5/
+    # NaN-Filter) -> gilt NICHT als delisted (heilt steckenden exit_status=
+    # 'delisted'). Ticker ausserhalb des Lookups = 'unknown'.
+    known_tickers = set(lookup.keys())
+    delisted_tickers = {t for t, v in lookup.items() if v is None}
 
     # Nur applicable Trades mit kanonischer Buy/Sell-Richtung fuer Exit-Suche.
     # _direction_from_transaction_type normalisiert Quiver-Varianten:
@@ -889,7 +1102,7 @@ def _compute_exit_columns(
             if tkr in delisted_tickers:
                 exit_status.at[idx] = 'delisted'
                 continue
-            if tkr not in cache_tickers:
+            if tkr not in known_tickers:
                 exit_status.at[idx] = 'unknown'
                 continue
 

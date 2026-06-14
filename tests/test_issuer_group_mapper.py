@@ -38,6 +38,12 @@ SAMPLE_PAYLOAD = {
 }
 
 
+@pytest.fixture(autouse=True)
+def _no_sleep(monkeypatch):
+    """Retry-Backoff (utils/network_retry) in Tests nicht real warten lassen."""
+    monkeypatch.setattr("utils.network_retry.time.sleep", lambda s: None)
+
+
 @pytest.fixture
 def cache_dir(tmp_path):
     return str(tmp_path)

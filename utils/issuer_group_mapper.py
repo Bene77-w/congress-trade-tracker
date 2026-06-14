@@ -39,6 +39,7 @@ except ImportError:  # pragma: no cover
     requests = None
 
 from config import settings
+from utils.network_retry import retry_call
 
 
 # Ticker-Typen ohne sinnvolle Issuer-Gruppierung (Optionen, Bonds, Cash etc.).
@@ -166,11 +167,19 @@ class IssuerGroupMapper:
                 "SEC nicht erreichbar — Python-'requests' nicht installiert.\n"
                 "Um mit altem TTL weiterzuarbeiten, ist eine Code-Aenderung noetig.")
         headers = {'User-Agent': self._user_agent}
-        try:
+
+        def _get_payload():
             resp = requests.get(self._url, headers=headers, timeout=30)
-            resp.raise_for_status()
-            payload = resp.json()
-        except Exception as exc:  # noqa: BLE001 — strikt: jede SEC-Stoerung blockt
+            resp.raise_for_status()  # 5xx/429 -> transient (Retry); 4xx -> permanent
+            return resp.json()       # unparsebar (200) -> permanent, kein Retry
+
+        # Transiente SEC-Stoerungen (Timeout, ConnectionError, 5xx, 429) werden
+        # mit Standard-Backoff wiederholt. Bei erschoepftem Budget ODER einem
+        # permanenten Fehler (4xx, unparsebar) bleibt der strikte fail-closed-
+        # Vertrag: IssuerGroupMapperUnreachableError -> kein Fallback auf alten Cache.
+        try:
+            payload = retry_call(_get_payload, label="SEC EDGAR company_tickers")
+        except Exception as exc:  # noqa: BLE001 — NetworkRetryExhausted ODER permanent
             raise IssuerGroupMapperUnreachableError(
                 f"SEC nicht erreichbar ({exc}).\n"
                 "Um mit altem TTL weiterzuarbeiten, ist eine Code-Aenderung noetig "

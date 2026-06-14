@@ -19,8 +19,15 @@ from utils.ticker_classifier import (
     TickerClassification,
     TickerType,
 )
+from utils.network_canary import NetworkCanary
 from utils.ticker_normalizer import NormalizedTicker
 from utils.ticker_sector import SectorInfo, TickerSectorEnricher
+
+
+def _fixed_canary(live: bool) -> NetworkCanary:
+    """Fixierter Canary (GRUEN=live True / ROT=False) ohne echte Probe/Warten."""
+    return NetworkCanary(lambda t: live, basket=["X"], min_positive=1,
+                         verbose=False, sleep_fn=lambda s: None)
 
 
 # ---------------------------------------------------------------------------
@@ -42,10 +49,13 @@ def cache_dir(tmp_path):
 
 @pytest.fixture
 def enricher(cache_dir, tmp_path):
+    # GRUEN-Canary: Netz gesund -> leeres .info gilt als echtes Delisting/kein
+    # Sektor (statt der abgeloesten _network_healthy-Heuristik).
     return TickerSectorEnricher(
         cache_dir=str(cache_dir),
         delisted_output_path=str(tmp_path / "delisted_trades_stage.csv"),
         confirm_callback=lambda n: True,
+        canary=_fixed_canary(True),
     )
 
 
@@ -201,17 +211,90 @@ class TestPreferredParentLookup:
 
 class TestDelistedTracking:
     def test_delisted_tracking(self, enricher, make_normalized, tmp_path):
-        """Leerer Sektor → Eintrag in delisted-stage.csv."""
-        norm = make_normalized(raw="GONE", ticker_type=TickerType.STOCK)
+        """Echtes Delisting (leerer Sektor bei GESUNDEM Netz) → delisted-stage.csv.
 
+        Ein leeres .info ist nicht von einem Netzfehler unterscheidbar; erst wenn
+        das Netz gesund wirkt (mind. ein echter Sektor-Treffer im Lauf), gilt leer
+        als echtes Delisting. Daher hier ein Live-Ticker vor GONE.
+        """
+        items = [
+            make_normalized(raw="LIVE", ticker_type=TickerType.STOCK),
+            make_normalized(raw="GONE", ticker_type=TickerType.STOCK),
+        ]
+        info = {
+            "LIVE": {"sector": "Tech", "industry": "Software", "quoteType": "EQUITY"},
+            "GONE": {},
+        }
         with patch("utils.ticker_sector.yf.Ticker",
-                   side_effect=_yf_ticker_mock_factory({"GONE": {}})):
-            enricher.enrich_batch([norm])
+                   side_effect=_yf_ticker_mock_factory(info)):
+            enricher.enrich_batch(items)
 
         delisted_path = Path(enricher.delisted_output_path)
         assert delisted_path.is_file()
         content = delisted_path.read_text()
         assert "GONE" in content
+
+
+class TestDelistedWriteGatedByFreshProbe:
+    def test_stale_green_suppresses_delisted_write(
+        self, cache_dir, tmp_path, make_normalized
+    ):
+        """Stale-GRUEN beim Sammeln, aber ROT bei frischer Probe -> kein Report.
+
+        Rest-Risiko-Mitigation: ein zu Ausfall-Beginn noch gruenes (gecachtes)
+        Verdikt darf keine falschen Delisted-Eintraege verewigen. Der persistente
+        Schreibvorgang ist daher an eine FRISCHE force_reprobe()-Probe gekoppelt.
+        """
+        live = {"v": True}
+        canary = NetworkCanary(
+            lambda t: live["v"], basket=["X"], min_positive=1,
+            verbose=False, sleep_fn=lambda s: None,
+        )
+        # Verdikt einmal GRUEN cachen (stale), dann Netz auf ROT kippen.
+        assert canary.verdict() == "GREEN"
+        live["v"] = False  # Netz faellt aus; gecachtes Verdikt bleibt erst GRUEN
+
+        enricher = TickerSectorEnricher(
+            cache_dir=str(cache_dir),
+            delisted_output_path=str(tmp_path / "delisted.csv"),
+            confirm_callback=lambda n: True,
+            canary=canary,
+        )
+        norm = make_normalized(raw="GONE", ticker_type=TickerType.STOCK)
+        info = {"GONE": {}}  # leer -> waehrend stale-GRUEN als delisted getrackt
+        with patch("utils.ticker_sector.yf.Ticker",
+                   side_effect=_yf_ticker_mock_factory(info)):
+            enricher.enrich_batch([norm])
+
+        delisted_path = Path(enricher.delisted_output_path)
+        assert not delisted_path.is_file(), (
+            "Delisted-Report darf bei ROT-Probe am Batch-Ende nicht "
+            "geschrieben werden"
+        )
+
+    def test_fresh_green_writes_delisted(
+        self, cache_dir, tmp_path, make_normalized
+    ):
+        """Frische Probe GRUEN am Batch-Ende -> Report wird normal geschrieben."""
+        canary = NetworkCanary(
+            lambda t: True, basket=["X"], min_positive=1,
+            verbose=False, sleep_fn=lambda s: None,
+        )
+        enricher = TickerSectorEnricher(
+            cache_dir=str(cache_dir),
+            delisted_output_path=str(tmp_path / "delisted.csv"),
+            confirm_callback=lambda n: True,
+            canary=canary,
+        )
+        norm = make_normalized(raw="GONE", ticker_type=TickerType.STOCK)
+        info = {"GONE": {}}
+        with patch("utils.ticker_sector.yf.Ticker",
+                   side_effect=_yf_ticker_mock_factory(info)):
+            enricher.enrich_batch([norm])
+
+        delisted_path = Path(enricher.delisted_output_path)
+        assert delisted_path.is_file()
+        assert "GONE" in delisted_path.read_text()
 
 
 # ---------------------------------------------------------------------------
