@@ -2,10 +2,124 @@
 
 > **Zielgruppe**: Folge-Agenten, die an `--stage_post_trade_performance`
 > debuggen, erweitern oder Architektur-Entscheidungen treffen.
-> **Stand**: 2026-06-04 (Richtungsbewusste Return-Semantik + UI-Marker-Update).
+> **Stand**: 2026-06-14 (Netz-Robustheit-Härtung: NetworkCanary +
+> Variante-B-Fenster-State-Machine).
 > **Single-Source**: Pipeline-Details in `Pipelines.md`, Spalten in
 > `DATA_STRUCTURE.md`. Dieses Briefing fasst aktiv genutzte Bezüge
 > zusammen und markiert veraltete Konzepte.
+
+---
+
+## Änderungen 2026-06-14 — Netz-Robustheit-Härtung (NetworkCanary, Commit `04639f9`)
+
+### Kernproblem
+Ein leeres yfinance-Ergebnis (HTTP 200, keine Exception) ist **nicht** von
+einem echten Delisting unterscheidbar. Vorher wurde aus diesem mehrdeutigen
+Ergebnis zirkulär auf den Netz-Zustand geschlossen (`_network_healthy`-
+Heuristik) — ein Netzwerkfehler konnte so fälschlich als „delisted"/NaN
+persistiert werden.
+
+### Lösung: Out-of-Band-Gesundheitssignal (NetworkCanary)
+Neues Modul `utils/network_canary.py` probt garantiert-live Ticker
+(`CANARY_TICKERS = [SPY, AAPL, MSFT]`) als unabhängiges Signal — unabhängig
+vom eigentlich abgefragten Ticker. Schlagen `>= CANARY_MIN_POSITIVE` (2) an →
+Verdikt **GRÜN** (ein leeres Fetch-Ergebnis für den eigentlichen Ticker ist
+dann ein echtes Delisting). Sonst **ROT**.
+
+- Verdikt ist **TTL-gecacht** (`CANARY_VERDICT_TTL_SECONDS` = 60s, =
+  Fensterlänge) → Zahl echter Probe-Requests ≈ Laufdauer/TTL, unabhängig von
+  der Ticker-Zahl.
+- API: `verdict()` (gecacht), `force_reprobe()` (erzwingt frische Probe),
+  `wait_then_reprobe()` (schläft erst TTL ab).
+- 2/3-Quorum mit Early-Exit; 429-Throttle-Erkennung (`saw_throttle`).
+- Jeder Probe-Fehlversuch im Terminal sichtbar (`[NETZ]`-Zeile).
+- `probe_fn`/`time_fn`/`sleep_fn` injizierbar → in Tests deterministisch
+  (siehe `tests/test_network_canary.py`).
+
+**Garantie ab jetzt**: Ein Netzfehler überschreibt **niemals** korrekte
+Daten und erzeugt **niemals** einen falschen „delisted"-Marker.
+
+### `utils/network_retry.py` (neu, R1-R6)
+Zentraler `retry_call`-Helfer:
+- `is_transient_exception()` — typ-basierte transient-Klassifikation (statt
+  Pattern-Listen pro Modul).
+- Backoff via `NETWORK_RETRY_BACKOFFS`.
+- `NetworkRetryExhausted` bei erschöpftem Budget.
+- Optionaler `is_empty`-Callback (leeres Ergebnis kann als transient
+  behandelt werden).
+- `on_attempt_failed`-Hook für Timeout-Sichtbarkeit (`[NETZ]`-Zeile pro
+  Fehlversuch).
+
+`utils/ticker_normalizer.py` und `utils/issuer_group_mapper.py` sind auf
+diese zentrale Klassifikation + `retry_call` umgestellt (statt eigener
+Pattern-Listen).
+
+### Variante-B-Fenster-State-Machine (`compute_post_trade_returns` / `compute_paper_returns`)
+Das **ganze** Preis-Fenster ist vorläufig; **nichts** wird vor einem
+GRÜN-Verdikt in den Cache geflusht.
+
+- **Periodische Fenstergrenze** alle `CANARY_VERDICT_TTL_SECONDS` (60s):
+  GRÜN & kein Throttle → Fenster committen; sonst Fenster invalidieren +
+  warten.
+- **Auf ROT/Throttle**: das **gesamte** Fenster (inkl. bereits geholter
+  echter Kurse) wird verworfen, neu eingereiht und **ab Fenster-Beginn im
+  selben Lauf** neu verarbeitet (rückwirkende Invalidierung +
+  within-run-Restart).
+- **429 = ROT** (Fenster verworfen; zählt als ROT-Runde).
+- **Fail-closed**: nach `CANARY_MAX_RED_ROUNDS` (30) ROT/Throttle-Runden in
+  Folge (~60s pro Runde) → `RuntimeError`. Es werden **keine** degradierten
+  Daten geschrieben.
+- Jeder Timeout im Terminal sichtbar (`[NETZ]`-Zeile pro Fehlversuch).
+
+Tests: `tests/test_post_trade_canary.py`, `tests/test_network_resilience.py`.
+
+### Marker-Schema-Änderung im Preis-Cache (Breaking, mit Migration)
+- **Vorher**: Delisted-Tombstone war `(ticker, date=1900-01-01, close=NaN)`.
+- **Jetzt**: `(ticker, last_checked_date=heute, close=NaN)`.
+- **Erkennung**: über **NaN-close** (nicht mehr über `date == 1900-01-01`).
+- **Migration**: alte 1900-Marker werden automatisch erkannt (NaN → als
+  Delisted-Marker erkannt; `date 1900 < cutoff` → einmalig re-gecheckt und
+  mit aktuellem `last_checked_date` neu geschrieben).
+
+### `last_checked`-TTL (`POST_TRADE_DELISTED_RECHECK_DAYS` = 30)
+Delistete Ticker werden nicht öfter als alle 30 Tage neu gefetcht.
+Phase-0-Refresh-Auswahl pro Lauf:
+- echte Kurse → Preis-TTL (`POST_TRADE_PRICE_CACHE_TTL_DAYS` = 7)
+- delistete Ticker → `last_checked`-TTL (30 Tage)
+
+### E5 — Marker-Prune + Marker-Kollaps
+- Sobald für einen Ticker echte Kurse eintreffen, wird sein NaN-Marker
+  **physisch entfernt** (Prune).
+- **Marker-Kollaps**: pro Ticker wird nur der **jüngste** NaN-Marker
+  behalten (Schutz gegen Marker-Anhäufung über mehrere Re-Checks).
+
+### `exit_status='delisted'` jetzt aus Preis-Lookup abgeleitet (Befund-2-Fix)
+- Vorher: `exit_status='delisted'` wurde aus einem rohen 1900-Marker-Slice
+  bestimmt → konnte „stuck" bleiben, selbst wenn der Ticker später echte
+  Kurse bekam.
+- Jetzt: abgeleitet aus dem Preis-**Lookup** — `None`-Treffer ⇒ delisted.
+  Heilt zuvor stuck gebliebene `exit_status='delisted'`-Werte selbst (kein
+  manueller Fix nötig).
+
+### `utils/ticker_sector.py` — Canary als Verdikt-Autorität (proportional)
+- `_info_empty_suspicious`: leeres `.info` **ohne Identität** → Canary
+  entscheidet: ROT ⇒ transient (Retry), GRÜN ⇒ echtes Delisting/„kein
+  Sektor" (akzeptiert).
+- Ersetzt die zirkuläre `_network_healthy`-Heuristik (jetzt **LEGACY**,
+  nicht mehr aufgerufen).
+- Kein volles Fenster wie in `post_trade_returns` (anderer Datenpfad, daher
+  proportionale Mitigation statt State-Machine).
+- **Rest-Risiko-Mitigation für `delisted_trades_stage.csv`**: vor dem
+  Schreiben des persistenten Delisted-Reports (`_write_delisted_stage`)
+  wird eine **frische** `force_reprobe()`-Probe erzwungen (statt des bis zu
+  60s alten gecachten Verdikts). Ist das Netz **jetzt** ROT, wird der Report
+  **nicht** geschrieben (nächster Lauf erzeugt ihn neu). So kann ein
+  „stale-GRÜNes" Verdikt zu Ausfall-Beginn keine falschen Delisted-Einträge
+  verewigen. Der in-memory Null-Cache bleibt bewusst auf dem gecachten
+  Verdikt (erholbar, TTL-begrenzt).
+
+Tests: `tests/test_ticker_sector.py`, `tests/test_issuer_group_mapper.py`,
+`tests/test_network_retry.py`.
 
 ---
 
@@ -87,6 +201,8 @@ aktuellen Code nicht mehr**:
 | `_fetch_with_hyphen_fallback` (Slash-Retry `BRK-A → BRK/A`) | **Entfernt.** 0 Cache-Treffer in 2.730 Einträgen → toter Code |
 | `_YF_ELIGIBLE_TYPES` (lokales Set in `ticker_sector.py`) | **Entfernt.** Ersetzt durch `SECTOR_LOOKUP_TYPES` aus `utils/ticker_routing.py` |
 | `_resolve_preferred`, `_load_preferred_mapping`, `_write_unmatched_preferred` | **Entfernt** aus `utils/ticker_sector.py` |
+| `_network_healthy`-Heuristik (`utils/ticker_sector.py`), `POST_TRADE_NETWORK_HEALTHY_TOLERANCE` | **LEGACY seit 2026-06-14.** Ersetzt durch `utils/network_canary.py` (NetworkCanary-Verdikt). Code-Pfad nicht mehr aufgerufen. |
+| Delisted-Marker `(ticker, date=1900-01-01, close=NaN)` | **Schema geändert seit 2026-06-14.** Jetzt `(ticker, last_checked_date=heute, close=NaN)`, Erkennung über NaN-close. Alte 1900-Marker werden automatisch migriert. |
 
 Konkret für `post_trade_returns`: **wenn ein Pfad/Code irgendwo
 `APPLICABLE_TYPES` referenziert, ist er stale**. Nur
@@ -254,8 +370,13 @@ erfolgreichen Fetches wird der Cache atomar geschrieben
 (tmp + `os.replace()`, Z. 78-80). Schützt vor Datenverlust bei
 Exception in Stunden-langen Erst-Läufen.
 
-**Delisted-Marker**: Spezial-Row `(ticker, 1900-01-01, NaN)`
-(Z. 199-205). Verhindert wiederholten yfinance-Call für tote Ticker.
+**Delisted-Marker** (Schema seit 2026-06-14): Spezial-Row
+`(ticker, last_checked_date=heute, close=NaN)`. Erkennung über
+**NaN-close** (nicht mehr über `date==1900`). Verhindert wiederholten
+yfinance-Call für tote Ticker, solange `last_checked_date` innerhalb
+`POST_TRADE_DELISTED_RECHECK_DAYS` (30 Tage) liegt. Alte
+`(ticker, 1900-01-01, NaN)`-Marker werden automatisch migriert (s.
+Änderungen 2026-06-14).
 
 **Fetch-Horizont**: `POST_TRADE_PRICE_FETCH_YEARS = 5` (Z. 474).
 
@@ -288,6 +409,13 @@ Spam pro Ticker. Fortschritts-Output läuft über eigenen `print`/`logger`.
 | `POST_TRADE_PRICE_CACHE_TTL_DAYS` | `7` | Cache-Refresh-Schwelle |
 | `POST_TRADE_EXIT_AMOUNT_TOLERANCE` | `0.0` | Schwelle für `closed_full` vs. `closed_partial` |
 | `POST_TRADE_CACHE_FLUSH_EVERY` | `50` | Flush-Frequenz |
+| `POST_TRADE_DELISTED_RECHECK_DAYS` | `30` | last_checked-TTL für delistete Ticker (NEU 2026-06-14) |
+| `CANARY_TICKERS` | `["SPY", "AAPL", "MSFT"]` | Garantiert-live Probe-Basket (NEU 2026-06-14) |
+| `CANARY_MIN_POSITIVE` | `2` | Quorum für GRÜN-Verdikt (NEU 2026-06-14) |
+| `CANARY_VERDICT_TTL_SECONDS` | `60` | Verdikt-Cache UND Fensterlänge (NEU 2026-06-14) |
+| `CANARY_PROBE_BACKOFFS` | `[2, 4, 8]` | Eigen-Retry-Budget je Canary-Probe (NEU 2026-06-14) |
+| `CANARY_MAX_RED_ROUNDS` | `30` | max. ROT/Throttle-Runden (~60s) vor fail-closed-Abbruch (NEU 2026-06-14) |
+| `POST_TRADE_NETWORK_HEALTHY_TOLERANCE` | — | **LEGACY** — durch NetworkCanary abgelöst, nicht mehr aktiv |
 
 ---
 

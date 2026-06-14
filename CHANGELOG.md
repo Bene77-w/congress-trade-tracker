@@ -11,6 +11,54 @@ Historie abgeschlossener Module/Phasen. **Aktiver WIP-Modul-Stand** steht im „
 
 ---
 
+## 2026-06-14 — Netz-Robustheit-Härtung (NetworkCanary)
+
+**Motivation**: Ein leeres yfinance-Ergebnis (HTTP 200, keine Exception) ist
+nicht von einem echten Delisting unterscheidbar. Bisher wurde aus diesem
+mehrdeutigen Ergebnis zirkulär auf den Netz-Zustand geschlossen
+(`_network_healthy`-Heuristik) — ein Netzwerkfehler konnte so fälschlich als
+„delisted"/NaN persistiert werden.
+
+**Lösung**: Out-of-Band-Gesundheitssignal über ein neues NetworkCanary-
+Verdikt-Orakel.
+
+- **Neu** `utils/network_canary.py`: probt garantiert-live Ticker
+  (SPY/AAPL/MSFT) als unabhängiges Signal, GRÜN/ROT-Verdikt TTL-gecacht
+  (60s), `verdict()`/`force_reprobe()`/`wait_then_reprobe()`.
+- **Neu** `utils/network_retry.py`: zentraler `retry_call`-Helfer (R1-R6)
+  mit typ-basierter transient-Klassifikation, Backoff, `NetworkRetryExhausted`.
+- **`scoring/post_trade_returns.py`**: Variante-B-Fenster-State-Machine —
+  ganzes Preis-Fenster vorläufig, ROT/Throttle (inkl. HTTP 429) → gesamtes
+  Fenster verworfen + ab Fenster-Beginn im selben Lauf neu verarbeitet
+  (rückwirkende Invalidierung). Fail-closed nach `CANARY_MAX_RED_ROUNDS` (30)
+  ROT-Runden → `RuntimeError`, keine degradierten Daten geschrieben.
+- **Marker-Schema-Wechsel** im Preis-Cache: Delisted-Tombstone war
+  `(ticker, date=1900-01-01, close=NaN)`, jetzt
+  `(ticker, last_checked_date=heute, close=NaN)`. Erkennung über NaN-close.
+  Alte 1900-Marker migrieren automatisch. Neue `last_checked`-TTL
+  (`POST_TRADE_DELISTED_RECHECK_DAYS = 30`). E5: Marker-Prune bei echten
+  Kursen + Marker-Kollaps (nur jüngster NaN-Marker je Ticker).
+- **`exit_status='delisted'`** wird jetzt aus dem Preis-Lookup abgeleitet
+  (None ⇒ delisted) statt aus rohem 1900-Marker-Slice — heilt zuvor „stuck"
+  gebliebene `delisted`-Werte selbst (Befund-2-Fix).
+- **`utils/ticker_sector.py`**: Canary als Verdikt-Autorität (ersetzt
+  `_network_healthy`, jetzt LEGACY); vor dem Schreiben von
+  `delisted_trades_stage.csv` wird eine frische `force_reprobe()` erzwungen.
+- **R1-R6**: `utils/ticker_normalizer.py` + `utils/issuer_group_mapper.py`
+  auf zentrale transient-Klassifikation + `retry_call` umgestellt.
+
+**Neue Settings** (`config/settings.py`): `CANARY_TICKERS`,
+`CANARY_MIN_POSITIVE`, `CANARY_VERDICT_TTL_SECONDS`, `CANARY_PROBE_BACKOFFS`,
+`CANARY_MAX_RED_ROUNDS`, `POST_TRADE_DELISTED_RECHECK_DAYS`.
+`POST_TRADE_NETWORK_HEALTHY_TOLERANCE` als LEGACY markiert.
+
+**Tests**: 948 passed (2 vorbestehende, fremde Scraper-Failures außerhalb
+des Scopes). Details: `organisation/Briefing_stage_post_trade_performance.md`,
+`organisation/Ticker_Architektur.md`, `organisation/Pipelines.md`,
+`organisation/Preis_Aktualisierung.md`.
+
+---
+
 ## 2026-06-12 — Committee-Quelldaten F2 + Ex-Officio-Signal v2
 
 **Motivation:** Das alte `Member_Committees_Full`-Format war mehrdeutig (`;`

@@ -27,6 +27,7 @@ from typing import Optional
 import requests
 
 from config import settings
+from utils.network_retry import is_transient_exception
 from utils.ticker_classifier import (
     ApiStrategy,
     TickerClassification,
@@ -685,7 +686,9 @@ class TickerNormalizer:
         if self.api_key:
             headers["X-OPENFIGI-APIKEY"] = self.api_key
 
-        attempt = 0
+        attempt = 0          # 429-Versuche (eigener Backoff, behaelt Vorrang)
+        net_attempt = 0      # transiente Netzfehler-Versuche (Standard-Backoff)
+        net_backoffs = settings.NETWORK_RETRY_BACKOFFS
         while True:
             try:
                 resp = requests.post(
@@ -693,7 +696,19 @@ class TickerNormalizer:
                 )
             except requests.RequestException as exc:
                 err_str = str(exc)
-                if self._is_network_error(err_str):
+                # Transient (Timeout/ConnErr/DNS/SSL) -> Standard-Backoff, dann Retry.
+                # is_transient_exception ist typ-basiert und faengt damit auch
+                # Timeouts, die das alte String-Pattern verfehlte (R6).
+                if is_transient_exception(exc) or self._is_network_error(err_str):
+                    if net_attempt < len(net_backoffs):
+                        wait = net_backoffs[net_attempt]
+                        net_attempt += 1
+                        print(f"      [!] OpenFIGI Netzfehler (Versuch {net_attempt}/"
+                              f"{len(net_backoffs)}) → Backoff {wait}s: {err_str[:120]}")
+                        logger.warning(f"OpenFIGI Netzfehler Backoff {wait}s: {err_str[:120]}")
+                        time.sleep(wait)
+                        continue
+                    # Budget erschoepft -> aeusseren Consecutive-Counter EINMAL fuehren.
                     aborted = not self._handle_network_error(err_str)
                     if aborted:
                         raise RuntimeError(
@@ -716,14 +731,32 @@ class TickerNormalizer:
 
             if resp.status_code == 429:
                 attempt += 1
-                ok = self._handle_429(attempt)
+                ok = self._handle_429(attempt, resp)
                 if not ok:
                     raise RuntimeError(
                         f"OpenFIGI: {self._consecutive_429} consecutive 429 → Stage-Abbruch"
                     )
                 continue
 
-            # Andere HTTP-Fehler.
+            # HTTP 5xx -> transient: Standard-Backoff, dann Retry.
+            if 500 <= resp.status_code < 600:
+                if net_attempt < len(net_backoffs):
+                    wait = net_backoffs[net_attempt]
+                    net_attempt += 1
+                    print(f"      [!] OpenFIGI HTTP {resp.status_code} (Versuch "
+                          f"{net_attempt}/{len(net_backoffs)}) → Backoff {wait}s")
+                    logger.warning(f"OpenFIGI HTTP {resp.status_code} Backoff {wait}s")
+                    time.sleep(wait)
+                    continue
+                aborted = not self._handle_network_error(f"HTTP {resp.status_code}")
+                if aborted:
+                    raise RuntimeError(
+                        f"OpenFIGI: {self._consecutive_network_errors} consecutive "
+                        f"network errors → Stage-Abbruch"
+                    )
+                return None, "network"
+
+            # Andere HTTP-Fehler (4xx) -> permanent, kein Retry.
             print(f"      [!] OpenFIGI HTTP {resp.status_code}: {resp.text[:200]}")
             logger.error(f"OpenFIGI HTTP {resp.status_code}: {resp.text[:200]}")
             return None, "http"
@@ -941,20 +974,58 @@ class TickerNormalizer:
             time.sleep(self.network_pause_seconds)
         return True
 
-    def _handle_429(self, attempt: int) -> bool:
-        """Backoff 2^n (max self.backoff_max). Returns False bei Abort."""
+    def _handle_429(self, attempt: int, resp=None) -> bool:
+        """Backoff bei HTTP 429. Returns False bei Abort.
+
+        Vorrang hat ein vom Server vorgegebener ``Retry-After``-Header (API-eigenes
+        Schema, R5). Fehlt er, greift der berechnete Backoff ``2^n`` (max
+        ``self.backoff_max``).
+        """
         self._consecutive_429 += 1
         n = self._consecutive_429
         if n >= self.rate_limit_abort_threshold:
             print(f"      [!!] {n} consecutive 429 → STAGE-ABBRUCH")
             return False
 
-        backoff = min(self.backoff_base ** attempt, self.backoff_max)
-        print(f"      [!] OpenFIGI 429 (Versuch {attempt}/{self.rate_limit_abort_threshold}) → "
-              f"Backoff {backoff:.1f}s")
+        retry_after = self._parse_retry_after(resp)
+        if retry_after is not None:
+            backoff = retry_after  # API-Vorgabe hat Vorrang vor dem 2^n-Backoff
+            print(f"      [!] OpenFIGI 429 (Versuch {attempt}/{self.rate_limit_abort_threshold}) → "
+                  f"Retry-After {backoff:.1f}s (API-Vorgabe)")
+        else:
+            backoff = min(self.backoff_base ** attempt, self.backoff_max)
+            print(f"      [!] OpenFIGI 429 (Versuch {attempt}/{self.rate_limit_abort_threshold}) → "
+                  f"Backoff {backoff:.1f}s")
         logger.warning(f"OpenFIGI 429 backoff {backoff:.1f}s (consecutive {n})")
         time.sleep(backoff)
         return True
+
+    @staticmethod
+    def _parse_retry_after(resp) -> Optional[float]:
+        """Liest den ``Retry-After``-Header: Sekunden-Ganzzahl ODER HTTP-Datum.
+
+        Returns Sekunden (>=0) als float, sonst None (Header fehlt/ungueltig).
+        """
+        if resp is None:
+            return None
+        try:
+            val = resp.headers.get("Retry-After")
+        except AttributeError:
+            return None
+        if not val:
+            return None
+        val = str(val).strip()
+        if val.isdigit():
+            return float(val)
+        try:  # HTTP-Datum-Form (RFC 7231)
+            from email.utils import parsedate_to_datetime
+            dt = parsedate_to_datetime(val)
+            if dt is None:
+                return None
+            now = datetime.now(dt.tzinfo) if dt.tzinfo else datetime.now()
+            return max((dt - now).total_seconds(), 0.0)
+        except (TypeError, ValueError, OverflowError):
+            return None
 
     # ------------------------------------------------------------------
     # Result-Konstruktion

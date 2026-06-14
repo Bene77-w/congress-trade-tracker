@@ -248,6 +248,33 @@ liefern aber beide Spalten unterschiedlichen Mehrwert.
 
 ---
 
+## 5b. Netz-Robustheit (2026-06-14) — Canary-Verdikt-Autorität
+
+**Problem**: Ein leeres yfinance-`.info`-Ergebnis (HTTP 200, ohne Identität)
+ist nicht von einem echten Delisting unterscheidbar. Eine zirkuläre
+Heuristik (`_network_healthy`, vorher in `utils/ticker_sector.py`) konnte
+Netzwerkfehler fälschlich als Delisting interpretieren.
+
+**Lösung**: `utils/network_canary.py` liefert ein unabhängiges,
+Out-of-Band-Verdikt (probt SPY/AAPL/MSFT separat vom eigentlich
+abgefragten Ticker):
+
+- **`utils/ticker_sector.py`**: `_info_empty_suspicious` fragt bei leerem
+  `.info` ohne Identität das Canary-Verdikt ab — ROT ⇒ transient (Retry),
+  GRÜN ⇒ echtes Delisting/„kein Sektor" (akzeptiert). `_network_healthy`
+  ist jetzt LEGACY (nicht mehr aufgerufen). Vor dem Schreiben von
+  `delisted_trades_stage.csv` wird zusätzlich eine **frische**
+  `force_reprobe()` erzwungen — bei ROT wird die Datei nicht geschrieben.
+- **`utils/ticker_normalizer.py`** und **`utils/issuer_group_mapper.py`**:
+  nutzen jetzt die zentrale typ-basierte transient-Klassifikation
+  (`utils/network_retry.py::is_transient_exception` + `retry_call`) statt
+  eigener Pattern-Listen (R1-R6).
+
+Tiefendoku (Variante-B-Fenster-State-Machine für `post_trade_returns`,
+Marker-Schema-Wechsel, Settings): `organisation/Briefing_stage_post_trade_performance.md`.
+
+---
+
 ## 6. Bekannte Limitationen
 
 - **Delistete Multi-Class-Aktien** ohne aktuelles EDGAR-Listing: kein
@@ -270,6 +297,8 @@ liefern aber beide Spalten unterschiedlichen Mehrwert.
 | `issuer_ticker`-Resolver            | `utils/issuer_ticker.py`            |
 | `issuer_group_key`-Mapper           | `utils/issuer_group_mapper.py`      |
 | Routing-Sets (zentralisiert)        | `utils/ticker_routing.py` (`SECTOR_LOOKUP_TYPES`, `POST_TRADE_PRICE_TYPES`) |
+| Netz-Gesundheits-Verdikt (NEU 2026-06-14) | `utils/network_canary.py` |
+| Zentraler Retry/Backoff (NEU 2026-06-14) | `utils/network_retry.py` |
 | Pipeline-Integration                | `scripts/import_trades.py` Stages `tickeropenfigi` + `issuer_group` |
 | SEC-Settings (URL, User-Agent, TTL) | `config/settings.py`, Sektion `SEC EDGAR (P5.6)` |
 | EDGAR-Cache-Datei                   | `data/cache/edgar_cik_map.json` (TTL 7 Tage) |
