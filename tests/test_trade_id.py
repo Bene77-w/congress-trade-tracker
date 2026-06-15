@@ -147,3 +147,20 @@ class TestDetectNewTrades:
         result = detect_new_trades(input_df, master_df)
         assert list(result.columns) == ['trade_id', 'ticker']
         assert result.iloc[0]['ticker'] == 'MSFT'
+
+    def test_detect_new_trades_multiset_extra_copy(self):
+        """Multiset (DEDUP_STRATEGY='keep_all'): hat ein trade_id im Input
+        mehr Kopien als im Master, gelten die ueberzaehligen als neu.
+
+        Regression: frueher reine Set-Membership -> jede weitere Kopie eines
+        bereits vorhandenen trade_id wurde faelschlich verworfen.
+        """
+        input_df = pd.DataFrame({
+            'trade_id': ['a' * 16, 'a' * 16, 'c' * 16, 'b' * 16],
+            'lbl': ['a1', 'a2', 'c1', 'b1'],
+        })
+        master_df = pd.DataFrame({'trade_id': ['a' * 16, 'b' * 16]})
+        result = detect_new_trades(input_df, master_df)
+        # a: 2 Input vs 1 Master -> 1 ueberzaehlig (das spaetere Vorkommen);
+        # c: komplett neu; b: unveraendert -> verworfen.
+        assert result['lbl'].tolist() == ['a2', 'c1']
