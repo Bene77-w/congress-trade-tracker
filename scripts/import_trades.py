@@ -116,6 +116,33 @@ def _strip_master_internal(df: pd.DataFrame) -> pd.DataFrame:
     drop = [c for c in MASTER_INTERNAL_COLUMNS if c in df.columns]
     return df.drop(columns=drop) if drop else df
 
+
+def _sort_master_by_date(df: pd.DataFrame) -> pd.DataFrame:
+    """Sortiert den Master stabil absteigend nach transaction_date.
+
+    Innerhalb desselben transaction_date bleibt die Eingabe-Reihenfolge
+    erhalten (Quell-Reihenfolge als Tiebreak — die Quiver-Quelle liefert
+    Trades bereits absteigend nach Datum). Zeilen ohne parsebares
+    transaction_date wandern ans Ende. Mutiert df nicht und laesst die
+    transaction_date-Spalte unveraendert (Sortierung ueber eine temporaere
+    Hilfsspalte, damit die CSV-Serialisierung des Datums nicht kippt).
+
+    Zentralisiert die Master-Sortierung: jedes Schreiben von
+    trades_master_complete.csv (Voll-Run, Delta-Merge, Einzel-Stage) laeuft
+    hierdurch, sodass die Master stets durchgehend datums-sortiert ist —
+    statt Delta-Zeilen unsortiert anzuhaengen.
+    """
+    if 'transaction_date' not in df.columns or df.empty:
+        return df
+    td = pd.to_datetime(df['transaction_date'], errors='coerce')
+    order = (
+        pd.DataFrame({'_td': td.to_numpy(), '_pos': range(len(df))})
+        .sort_values(['_td', '_pos'], ascending=[False, True],
+                     na_position='last')
+        .index.to_numpy()
+    )
+    return df.iloc[order]
+
 CHECKPOINT_INTERVAL = 5000  # Trades zwischen Checkpoint-Speicherungen
 
 # Stage-Pipeline Pfade
@@ -1903,7 +1930,8 @@ class TradeImporter:
             print(f"      -> {STAGE_CSV_PATH} ({len(df):,} Trades)")
         else:
             self._backup_master()
-            _strip_master_internal(df).to_csv(MASTER_COMPLETE_CSV_PATH, index=False, encoding='utf-8')
+            _strip_master_internal(_sort_master_by_date(df)).to_csv(
+                MASTER_COMPLETE_CSV_PATH, index=False, encoding='utf-8')
             print(f"      -> {MASTER_COMPLETE_CSV_PATH} ({len(df):,} Trades)")
 
     def _merge_into_master(self, stage_df: pd.DataFrame,
@@ -2379,6 +2407,10 @@ class TradeImporter:
         print("\n[Recent-Monitoring] Papier-Return aktualisieren...")
         df = self._compute_recent_paper_returns(df)
 
+        # Master durchgehend absteigend nach transaction_date sortieren —
+        # Complete- und Curated-Master erben dieselbe Reihenfolge.
+        df = _sort_master_by_date(df)
+
         # 1. Complete-Master (alle Spalten)
         _strip_master_internal(df).to_csv(MASTER_COMPLETE_CSV_PATH, index=False, encoding='utf-8')
         print(f"      -> {MASTER_COMPLETE_CSV_PATH} ({len(df):,} Trades)")
@@ -2662,6 +2694,9 @@ class TradeImporter:
             # bereits laenger gehaltene offene Positionen).
             print("\n[Recent-Monitoring] Papier-Return aktualisieren...")
             updated_master = self._compute_recent_paper_returns(updated_master)
+            # Master durchgehend absteigend nach transaction_date sortieren —
+            # Complete- und Curated-Master erben dieselbe Reihenfolge.
+            updated_master = _sort_master_by_date(updated_master)
             _strip_master_internal(updated_master).to_csv(MASTER_COMPLETE_CSV_PATH, index=False, encoding='utf-8')
             curated = self._export_curated_master(updated_master)
             curated.to_csv(MASTER_CSV_PATH, index=False, encoding='utf-8')
@@ -2726,6 +2761,10 @@ class TradeImporter:
         # Import-Datum hinzufuegen
         enriched_df = enriched_df.copy()
         enriched_df['ImportDate'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+        # Master durchgehend absteigend nach transaction_date sortieren —
+        # Complete- und Curated-Master erben dieselbe Reihenfolge.
+        enriched_df = _sort_master_by_date(enriched_df)
 
         # 1. Complete-Master (alle Spalten)
         _strip_master_internal(enriched_df).to_csv(MASTER_COMPLETE_CSV_PATH, index=False, encoding='utf-8')
