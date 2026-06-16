@@ -622,6 +622,7 @@ python scrapers/house_pdf_extractor_v2.py --model claude-sonnet-4-6    # Anderes
 ### `data/processed/trades_master.csv` (kuratierte Sicht)
 **Quelle**: Output von `scripts/import_trades.py` (Stage `save`)
 **Format**: CSV
+**Sortierung**: Absteigend nach `transaction_date` (NaT ans Ende); erbt Reihenfolge aus `trades_master_complete.csv` — s. dort.
 **Update**: Bei jedem Import (kumulativ; vollstaendige Spalten in `trades_master_complete.csv`)
 
 **Hinweis (Rebuild Teil 3, 26.04.2026)**: `trades_master.csv` enthaelt jetzt
@@ -664,6 +665,10 @@ Quellspalte `X` der complete-Datei und schreiben ihn unter dem
 ### `data/processed/trades_master_complete.csv` (vollstaendige Persistierung)
 **Quelle**: Output von `scripts/import_trades.py` (Stage `save`)
 **Format**: CSV
+**Sortierung**: Absteigend nach `transaction_date` (NaT ans Ende, Quell-Reihenfolge als Tiebreak
+innerhalb desselben Datums). Gilt fuer alle Master-Schreibvorgaenge (staged + monolithisch + Delta)
+via `_sort_master_by_date` in `scripts/import_trades.py`. Mechanik: `organisation/Pipelines.md`
+Abschnitt „Master-Sortierung".
 **Update**: Bei jedem Import (kumulativ; jeder Stage schreibt hier ein)
 
 **Spalten** (alle, deutlich mehr als `trades_master.csv`):
