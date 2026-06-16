@@ -48,10 +48,11 @@ TRADES_CSV = ROOT / 'data' / 'processed' / settings.TRADES_MASTER_COMPLETE_CSV
 TRADE_DISPLAY_COLS = [
     # Default-Spalten in Anzeige-Reihenfolge (links -> rechts); die Display-
     # Reihenfolge des Trades-Tabs folgt dieser Liste (s. display_cols-Aufbau).
-    'effective_return_pct', 'trade_score', 'ticker', 'asset_name', 'name',
-    'signals_triggered', 'committee_match', 'trade_id',
-    'transaction_date', 'disclosure_date', 'transaction_type', 'amount',
-    'asset_tradingvolume_usd', 'relevant_sectors', 'exit_status',
+    'effective_return_pct', 'trade_score', 'ticker',
+    'transaction_type', 'transaction_date', 'disclosure_date',
+    'amount', 'exit_status', 'trade_id', 'name',
+    'asset_name', 'signals_triggered', 'committee_match',
+    'asset_tradingvolume_usd', 'relevant_sectors',
     # Optionale Zusatzspalten (per Multiselect zuschaltbar) -> rechts angehaengt.
     'chamber', 'Member_Party', 'issuer_ticker',
     'trade_volume_usd', 'trade_amount_max_usd',
