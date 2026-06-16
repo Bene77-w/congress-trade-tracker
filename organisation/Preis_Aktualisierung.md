@@ -76,7 +76,7 @@ Der „delta-unabhängig"-Vertrag steht explizit im Docstring von `compute_paper
 
 | Aufrufer | Frische-Schwelle | Effekt |
 |---|---|---|
-| `compute_post_trade_returns` | Ticker refetchen, wenn jüngster Close älter als `POST_TRADE_PRICE_CACHE_TTL_DAYS = 7` Tage | historische Horizonte brauchen keine Tagesaktualität |
+| `compute_post_trade_returns` | Ticker refetchen, wenn jüngster Close älter als `POST_TRADE_PRICE_CACHE_TTL_DAYS = 1` Tag | Der `--delta`-Lauf rechnet über den vollen kombinierten Master (History ∪ Delta); TTL=1 erzwingt tagesaktuelle Preise bei jedem täglichen Lauf |
 | `compute_paper_returns` | Ticker refetchen, wenn jüngster Close älter als letzter Handelstag (`heute − BDay(RECENT_PRICE_MAX_AGE_BUSINESS_DAYS=1)`) | Mark-to-Market braucht den aktuellen Kurs |
 | **delistete Ticker** (NaN-Marker, seit 2026-06-14) | Re-Check nur, wenn `last_checked_date` älter als `POST_TRADE_DELISTED_RECHECK_DAYS = 30` Tage | verhindert wiederholte yfinance-Calls für tote Ticker, ohne sie dauerhaft auszuschließen |
 
@@ -87,6 +87,20 @@ zum NetworkCanary-gestützten Marker-Schema: `organisation/Briefing_stage_post_t
 > **Wichtig:** Refresht werden in einem Lauf nur die **Ticker, die der Lauf gerade berührt** — im
 > Normal-Lauf alle applicable Ticker, im `--delta`-Lauf die Ticker aus *History ∪ Delta* (Historie
 > nötig fürs Exit-Detection-Fenster) bzw. fürs Mark-to-Market die Recent-Ticker.
+>
+> **Tägliches Refetch-Fenster (`POST_TRADE_REFRESH_WINDOW_DAYS = 199`):** Der tägliche TTL-1-Refresh
+> innerhalb von `compute_post_trade_returns` ist auf Ticker begrenzt, bei denen mindestens eine
+> Position mit `transaction_date ≥ heute − 199` existiert (199 = max(POST_TRADE_HORIZONS_DAYS)=180
+> + 19 Tage Puffer). Ältere Positionen haben finale Horizont-Metriken; ihre bereits gecachten
+> Preise werden nicht neu geladen. **Nicht-gecachte Ticker werden weiterhin immer geladen**
+> (Full-Rebuild-Erstbefüllung bleibt vollständig). `None` = altes Verhalten (alle fälligen
+> Ticker refetchen). Das Fenster ist bewusst von der Horizont-Liste entkoppelt — die
+> Horizont-Spalten (30/60/90/120/180d) bleiben unverändert.
+>
+> **Abgrenzung Mark-to-Market:** `paper_return_pct` (`compute_paper_returns`,
+> `cutoff_date=last_bday`) bleibt tagesaktuell und ist **nicht** vom Refetch-Fenster
+> gegated — das Fenster trimmt ausschließlich den Horizont-Backfill (`post_return_*d`)
+> für geschlossene/abgelaufene Positionen.
 
 ---
 
@@ -94,7 +108,7 @@ zum NetworkCanary-gestützten Marker-Schema: `organisation/Briefing_stage_post_t
 
 | Lauf | Verarbeitete Trades | Historische Returns (`post_*`, `exit_*`, `effective_*`) | Mark-to-Market (`paper_return_pct`, `price_as_of`) | Cache-Refresh | Master |
 |---|---|---|---|---|---|
-| `import_trades.py` (Normal / Full Rebuild) | **alle** | **für alle Trades neu** | für ganzes Recent-Fenster | alle applicable Ticker (TTL 7d) | komplett neu geschrieben |
+| `import_trades.py` (Normal / Full Rebuild) | **alle** | **für alle Trades neu** | für ganzes Recent-Fenster | alle applicable Ticker (TTL 1d; Fenster-Limit greift hier nicht da alle Positionen berührt werden) | komplett neu geschrieben |
 | `import_trades.py --delta` | **nur neue** (via `trade_id`) | **nur für neue Trades**; bestehende bleiben unverändert | **für ganzes Recent-Fenster** (delta-unabhängig) | Ticker aus History ∪ Delta | Merge via `trade_id` |
 | `import_trades.py --dry_run` | alle | für alle (in Staging) | ganzes Recent-Fenster (Stage-Frame) | wie Normal | `trades_stage.csv`, Master unberührt |
 | `import_trades.py --stage_post_trade_performance` (Einzel-Stage, ohne `--delta`) | alle (voller Master) | **für alle Trades neu** | ganzes Recent-Fenster | alle applicable Ticker | s. Stage-I/O |

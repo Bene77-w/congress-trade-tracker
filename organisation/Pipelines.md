@@ -973,11 +973,19 @@ Default-Verhalten: reversibler **Move** nach `archive/reset_pipeline/reset_<ts>/
 **CLI:**
 ```
 --logs              logs/*.log + logs/debug_tesseract/
---stage-files       *_stage.csv, pipeline_state.json, duplicate_inspection_sample.csv
---ticker-caches     ticker_type_cache.db, ticker_industry_cache.json, ticker_0_cache.json
+--stage-files       *_stage.csv, pipeline_state.json, duplicate_inspection_sample.csv,
+                    .enrichment_checkpoint.pkl
+--cache_reset       gesamtes data/cache/* (OpenFIGI-DB, EDGAR-CIK-Map,
+                    Post-Trade-Preishistorie + jeder kuenftige Cache) +
+                    ticker_industry_cache.json, ticker_0_cache.json (data/mappings/)
+                    Naechster Lauf netzabhaengig (EDGAR + yfinance Refetch).
 --processed         trades_master[_complete].csv, manual_review_tickers.csv,
-                    unmatched_*.csv, delisted_trades.csv, ticker_liste_index.csv
---all               alle vier Gruppen kombiniert
+                    unmatched_*.csv, delisted_trades.csv, ticker_liste_index.csv,
+                    suspicious_events.csv, suspicious_assets.csv, suspicious_members.csv
+--congress-api      data/congress_api/*.json (Bill-Daten + Checkpoint)
+--rebuild           cache-unabhaengiger import_trades-Rebuild:
+                    stage-files + cache_reset + processed (OHNE logs/congress-api)
+--all               alle fuenf Gruppen kombiniert (inkl. logs + congress-api)
 --dry-run           keine Aktion, nur Vorschau
 --purge             echtes rm statt Move (irreversibel, doppelte Confirmation)
 ```
@@ -985,8 +993,8 @@ Default-Verhalten: reversibler **Move** nach `archive/reset_pipeline/reset_<ts>/
 **Confirmation-Stufen:**
 | Flag | Prompt |
 |------|--------|
-| `--logs`, `--stage-files`, `--ticker-caches` | einfach `[j/N]` |
-| `--processed`, `--all` | getipptes `JA` |
+| `--logs`, `--stage-files`, `--cache_reset` | einfach `[j/N]` |
+| `--processed`, `--congress-api`, `--rebuild`, `--all` | getipptes `JA` |
 | `--purge` (zusätzlich) | getipptes `PURGE` |
 
 **Geschützt (nie verschoben/gelöscht):** `name_aliases.csv`,
