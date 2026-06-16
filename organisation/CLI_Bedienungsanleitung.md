@@ -857,26 +857,37 @@ Defense-in-Depth. Default ist ein reversibler **Move** nach
 # Logs (logs/*.log + logs/debug_tesseract/)
 python scripts/reset_pipeline.py --logs
 
-# Stage-Files (*_stage.csv, pipeline_state.json, duplicate_inspection_sample.csv)
+# Stage-Files (*_stage.csv, pipeline_state.json, duplicate_inspection_sample.csv,
+#              .enrichment_checkpoint.pkl)
 python scripts/reset_pipeline.py --stage-files
 
-# Ticker-Caches (ticker_type_cache.db, ticker_industry_cache.json, ticker_0_cache.json)
-python scripts/reset_pipeline.py --ticker-caches
+# Cache-Reset: gesamtes data/cache/* (ticker_type_cache.db / OpenFIGI,
+#   edgar_cik_map.json / SEC EDGAR, price_history.parquet / Post-Trade-Preise
+#   + jeder künftige Cache) PLUS yfinance-Sektor-Caches unter data/mappings/
+#   (ticker_industry_cache.json, ticker_0_cache.json).
+# Hinweis: naechster import_trades-Lauf ist netzabhaengig (EDGAR- und yfinance-Refetch).
+python scripts/reset_pipeline.py --cache_reset
 
 # Processed-Outputs (trades_master[_complete].csv, manual_review_tickers.csv,
-# unmatched_*.csv, delisted_trades.csv, ticker_liste_index.csv)
+#   unmatched_*.csv, delisted_trades.csv, ticker_liste_index.csv,
+#   suspicious_events.csv, suspicious_assets.csv, suspicious_members.csv)
 python scripts/reset_pipeline.py --processed
 
 # Congress-API JSONs (bills_list, bill_details, bill_actions, bill_committees,
-# bill_summaries, bill_subjects, fetch_checkpoint, fetch_log, votes_*)
+# bill_summaries, bill_subjects, fetch_checkpoint, fetch_log)
 # Hinweis: nach Reset ist ein vollstaendiger ~7-8h Re-Fetch via fetch_congress_data.py noetig
 python scripts/reset_pipeline.py --congress-api
 
-# Alle fünf Gruppen
+# Cache-unabhaengiger import_trades-Rebuild in einem Befehl:
+#   stage-files + cache_reset + processed (OHNE logs/congress-api)
+# Naechster Lauf ist netzabhaengig (EDGAR + yfinance). Erfordert getipptes "JA".
+python scripts/reset_pipeline.py --rebuild
+
+# Alle fuenf Gruppen (inkl. logs + congress-api)
 python scripts/reset_pipeline.py --all
 
 # Vorschau ohne Aktion
-python scripts/reset_pipeline.py --all --dry-run
+python scripts/reset_pipeline.py --rebuild --dry-run
 
 # Echtes rm statt Move (irreversibel, doppelte Confirmation)
 python scripts/reset_pipeline.py --processed --purge
@@ -886,8 +897,8 @@ python scripts/reset_pipeline.py --processed --purge
 
 | Flag-Kombination | Prompt |
 |------------------|--------|
-| `--logs`, `--stage-files`, `--ticker-caches` | einfach `[j/N]` |
-| `--processed`, `--congress-api`, `--all` | getipptes `JA` |
+| `--logs`, `--stage-files`, `--cache_reset` | einfach `[j/N]` |
+| `--processed`, `--congress-api`, `--rebuild`, `--all` | getipptes `JA` |
 | zusätzlich `--purge` | getipptes `PURGE` |
 
 **Output:** Pro Datei `[OK]` / `[X]` / `[SKIP]` mit Größe und Dauer, Zwischensummen

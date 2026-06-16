@@ -478,6 +478,73 @@ def test_invalid_tickers_rejected_before_yfinance():
 
 
 # ---------------------------------------------------------------------------
+# 16b. Refetch-Fenster (Option A): refresh_eligible begrenzt den TTL-Refresh
+# ---------------------------------------------------------------------------
+
+def test_refresh_eligible_gate_excludes_closed_positions(monkeypatch):
+    """Option A (POST_TRADE_REFRESH_WINDOW_DAYS -> refresh_eligible):
+
+    - veralteter, NICHT aktiver Ticker (alle Positionen geschlossen/abgelaufen)
+      -> KEIN erneuter Fetch (Cache bleibt unveraendert),
+    - aktiver veralteter Ticker -> Fetch,
+    - noch nicht gecachter Ticker -> IMMER Fetch (Full-Rebuild-Erstbefuellung),
+      unabhaengig vom Fenster.
+    """
+    import scoring.post_trade_returns as ptr
+    monkeypatch.setattr(ptr, '_save_price_cache', lambda df, path: None)
+
+    calls: list[str] = []
+
+    def _fake_download(tkr, fetch_years, on_attempt_failed=None):
+        calls.append(tkr)
+        return pd.DataFrame(
+            {'Close': [111.0]},
+            index=pd.DatetimeIndex(
+                [pd.Timestamp.now().normalize()], name='Date'),
+        )
+
+    monkeypatch.setattr(ptr, '_download_with_retry', _fake_download)
+
+    class _GreenCanary:
+        """Haelt den Fetch-Commit-Pfad offline (kein echtes yfinance-Probe)."""
+        saw_throttle = False
+
+        def verdict(self):
+            return ptr.GREEN
+
+        def force_reprobe(self):
+            return ptr.GREEN
+
+        def wait_then_reprobe(self):
+            return ptr.GREEN
+
+    # 'OLD' im Cache mit echtem, VERALTETEM Preis (2020) -> stale ggue. TTL=1.
+    cache = _make_cache([('OLD', '2020-01-02', 100.0)])
+
+    # (1) Gate aktiv, OLD nicht aktiv -> KEIN Fetch, Cache unveraendert.
+    out = _ensure_cache_for_tickers(
+        cache, ['OLD'], cache_ttl_days=1,
+        refresh_eligible=set(), canary=_GreenCanary())
+    assert calls == []
+    assert out.equals(cache)
+
+    # (2) OLD aktiv (im refresh_eligible-Set) -> Fetch ausgeloest.
+    calls.clear()
+    _ensure_cache_for_tickers(
+        cache, ['OLD'], cache_ttl_days=1,
+        refresh_eligible={'OLD'}, canary=_GreenCanary())
+    assert calls == ['OLD']
+
+    # (3) 'NEW' ist nicht gecacht -> IMMER Fetch, auch wenn nicht refresh_eligible.
+    #     'OLD' bleibt geskippt (stale + inaktiv).
+    calls.clear()
+    _ensure_cache_for_tickers(
+        cache, ['OLD', 'NEW'], cache_ttl_days=1,
+        refresh_eligible=set(), canary=_GreenCanary())
+    assert calls == ['NEW']
+
+
+# ---------------------------------------------------------------------------
 # 17. Single-row yfinance-Resultat — kein Crash mehr durch squeeze()
 # ---------------------------------------------------------------------------
 

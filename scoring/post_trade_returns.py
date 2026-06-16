@@ -198,6 +198,7 @@ def _ensure_cache_for_tickers(
     flush_every: int = 50,
     cutoff_date: pd.Timestamp | None = None,
     delisted_recheck_days: int | None = None,
+    refresh_eligible: set[str] | None = None,
     canary: NetworkCanary | None = None,
     time_fn: Callable[[], float] | None = None,
     verbose_timeouts: bool = True,
@@ -206,10 +207,18 @@ def _ensure_cache_for_tickers(
 
     Refresh-Auswahl (Phase 0):
     - Ticker mit echten Preisen: Refresh wenn ``max(real date) < cutoff``
-      (``cutoff_date`` oder ``today - cache_ttl_days``).
+      (``cutoff_date`` oder ``today - cache_ttl_days``) UND der Ticker im
+      ``refresh_eligible``-Set liegt (oder das Set ``None`` ist).
     - **Delisted** (Ticker mit ausschliesslich ``close=NaN``-Markern): Refresh erst,
       wenn der Marker (last_checked) aelter als ``delisted_recheck_days`` ist
       (last_checked-TTL). Alt-Marker (1900-01-01) sind immer faellig (Heilung).
+
+    ``refresh_eligible``: Optionales Set von Tickern (UPPER), die fuer den
+    TTL-Refresh in Frage kommen. ``None`` = alle (altes Verhalten). Ticker, die
+    NOCH NICHT im Cache sind, werden unabhaengig davon IMMER geladen — der Filter
+    begrenzt nur das erneute Laden bereits gecachter, aber veralteter Preise
+    (z.B. um geschlossene/abgelaufene Positionen vom taeglichen Refetch
+    auszunehmen).
 
     Netz-Robustheit (Variante B, s. ``~/.claude/plans/network-robustness-canary.md``):
     - yfinance-Exceptions (Timeouts) werden im Backoff wiederholt UND sichtbar
@@ -274,9 +283,11 @@ def _ensure_cache_for_tickers(
             continue
         max_real, max_marker = f
         if max_real is not None:
-            if max_real < cutoff:
-                need_refresh.append(tkr)  # echte Preise veraltet
-            # sonst: frische Preise -> skip
+            if max_real < cutoff and (
+                refresh_eligible is None or tkr in refresh_eligible
+            ):
+                need_refresh.append(tkr)  # echte Preise veraltet + aktiver Ticker
+            # sonst: frisch ODER nur noch geschlossene/abgelaufene Positionen -> skip
         else:
             # nur Marker (delisted) -> last_checked-TTL
             if max_marker is None or max_marker < delisted_cutoff:
@@ -623,6 +634,7 @@ def compute_post_trade_returns(
     cache_flush_every: int = 50,
     progress_every: int = 20000,
     exit_window_days: int | None = None,
+    refresh_window_days: int | None = None,
 ) -> pd.DataFrame:
     """Erweitert df um Post-Trade-Spalten. Idempotent. Liefert NEUE Kopie.
 
@@ -677,6 +689,30 @@ def compute_post_trade_returns(
     tickers_relevant = (
         relevant.dropna().astype(str).str.strip().str.upper().unique().tolist()
     )
+
+    # Refetch-Fenster (Option A): begrenzt den TTL-Refresh auf Ticker mit
+    # mindestens einer Position innerhalb der letzten ``refresh_window_days``.
+    # Aeltere (geschlossene/abgelaufene) Positionen haben finale Metriken -> ihre
+    # bereits gecachten Preise werden nicht mehr neu geladen. Noch nicht gecachte
+    # Ticker laedt _ensure_cache_for_tickers unabhaengig davon (Erstbefuellung).
+    refresh_eligible: set[str] | None = None
+    if refresh_window_days is not None:
+        window_start = (
+            pd.Timestamp.now().normalize()
+            - pd.Timedelta(days=int(refresh_window_days))
+        )
+        active_mask = (
+            df['_post_trade_applicable']
+            & (df['transaction_date'] >= window_start)
+        )
+        refresh_eligible = set(
+            df.loc[active_mask, 'ticker']
+            .dropna().astype(str).str.strip().str.upper().unique().tolist()
+        )
+        print(f"  Refetch-Fenster {refresh_window_days}d: "
+              f"{len(refresh_eligible):,} aktive von {len(tickers_relevant):,} "
+              f"relevanten Tickern fuer TTL-Refresh berechtigt.")
+
     cache = _ensure_cache_for_tickers(
         cache,
         tickers_relevant,
@@ -684,6 +720,7 @@ def compute_post_trade_returns(
         cache_ttl_days=cache_ttl_days,
         cache_path=cache_path,
         flush_every=cache_flush_every,
+        refresh_eligible=refresh_eligible,
     )
 
     max_horizon = max(horizons_days)

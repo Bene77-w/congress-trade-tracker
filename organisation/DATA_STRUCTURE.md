@@ -454,7 +454,7 @@ CREATE TABLE ticker_types (
 ### `data/cache/price_history.parquet`
 **Quelle**: Automatisch von `scoring/post_trade_returns.py` (`compute_post_trade_returns`) via yfinance.
 **Format**: Parquet (Pandas MultiIndex)
-**Update**: Bei jedem Import (nur neue Ticker werden abgefragt; Cache-TTL 7 Tage via `POST_TRADE_PRICE_CACHE_TTL_DAYS`).
+**Update**: Bei jedem Import; Cache-TTL = 1 Tag (`POST_TRADE_PRICE_CACHE_TTL_DAYS = 1`, seit 2026-06-16). Nie gecachte Ticker werden immer geladen; bei stale-Tickern greift das Refetch-Fenster `POST_TRADE_REFRESH_WINDOW_DAYS = 199` (nur Positionen ≤ 199d alt). Details: `organisation/Preis_Aktualisierung.md` §3.
 **Atomare Speicherung**: tmp + rename verhindert Korruption bei Abbruch.
 
 **Struktur**:
