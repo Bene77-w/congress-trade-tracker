@@ -573,7 +573,21 @@ POST_TRADE_PRICE_CACHE = 'data/cache/price_history.parquet'
 # Erstabruf-Fenster pro Ticker.
 POST_TRADE_PRICE_FETCH_YEARS = 5
 # Refresh-Schwelle pro Ticker (max(date) < today - TTL -> Refresh).
-POST_TRADE_PRICE_CACHE_TTL_DAYS = 7
+# 1 Tag: jeder orchestrierte --delta-Lauf erzwingt tagesaktuelle Preise (der
+# Lauf rechnet compute_post_trade_returns ueber den vollen kombinierten Master,
+# History + Delta). Trade-off: taeglicher Voll-Refetch aller faelligen Ticker.
+POST_TRADE_PRICE_CACHE_TTL_DAYS = 1
+# Refetch-Fenster (Tage): begrenzt den TAEGLICHEN TTL-Refresh auf Ticker mit
+# mindestens einer Position, deren transaction_date >= heute - N liegt. Aeltere
+# (geschlossene/abgelaufene) Positionen haben finale Horizont-Metriken -> ihre
+# bereits gecachten Preise werden NICHT mehr neu geladen. Ticker, die noch GAR
+# NICHT im Cache sind, werden weiterhin IMMER geladen (Full-Rebuild-Erstbefuellung
+# bleibt vollstaendig). None = altes Verhalten (alle faelligen Ticker refetchen).
+# 199 = max(POST_TRADE_HORIZONS_DAYS) (180) + 19 Tage Puffer: robust gegen einen
+# verpassten Lauf am Horizont-Grenztag (sonst koennte post_return_180d NaN
+# bleiben, bis ein Full-Rebuild heilt). Bewusst ENTKOPPELT vom Horizont — die
+# Horizont-Spalten (30/60/90/120/180) bleiben davon unberuehrt.
+POST_TRADE_REFRESH_WINDOW_DAYS = 199
 # Toleranz fuer Exit-Schwelle (0.0 = strikt; 0.1 = 10% Unterdeckung erlaubt).
 POST_TRADE_EXIT_AMOUNT_TOLERANCE = 0.0
 # Inkrementelles Cache-Flushing: alle N erfolgreich gefetchte Ticker zwischenspeichern.
