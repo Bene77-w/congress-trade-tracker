@@ -662,10 +662,27 @@ Stage-Dateien (`unmatched_names_stage.csv`, `delisted_trades_stage.csv`) werden 
   KEIN eindeutiger Schlüssel im Master.
 - `'last_wins'`: Nur die letzte Zeile pro `trade_id` wird behalten.
 - Wirkt in `_merge_into_master` (`scripts/import_trades.py`) und `scripts/migrate_add_trade_ids.py`.
-- Delta-Erkennung zwischen Läufen (`detect_new_trades`) ist davon nicht betroffen.
+- Delta-Erkennung zwischen Läufen (`detect_new_trades`) respektiert dieselbe Strategie
+  (Multiset-Differenz, s.u.).
 
-**Delta-Modus** (`--delta`): Lädt aktuelle Quiver-CSV, vergleicht per Key-Dedup gegen bestehende
-trades_master.csv, reichert nur neue Trades an und mergt sie (mit Dedup) in Master.
+**Delta-Erkennung (`detect_new_trades` in `utils/trade_id.py`):** Berechnet die Multiset-Differenz
+Input − Master via `groupby('trade_id').cumcount()`. Hat eine `trade_id` im Master m Kopien und im
+Input i Kopien, gelten die (i − m) überzähligen Input-Vorkommen als neu. Damit bleibt
+`keep_all`-treues Verhalten erhalten: legitime Mehrfach-Vorkommen derselben `trade_id`
+(z.B. gleichzeitige Trades in identischem Ticker) gehen im Delta-Modus nicht verloren.
+Normalfall (rein neue oder rein unveränderte `trade_id`s) ist verhaltensidentisch zur früheren
+Set-Membership-Logik.
+
+**Master-Sortierung:** Jeder Master-Schreibvorgang (staged via `_stage_save` / `_write_stage_output`
+und monolithisch via `run()` / `run_delta`) sortiert den Master absteigend nach `transaction_date`
+(Helper `_sort_master_by_date` in `scripts/import_trades.py`). Tiebreak innerhalb desselben Datums =
+Eingabe-/Quell-Reihenfolge (Quiver liefert bereits absteigend). Zeilen ohne parsebares
+`transaction_date` (NaT) wandern ans Ende. Die CSV-Serialisierung des Datums bleibt unverändert.
+`trades_master.csv` (Curated) erbt die Reihenfolge, da er aus dem bereits sortierten Complete
+abgeleitet wird.
+
+**Delta-Modus** (`--delta`): Lädt aktuelle Quiver-CSV, erkennt neue Trades per Multiset-Differenz
+(s. `detect_new_trades` oben), reichert nur neue Trades an und mergt sie (mit Dedup) in Master.
 
 **Einzelstage re-runnen (Beispiele):**
 ```bash
