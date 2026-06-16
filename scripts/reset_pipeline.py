@@ -12,7 +12,8 @@ Schutzmechanik:
 
 Aufruf-Beispiele:
   python scripts/reset_pipeline.py --logs --dry-run
-  python scripts/reset_pipeline.py --ticker-caches
+  python scripts/reset_pipeline.py --cache_reset
+  python scripts/reset_pipeline.py --rebuild --dry-run   # cache-unabhaengiger import_trades-Rebuild
   python scripts/reset_pipeline.py --all
   python scripts/reset_pipeline.py --processed --purge
 """
@@ -59,9 +60,18 @@ TARGETS: dict[str, list[Path | str]] = {
         str(DATA_PROCESSED / "*_stage.csv"),
         DATA_PROCESSED / "pipeline_state.json",
         DATA_PROCESSED / "duplicate_inspection_sample.csv",
+        # Resume-Checkpoint des Member-Enrichments: ein stale Checkpoint nach
+        # einem Abbruch laesst die Pipeline einen Teil-Lauf fortsetzen statt neu
+        # zu starten -> fuer einen frischen Rebuild zwingend entfernen.
+        DATA_PROCESSED / ".enrichment_checkpoint.pkl",
     ],
-    "ticker-caches": [
-        DATA_CACHE / settings.TICKER_TYPE_CACHE_DB,
+    "cache_reset": [
+        # Gesamtes Cache-Verzeichnis (Wildcard, zukunftssicher): deckt
+        # ticker_type_cache.db (OpenFIGI), edgar_cik_map.json (SEC EDGAR) und
+        # price_history.parquet (Post-Trade-Preise) sowie jeden kuenftigen
+        # Cache automatisch ab. .gitkeep ist via PROTECTED_FILES geschuetzt.
+        str(DATA_CACHE / "*"),
+        # yfinance-Sektor-Caches liegen unter data/mappings/, nicht data/cache/:
         DATA_MAPPINGS / settings.TICKER_INDUSTRY_CACHE_FILE,
         DATA_MAPPINGS / settings.TICKER_0_CACHE_FILE,
     ],
@@ -73,6 +83,13 @@ TARGETS: dict[str, list[Path | str]] = {
         DATA_PROCESSED / "unmatched_preferred.csv",
         DATA_PROCESSED / "delisted_trades.csv",
         DATA_PROCESSED / "ticker_liste_index.csv",
+        # Suspicious-Persistenz: suspicious_events.csv ist append-only und wird
+        # von import_trades.py NIE getruncatet (full+delta nur append+dedup) ->
+        # fuer einen sauberen Rebuild zwingend zuruecksetzen. Die beiden Views
+        # werden daraus materialisiert und der Konsistenz halber mitentfernt.
+        DATA_PROCESSED / settings.SUSPICIOUS_EVENTS_FILE,
+        DATA_PROCESSED / settings.SUSPICIOUS_ASSETS_FILE,
+        DATA_PROCESSED / settings.SUSPICIOUS_MEMBERS_FILE,
     ],
     "congress-api": [
         DATA_CONGRESS_API / "bills_list.json",
@@ -105,6 +122,9 @@ PROTECTED_FILES: frozenset[Path] = frozenset(
         DATA_MAPPINGS / "legislative_subject_mapping_complete.csv",
         DATA_MAPPINGS / "vote_sector_mapping.py",
         LOGS / "house_pdf_extractor_done.csv",
+        # Verzeichnis-Platzhalter: darf von der data/cache/*-Wildcard nicht
+        # mitgeloescht werden (sonst verschwindet das versionierte Cache-Dir).
+        DATA_CACHE / ".gitkeep",
     ]
 )
 
@@ -339,15 +359,17 @@ def main() -> int:
     parser.add_argument("--logs", action="store_true",
                         help="logs/*.log + logs/debug_tesseract/")
     parser.add_argument("--stage-files", action="store_true",
-                        help="*_stage.csv, pipeline_state.json, duplicate_inspection_sample.csv")
-    parser.add_argument("--ticker-caches", action="store_true",
-                        help="ticker_type_cache.db + ticker_industry_cache.json + ticker_0_cache.json")
+                        help="*_stage.csv, pipeline_state.json, duplicate_inspection_sample.csv, .enrichment_checkpoint.pkl")
+    parser.add_argument("--cache_reset", action="store_true",
+                        help="gesamtes data/cache/* (OpenFIGI-DB, EDGAR-CIK, Post-Trade-Preise) + ticker_industry/0_cache.json")
     parser.add_argument("--processed", action="store_true",
-                        help="trades_master*.csv + manual_review + unmatched* + delisted* (DESTRUKTIV)")
+                        help="trades_master*.csv + manual_review + unmatched* + delisted* + suspicious_* (DESTRUKTIV)")
     parser.add_argument("--congress-api", action="store_true",
                         help="data/congress_api/*.json (Bill-Daten + Checkpoint, ~7-8h Re-Fetch noetig, DESTRUKTIV)")
+    parser.add_argument("--rebuild", action="store_true",
+                        help="cache-unabhaengiger import_trades-Rebuild: stage-files + cache_reset + processed (DESTRUKTIV)")
     parser.add_argument("--all", action="store_true",
-                        help="alle fuenf oben kombiniert")
+                        help="alle fuenf oben kombiniert (inkl. logs + congress-api)")
     parser.add_argument("--dry-run", action="store_true",
                         help="keine Aktion, nur Vorschau")
     parser.add_argument("--purge", action="store_true",
@@ -356,14 +378,19 @@ def main() -> int:
 
     active_flags: list[str] = []
     if args.all:
-        active_flags = ["logs", "stage-files", "ticker-caches", "processed", "congress-api"]
+        active_flags = ["logs", "stage-files", "cache_reset", "processed", "congress-api"]
+    elif args.rebuild:
+        # Cache-unabhaengiger import_trades-Rebuild: alle generierten Caches +
+        # Stage-Dateien + Processed (inkl. append-only suspicious_events.csv),
+        # OHNE logs/congress-api — Letztere gehoeren nicht zur import_trades-Pipeline.
+        active_flags = ["stage-files", "cache_reset", "processed"]
     else:
         if args.logs:
             active_flags.append("logs")
         if args.stage_files:
             active_flags.append("stage-files")
-        if args.ticker_caches:
-            active_flags.append("ticker-caches")
+        if args.cache_reset:
+            active_flags.append("cache_reset")
         if args.processed:
             active_flags.append("processed")
         if args.congress_api:
@@ -372,7 +399,7 @@ def main() -> int:
     if not active_flags:
         parser.print_help()
         print("\n[X] Mindestens ein Flag erforderlich "
-              "(--logs / --stage-files / --ticker-caches / --processed / --congress-api / --all)")
+              "(--logs / --stage-files / --cache_reset / --processed / --congress-api / --rebuild / --all)")
         return 1
 
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
