@@ -1948,7 +1948,8 @@ with tab_corr_analysis:
 
     st.caption(
         'Score-Validierung wie im Korrelations-Tab, aber zum Slicen: '
-        'Score-Quantil-Buckets (mittlerer Return je Score-Niveau) und '
+        'Score-Buckets (gleich breite Score-Intervalle, mittlerer Return je '
+        'Score-Niveau) und '
         'Pro-Signal-Korrelation, beide filterbar nach Kammer und Partei. '
         'Umgeht den globalen Horizont-Filter; globale Suche + Sidebar-Score-'
         'Overrides wirken mit.'
@@ -1962,7 +1963,7 @@ with tab_corr_analysis:
         )
     with ac2:
         n_buckets = st.selectbox(
-            'Score-Buckets (Quantile)',
+            'Score-Buckets (gleich breit)',
             list(settings.SCORE_CORR_BUCKET_OPTIONS),
             index=list(settings.SCORE_CORR_BUCKET_OPTIONS).index(
                 settings.SCORE_CORR_BUCKET_DEFAULT)
@@ -1994,7 +1995,7 @@ with tab_corr_analysis:
     rc = score_corr.return_col(an_horizon)
     mat = _matured_subset(an_base, rc)
 
-    st.subheader('Score-Quantil-Buckets')
+    st.subheader('Score-Buckets')
     if mat.empty:
         st.info('Keine auswertbaren Trades fuer die aktuelle Auswahl.')
     else:
@@ -2014,7 +2015,7 @@ with tab_corr_analysis:
                 marker_color='#1f77b4',
             ))
             fig_b.update_layout(
-                xaxis_title='trade_score-Bucket (Quantil)',
+                xaxis_title='trade_score-Bucket (gleich breit)',
                 yaxis_title=f'Ø post_return_{an_horizon}d (%)',
                 height=400, margin=dict(l=10, r=10, t=10, b=10),
             )
