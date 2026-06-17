@@ -19,6 +19,15 @@ Du erhältst ein strukturiertes Briefing vom aufrufenden Agenten (i. d. R. via S
 - Kein Duplizieren von Inhalten zwischen Dateien
 - Bei Unklarheiten: frage zurück, schreib nichts Unsicheres
 
+### Token-Effizienz (verbindlich — die Doku-Dateien sind groß: DATA_STRUCTURE.md ~1750 Zeilen)
+
+- **Read-Minimierung:** Nennt das Briefing pro Ziel-Datei einen Anker (`→ Abschnitt …, ca. Zeile N`),
+  lade die Datei **nur abschnittsweise** via `Read` mit `offset`/`limit` (z. B. `offset: N-20, limit: 80`).
+  Lies eine große Doku-Datei **nie ganz**, wenn ein Anker vorliegt. Stimmt der Anker nicht, grepe
+  gezielt das Heading (`grep -n '^#' <datei>`) statt die Datei komplett zu lesen.
+- **`Edit` statt `Write`:** Bestehende Doku **immer** per `Edit` (chirurgischer String-Replace) ändern,
+  **nie** per `Write` neu schreiben — der Write-Output kostet ca. das 5-fache des Inputs.
+
 ## Welche Doku wann — Routing
 
 Kanonische Routing-Quelle ist **`organisation/DOKU_INDEX.md`** (Datei · Zweck · „Aktualisieren bei").
@@ -46,8 +55,8 @@ im Zweifel `DOKU_INDEX.md` konsultieren. Merksätze für die zwei Top-Level-Ziel
 ### Neue Signale / Gewichte
 - ...
 
-### Betroffene Doku-Dateien
-- organisation/DATA_STRUCTURE.md → ...
+### Betroffene Doku-Dateien (mit Abschnitts-Anker — für Read offset/limit)
+- organisation/DATA_STRUCTURE.md → Abschnitt „7c. App-Module", ca. Zeile 1340 → was ändern
 - CLAUDE.md → ...
 ```
 

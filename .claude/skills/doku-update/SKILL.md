@@ -22,11 +22,16 @@ Sub-Agent-Aufruf vor.
 
 ## Ablauf
 
-1. **Scope aus git** (Ground Truth, was dieser Branch angefasst hat):
+1. **Scope aus git** (Ground Truth, was dieser Branch an **Code** angefasst hat):
    ```bash
    git diff main...HEAD --stat   # Branch-Footprint ggü. Merge-Base (committed)
    git status                    # noch uncommitted
    ```
+   > **Wer nutzt das:** nur der **Main-Agent**, als Komplettheits-Check beim Briefing-Bauen — er
+   > geht **nicht** an den doku-agent. Zweck: objektive Gegenliste zum Pitch (Gedächtnis vergisst);
+   > jede hier gelistete Code-Datei muss im Briefing eine Doku-Konsequenz haben oder als
+   > „doku-irrelevant" begründet sein. Das ist der **Input** (geänderte Code-Dateien), nicht der
+   > Doku-Output — den zeigt Schritt 5.
 2. **Routing** — `organisation/DOKU_INDEX.md` lesen: jede geänderte Datei / jeden Änderungstyp
    (neue Spalte, neue Stage, neues Signal, neues CLI-Flag …) der „Aktualisieren bei"-Spalte
    zuordnen → Liste der zu pflegenden Doku-Dateien.
@@ -34,10 +39,21 @@ Sub-Agent-Aufruf vor.
      „Aktueller Stand (WIP)"-Block von `AGENTS.md` nach `CHANGELOG.md` migrieren **und den
      WIP-Block leeren/auf das nächste aktive Modul umstellen**. So bleibt der WIP-Block die
      einzige handgepflegte Stelle nicht dauerhaft veraltet.
+2b. **Abschnitts-Anker bestimmen** (Token-Hebel — die Doku-Dateien sind groß, z. B.
+   `DATA_STRUCTURE.md` ~1750 Zeilen): pro Ziel-Datei aus Schritt 2 das relevante Heading grepen,
+   damit der Subagent nur den Abschnitt statt der ganzen Datei lädt:
+   ```bash
+   grep -n '^#' organisation/DATA_STRUCTURE.md   # Heading → Zeilennummer je Ziel-Datei
+   ```
+   Den so ermittelten Anker (`→ Abschnitt …, ca. Zeile N`) in die Briefing-Dateiliste übernehmen.
+   Selbst grep'en kostet ~nichts; es spart dem Subagent den Whole-File-Read (~22k Tokens pro Datei).
 3. **Briefing bauen** (Struktur s. `.claude/agents/doku-agent.md`): semantische Zusammenfassung
-   (Pitch) + die git-diff-Dateiliste als Komplettheits-Check. Jede im Diff geänderte Code-Datei
-   muss entweder im Briefing eine Doku-Konsequenz haben **oder** explizit als „doku-irrelevant"
-   begründet sein — keine stille Lücke.
+   (Pitch) + die git-diff-Dateiliste als Komplettheits-Check + **pro Ziel-Datei den Abschnitts-Anker
+   aus 2b**. Jede im Diff geänderte Code-Datei muss entweder im Briefing eine Doku-Konsequenz haben
+   **oder** explizit als „doku-irrelevant" begründet sein — keine stille Lücke.
+   - **Der Hauptagent liest die großen Doku-Dateien dabei NICHT selbst** — Routing (DOKU_INDEX, 49 Z.)
+     + `git diff --stat` (nur Dateinamen) + Session-Kontext genügen fürs Briefing. Whole-File-Reads
+     der Doku sind Sache des Sonnet-Subagents, nicht des (teuren) Hauptagenten.
 4. **Sub-Agent rufen** (Default Sonnet; in einer **DeepSeek-Session** `model: "flash"` übergeben):
    ```
    Agent({
@@ -46,12 +62,17 @@ Sub-Agent-Aufruf vor.
      prompt: "## Briefing: …"            // + model: "flash" nur in DeepSeek-Sessions
    })
    ```
-5. **Review vor Merge** — nach dem Lauf die Doku-Änderungen zeigen:
+5. **Review vor Merge** — nach dem Lauf die Doku-Änderungen **dem User** vorlegen:
    ```bash
    git diff -- organisation/ CHANGELOG.md AGENTS.md
    ```
-   Der User prüft, bevor gemergt wird. So schützt git die Single-Source-Dateien vor Drift durch
-   ein schwächeres Modell. **Kein Commit/Merge ohne ausdrücklichen Befehl** (s. AGENTS.md Regel 8).
+   > **Wer nutzt das:** nur der **User**. Das ist der **Output** (welche Doku-Dateien der Subagent
+   > geupdatet hat) — nicht zu verwechseln mit dem Code-Scope aus Schritt 1.
+   **Der User prüft den Diff, nicht der Hauptagent** — den vollen Doku-Diff selbst einzulesen kostet
+   Hauptagent-Tokens zum vollen Preis und ist unnötig (das Review ist menschliche Aufgabe). Der
+   Hauptagent gibt das `git diff`-Kommando aus bzw. meldet nur „Doku aktualisiert, bitte prüfen".
+   So schützt git die Single-Source-Dateien vor Drift durch ein schwächeres Modell.
+   **Kein Commit/Merge ohne ausdrücklichen Befehl** (s. AGENTS.md Regel 8).
 
 ## Worauf der Skill NICHT zielt
 - Kein Auto-Trigger: „Modul fertig" ist eine semantische Bewertung, kein git-Ereignis — der Skill
