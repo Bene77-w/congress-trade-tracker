@@ -650,8 +650,8 @@ SCORE_CORR_DEFAULT_HORIZON_DAYS = 180
 # Return-Ausreisser); Pearson wird zusaetzlich angezeigt. Spearman wird ohne
 # scipy als Pearson auf Raengen berechnet (a.rank().corr(b.rank())).
 SCORE_CORR_DEFAULT_METHOD = 'spearman'
-# Im "Score-Analyse"-Tab waehlbare Bucket-Anzahl (Quantile des trade_score):
-# 3=Tertil, 4=Quartil, 5=Quintil, 10=Dezil.
+# Im "Score-Analyse"-Tab waehlbare Bucket-Anzahl: Anzahl gleich breiter
+# Score-Intervalle (pd.cut ueber die trade_score-Spanne), NICHT Quantile.
 SCORE_CORR_BUCKET_OPTIONS = [3, 4, 5, 10]
 SCORE_CORR_BUCKET_DEFAULT = 5
 # Scatter-Performance: Hoechstzahl gezeichneter Punkte (Sample-Cap, da der
