@@ -29,6 +29,7 @@ from app.chart_helpers import (  # noqa: E402
     build_sale_kind_traces,
 )
 from app.glossary import help_for  # noqa: E402
+from app import score_correlation as score_corr  # noqa: E402
 from app.score_recompute import available_signals, recompute_subset  # noqa: E402
 from app.scoring_presets import (  # noqa: E402
     DEFAULT_PRESET_NAME,
@@ -929,6 +930,22 @@ if needs_recompute:
             params_override=params_override or None,
         )
 
+# --- Score-Korrelations-Basis (horizont-filter-frei, Recompute-konsistent) ---
+# Beide Korrelations-Tabs umgehen den globalen Horizont-Sichtbarkeitsfilter
+# (held-Positionen sind die relevanten Daten) und spiegeln die Sidebar-Overrides
+# (Muster wie der Recent-Tab). Einmal berechnet, von beiden Tabs geteilt -> nur
+# EIN Recompute statt zwei. min_score/primary_horizon wirken hier bewusst NICHT.
+corr_base = apply_prefilter(trades, apply_horizon_filter=False)
+if needs_recompute and not corr_base.empty:
+    with st.spinner(f'Score für Korrelation neu berechnen '
+                    f'({len(corr_base):,} Trades) …'):
+        corr_base = recompute_subset(
+            corr_base,
+            excluded_signals,
+            weights_override=weights_override or None,
+            params_override=params_override or None,
+        )
+
 # --- Trade-Tab-Subset (mit Min-Score + Sortierung) -----------------------
 trade_rows = prefilt
 if min_score > 0:
@@ -1481,8 +1498,10 @@ def render_trade_detail(trade, trade_rows, key_prefix: str) -> None:
 
 
 # --- Tabs ----------------------------------------------------------------
-tab_trades, tab_assets, tab_members, tab_detail, tab_recent = st.tabs(
-    ['Trades', 'Assets', 'Members', 'Post Trade Performance', 'Recent Trades'])
+(tab_trades, tab_assets, tab_members, tab_detail, tab_recent,
+ tab_corr, tab_corr_analysis) = st.tabs(
+    ['Trades', 'Assets', 'Members', 'Post Trade Performance', 'Recent Trades',
+     'Score-Korrelation', 'Score-Analyse'])
 
 with tab_trades:
     n = len(trade_rows)
@@ -1822,3 +1841,217 @@ with tab_recent:
                     if st.button('Alle anzeigen', key='recent_show_all'):
                         st.session_state['recent_show_n'] = len(recent_pool)
                         st.rerun()
+
+
+# --- Score-Korrelation: gemeinsame Helfer ---------------------------------
+_HORIZON_OPTS = list(settings.POST_TRADE_HORIZONS_DAYS)
+try:
+    _HORIZON_DEFAULT_IDX = _HORIZON_OPTS.index(
+        settings.SCORE_CORR_DEFAULT_HORIZON_DAYS)
+except ValueError:
+    _HORIZON_DEFAULT_IDX = len(_HORIZON_OPTS) - 1
+
+
+def _fmt_metric(value, fmt: str = '{:.3f}') -> str:
+    """Metrik-Wert formatieren; NaN/None -> Gedankenstrich."""
+    if value is None or (isinstance(value, float) and math.isnan(value)):
+        return '–'
+    return fmt.format(value)
+
+
+def _matured_subset(df: pd.DataFrame, ret_c: str) -> pd.DataFrame:
+    """Trades mit nicht-NaN trade_score UND Objective Return des Horizonts."""
+    if ret_c not in df.columns or 'trade_score' not in df.columns:
+        return df.iloc[0:0]
+    return df[df[ret_c].notna() & df['trade_score'].notna()]
+
+
+with tab_corr:
+    import plotly.graph_objects as go
+
+    st.caption(
+        'Validiert den trade_score gegen den vorzeichenbehafteten Objective '
+        'Return post_return_{X}d (exit-agnostisch, sell_sign-bereinigt -> '
+        'positiv = Trade lag in seiner Richtung richtig, fuer Kauf UND '
+        'Verkauf). Umgeht den globalen Horizont-Filter und spiegelt die '
+        'globale Suche sowie die Sidebar-Score-Overrides; der globale Datums-/'
+        'Min-Score-Filter wirkt NICHT. Spearman ist die Leitkennzahl '
+        '(Rangkorrelation, robust gegen Return-Ausreisser).'
+    )
+    st.caption(
+        'Limitationen: (1) Delisting-Bias (Survivorship) — delistet ein Ticker '
+        'vor Tag X, ist der Return NaN und der Trade faellt aus der Stichprobe '
+        '-> Verzerrung tendenziell nach oben. (2) Reife-Beschraenkung — Trades '
+        'juenger als X Tage haben per Konstruktion keinen X-Tage-Return; die '
+        'Stichprobe enthaelt nur „reife" Trades (kein Bias). n wird stets '
+        'angezeigt.'
+    )
+
+    corr_horizon = st.selectbox(
+        'Horizont X (Tage)', _HORIZON_OPTS, index=_HORIZON_DEFAULT_IDX,
+        key='corr_horizon',
+    )
+    rc = score_corr.return_col(corr_horizon)
+    mat = _matured_subset(corr_base, rc)
+    stats = score_corr.correlation_stats(mat['trade_score'], mat[rc]) \
+        if not mat.empty else {'spearman': float('nan'),
+                               'pearson': float('nan'), 'n': 0}
+    n_held = (int((mat['exit_status'] == 'held').sum())
+              if 'exit_status' in mat.columns else 0)
+
+    mc1, mc2, mc3, mc4 = st.columns(4)
+    mc1.metric('Spearman-ρ', _fmt_metric(stats['spearman']),
+               help=help_for('score'))
+    mc2.metric('Pearson-r', _fmt_metric(stats['pearson']))
+    mc3.metric('n (Stichprobe)', f'{stats["n"]:,}')
+    mc4.metric('davon held', f'{n_held:,}')
+
+    if stats['n'] < 2:
+        st.info('Zu wenige auswertbare Trades fuer den gewaehlten Horizont.')
+    else:
+        max_pts = int(settings.SCORE_CORR_SCATTER_MAX_POINTS)
+        plot_df = mat
+        sampled = len(plot_df) > max_pts
+        if sampled:
+            plot_df = plot_df.sample(max_pts, random_state=0)
+        # Y-Achse fuer Lesbarkeit auf das 1.–99.-Perzentil klippen (Ausreisser
+        # wuerden den Bulk sonst plattdruecken). Die Kennzahlen oben rechnen
+        # ueber die VOLLE Stichprobe — das Clipping ist rein visuell.
+        ylo = float(mat[rc].quantile(0.01))
+        yhi = float(mat[rc].quantile(0.99))
+        fig = go.Figure(go.Scattergl(
+            x=plot_df['trade_score'], y=plot_df[rc], mode='markers',
+            marker=dict(size=4,
+                        opacity=float(settings.SCORE_CORR_SCATTER_OPACITY),
+                        color='#1f77b4'),
+            name='Trades',
+        ))
+        fig.update_layout(
+            xaxis_title='trade_score',
+            yaxis_title=f'post_return_{corr_horizon}d (%)',
+            height=460, margin=dict(l=10, r=10, t=10, b=10),
+            showlegend=False,
+        )
+        if math.isfinite(ylo) and math.isfinite(yhi) and ylo < yhi:
+            fig.update_yaxes(range=[ylo, yhi])
+        fig.add_hline(y=0, line_width=1, line_dash='dot',
+                      line_color='#888')
+        st.plotly_chart(fig, width='stretch')
+        cap = (f'Scatter: {len(plot_df):,} Punkte'
+               + (f' (Sample aus {len(mat):,})' if sampled else '')
+               + '. Y-Achse auf 1.–99.-Perzentil geklippt (nur Darstellung).')
+        st.caption(cap)
+
+
+with tab_corr_analysis:
+    import plotly.graph_objects as go
+
+    st.caption(
+        'Score-Validierung wie im Korrelations-Tab, aber zum Slicen: '
+        'Score-Quantil-Buckets (mittlerer Return je Score-Niveau) und '
+        'Pro-Signal-Korrelation, beide filterbar nach Kammer und Partei. '
+        'Umgeht den globalen Horizont-Filter; globale Suche + Sidebar-Score-'
+        'Overrides wirken mit.'
+    )
+
+    ac1, ac2 = st.columns(2)
+    with ac1:
+        an_horizon = st.selectbox(
+            'Horizont X (Tage)', _HORIZON_OPTS, index=_HORIZON_DEFAULT_IDX,
+            key='corr_an_horizon',
+        )
+    with ac2:
+        n_buckets = st.selectbox(
+            'Score-Buckets (Quantile)',
+            list(settings.SCORE_CORR_BUCKET_OPTIONS),
+            index=list(settings.SCORE_CORR_BUCKET_OPTIONS).index(
+                settings.SCORE_CORR_BUCKET_DEFAULT)
+            if settings.SCORE_CORR_BUCKET_DEFAULT
+            in settings.SCORE_CORR_BUCKET_OPTIONS else 0,
+            key='corr_an_buckets',
+        )
+
+    chambers = sorted(c for c in corr_base['chamber'].dropna().unique()) \
+        if 'chamber' in corr_base.columns else []
+    parties = sorted(p for p in corr_base['Member_Party'].dropna().unique()) \
+        if 'Member_Party' in corr_base.columns else []
+    fc1, fc2 = st.columns(2)
+    with fc1:
+        sel_chambers = st.multiselect('Kammer', chambers, default=chambers,
+                                      key='corr_an_chamber')
+    with fc2:
+        sel_parties = st.multiselect('Partei', parties, default=parties,
+                                     key='corr_an_party')
+    st.caption('Hinweis: Beim Partei-Filter fallen Trades ohne hinterlegte '
+               'Partei aus der Stichprobe.')
+
+    an_base = corr_base
+    if chambers and set(sel_chambers) != set(chambers):
+        an_base = an_base[an_base['chamber'].isin(sel_chambers)]
+    if parties and set(sel_parties) != set(parties):
+        an_base = an_base[an_base['Member_Party'].isin(sel_parties)]
+
+    rc = score_corr.return_col(an_horizon)
+    mat = _matured_subset(an_base, rc)
+
+    st.subheader('Score-Quantil-Buckets')
+    if mat.empty:
+        st.info('Keine auswertbaren Trades fuer die aktuelle Auswahl.')
+    else:
+        bk = score_corr.score_bucket_returns(mat, 'trade_score', rc,
+                                             int(n_buckets))
+        if bk.empty:
+            st.info('Keine Buckets bildbar.')
+        else:
+            fig_b = go.Figure(go.Bar(
+                x=bk['bucket'], y=bk['mean_return'],
+                text=bk['n'].map(lambda v: f'n={v:,}'),
+                textposition='outside',
+                customdata=bk[['n', 'median_return']].to_numpy(),
+                hovertemplate=('Score %{x}<br>Ø Return %{y:.2f}%<br>'
+                               'Median %{customdata[1]:.2f}%<br>'
+                               'n=%{customdata[0]:,}<extra></extra>'),
+                marker_color='#1f77b4',
+            ))
+            fig_b.update_layout(
+                xaxis_title='trade_score-Bucket (Quantil)',
+                yaxis_title=f'Ø post_return_{an_horizon}d (%)',
+                height=400, margin=dict(l=10, r=10, t=10, b=10),
+            )
+            fig_b.add_hline(y=0, line_width=1, line_dash='dot',
+                            line_color='#888')
+            st.plotly_chart(fig_b, width='stretch')
+
+    st.subheader('Pro-Signal-Korrelation')
+    st.caption(
+        'Pro Signal: binaerer „gefeuert"-Indikator gegen den signierten '
+        'Return. Werte sind MARGINAL/univariat — Signale ko-okkurrieren, '
+        'dies sind also KEINE isolierten Beitraege. swarm_paradox ist ein '
+        'Daempfer (negative Korrelation erwartet). Sortiert nach |Spearman|.'
+    )
+    if mat.empty:
+        st.info('Keine auswertbaren Trades fuer die aktuelle Auswahl.')
+    else:
+        ps = score_corr.per_signal_return_table(mat, rc)
+        if ps.empty:
+            st.info('Keine getriggerten Signale in der Stichprobe.')
+        else:
+            st.dataframe(
+                ps, width='stretch', hide_index=True,
+                height=_dyn_height(len(ps)),
+                column_config={
+                    'signal': st.column_config.TextColumn('Signal'),
+                    'n_fired': st.column_config.NumberColumn(
+                        'n gefeuert', format='%d'),
+                    'mean_fired': st.column_config.NumberColumn(
+                        'Ø Return gefeuert (%)', format='%.2f'),
+                    'mean_not': st.column_config.NumberColumn(
+                        'Ø Return nicht (%)', format='%.2f'),
+                    'delta': st.column_config.NumberColumn(
+                        'Δ (%)', format='%.2f'),
+                    'spearman': st.column_config.NumberColumn(
+                        'Spearman-ρ', format='%.3f'),
+                    'pearson': st.column_config.NumberColumn(
+                        'Pearson-r', format='%.3f'),
+                },
+            )
