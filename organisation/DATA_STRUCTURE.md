@@ -933,7 +933,7 @@ Die `app/chart_helpers.py`-Funktion `build_partial_close_rows` zerlegt im Post-T
 **Limitierung (nicht-FIFO Partition):** Derselbe Verkauf kann bei mehreren Käufen als Gegen-Trade auftauchen. Volumen-Partitionierung erfolgt global NICHT sauber → Zerlegungs-Zeilen dürfen niemals in Volumen-Aggregate (Asset-Tab, Member-Tab) eingehen. Nur für Performance-Charts zulässig.
 
 **Horizont-Sichtbarkeitsfilter (2026-06-04, Modul 9):**
-Die vier historischen Tabs (Trades / Assets / Members / Post Trade Performance) filtern global nach `first_close_offset_days`. Sidebar-Toggle „Horizont-Filter aktiv" (Standard an) begrenzt Sichtbarkeit auf Trades mit `first_close_offset_days ≤ PRIMARY_HORIZON_DAYS` (benutzerwählter primärer Horizont aus 30/60/90/120/180). **Design: offene/gehaltene Positionen (held mit NaN) werden AUSGEBLENDET** (Filter-Bedingung `off.notna() & off <= horizon`). Sinn: Real geschlossene Positionen mit Exits >120d später zeigen sich erst wenn der Horizont aufgedreht wird. **Monitoring offener Positionen** erfolgt ausschließlich über den neuem 5. Tab „Recent Trades" (aktiviert über `build_recent_pool()`, überschreibt den Horizont-Filter für Fresh-Position-Überwachung mit aktuellen Papier-Returns).
+Die vier historischen Tabs (Trades / Assets / Members / Post Trade Performance) filtern global nach `first_close_offset_days`. Sidebar-Toggle „Horizont-Filter aktiv" (Standard an) begrenzt Sichtbarkeit auf Trades mit `first_close_offset_days ≤ PRIMARY_HORIZON_DAYS` (benutzerwählter primärer Horizont aus 30/60/90/120/180). **Design: offene/gehaltene Positionen (held mit NaN) werden AUSGEBLENDET** (Filter-Bedingung `off.notna() & off <= horizon`). Sinn: Real geschlossene Positionen mit Exits >120d später zeigen sich erst wenn der Horizont aufgedreht wird. **Monitoring offener Positionen** erfolgt ausschließlich über den neuem 5. Tab „Recent Trades" (aktiviert über `build_recent_pool()`, überschreibt den Horizont-Filter für Fresh-Position-Überwachung mit aktuellen Papier-Returns). Auch die Tabs **„Score-Korrelation"** und **„Score-Analyse"** (6+7, Modul 9.x) umgehen den Horizont-Filter via `apply_prefilter(..., apply_horizon_filter=False)` — sie validieren den `trade_score` gegen den signierten Objective Return `post_return_{X}d` **inklusive** gehaltener (held) Positionen (Details: Abschnitt „7d. App-Module").
 
 ---
 
@@ -1333,6 +1333,23 @@ Member-Detail-Popup (kein Scoring-Parameter, daher nicht in
 mit `paper_return_terminal > x` — in den Diagrammen D1/D7. Im Popup per Slider
 live überschreibbar, ohne Recompute oder Pipeline-Lauf.
 
+### `config/settings.py::SCORE_CORR_*` (Score-Korrelations-Tabs)
+Reine **Anzeige-/Analyse-Parameter** für die Tabs „Score-Korrelation" und
+„Score-Analyse" (kein Scoring-Parameter, daher nicht in
+`Filter_Instanz_Parameter.md`). Block in `config/settings.py` unter
+„Score-Korrelation (Modul 9.x)":
+- `SCORE_CORR_DEFAULT_HORIZON_DAYS` — Default `180`; Default-Horizont X der
+  beiden Tabs. Muss in `POST_TRADE_HORIZONS_DAYS` (30/60/90/120/180) enthalten
+  sein.
+- `SCORE_CORR_DEFAULT_METHOD` — `'spearman'`; Leitkennzahl (Pearson zusätzlich).
+  Spearman wird **ohne scipy** als Pearson auf Rängen berechnet
+  (`a.rank().corr(b.rank())`, identisch inkl. Tie-Korrektur).
+- `SCORE_CORR_BUCKET_OPTIONS` / `SCORE_CORR_BUCKET_DEFAULT` — `[3,4,5,10]` / `5`;
+  wählbare Score-Quantil-Anzahl (Tertil/Quartil/Quintil/Dezil) im Analyse-Tab.
+- `SCORE_CORR_SCATTER_MAX_POINTS` / `SCORE_CORR_SCATTER_OPACITY` — `20000` /
+  `0.3`; Sample-Cap + Opazität des Scatters (nur Visualisierung; die Kennzahlen
+  Spearman/Pearson/n rechnen immer über die volle Stichprobe).
+
 ---
 
 ## 7c. App-Module: Member-Detail-Popup (Modul 9)
@@ -1463,6 +1480,57 @@ Inhalt:
    trades_stage.csv (Zwischenpuffer bei --dry_run / --delta --stage_*)
    unmatched_names.csv (nicht gematchte Namen)
 ```
+
+---
+
+## 7d. App-Module: Score-Korrelation (Modul 9.x)
+
+Validiert objektiv, wie gut der `trade_score` den **signierten** Objective
+Return `post_return_{X}d` vorhersagt — **keine neuen Master-Spalten, kein
+Pipeline-Lauf**, alles live aus dem Master. Datenbasis ist
+`apply_prefilter(trades, apply_horizon_filter=False)` (umgeht den
+Horizont-Filter → held-Positionen inklusive), bei aktivem Signal-Ausschluss /
+Gewichts-Override einmalig per `recompute_subset` neu gescort (geteilte Basis
+`corr_base` für beide Tabs). Der Return ist exit-agnostisch und bereits
+`sell_sign`-bereinigt (positiv = Trade lag in seiner Richtung richtig, für Kauf
+UND Verkauf).
+
+### `app/score_correlation.py`
+Reine pandas-Helfer (kein Streamlit/Plotly), testbar
+(`tests/test_score_correlation.py`):
+- `return_col(x)` → Spaltenname `post_return_{x}d`.
+- `correlation_stats(scores, returns)` → `{spearman, pearson, n}` (paarweiser
+  NaN-Drop). Spearman = Pearson auf Rängen (kein scipy nötig).
+- `score_bucket_returns(df, score_col, ret_col, n_buckets)` → mittlerer/median
+  Return je Score-Quantil-Bucket (`pd.qcut(..., duplicates='drop')`, da
+  `trade_score` diskret/stark gebunden ist; bei zu wenigen distinkten Werten ein
+  Sammel-Bucket).
+- `per_signal_return_table(df, ret_col)` → pro Signal binärer „gefeuert"-
+  Indikator gegen den Return: `[signal, n_fired, mean_fired, mean_not, delta,
+  spearman, pearson]`, sortiert nach |spearman|. Signal-Universum
+  **datengetrieben** aus den `signals_triggered`-Tokens plus Pseudo-Signal
+  `committee_ex_officio` (aus dem Breakdown-Token `ex_officio:+N`, N>0). Werte
+  sind **marginal/univariat** (Signale ko-okkurrieren — keine isolierten
+  Beiträge). **Hinweis Kollinearität:** Im Match-Modus `sector_and_industry`
+  (`RELEVANT_SECTORS_MATCH_MODE`, s. Abschnitt „Committee-Relevanz") gibt es
+  keine reinen Halb-Treffer → `committee` und `committee_full` feuern identisch
+  und erscheinen mit deckungsgleichen Werten; in `sector_or_industry`
+  divergieren sie.
+
+### Tabs in `app/streamlit_app.py`
+- **„Score-Korrelation"** (Headline): Horizont-Selectbox (Default 180);
+  Kennzahlen Spearman-ρ / Pearson-r / n / davon held; `go.Scattergl`
+  `trade_score` × `post_return_{X}d` (Sample-Cap, Y-Achse auf 1.–99.-Perzentil
+  geklippt — nur Darstellung). Caption nennt die Limitationen **Delisting-Bias**
+  (Survivorship: Ticker delistet vor Tag X → Return NaN → fällt aus der
+  Stichprobe → Verzerrung nach oben) und **Reife-Beschränkung** (Trades < X Tage
+  haben per Konstruktion keinen X-Tage-Return; kein Bias).
+- **„Score-Analyse"**: Score-Quantil-Bucket-Balken (Ø Return je Score-Niveau) +
+  Pro-Signal-Korrelationstabelle, beide filterbar nach **Kammer** und **Partei**
+  (Partei-Filter blendet Trades ohne hinterlegte Partei aus).
+
+Konfiguration: `config/settings.py::SCORE_CORR_*` (s. Abschnitt „7b.
+App-Konfiguration").
 
 ---
 
