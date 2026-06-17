@@ -633,3 +633,30 @@ RECENT_MONITORING_WINDOW_OPTIONS = [7, 30, 60, 90, 120, 180]
 # aelter ist als der letzte abgeschlossene Handelstag (BDay). 1 = "nicht aelter
 # als ein Handelstag" (erfuellt "<=24h werktags" beim taeglichen 03:00-Lauf).
 RECENT_PRICE_MAX_AGE_BUSINESS_DAYS = 1
+
+
+# ---------------------------------------------------------------------------
+# Score-Korrelation (Modul 9.x — Score-Validierung)
+# ---------------------------------------------------------------------------
+# Dashboard-Tabs "Score-Korrelation" / "Score-Analyse": messen, wie gut der
+# trade_score den vorzeichenbehafteten Objective Return post_return_{X}d
+# vorhersagt (exit-agnostisch, sell_sign-bereinigt -> positiv = Trade lag in
+# seiner Richtung richtig, fuer Kauf UND Verkauf). Beide Tabs umgehen den
+# globalen Horizont-Sichtbarkeitsfilter (held-Positionen sind die relevanten
+# Daten) und nutzen die Horizonte aus POST_TRADE_HORIZONS_DAYS.
+# Default-Horizont X (Tage); muss in POST_TRADE_HORIZONS_DAYS enthalten sein.
+SCORE_CORR_DEFAULT_HORIZON_DAYS = 180
+# Leitkennzahl der Korrelation. Spearman = Rangkorrelation (robust gegen
+# Return-Ausreisser); Pearson wird zusaetzlich angezeigt. Spearman wird ohne
+# scipy als Pearson auf Raengen berechnet (a.rank().corr(b.rank())).
+SCORE_CORR_DEFAULT_METHOD = 'spearman'
+# Im "Score-Analyse"-Tab waehlbare Bucket-Anzahl (Quantile des trade_score):
+# 3=Tertil, 4=Quartil, 5=Quintil, 10=Dezil.
+SCORE_CORR_BUCKET_OPTIONS = [3, 4, 5, 10]
+SCORE_CORR_BUCKET_DEFAULT = 5
+# Scatter-Performance: Hoechstzahl gezeichneter Punkte (Sample-Cap, da der
+# Master ~90k auswertbare Trades hat) und Punkt-Opazitaet. Die Kennzahlen
+# (Spearman/Pearson/n) werden IMMER ueber die volle Stichprobe gerechnet —
+# das Cap betrifft nur die Visualisierung.
+SCORE_CORR_SCATTER_MAX_POINTS = 20000
+SCORE_CORR_SCATTER_OPACITY = 0.3
