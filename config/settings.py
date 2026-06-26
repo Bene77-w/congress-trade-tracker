@@ -619,6 +619,45 @@ DETAIL_TRAJ_MAX_TRACES = 300
 
 
 # ---------------------------------------------------------------------------
+# Event-Study / Abnormal Return (Insider-Aufdeckung — Discovery-Modul)
+# ---------------------------------------------------------------------------
+# Marktbereinigter, richtungsbereinigter Abnormal Return (signed BHAR) pro Trade
+# als schaerferes Lineal gegenueber dem rohen Kalender-Return. Zweck: aussergewoehn-
+# liche Trades (Ausreisser) entdecken UND pruefen, ob die Verdachts-Signale beim AR
+# einen Edge zeigen (Diskriminator: Signale-sind-Rauschen vs. falsches-Lineal).
+# Wird vom EIGENSTAENDIGEN Analyse-Skript scripts/analyse_event_study.py gelesen —
+# KEIN Master-Schreiben, KEINE Pipeline-Stage. Settings-Aenderung = Skript neu laufen
+# lassen (nur Cache-Lookups, kein yfinance-Download, kein Delta-Lauf-Risiko).
+#
+# Markt-Benchmark fuer die Marktbereinigung. Muss im Preis-Cache liegen (SPY ist da).
+AR_BENCHMARK_TICKER = 'SPY'
+# Konstrukt A (Insider, primaer): Event-Fenster ab transaction_date (Kalendertage).
+AR_HORIZONS_DAYS = [30, 60, 90, 120, 180]
+# Primaerhorizont fuer Outlier-Flag + Score-Diskriminator. Muss kein Element von
+# AR_HORIZONS_DAYS sein (wird sonst automatisch ergaenzt).
+AR_HEADLINE_HORIZON_DAYS = 90
+# Konstrukt B (Copycat/Follower, sekundaer): Event-Fenster ab disclosure_date. Misst,
+# ob ein Aussenstehender durch Nachhandeln nach der Meldung profitieren koennte —
+# KEIN Informationsbeweis (skaliert mit Sichtbarkeit/Trade-Groesse). Staerker
+# right-censored als A (Melde-Latenz, median ~20d).
+AR_DISCLOSURE_HORIZONS_DAYS = [30, 90]
+# Ausreisser-Definition auf signed_ar_{headline}d:
+#   'absolute'   -> feste Bandgrenzen AR_OUTLIER_UPPER/LOWER (BRUCHTEIL, 0.03 = 3%)
+#   'percentile' -> obere/untere Quantile AR_OUTLIER_PCT_UPPER/LOWER (robuster gegen
+#                   schwere Tails / Horizont-Skalierung)
+AR_OUTLIER_MODE = 'absolute'
+AR_OUTLIER_UPPER = 0.03      # signed_AR >= X -> positiver Ausreisser (Insider-verdaechtig)
+AR_OUTLIER_LOWER = -0.03     # signed_AR <= X -> negativer Ausreisser
+AR_OUTLIER_PCT_UPPER = 0.95  # nur MODE='percentile'
+AR_OUTLIER_PCT_LOWER = 0.05  # nur MODE='percentile'
+# Member-geclusterter Block-Bootstrap (resamplet ganze Member ueber bio_guide_id,
+# nicht Einzeltrades — Swarm = Clustering per Definition; naives Row-Resampling
+# erzeugt Schein-Signifikanz). Anzahl Wiederholungen + Seed (Reproduzierbarkeit).
+AR_BOOTSTRAP_ITERS = 2000
+AR_BOOTSTRAP_SEED = 0
+
+
+# ---------------------------------------------------------------------------
 # Recent-Trade-Monitoring (Modul 9.x — Live-Beobachtung frischer Trades)
 # ---------------------------------------------------------------------------
 # Eigener Use-Case neben der historischen Analyse: zeigt OFFENE und frisch
