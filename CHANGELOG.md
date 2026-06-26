@@ -11,6 +11,41 @@ Historie abgeschlossener Module/Phasen. **Aktiver WIP-Modul-Stand** steht im „
 
 ---
 
+## 2026-06-26 — Event-Study / Abnormal-Return-Modul (Insider-Aufdeckung, Discovery)
+
+**Motivation:** Der rohe Kalender-Return (`post_return_{X}d`) ist kein scharfes
+Lineal fur den Informationsvorsprung von Kongressmitgliedern — Marktbewegungen
+(SPY) ueberlagern das Signal. Ein marktbereinigtes Lineal (signed BHAR) sollte
+echter Alpha-Extraktion naherkommen.
+
+**Gebaut:**
+- **Neu** `scoring/abnormal_returns.py`: Berechnungs-Modul. Metrik pro Trade/Horizont H:
+  `signed_ar = sell_sign × ( P_ticker(t0+H)/P_ticker(t0) − 1 − ( P_SPY(t0+H)/P_SPY(t0) − 1 ) )`.
+  Zwei Konstrukte: A (Anker `transaction_date`, Spalten `signed_ar_{30,60,90,120,180}d`) und
+  B (Anker `disclosure_date`, Spalten `signed_ar_disc_{30,90}d`). Reuse der Preis-Primitive aus
+  `scoring/post_trade_returns.py`. Bootstrap-Helper `clustered_bootstrap_mean/diff` (member-geclustert
+  uber `bio_guide_id`, ohne scipy).
+- **Neu** `scripts/analyse_event_study.py`: eigenstandiges Analyse-Skript (keine Flags). Liest
+  `trades_master_complete.csv`, berechnet AR in-memory, schreibt Report
+  `organisation/analyse_event_study.md` + `data/processed/ar_outliers.csv`.
+- **Geandert** `config/settings.py`: neuer `AR_*`-Block (Benchmark, Horizonte, Ausreißer-Schwellen,
+  Bootstrap-Parameter).
+
+**Architektur:** Keine Pipeline-Stage, kein Schreiben in den Master. AR-Spalten existieren nur
+in-memory. Settings-Aenderung = Skript neu starten (nur Cache-Lookups).
+
+**Kern-Befund (H=90, member-geclusterter Bootstrap):** Spearman(score, `signed_ar_90d`) = −0.0029
+(roh: −0.0006) — ebenfalls ~0. Kein Signal hat einen statistisch belastbaren Edge (alle 95%-CIs
+umschliessen 0). Die `committee_ex_officio`-Signifikanz aus dem Vorganger-Report (t−2.55) war ein
+**Clustering-Artefakt** (Trade-Level-Bootstrap ohne Member-Clustering). Das +/−3%-Ausreißer-Band
+flaggt 38% der Trades (kein scharfer Tail; heavy tails, p95 ≈ +/−17,5%). Scope dieses Reports:
+nur 90d-Kalender-Lineal — Event-verankerte Lineale (Votes/Konstrukt C) aufgeschoben.
+
+**Artefakte:** `organisation/analyse_event_study.md` (Report, Single-Source der Befunde),
+`data/processed/ar_outliers.csv` (gitignored). Spalten + Metrik: `DATA_STRUCTURE.md` Abschnitt 7e.
+
+---
+
 ## 2026-06-14 — Netz-Robustheit-Härtung (NetworkCanary)
 
 **Motivation**: Ein leeres yfinance-Ergebnis (HTTP 200, keine Exception) ist

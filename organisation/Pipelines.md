@@ -1031,6 +1031,7 @@ Zwischensummen pro Gruppe, finale Zusammenfassung.
 | `scripts/diagnose_scraper.py` | Senate-Scraper QA (Timing, Konsistenz, Rowcount) | `--test [timing\|consistency\|rowcount\|all] --runs N --days N` |
 | `scripts/analyze_fehler_pdfs.py` | House-Fehler-PDFs analysieren (Textlayer, Rotation, Bilder) | — |
 | `scripts/inspect_excel.py` | Excel-Spaltenstruktur inspizieren | — |
+| `scripts/analyse_event_study.py` | Event-Study / Abnormal Return (Discovery): validiert `trade_score` gegen signierten, marktbereinigten BHAR (2 Konstrukte A/B, member-geclusterter Bootstrap). **Keine Pipeline-Stage, kein Master-Schreiben** — alle AR-Spalten nur in-memory. Liest `trades_master_complete.csv`, schreibt Report `organisation/analyse_event_study.md` + `data/processed/ar_outliers.csv`. Settings-Änderung = Skript neu starten. Konfiguration: `AR_*`-Block in `config/settings.py`. Spalten + Metrik: `DATA_STRUCTURE.md` Abschnitt 7e. | keine Flags |
 
 ---
 

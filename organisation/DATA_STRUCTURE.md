@@ -1534,6 +1534,97 @@ App-Konfiguration").
 
 ---
 
+## 7e. App-Module: Event-Study / Abnormal Return (Discovery)
+
+Validiert den `trade_score` gegen ein marktbereinigtes Lineal: den **signierten
+Abnormal Return (signed BHAR)** pro Trade. **Keine neuen Master-Spalten, keine
+Pipeline-Stage, kein Master-Schreiben** — alle Spalten existieren nur
+**in-memory** während des Skript-Laufs. Settings-Änderung = Skript einfach
+neu starten (nur Cache-Lookups, kein yfinance-Download, kein Delta-Lauf-Risiko).
+
+### Metrik (pro Trade, Horizont H, t0 = Ankerdatum)
+
+```
+signed_ar = sell_sign × ( P_ticker(t0+H)/P_ticker(t0) − 1
+                         − ( P_SPY(t0+H)/P_SPY(t0) − 1 ) )
+```
+- `sell_sign` (Verkauf → −1) wird **genau einmal** auf das Abnormal angewandt.
+- Wert ist ein **Bruchteil** (0.03 = 3 %), nicht Prozent.
+- Right-Censoring: liegt t0+H hinter dem Cache-Ende (2026-06-24), ist der Wert NaN.
+- Benchmark = SPY (im Preis-Cache vorhanden).
+
+### Zwei Konstrukte
+
+| Konstrukt | Anker | Spalten | Bedeutung |
+|-----------|-------|---------|-----------|
+| A (primär) | `transaction_date` | `signed_ar_{30,60,90,120,180}d` | Insider-Edge (Kauf/Verkauf selbst) |
+| B (sekundär) | `disclosure_date` | `signed_ar_disc_{30,90}d` | Copycat/Follower-Edge nach Bekanntmachung |
+
+### `scoring/abnormal_returns.py`
+
+Berechnungs-Modul. Öffentliche API:
+- `compute_abnormal_returns(df, cache_path, benchmark_ticker, horizons_days, headline_horizon_days, disclosure_horizons_days, outlier_mode, outlier_upper, outlier_lower, outlier_pct_upper, outlier_pct_lower) -> pd.DataFrame`
+  Fügt Spalten hinzu: `signed_ar_{H}d`, `signed_ar_disc_{H}d`, `ar_outlier_flag` (bool), `ar_outlier_direction` ('positive'|'negative'|'').
+- `clustered_bootstrap_mean(df, value_col, group_col, n_iter, seed)` — Bootstrap-Konfidenzintervall, member-geclustert (resamplet ganze Member über `bio_guide_id`).
+- `clustered_bootstrap_diff(df, value_col, group_col, split_col, n_iter, seed)` — Bootstrap-Differenz zweier Gruppen.
+
+Reuse der Preis-Primitive aus `scoring/post_trade_returns.py`
+(`_load_price_cache`, `_build_price_lookup`, `_sell_sign_series`) — nicht reimplementiert.
+
+### In-Memory-Spalten (NICHT im Master persistiert)
+
+| Spalte | Typ | Konstrukt | Beschreibung |
+|--------|-----|-----------|--------------|
+| `signed_ar_30d` | float | A | Abnormal Return nach 30 Tagen ab `transaction_date` |
+| `signed_ar_60d` | float | A | Abnormal Return nach 60 Tagen |
+| `signed_ar_90d` | float | A | Abnormal Return nach 90 Tagen (Headline-Horizont) |
+| `signed_ar_120d` | float | A | Abnormal Return nach 120 Tagen |
+| `signed_ar_180d` | float | A | Abnormal Return nach 180 Tagen |
+| `signed_ar_disc_30d` | float | B | Abnormal Return nach 30 Tagen ab `disclosure_date` |
+| `signed_ar_disc_90d` | float | B | Abnormal Return nach 90 Tagen ab `disclosure_date` |
+| `ar_outlier_flag` | bool | — | True wenn Trade außerhalb Ausreißer-Band |
+| `ar_outlier_direction` | str | — | 'positive', 'negative' oder '' |
+
+### Output-Datei `data/processed/ar_outliers.csv` (gitignored)
+
+Gefilterte Ausreißer-Trades, sortiert nach `signed_ar_90d` absteigend. Spalten:
+
+```
+trade_id, bio_guide_id, name, chamber, sector_yf, ticker,
+transaction_type, transaction_date, disclosure_date,
+trade_score, signals_triggered, ar_outlier_direction,
+signed_ar_30d, signed_ar_60d, signed_ar_90d, signed_ar_120d, signed_ar_180d,
+post_return_90d
+```
+
+### Analyse-Skript `scripts/analyse_event_study.py`
+
+Eigenständiges Analyse-Skript (keine Flags): liest `data/processed/trades_master_complete.csv`,
+ruft `compute_abnormal_returns`, schreibt Report `organisation/analyse_event_study.md` +
+`data/processed/ar_outliers.csv`.
+
+Lauf: `python scripts/analyse_event_study.py`
+
+### Konfiguration (`config/settings.py`, `AR_*`-Block)
+
+| Parameter | Default | Beschreibung |
+|-----------|---------|--------------|
+| `AR_BENCHMARK_TICKER` | `'SPY'` | Benchmark für Marktbereinigung |
+| `AR_HORIZONS_DAYS` | `[30,60,90,120,180]` | Horizonte Konstrukt A |
+| `AR_HEADLINE_HORIZON_DAYS` | `90` | Primär-Horizont für Report-Headlines |
+| `AR_DISCLOSURE_HORIZONS_DAYS` | `[30,90]` | Horizonte Konstrukt B |
+| `AR_OUTLIER_MODE` | `'absolute'` | `'absolute'` oder `'percentile'` |
+| `AR_OUTLIER_UPPER` | `0.03` | Obere Ausreißer-Schwelle (absolut) |
+| `AR_OUTLIER_LOWER` | `-0.03` | Untere Ausreißer-Schwelle (absolut) |
+| `AR_OUTLIER_PCT_UPPER` | `0.95` | Oberes Perzentil (Modus percentile) |
+| `AR_OUTLIER_PCT_LOWER` | `0.05` | Unteres Perzentil (Modus percentile) |
+| `AR_BOOTSTRAP_ITERS` | `2000` | Bootstrap-Iterationen |
+| `AR_BOOTSTRAP_SEED` | `0` | Zufalls-Seed |
+
+Befund-Report: `organisation/analyse_event_study.md`.
+
+---
+
 ## Committee-Relevanz (Modul 4)
 
 `_apply_committee_relevance` schreibt `Insider_Sectors` und `Relevant_Sectors` in den Master.
