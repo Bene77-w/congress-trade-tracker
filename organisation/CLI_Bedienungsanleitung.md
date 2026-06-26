@@ -483,6 +483,23 @@ python scripts/diagnose_scraper.py --test consistency --runs 3 --days 14
 
 ---
 
+## 5b. Event-Study / Abnormal-Return-Analyse (Discovery)
+
+**Datei:** `scripts/analyse_event_study.py`
+**Zweck:** Validiert den `trade_score` gegen den signierten, marktbereinigten Abnormal Return (signed BHAR). Keine Flags — alle Parameter ueber den `AR_*`-Block in `config/settings.py`.
+
+```bash
+python scripts/analyse_event_study.py
+```
+
+**Outputs:**
+- `organisation/analyse_event_study.md` — Befund-Report (Single-Source der Ergebnisse)
+- `data/processed/ar_outliers.csv` — Ausreißer-Trades (gitignored)
+
+**Hinweise:** Keine Pipeline-Stage, kein Schreiben in den Master. AR-Spalten existieren nur in-memory. Settings-Aenderung = Skript einfach neu starten. Spalten + Metrik: `DATA_STRUCTURE.md` Abschnitt 7e.
+
+---
+
 ## 6. House Committee PDF Parser
 
 **Datei:** `scrapers/house_pdf_parsing_tool/parse_house_committee_pdf.py`
