@@ -546,7 +546,8 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
       floor_action, extreme_report (signals/*.py)
       committee triggert bei len(Relevant_Sectors) > 0
       committee_full triggert zusätzlich wenn mind. 1 Eintrag match_type='full'
-    → Schwellwerte aus settings.py: VOTE_TIMING_HIT_THRESHOLD, EXTREME_REPORT_DAYS
+    → Schwellwerte aus settings.py: VOTE_TIMING_HIT_THRESHOLD, EXTREME_REPORT_DAYS,
+      EXTREME_REPORT_FAST_DAYS
     → Neue Trade-Spalten: signal_count (int 0-4), signals_triggered (str, ";"-getrennt)
     → Auslöse-Events werden in data/processed/branch1_events_stage.csv
       geschrieben (Snapshot pro Auslösung, 21 Spalten inkl. issuer_ticker,
@@ -774,7 +775,7 @@ Nur ausfuehren wenn xlsx-Dateien geaendert wurden.
 | `signals/committee_full_signal.py` | Branch-1 Per-Trade-Signal: triggert wenn mind. 1 Eintrag in `Relevant_Sectors` hat `match_type='full'` | (in `test_branch1_signals.py`) |
 | `signals/committee_ex_officio_signal.py` | Branch-1 Per-Trade-Signal: triggert wenn CommitteeSignal + `Member_ExOfficio` | 4 |
 | `signals/floor_action_signal.py` | Branch-1 Per-Trade-Signal: triggert bei `Vote_Timing_Hit_Count >= VOTE_TIMING_HIT_THRESHOLD` | 4 |
-| `signals/extreme_report_signal.py` | Branch-1 Per-Trade-Signal: triggert bei `disclosure_date - transaction_date > EXTREME_REPORT_DAYS` | 5 |
+| `signals/extreme_report_signal.py` | Branch-1 Per-Trade-Signal: triggert bei `delay > EXTREME_REPORT_DAYS` ODER `delay <= EXTREME_REPORT_FAST_DAYS` (`delay = disclosure_date - transaction_date`; sehr späte ODER sehr schnelle Meldung) | 8 (in `test_branch1_signals.py`) |
 | `signals/contrarian_signal.py` | Branch-1 Sequenz-Signal: triggert bei Buy↔Sell-Wende eines Members auf demselben issuer_ticker innerhalb `CONTRARIAN_WINDOW_DAYS` | 8 (in `test_sequence_signals.py`) |
 | `signals/accumulative_signal.py` | Branch-1 Sequenz-Signal: triggert bei `>= ACCUMULATIVE_MIN_COUNT` gleichgerichteten Trades eines Members innerhalb `ACCUMULATIVE_WINDOW_DAYS` | 8 |
 

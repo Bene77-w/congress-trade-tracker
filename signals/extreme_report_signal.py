@@ -1,10 +1,15 @@
 """
-Signal: Extreme Report — triggert wenn die Meldefrist deutlich ueberschritten
-wurde (disclosure_date liegt > EXTREME_REPORT_DAYS nach transaction_date).
-Die regulaere Stock-Act-Frist betraegt 45 Tage; Verzoegerungen daruber hinaus
-sind ein eigenstaendiges Verdachtsindiz.
+Signal: Extreme Report — triggert bei auffaelligem Meldeverhalten zwischen
+transaction_date und disclosure_date. Zwei ODER-verknuepfte Trigger:
 
-Trigger:         (disclosure_date - transaction_date).days > settings.EXTREME_REPORT_DAYS
+  - Sehr SPAETE Meldung: delay_days > settings.EXTREME_REPORT_DAYS.
+    Die regulaere Stock-Act-Frist betraegt 45 Tage; Verzoegerungen darueber
+    hinaus sind ein eigenstaendiges Verdachtsindiz.
+  - Sehr SCHNELLE Meldung: delay_days <= settings.EXTREME_REPORT_FAST_DAYS.
+    Ein disclosure_date direkt nach dem Trade ist ebenfalls auffaellig.
+
+Trigger:         delay > EXTREME_REPORT_DAYS  ODER  delay <= EXTREME_REPORT_FAST_DAYS
+                 mit delay = (disclosure_date - transaction_date).days
 Triggering-Date: disclosure_date  (das ist das spaeter eintretende Ereignis)
 Scope-Key:       trade_id
 """
@@ -46,10 +51,15 @@ class ExtremeReportSignal:
 
     SIGNAL_TYPE = SIGNAL_TYPE
 
-    def __init__(self, threshold_days: Optional[int] = None):
+    def __init__(self, threshold_days: Optional[int] = None,
+                 fast_threshold_days: Optional[int] = None):
         self.threshold_days = (
             threshold_days if threshold_days is not None
             else getattr(settings, 'EXTREME_REPORT_DAYS', 60)
+        )
+        self.fast_threshold_days = (
+            fast_threshold_days if fast_threshold_days is not None
+            else getattr(settings, 'EXTREME_REPORT_FAST_DAYS', 5)
         )
 
     def evaluate_row(self, row: pd.Series) -> Optional[Dict[str, Any]]:
@@ -59,7 +69,9 @@ class ExtremeReportSignal:
             return None
 
         delay_days = (dd - td).days
-        if delay_days <= self.threshold_days:
+        is_late = delay_days > self.threshold_days
+        is_fast = delay_days <= self.fast_threshold_days
+        if not (is_late or is_fast):
             return None
 
         trade_id = row.get('trade_id', '')

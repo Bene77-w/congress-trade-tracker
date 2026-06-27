@@ -110,11 +110,14 @@ ACCUMULATIVE_MIN_COUNT   = 2            # Mindest-Trade-Zahl im Fenster fuer Tri
 
 # =============================================================================
 # SIGNAL: EXTREME REPORT (Branch 1)
-# Ungewoehnlich grosse Verzoegerung zwischen transaction_date und
-# disclosure_date (Pflicht-Frist ist 45 Tage).
+# Auffaelliges Meldeverhalten zwischen transaction_date und disclosure_date.
+# Zwei Trigger (ODER-verknuepft):
+#   - sehr SPAETE Meldung: delay_days > EXTREME_REPORT_DAYS (Pflicht-Frist 45 Tage)
+#   - sehr SCHNELLE Meldung: delay_days <= EXTREME_REPORT_FAST_DAYS
 # Code: signals/extreme_report_signal.py (ExtremeReportSignal)
 # =============================================================================
 EXTREME_REPORT_DAYS = 60                # disclosure_date - transaction_date > X (45 = Pflicht, 60 = mit Toleranz)
+EXTREME_REPORT_FAST_DAYS = 5            # disclosure_date - transaction_date <= X (ungewoehnlich schnelle Meldung)
 
 # =============================================================================
 # SIGNAL: SWARM (Branch 2)
