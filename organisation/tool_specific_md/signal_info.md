@@ -41,7 +41,7 @@ Zwei Ebenen der Issuer-Gruppierung werden genutzt:
 | 1b | `committee_full`       | 1      | `signals/committee_full_signal.py`         | mind. 1 Eintrag in `Relevant_Sectors` hat `match_type == 'full'`                                                                  | `transaction_date`                           |
 | 2  | `committee_ex_officio` | 1      | `signals/committee_ex_officio_signal.py`   | **v2 (2026-06-12):** Signal 1 ausgelöst UND `ex_officio_role_keys` nicht leer (≥1 relevanter Sektor-Treffer trägt eine Führungsrolle; statt globalem `Member_ExOfficio`) | `transaction_date`                           |
 | 3  | `floor_action`         | 1      | `signals/floor_action_signal.py`           | `vote_timing_hit_count >= VOTE_TIMING_HIT_THRESHOLD`                                                                              | `transaction_date`                           |
-| 4  | `extreme_report`       | 1      | `signals/extreme_report_signal.py`         | `disclosure_date - transaction_date > EXTREME_REPORT_DAYS`                                                                        | `disclosure_date`                            |
+| 4  | `extreme_report`       | 1      | `signals/extreme_report_signal.py`         | `delay > EXTREME_REPORT_DAYS` ODER `delay <= EXTREME_REPORT_FAST_DAYS` (mit `delay = disclosure_date - transaction_date`; sehr späte ODER sehr schnelle Meldung) | `disclosure_date`                            |
 | 4b | `trade_volume`         | 1      | `signals/trade_volume_signal.py`           | `trade_amount_max_usd > SCORING_TRADE_VOLUME_TRIGGER_FLOOR` (Default 15.000 USD). Score-Beitrag stufenweise aus `SCORING_TRADE_VOLUME_TIERS` | `transaction_date` |
 | 5  | `contrarian`           | seq    | `signals/contrarian_signal.py`             | Buy↔Sell desselben Members auf demselben `issuer_ticker` innerhalb `CONTRARIAN_WINDOW_DAYS`                                       | Datum des Kontra-Trades                       |
 | 6  | `accumulative`         | seq    | `signals/accumulative_signal.py`           | ≥ `ACCUMULATIVE_MIN_COUNT` Trades desselben Members auf demselben `issuer_ticker` (gleiche Richtung) in `ACCUMULATIVE_WINDOW_DAYS` | Datum des Trades, der die Schwelle erreicht  |
@@ -287,7 +287,8 @@ trade_score = other_part + swarm_part + ex_officio_bonus + volume_part
 | `CONTRARIAN_WINDOW_DAYS` | 30 | Max Tage zwischen Buy und Gegen-Sell |
 | `ACCUMULATIVE_WINDOW_DAYS` | 30 | Rolling-Window für mehrfaches Aufstocken |
 | `ACCUMULATIVE_MIN_COUNT` | 2 | Mindestanzahl Trades im Window |
-| `EXTREME_REPORT_DAYS` | 60 | Schwelle `disclosure_date - transaction_date` |
+| `EXTREME_REPORT_DAYS` | 60 | Obere Schwelle `disclosure_date - transaction_date` (sehr späte Meldung) |
+| `EXTREME_REPORT_FAST_DAYS` | 5 | Untere Schwelle `disclosure_date - transaction_date` (≤ X = sehr schnelle Meldung) |
 | `SUSPICIOUS_ASSET_PERSISTENCE_DAYS` | 30 | Y-Tage-Filter für `suspicious_assets.csv` |
 | `SWARM_WINDOW_DAYS` | 7 | Rolling-Window für Schwarm-Erkennung |
 | `SWARM_MIN_MEMBERS` | 2 | Mindestanzahl distinct Members im Schwarm |

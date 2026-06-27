@@ -273,10 +273,35 @@ class TestExtremeReportSignal:
         assert event is None
 
     def test_does_not_trigger_within_normal_window(self):
-        signal = ExtremeReportSignal(threshold_days=60)
+        signal = ExtremeReportSignal(threshold_days=60, fast_threshold_days=5)
         event = signal.evaluate_row(make_row(
             transaction_date=date(2026, 3, 1),
             disclosure_date=date(2026, 3, 10),  # 9 Tage
+        ))
+        assert event is None
+
+    def test_triggers_when_disclosure_is_fast(self):
+        signal = ExtremeReportSignal(threshold_days=60, fast_threshold_days=5)
+        event = signal.evaluate_row(make_row(
+            transaction_date=date(2026, 3, 1),
+            disclosure_date=date(2026, 3, 4),  # 3 Tage -> schnelle Meldung
+        ))
+        assert event is not None
+        assert event['signal_type'] == 'extreme_report'
+
+    def test_triggers_at_fast_threshold(self):
+        signal = ExtremeReportSignal(threshold_days=60, fast_threshold_days=5)
+        event = signal.evaluate_row(make_row(
+            transaction_date=date(2026, 3, 1),
+            disclosure_date=date(2026, 3, 6),  # genau 5 Tage
+        ))
+        assert event is not None
+
+    def test_does_not_trigger_just_above_fast_threshold(self):
+        signal = ExtremeReportSignal(threshold_days=60, fast_threshold_days=5)
+        event = signal.evaluate_row(make_row(
+            transaction_date=date(2026, 3, 1),
+            disclosure_date=date(2026, 3, 7),  # 6 Tage -> zwischen fast und late
         ))
         assert event is None
 
