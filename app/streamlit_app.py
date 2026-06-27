@@ -39,6 +39,7 @@ from app.scoring_presets import (  # noqa: E402
     save_preset,
 )
 from config import settings  # noqa: E402
+from scoring.trade_score import split_primary_hint  # noqa: E402
 from signals.committee_signal import (  # noqa: E402
     _direction_from_transaction_type,
 )
@@ -223,12 +224,29 @@ def _unique_join(series: pd.Series, sep: str = ',') -> str:
 
 
 def _unique_signals(series: pd.Series) -> str:
+    """Aggregiert nur die PRIMAERSIGNALE (gescort) ueber alle Zellen.
+
+    Hint-Signale (Default 0 Score-Einfluss) werden in Tabellen ausgeblendet und
+    nur pro Trade im Detail-Popup ausgewiesen. Faellt ``SCORING_PRIMARY_SIGNALS``
+    weg/leer, werden alle Signale gezeigt (Rueckwaerts-Kompatibilitaet).
+    """
+    primary_set = set(getattr(settings, 'SCORING_PRIMARY_SIGNALS', ()) or ())
     seen: set[str] = set()
     for cell in series.dropna().astype(str):
         for tok in cell.split(';'):
-            if tok:
+            if tok and (not primary_set or tok in primary_set):
                 seen.add(tok)
     return ';'.join(sorted(seen))
+
+
+def _primary_only(value) -> str:
+    """``signals_triggered``-Zelle -> nur Primaersignale (``;``-getrennter String).
+
+    Tabellen zeigen ausschliesslich Primaersignale; die Hints erscheinen nur im
+    Trade-Detail-Popup (s. ``split_primary_hint``).
+    """
+    primary, _hint = split_primary_hint(value, settings.SCORING_PRIMARY_SIGNALS)
+    return ';'.join(primary)
 
 
 def aggregate_assets(df: pd.DataFrame, date_col: str,
@@ -586,13 +604,26 @@ with st.sidebar:
                  'verwendet wird UND (bei aktivem Horizont-Filter) bis wann der '
                  'erste Close liegen darf, damit ein Trade sichtbar bleibt.',
         )
+        # Score-Korrelation/-Analyse umgehen den Horizont-Filter datenseitig
+        # ohnehin (sie werten bewusst alle Trades inkl. offener Positionen aus).
+        # Ist einer dieser Tabs aktiv, wird die Checkbox ausgegraut + der Filter
+        # effektiv aus -> kein irrefuehrend „aktiver" Filter neben einer Auswertung,
+        # auf die er gar nicht wirkt.
+        _BYPASS_HORIZON_TABS = {'Score-Korrelation', 'Score-Analyse'}
+        horizon_tab_bypass = st.session_state.get('main_tabs') in _BYPASS_HORIZON_TABS
         horizon_filter_active = st.checkbox(
             'Horizont-Filter aktiv',
             value=True,
+            disabled=horizon_tab_bypass,
             help='Blendet Trades aus, deren erster Close nach dem gewaehlten '
                  'Horizont liegt (bzw. nie geschlossen wurde). Aus = alle Trades '
                  'sichtbar.',
         )
+        if horizon_tab_bypass:
+            st.caption('Im Score-Korrelation/-Analyse-Tab ohne Wirkung — diese '
+                       'Tabs werten bewusst alle Trades inkl. offener Positionen '
+                       'aus.')
+            horizon_filter_active = False
 
     with st.expander('Spalten', expanded=False):
         trade_cols_sel = st.multiselect(
@@ -1181,7 +1212,11 @@ def _render_related_table(related: pd.DataFrame) -> None:
         'trade_id': 'Hash-ID',
     }
     src_cols = [c for c in col_map if c in related.columns]
-    tdf = related.sort_values(
+    related_src = related.copy()
+    if 'signals_triggered' in related_src.columns:
+        related_src['signals_triggered'] = \
+            related_src['signals_triggered'].map(_primary_only)
+    tdf = related_src.sort_values(
         'transaction_date', kind='mergesort', na_position='last',
     )[src_cols].rename(columns=col_map)
 
@@ -1439,7 +1474,15 @@ def render_trade_detail(trade, trade_rows, key_prefix: str) -> None:
             'trade_score_breakdown',
         ]
         ctx_available = [f for f in ctx_fields if f in trade.index]
-        ctx_data = {k: trade[k] for k in ctx_available}
+        ctx_data: dict = {}
+        for k in ctx_available:
+            if k == 'signals_triggered':
+                primary, hint = split_primary_hint(
+                    trade[k], settings.SCORING_PRIMARY_SIGNALS)
+                ctx_data['signals_triggered'] = ';'.join(primary)
+                ctx_data['hints'] = ';'.join(hint) if hint else '—'
+            else:
+                ctx_data[k] = trade[k]
         st.dataframe(pd.Series(ctx_data, name='Wert'), width='stretch')
 
     with col_right:
@@ -1501,7 +1544,13 @@ def render_trade_detail(trade, trade_rows, key_prefix: str) -> None:
 (tab_trades, tab_assets, tab_members, tab_detail, tab_recent,
  tab_corr, tab_corr_analysis) = st.tabs(
     ['Trades', 'Assets', 'Members', 'Post Trade Performance', 'Recent Trades',
-     'Score-Korrelation', 'Score-Analyse'])
+     'Score-Korrelation', 'Score-Analyse'],
+    # key schreibt das Label des aktiven Tabs in session_state['main_tabs'];
+    # on_change='rerun' erzwingt nach einem Tab-Klick einen Folge-Rerun, damit
+    # die weiter oben gerenderte Sidebar den neuen aktiven Tab sieht (sie liest
+    # den Wert aus dem vorigen Lauf). Genutzt fuer die Auto-Deaktivierung des
+    # Horizont-Filters in den Korrelations-/Analyse-Tabs (s. Sidebar).
+    key='main_tabs', on_change='rerun')
 
 with tab_trades:
     n = len(trade_rows)
@@ -1521,10 +1570,12 @@ with tab_trades:
     st.caption('Tipp: Zeile anklicken öffnet die Detail-Ansicht '
                '(Chart + Kontext) als Popup. Doppelklick auf eine Zelle '
                'zeigt weiterhin den vollen Zellinhalt. Ticker = Google-Link.')
-    trade_display = trade_rows[display_cols]
+    trade_display = trade_rows[display_cols].copy()
+    if 'signals_triggered' in display_cols:
+        trade_display['signals_triggered'] = \
+            trade_display['signals_triggered'].map(_primary_only)
     ticker_link = 'ticker' in display_cols
     if ticker_link:
-        trade_display = trade_display.copy()
         trade_display['ticker'] = trade_display['ticker'].map(_ticker_google_url)
     sel_state = st.dataframe(
         trade_display,
@@ -1819,8 +1870,12 @@ with tab_recent:
                 int(recent_pool['trade_score'].max()) if len(recent_pool) else 200,
                 200,
             )
+            recent_display = top_pool[display_cols].copy()
+            if 'signals_triggered' in display_cols:
+                recent_display['signals_triggered'] = \
+                    recent_display['signals_triggered'].map(_primary_only)
             st.dataframe(
-                top_pool[display_cols],
+                recent_display,
                 width='stretch',
                 hide_index=True,
                 height=_dyn_height(len(top_pool)),
@@ -1900,9 +1955,10 @@ with tab_corr:
               if 'exit_status' in mat.columns else 0)
 
     mc1, mc2, mc3, mc4 = st.columns(4)
-    mc1.metric('Spearman-ρ', _fmt_metric(stats['spearman']),
-               help=help_for('score'))
-    mc2.metric('Pearson-r', _fmt_metric(stats['pearson']))
+    mc1.metric('Spearman-Rangkorrelation (ρ)', _fmt_metric(stats['spearman']),
+               help=help_for('spearman'))
+    mc2.metric('Pearson-Korrelation (r)', _fmt_metric(stats['pearson']),
+               help=help_for('pearson'))
     mc3.metric('n (Stichprobe)', f'{stats["n"]:,}')
     mc4.metric('davon held', f'{n_held:,}')
 
@@ -2051,8 +2107,10 @@ with tab_corr_analysis:
                     'delta': st.column_config.NumberColumn(
                         'Δ (%)', format='%.2f'),
                     'spearman': st.column_config.NumberColumn(
-                        'Spearman-ρ', format='%.3f'),
+                        'Spearman-Rangkorrelation (ρ)', format='%.3f',
+                        help=help_for('spearman')),
                     'pearson': st.column_config.NumberColumn(
-                        'Pearson-r', format='%.3f'),
+                        'Pearson-Korrelation (r)', format='%.3f',
+                        help=help_for('pearson')),
                 },
             )

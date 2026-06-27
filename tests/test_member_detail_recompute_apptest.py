@@ -40,8 +40,10 @@ _INLINE_APP = textwrap.dedent(
         return {{k: v for k, v in current.items()
                 if float(v) != float(defaults.get(k, 0))}}
 
+    # swarm_buy ist Primaersignal -> passiert den Hard-Gate, sodass die
+    # Gewicht-Aenderung den Score ueberhaupt veraendern kann.
     base_df = pd.DataFrame([{{
-        'signals_triggered': 'committee',
+        'signals_triggered': 'swarm_buy',
         'ex_officio_role_keys': '',
         'trade_amount_max_usd': 0,
         'trade_score': -1,
@@ -49,11 +51,11 @@ _INLINE_APP = textwrap.dedent(
         'trade_warnings': '',
     }}])
 
-    default_w = int(_settings.SCORING_WEIGHTS['committee'])
-    w = st.number_input('committee-Gewicht', value=default_w, key='w_committee')
+    default_w = int(_settings.SCORING_WEIGHTS['swarm_buy'])
+    w = st.number_input('swarm_buy-Gewicht', value=default_w, key='w_swarm_buy')
 
     weights = dict(_settings.SCORING_WEIGHTS)
-    weights['committee'] = w
+    weights['swarm_buy'] = w
     override = _diff_weights(weights, _settings.SCORING_WEIGHTS)
 
     # Exakt der Dialog-Pfad: recompute mit weights_override (oder None).
@@ -69,13 +71,13 @@ def test_sidebar_weight_change_alters_member_trade_score():
     at = AppTest.from_string(_INLINE_APP)
     at.run()
     base_score = at.session_state['member_score']
-    # Default-Lauf: committee-Gewicht == Settings-Default.
+    # Default-Lauf: swarm_buy-Gewicht == Settings-Default.
     from config import settings as _settings
-    assert base_score == int(_settings.SCORING_WEIGHTS['committee'])
+    assert base_score == int(_settings.SCORING_WEIGHTS['swarm_buy'])
 
     # Gewicht aendern -> Recompute -> Score MUSS sich aendern.
     new_w = base_score + 33
-    at.number_input(key='w_committee').set_value(new_w).run()
+    at.number_input(key='w_swarm_buy').set_value(new_w).run()
     changed_score = at.session_state['member_score']
     assert changed_score == new_w
     assert changed_score != base_score

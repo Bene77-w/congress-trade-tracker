@@ -257,6 +257,8 @@ swarm_events_stage.csv     ─┘            │  concat + (signal_event_id, tra
 
 ## Trade-Score-Formel
 
+**Hard-Gate (2026-06-27):** Triggert ein Trade kein Primärsignal (`SCORING_PRIMARY_SIGNALS`), gibt `compute_trade_score` sofort `(0, '', '')` zurück — Score 0, leerer Breakdown/Warnings. Kanonische Quelle: [Filter_Instanz_Parameter.md](../Filter_Instanz_Parameter.md).
+
 ```
 trade_score = other_part + swarm_part + ex_officio_bonus + volume_part
 ```
@@ -279,6 +281,7 @@ trade_score = other_part + swarm_part + ex_officio_bonus + volume_part
 
 | Variable | Default | Wirkung |
 |---|---|---|
+| `SCORING_PRIMARY_SIGNALS` | `('committee_full', 'swarm_buy')` | **NEU (2026-06-27).** Hard-Gate-Tuple — s. Filter_Instanz_Parameter.md. |
 | ~~`COMMITTEE_THRESHOLD`~~ | entfernt | Trigger-Logik: `len(Relevant_Sectors) > 0` (kein Schwellwert mehr) |
 | `VOTE_TIMING_HIT_THRESHOLD` | 1 | Untergrenze `vote_timing_hit_count` für `floor_action` |
 | `CONTRARIAN_WINDOW_DAYS` | 30 | Max Tage zwischen Buy und Gegen-Sell |

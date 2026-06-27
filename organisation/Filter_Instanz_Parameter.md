@@ -90,6 +90,8 @@ der ohne sonstigen Signal-Treffer hohe Scores erzeugen konnte.
 
 Verteilung in einem Smoke-Run (112.658 Trades, 27.05.2026): 29.340 Trades (26,0%) triggern `trade_volume`; 6.625 Trades (5,9%) haben **nur** `trade_volume` als Signal mit Score-Verteilung min=2/max=16/mean=3,3 — klein genug, dass Volume-only-Trades nicht mehr in die Top-Ränge der Ranking-Tabelle rutschen.
 
+**Primär-/Hint-Status (2026-06-27):** `trade_volume` ist ein Hint-Signal. `SCORING_TRADE_VOLUME_ENABLED` Default ist `False` — per Default kein Score-Beitrag, unabhängig vom gesetzten Gewicht. Reaktivierbar im UI (Sidebar „Score-Gewichte").
+
 ---
 
 ## Post-Trade-Performance (Modul 9.x — Daten-Anreicherung, KEIN Signal/Gate/Tag)
@@ -180,14 +182,29 @@ schrittweise integriert. Stand nach **Phase 8.1**:
 Pipeline jetzt 16 Stages. 61 Unit-Tests grün. Phase 8.6 (Voll-Pipeline-Smoke-Run) offen.
 **Plan:** `~/.claude/plans/crispy-growing-pizza.md`.
 
+### Primär-/Hint-Signalsystem (2026-06-27)
+
+**Primärsignale** (`SCORING_PRIMARY_SIGNALS = ('committee_full', 'swarm_buy')`) sind die einzigen Signale, die per Default den Score bilden. Triggert ein Trade kein Primärsignal, gibt `compute_trade_score` früh `(0, '', '')` zurück — Score 0, leerer Breakdown/Warnings (**Hard-Gate**). Gate ist rückwärts-kompatibel: fehlt/leer `SCORING_PRIMARY_SIGNALS` → Gate aus.
+
+**Hint-Signale** = alle übrigen Signale (`committee`, `floor_action`, `extreme_report`, `contrarian`, `accumulative`, `swarm_sell`, `swarm_conflict`, `trade_volume`). Default-Gewicht 0; beeinflussen den Score nur wenn der Trade zusätzlich ein Primärsignal triggert. Über den UI-Gewichts-Editor vollständig konfigurierbar.
+
+**Frontend:** Tabellen (Trades/Recent/Related/Asset-/Member-Aggregation) zeigen in der `signals_triggered`-Spalte nur Primärsignale. Hints erscheinen im Trade-Detail-Popup als eigene Zeile „hints". Die Master-Spalte `signals_triggered` enthält weiterhin alle getriggerten Signale — Split nur im App-Frontend. Hilfsfunktion: `scoring/trade_score.split_primary_hint(value, primary_signals)`.
+
+**Verifikation (113.675 Trades):** 0 Gate-Violations; Score > 0 sinkt von 80,7 % → 23,8 %; Score-Range neu 0–25; 563 Tests grün.
+
 ### Score-Formel (aktiv)
 
 ```python
+# Hard-Gate (2026-06-27): kein Primärsignal → sofort (0, '', '') zurück.
+# Rückwärts-kompatibel: fehlt/leer SCORING_PRIMARY_SIGNALS → Gate aus.
+if SCORING_PRIMARY_SIGNALS and not (signals_triggered ∩ SCORING_PRIMARY_SIGNALS):
+    return (0, '', '')
+
 swarm_signals = {'swarm_buy', 'swarm_sell', 'swarm_conflict'}
 
 swarm_part  = Σ WEIGHTS[s] für s in signals_triggered ∩ swarm_signals
 if 'swarm_paradox' in signals_triggered:
-    swarm_part *= SCORING_PARADOX_DAMPER         # default 0.0
+    swarm_part *= SCORING_PARADOX_DAMPER         # default 1.0
 
 other_part  = Σ WEIGHTS[s] für s in signals_triggered
               \ swarm_signals \ {swarm_paradox, trade_volume}
@@ -227,17 +244,18 @@ trade_score  = round(swarm_part + other_part + volume_part + bonus)
 
 | Konstante | Default | Bedeutung |
 |---|---|---|
-| `SCORING_WEIGHTS['committee']`       | 10    | Branch-1 Per-Trade; triggert bei `len(Relevant_Sectors) > 0` |
-| `SCORING_WEIGHTS['committee_full']`  |  5    | Branch-1 Per-Trade; zusätzlich wenn mind. 1 Eintrag `match_type='full'`. Voll-Treffer = 10+5=15 |
-| `SCORING_WEIGHTS['floor_action']`    | 15    | Aktiv. Triggert bei Vote_Timing_Hit_Count ≥ VOTE_TIMING_HIT_THRESHOLD (=1) |
-| `SCORING_WEIGHTS['extreme_report']`  |  5    | Branch-1 Per-Trade |
-| `SCORING_WEIGHTS['contrarian']`      |  8    | Sequenz-Signal |
-| `SCORING_WEIGHTS['accumulative']`    | 10    | Sequenz-Signal |
-| `SCORING_WEIGHTS['swarm_buy']`       | 20    | Branch-2 Cluster |
-| `SCORING_WEIGHTS['swarm_sell']`      | 20    | Branch-2 Cluster |
-| `SCORING_WEIGHTS['swarm_conflict']`  | −5    | Gegenindiz — Abzug auf den einzelnen Contrarian-Trade im Schwarmfenster |
-| `SCORING_WEIGHTS['trade_volume']`    | 16    | Nomineller Max-Beitrag des Tier-Signals (UI-Skalierung). Faktischer Beitrag pro Trade kommt aus `SCORING_TRADE_VOLUME_TIERS`. |
-| `SCORING_EX_OFFICIO_ROLE_BONUSES`    | s. Tabelle unten | **NEU (2026-06-12)**, ersetzt `SCORING_EX_OFFICIO_BONUS` (alt, einzelner Wert 10). Bonus = MAX über die Boni der in `ex_officio_role_keys` vorhandenen Keys. |
+| `SCORING_PRIMARY_SIGNALS`            | `('committee_full', 'swarm_buy')` | **NEU (2026-06-27).** Primärsignale-Tuple — Hard-Gate: triggert ein Trade kein Primärsignal, ist `trade_score = 0` (leerer Breakdown/Warnings). Fehlt/leer → Gate aus (rückwärts-kompatibel). |
+| `SCORING_WEIGHTS['committee']`       | 0     | **Hint.** Branch-1 Per-Trade; triggert bei `len(Relevant_Sectors) > 0`. Default 0. |
+| `SCORING_WEIGHTS['committee_full']`  | 5     | **Primär.** Branch-1 Per-Trade; mind. 1 Eintrag `match_type='full'`. |
+| `SCORING_WEIGHTS['floor_action']`    | 0     | **Hint.** Triggert bei Vote_Timing_Hit_Count ≥ VOTE_TIMING_HIT_THRESHOLD (=1). Default 0. |
+| `SCORING_WEIGHTS['extreme_report']`  | 0     | **Hint.** Branch-1 Per-Trade. Default 0. |
+| `SCORING_WEIGHTS['contrarian']`      | 0     | **Hint.** Sequenz-Signal. Default 0. |
+| `SCORING_WEIGHTS['accumulative']`    | 0     | **Hint.** Sequenz-Signal. Default 0. |
+| `SCORING_WEIGHTS['swarm_buy']`       | 20    | **Primär.** Branch-2 Cluster. |
+| `SCORING_WEIGHTS['swarm_sell']`      | 0     | **Hint.** Branch-2 Cluster. Default 0. |
+| `SCORING_WEIGHTS['swarm_conflict']`  | 0     | **Hint.** Gegenindiz. Default 0. |
+| `SCORING_WEIGHTS['trade_volume']`    | 16    | Nomineller Max-Beitrag des Tier-Signals (UI-Skalierung). Per Default deaktiviert (`SCORING_TRADE_VOLUME_ENABLED=False`). Faktischer Beitrag pro Trade kommt aus `SCORING_TRADE_VOLUME_TIERS`. |
+| `SCORING_EX_OFFICIO_ROLE_BONUSES`    | s. Tabelle unten | **NEU (2026-06-12)**, ersetzt `SCORING_EX_OFFICIO_BONUS` (alt, einzelner Wert 10). Bonus = MAX über die Boni der in `ex_officio_role_keys` vorhandenen Keys. **Alle Boni = 0 (2026-06-27) — Keys bleiben für UI-Konfigurierbarkeit erhalten.** |
 | `SCORING_EX_OFFICIO_COMMITTEE_GLOBAL` | `True` | **NEU (2026-06-12).** Toggle: wenn `False`, zählen `committee_*`-Role-Keys nicht für den Bonus (nur `subcommittee_*`). |
 | `SCORING_EX_OFFICIO_TRIGGERS`        | `['committee', 'floor_action']` | Welche Signale den Bonus aktivieren |
 
@@ -245,17 +263,17 @@ trade_score  = round(swarm_part + other_part + volume_part + bonus)
 
 | Role-Key | Bonus | Ebene |
 |---|---|---|
-| `committee_chairman` | 15 | Committee |
-| `committee_vice_chairman` | 12 | Committee |
-| `committee_ranking_member` | 10 | Committee |
-| `committee_ex_officio` | 10 | Committee |
-| `subcommittee_chair` | 12 | Subcommittee |
-| `subcommittee_vice_chair` | 9 | Subcommittee |
-| `subcommittee_ranking_member` | 8 | Subcommittee |
-| `subcommittee_ex_officio` | 8 | Subcommittee |
-| `SCORING_PARADOX_DAMPER`             | 0.0   | Multiplikator auf Schwarm-Anteil bei `swarm_paradox` |
+| `committee_chairman` | 0 | Committee |
+| `committee_vice_chairman` | 0 | Committee |
+| `committee_ranking_member` | 0 | Committee |
+| `committee_ex_officio` | 0 | Committee |
+| `subcommittee_chair` | 0 | Subcommittee |
+| `subcommittee_vice_chair` | 0 | Subcommittee |
+| `subcommittee_ranking_member` | 0 | Subcommittee |
+| `subcommittee_ex_officio` | 0 | Subcommittee |
+| `SCORING_PARADOX_DAMPER`             | 1.0   | Multiplikator auf Schwarm-Anteil bei `swarm_paradox`. Default 1.0 = neutral (kein Dämpfer). Reaktivierbar im UI; Wert < 1.0 dämpft dann den swarm-Beitrag. |
 | `SCORING_PARADOX_WARNING_TAG`        | `'paradox_swarm'` | Tag in `trade_warnings`-Spalte |
-| `SCORING_TRADE_VOLUME_ENABLED`       | `True` | Trade-Volume-Signal an/aus |
+| `SCORING_TRADE_VOLUME_ENABLED`       | `False` | Trade-Volume-Signal an/aus. Default `False` (2026-06-27) — kein Score-Beitrag per Default. |
 | `SCORING_TRADE_VOLUME_TIERS`         | `[(50k,2),(100k,4),(250k,7),(500k,10),(1M,13),(inf,16)]` | Aufsteigend sortiert; nur höchste erreichte Stufe zählt. Letzter Eintrag muss `float('inf')` als Catch-all sein. |
 | `SCORING_TRADE_VOLUME_TRIGGER_FLOOR` | 15_000 | Untergrenze für Trigger. Trades mit `trade_amount_max_usd <= floor` lösen kein `trade_volume`-Signal aus. |
 | `SCORING_VOLUME_WINDOW_DAYS_Z`       | 90    | Rolling-Window für `asset_tradingvolume_usd` (weiterhin gebraucht für `total_volume_usd` in Asset-Aggregaten, fließt aber **nicht** in den `trade_score` ein). |

@@ -19,6 +19,7 @@ from scoring.trade_score import compute_trade_scores
 
 SCORING_ATTRS = (
     'SCORING_WEIGHTS',
+    'SCORING_PRIMARY_SIGNALS',
     'SCORING_PARADOX_DAMPER',
     'SCORING_PARADOX_WARNING_TAG',
     'SCORING_TRADE_VOLUME_ENABLED',

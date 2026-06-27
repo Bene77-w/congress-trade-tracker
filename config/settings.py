@@ -163,24 +163,34 @@ SEC_EDGAR_TTL_DAYS   = 7
 # Code: scoring/trade_score.py (geplant in Phase 8.3)
 # =============================================================================
 SCORING_WEIGHTS = {
-    'committee':       10,    # Halb-Treffer (Sector matcht) + Voll-Treffer
-    'committee_full':   5,    # Zusatz fuer Voll-Treffer (Sector + Industry)
-    'floor_action':    15,    # Vote-Timing-Treffer (VoteTimingTag → FloorActionSignal)
-    'extreme_report':   5,
-    'contrarian':       8,
-    'accumulative':    10,
-    'swarm_buy':       20,
-    'swarm_sell':      20,
-    'swarm_conflict':  -5,    # Gegenindiz: mindert Score des einzelnen
-                              # Contrarian-Trades (lone opposite trade gegen
-                              # aktiven Schwarm). Negativ = bewusster Abzug.
-    'trade_volume':    16,    # nomineller Max-Beitrag (Top-Tier); konkreter Wert
-                              # je Trade aus SCORING_TRADE_VOLUME_TIERS, nicht aus
-                              # diesem Dict. Der Wert hier steuert nur die
-                              # UI-Slider-Obergrenze.
+    # PRIMAER (steuern den Score; s. SCORING_PRIMARY_SIGNALS + Hard-Gate)
+    'committee_full':   5,    # PRIMAER: Voll-Treffer (Sector + Industry)
+    'swarm_buy':       20,    # PRIMAER: >=2 Politiker kaufen denselben Issuer
+    # HINT (Default 0 Score-Einfluss; nur Kontext-Indikator, im Trade-Detail-
+    # Popup als "Hints" ausgewiesen). Voll konfigurierbar ueber den
+    # UI-Gewichts-Editor — ein Wert > 0 wirkt nur, wenn der Trade zusaetzlich
+    # mindestens ein Primaersignal triggert (Hard-Gate).
+    'committee':        0,    # HINT: Halb-Treffer (nur Sector)
+    'floor_action':     0,    # HINT: Vote-Timing-Treffer
+    'extreme_report':   0,    # HINT
+    'contrarian':       0,    # HINT
+    'accumulative':     0,    # HINT
+    'swarm_sell':       0,    # HINT
+    'swarm_conflict':   0,    # HINT: Gegenindiz (frueher -5)
+    'trade_volume':    16,    # HINT: per Default via SCORING_TRADE_VOLUME_ENABLED
+                              # =False deaktiviert; der Wert hier bleibt nur
+                              # UI-Slider-Obergrenze / Tier-Skalierungsfaktor.
     # 'swarm_paradox':         kein additives Gewicht — Multiplikator (s.u.)
     # 'committee_ex_officio':  kein eigenes Gewicht — Bonus X (s.u.)
 }
+
+# Primaersignale (Hard-Gate, Modul 8): Nur Trades, die mindestens eines dieser
+# Signale triggern, erhalten ueberhaupt einen Score > 0. Triggert ein Trade
+# kein Primaersignal, gibt scoring/trade_score.compute_trade_score frueh 0
+# zurueck — unabhaengig davon, wie Hint-Gewichte konfiguriert sind. Alle nicht
+# hier gelisteten Signale sind "Hints" (Default 0 Score-Einfluss, reiner
+# Kontext-Indikator), bleiben aber ueber den UI-Gewichts-Editor konfigurierbar.
+SCORING_PRIMARY_SIGNALS = ('committee_full', 'swarm_buy')
 
 # Ex-Officio-Bonus v2 (rollen-differenziert): pro Trade leitet der
 # CommitteeTag aus den relevanten Treffern Fuehrungsrollen-Keys ab
@@ -192,15 +202,19 @@ SCORING_WEIGHTS = {
 # subcommittee_*-Keys gelten nur fuer Treffer des eigenen Subcommittees.
 # Cochairman wird auf den Chairman-Key seiner Ebene gemappt
 # (tags/committee_tag.py: COMMITTEE_ROLE_KEYS / SUBCOMMITTEE_ROLE_KEYS).
+# HINT-Komponente: per Default 0 (kein Ex-Officio-Bonus mehr — frueher dominierte
+# jeder Ex-Officio-Trade den Score). Keys bleiben erhalten, damit der Bonus im
+# UI-Editor pro Rolle weiter konfigurierbar ist; committee_ex_officio wird wie
+# die uebrigen Hints im Trade-Detail-Popup ausgewiesen.
 SCORING_EX_OFFICIO_ROLE_BONUSES = {
-    'committee_chairman':          15,
-    'committee_vice_chairman':     12,
-    'committee_ranking_member':    10,
-    'committee_ex_officio':        10,
-    'subcommittee_chair':          12,
-    'subcommittee_vice_chair':      9,
-    'subcommittee_ranking_member':  8,
-    'subcommittee_ex_officio':      8,
+    'committee_chairman':          0,
+    'committee_vice_chairman':     0,
+    'committee_ranking_member':    0,
+    'committee_ex_officio':        0,
+    'subcommittee_chair':          0,
+    'subcommittee_vice_chair':     0,
+    'subcommittee_ranking_member': 0,
+    'subcommittee_ex_officio':     0,
 }
 SCORING_EX_OFFICIO_COMMITTEE_GLOBAL = True
 SCORING_EX_OFFICIO_TRIGGERS = ['committee', 'floor_action']
@@ -209,7 +223,9 @@ SCORING_EX_OFFICIO_TRIGGERS = ['committee', 'floor_action']
 # (swarm_buy + swarm_sell + swarm_conflict). 0.0 = Schwarm-Anteil ausgeknockt;
 # 0.5 = halbiert; 1.0 = keine Daempfung. Warning-Tag bleibt unabhaengig sichtbar
 # in der trade_warnings-Spalte, damit das Gegenindiz visualisierbar ist.
-SCORING_PARADOX_DAMPER       = 0.0
+# Default 1.0 (neutral), damit das Primaersignal swarm_buy sauber bleibt; im
+# UI-Editor reaktivierbar (Damper < 1.0 daempft dann den swarm_buy-Beitrag).
+SCORING_PARADOX_DAMPER       = 1.0
 SCORING_PARADOX_WARNING_TAG  = 'paradox_swarm'
 
 # Trade-Volume-Signal: diskrete Stufen auf trade_amount_max_usd (obere
@@ -229,7 +245,9 @@ SCORING_PARADOX_WARNING_TAG  = 'paradox_swarm'
 #
 # Format: aufsteigend sortierte Liste (max_inclusive, score). Der letzte
 # Eintrag MUSS float('inf') als Obergrenze haben (Catch-all).
-SCORING_TRADE_VOLUME_ENABLED = True
+# HINT-Komponente: per Default deaktiviert (0 Score-Einfluss). Im UI-Editor
+# reaktivierbar; trade_volume bleibt eine reine Hint-Anzeige.
+SCORING_TRADE_VOLUME_ENABLED = False
 SCORING_TRADE_VOLUME_TIERS   = [
     (50_000,        2),
     (100_000,       4),

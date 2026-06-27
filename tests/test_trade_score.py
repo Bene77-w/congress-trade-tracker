@@ -13,7 +13,11 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from scoring.trade_score import compute_trade_score, compute_trade_scores
+from scoring.trade_score import (
+    compute_trade_score,
+    compute_trade_scores,
+    split_primary_hint,
+)
 
 
 def _settings(**overrides):
@@ -417,3 +421,80 @@ def test_compute_trade_scores_missing_columns():
     df = pd.DataFrame({'signals_triggered': ['committee', 'swarm_buy']})
     out = compute_trade_scores(df, _settings())
     assert out['trade_score'].tolist() == [15, 20]
+
+
+# ---------------------------------------------------------------------------
+# 21. Hard-Gate (SCORING_PRIMARY_SIGNALS gesetzt)
+# ---------------------------------------------------------------------------
+def _gated_settings(**overrides):
+    """_settings() + SCORING_PRIMARY_SIGNALS -> Gate aktiv."""
+    return _settings(SCORING_PRIMARY_SIGNALS=('committee_full', 'swarm_buy'),
+                     **overrides)
+
+
+def test_gate_hint_only_scores_zero():
+    # floor_action ist kein Primaersignal -> Gate -> Score 0, leer.
+    s, b, w = compute_trade_score('floor_action', '', 0, _gated_settings())
+    assert s == 0
+    assert b == ''
+    assert w == ''
+
+
+def test_gate_hint_weight_does_not_bypass_gate():
+    # Selbst ein hohes Hint-Gewicht hebt das Gate nicht auf.
+    settings = _gated_settings(SCORING_WEIGHTS={
+        'committee_full': 5, 'swarm_buy': 20, 'floor_action': 99,
+    })
+    s, _b, _w = compute_trade_score('floor_action', '', 0, settings)
+    assert s == 0
+
+
+def test_gate_primary_present_scores_with_hints():
+    # committee_full ist Primaer -> Gate passt -> additive Formel inkl. Hint
+    # (committee), wenn dessen Gewicht > 0 konfiguriert ist.
+    settings = _gated_settings(SCORING_WEIGHTS={
+        'committee_full': 5, 'committee': 7, 'swarm_buy': 20,
+    })
+    s, b, _w = compute_trade_score('committee_full;committee', '', 0, settings)
+    assert s == 12  # 5 (committee_full) + 7 (committee-Hint)
+    assert 'committee_full:5' in b
+    assert 'committee:7' in b
+
+
+def test_gate_off_when_no_primary_signals_configured():
+    # Fehlt SCORING_PRIMARY_SIGNALS (wie im Default-_settings()) -> kein Gate.
+    s, _b, _w = compute_trade_score('committee', '', 0, _settings())
+    assert s == 15  # committee-Gewicht aus _settings()
+
+
+def test_gate_swarm_paradox_alone_is_gated():
+    # swarm_paradox ist kein Primaersignal -> ohne swarm_buy/committee_full
+    # wird der Trade gegated (Score 0, keine Warning).
+    s, _b, w = compute_trade_score('swarm_paradox', '', 0, _gated_settings())
+    assert s == 0
+    assert w == ''
+
+
+# ---------------------------------------------------------------------------
+# 22. split_primary_hint
+# ---------------------------------------------------------------------------
+def test_split_primary_hint_basic():
+    primary, hint = split_primary_hint(
+        'committee;committee_full;swarm_buy;floor_action',
+        ('committee_full', 'swarm_buy'))
+    assert primary == ['committee_full', 'swarm_buy']
+    assert hint == ['committee', 'floor_action']
+
+
+def test_split_primary_hint_preserves_order_and_dedup():
+    primary, hint = split_primary_hint(
+        'floor_action;committee_full;floor_action',
+        ('committee_full', 'swarm_buy'))
+    assert primary == ['committee_full']
+    assert hint == ['floor_action']  # Duplikat entfernt
+
+
+def test_split_primary_hint_nan_and_empty():
+    assert split_primary_hint(float('nan'), ('swarm_buy',)) == ([], [])
+    assert split_primary_hint('', ('swarm_buy',)) == ([], [])
+    assert split_primary_hint(None, ('swarm_buy',)) == ([], [])

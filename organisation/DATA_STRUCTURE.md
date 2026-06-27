@@ -823,6 +823,10 @@ signals_triggered,      # str ";"-getrennt: Liste der Signal-Typen (z.B. "commit
 
 # Modul 8 — Score-Spalten. Formel + Beispiele: organisation/Filter_Instanz_Parameter.md.
 # Edge-Cases: tests/test_trade_score.py, tests/test_trade_volume_signal.py.
+# Primär-/Hint-Gating (2026-06-27): trade_score ist 0, wenn kein Primärsignal
+# (SCORING_PRIMARY_SIGNALS) triggert. Die Master-Spalte signals_triggered bleibt
+# UNVERÄNDERT (enthält alle getriggerten Signale); der Primär/Hint-Split erfolgt
+# nur im App-Frontend (s. Filter_Instanz_Parameter.md).
 trade_score,            # int: gewichteter Trade-Score (kein Cap). Quelle: scoring/trade_score.compute_trade_scores.
 trade_score_breakdown,  # str ";"-getrennt: deterministische Komponenten-Aufschluesselung in fester Reihenfolge
                         # (Branch-1 -> Sequenz -> Schwarm -> trade_volume -> ex_officio).
@@ -1358,6 +1362,10 @@ Live-Berechnung pro Kongress-Mitglied — **keine neuen Master-Spalten, kein
 Pipeline-Lauf**. Datenbasis ist das bereits gefilterte Trade-Subset
 (`apply_prefilter(..., apply_horizon_filter=False)`); bei aktivem
 Signal-Ausschluss wird pro Member per `recompute_subset` neu gescort.
+**Primär-/Hint-Anzeige (2026-06-27):** Tabellen (Members, Related-Tabelle im
+Popup) zeigen in der `signals`-Spalte nur Primärsignale; Hints erscheinen
+ausschließlich im Trade-Detail-Popup als eigene Zeile „hints". Keine neuen
+Master-Spalten.
 
 ### `app/member_metrics.py`
 Reine Metrik-/Aggregations-Logik (kein Streamlit-Code), ~563 Zeilen.
@@ -1487,7 +1495,10 @@ Inhalt:
 
 Validiert objektiv, wie gut der `trade_score` den **signierten** Objective
 Return `post_return_{X}d` vorhersagt — **keine neuen Master-Spalten, kein
-Pipeline-Lauf**, alles live aus dem Master. Datenbasis ist
+Pipeline-Lauf**, alles live aus dem Master. **Primär-/Hint-Anzeige
+(2026-06-27):** Trades-Tab, Score-Korrelation/Score-Analyse und Recent-Tab
+zeigen in der `signals_triggered`-Spalte nur Primärsignale; Hints erscheinen
+ausschließlich im Trade-Detail-Popup. Datenbasis ist
 `apply_prefilter(trades, apply_horizon_filter=False)` (umgeht den
 Horizont-Filter → held-Positionen inklusive), bei aktivem Signal-Ausschluss /
 Gewichts-Override einmalig per `recompute_subset` neu gescort (geteilte Basis

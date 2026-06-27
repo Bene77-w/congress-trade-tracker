@@ -32,6 +32,19 @@ GLOSSARY: dict[str, str] = {
         "Eigene Score-Gewichte oder Signal-Filter sind aktiv — die Werte "
         "weichen damit bewusst vom Standard-Scoring ab."
     ),
+    # ------------------------------------------------------------ Korrelation
+    "spearman": (
+        "Spearman-Rangkorrelation (ρ): misst auf einer Skala von -1 bis +1, ob "
+        "ein hoeherer Score mit einem hoeheren Return einhergeht — ueber die "
+        "Platzierung (Rang) statt die Rohwerte. +1 = perfekter Gleichlauf, 0 = "
+        "kein Zusammenhang, -1 = gegenlaeufig. Robust gegen Ausreisser, daher "
+        "die Leitkennzahl dieses Tabs."
+    ),
+    "pearson": (
+        "Pearson-Korrelation (r): misst den linearen Zusammenhang zwischen Score "
+        "und Return auf Basis der Rohwerte (-1 bis +1). Empfindlich gegenueber "
+        "Ausreissern — ein einzelner Extrem-Return kann den Wert stark verzerren."
+    ),
     # ----------------------------------------------------------------- Returns
     "post_return": (
         "Kurs-Gewinn/-Verlust des gehandelten Titels eine feste Zahl Tage nach "
@@ -123,8 +136,17 @@ GLOSSARY: dict[str, str] = {
     ),
     # ------------------------------------------------------------------ Signale
     "signals": (
-        "Automatische Auffaelligkeits-Regeln, die bei diesem Trade angeschlagen "
-        "haben (z.B. Ausschuss-Bezug, Schwarm-Verhalten, hohes Volumen)."
+        "Primaersignale, die bei diesem Trade angeschlagen haben und den Score "
+        "bilden (Standard: Committee-Voll-Treffer und Swarm-Buy). Nur diese "
+        "Signale fliessen in den trade_score ein; uebrige Signale erscheinen als "
+        "'Hints' im Trade-Detail-Popup."
+    ),
+    "hints": (
+        "Zusaetzliche Indikatoren ohne Score-Einfluss (Default-Gewicht 0), z.B. "
+        "Halb-Treffer-Committee, Floor-Action, Volumen, Ex-Officio. Rein als "
+        "Kontext fuer die Transaktionsentscheidung; ueber den Gewichts-Editor "
+        "bei Bedarf scorewirksam schaltbar (wirkt nur zusammen mit einem "
+        "Primaersignal)."
     ),
     "committee_match": (
         "Der Trade-Sektor ueberschneidet sich mit einem Wirtschaftsbereich, den "
