@@ -3,6 +3,10 @@
 Liefert pro Trade ein Tripel ``(trade_score, trade_score_breakdown,
 trade_warnings)`` nach der Formel:
 
+    # Hard-Gate: ohne getriggertes Primaersignal (SCORING_PRIMARY_SIGNALS,
+    # default committee_full/swarm_buy) ist trade_score = 0, breakdown/warnings
+    # leer — Hint-Signale (Default-Gewicht 0) tragen dann nichts bei.
+
     swarm_part  = Σ WEIGHTS[s] für s in signals_triggered ∩ swarm_signals
     if 'swarm_paradox' in signals_triggered:
         swarm_part *= SCORING_PARADOX_DAMPER
@@ -69,6 +73,45 @@ def _parse_signals(value: Any) -> set[str]:
     return {tok for tok in value.split(';') if tok}
 
 
+def _parse_signals_ordered(value: Any) -> list[str]:
+    """Wie ``_parse_signals``, aber ordnungserhaltend + dedupliziert.
+
+    Fuer die Anzeige (Primaer/Hint-Split), wo die Reihenfolge der
+    ``signals_triggered``-Tokens erhalten bleiben soll.
+    """
+    if value is None:
+        return []
+    try:
+        if pd.isna(value):
+            return []
+    except (TypeError, ValueError):
+        pass
+    if not isinstance(value, str):
+        value = str(value)
+    seen: set[str] = set()
+    out: list[str] = []
+    for tok in value.split(';'):
+        if tok and tok not in seen:
+            seen.add(tok)
+            out.append(tok)
+    return out
+
+
+def split_primary_hint(value: Any,
+                       primary_signals: Any) -> Tuple[list[str], list[str]]:
+    """Splittet ``signals_triggered`` in ``(primaer, hint)``-Listen.
+
+    ``primary_signals`` ist die Menge der Primaersignal-Namen (typischerweise
+    ``config.settings.SCORING_PRIMARY_SIGNALS``). Reihenfolge der Eingabe bleibt
+    erhalten. Reine Anzeige-Hilfe — veraendert die Master-Spalte nicht.
+    """
+    primary_set = set(primary_signals or ())
+    tokens = _parse_signals_ordered(value)
+    primary = [t for t in tokens if t in primary_set]
+    hint = [t for t in tokens if t not in primary_set]
+    return primary, hint
+
+
 def _to_float(value: Any, default: float = 0.0) -> float:
     if value is None:
         return default
@@ -126,8 +169,19 @@ def compute_trade_score(signals_value: Any,
     committee_global = bool(committee_global)
     bonus_triggers = set(getattr(settings_module,
                                  'SCORING_EX_OFFICIO_TRIGGERS', []) or [])
+    primary_signals = set(getattr(settings_module,
+                                  'SCORING_PRIMARY_SIGNALS', ()) or ())
 
     triggered = _parse_signals(signals_value)
+
+    # --- Hard-Gate: ohne getriggertes Primaersignal kein Score ---
+    # Hint-Signale (Default-Gewicht 0) koennen einen Score nur dann erhoehen,
+    # wenn der Trade zusaetzlich mindestens ein Primaersignal triggert. Fehlt
+    # ein Primaersignal vollstaendig, ist der Score immer 0 — unabhaengig von
+    # den Hint-Gewichten. (Leere primary_signals => Gate aus, Rueckwaerts-Kompat.)
+    if primary_signals and not (triggered & primary_signals):
+        return 0, '', ''
+
     is_paradox = PARADOX_SIGNAL in triggered
 
     breakdown_parts: list[str] = []

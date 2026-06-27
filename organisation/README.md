@@ -83,7 +83,7 @@ data/mappings/*.xlsx          →  scripts/convert_xlsx_to_csv.py  →  data/map
 
 ## Scoring-System (Modul 8 — aktiv)
 
-Trade-Score = gewichtete Summe der getriggerten Signale + Volume-Score + rollenbasierter Ex-Officio-Bonus (MAX über Führungsrollen-Boni), mit Paradox-Dämpfer auf den Schwarm-Anteil. Kein Cap.
+Trade-Score wird per Default nur berechnet, wenn mindestens ein Primärsignal triggert (`SCORING_PRIMARY_SIGNALS = ('committee_full', 'swarm_buy')` — **Hard-Gate**, Score 0 bei keinem Treffer). Primärsignale bilden die Summenbasis; alle übrigen Signale sind Hints (Default-Gewicht 0, nur im Trade-Detail-Popup sichtbar). Ex-Officio-Rollenboni default 0; Paradox-Dämpfer default 1.0 (neutral). Kein Cap.
 
 **Vollständige Formel, Signal-Gewichte und Aggregat-Spalten:** [Filter_Instanz_Parameter.md](Filter_Instanz_Parameter.md). Konfiguration: `config/settings.py` (`SCORING_*`-Block).
 
