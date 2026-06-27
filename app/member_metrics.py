@@ -712,3 +712,61 @@ def red_flag_summary(df_member: pd.DataFrame, member_means: dict[int, float],
     top = float(term.max()) if len(term) else float('nan')
     return {'n': n, 'vote_timing_rate': vt, 'committee_full_rate': cf,
             'outperformance': outperf, 'top_terminal': top}
+
+
+# ---------------------------------------------------------------------------
+# Abnormal Return (marktbereinigt vs. SPY) — deskriptiv, Member-Aggregat + Rang
+# ---------------------------------------------------------------------------
+# signed_ar_{H}d ist ein BRUCHTEIL (0.03 = 3%), richtungsbereinigt (positiv =
+# schlaegt den Markt fuer Kauf UND Verkauf). Outlier-Flag/Perzentil-Rang werden
+# bewusst NICHT im Master gefroren (schwellen-/populationsabhaengig) -> hier bei
+# der Anzeige abgeleitet.
+
+
+def abnormal_return_summary(df: pd.DataFrame, horizon: int,
+                            upper: float, lower: float) -> dict:
+    """Member-Aggregat des signierten Abnormal Return (Konstrukt A).
+
+    Keys: ``median`` (Median ``signed_ar_{horizon}d``, BRUCHTEIL), ``n_eval``
+    (evaluierbare Trades), ``share_pos`` / ``share_neg`` (Anteil Ausreisser
+    ``>= upper`` bzw. ``<= lower`` an den evaluierbaren Trades). Leer/NaN-robust;
+    fehlt die Spalte -> n_eval=0.
+    """
+    col = f'signed_ar_{int(horizon)}d'
+    empty = {'median': float('nan'), 'n_eval': 0,
+             'share_pos': float('nan'), 'share_neg': float('nan')}
+    if col not in df.columns:
+        return empty
+    s = pd.to_numeric(df[col], errors='coerce').dropna()
+    n = int(len(s))
+    if n == 0:
+        return empty
+    return {
+        'median': float(s.median()),
+        'n_eval': n,
+        'share_pos': float((s >= upper).mean()),
+        'share_neg': float((s <= lower).mean()),
+    }
+
+
+def ar_percentile_rank(value: Any, sorted_dist: np.ndarray) -> float:
+    """Perzentil-Rang von ``value`` in ``sorted_dist`` (aufsteigend sortiert,
+    NaN-frei). Rueckgabe in [0, 1] = Anteil der Verteilung ``<= value``.
+    NaN/leere Verteilung -> NaN."""
+    v = pd.to_numeric(pd.Series([value]), errors='coerce').iloc[0]
+    n = len(sorted_dist)
+    if pd.isna(v) or n == 0:
+        return float('nan')
+    pos = int(np.searchsorted(sorted_dist, v, side='right'))
+    return pos / n
+
+
+def format_ar_rank(rank: float) -> str:
+    """Zweiseitige, lesbare Form des Perzentil-Rangs: gute Trades
+    'besser als X % der Trades', schlechte 'schlechter als Y % der Trades'.
+    NaN -> '—'."""
+    if rank is None or (isinstance(rank, float) and np.isnan(rank)):
+        return '—'
+    if rank >= 0.5:
+        return f'besser als {round(rank * 100)} % der Trades'
+    return f'schlechter als {round((1.0 - rank) * 100)} % der Trades'

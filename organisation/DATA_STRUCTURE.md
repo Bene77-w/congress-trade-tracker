@@ -1545,13 +1545,21 @@ App-Konfiguration").
 
 ---
 
-## 7e. App-Module: Event-Study / Abnormal Return (Discovery)
+## 7e. Abnormal Return: Master-Stage + App-Anzeige + Event-Study (Discovery)
 
-Validiert den `trade_score` gegen ein marktbereinigtes Lineal: den **signierten
-Abnormal Return (signed BHAR)** pro Trade. **Keine neuen Master-Spalten, keine
-Pipeline-Stage, kein Master-Schreiben** — alle Spalten existieren nur
-**in-memory** während des Skript-Laufs. Settings-Änderung = Skript einfach
-neu starten (nur Cache-Lookups, kein yfinance-Download, kein Delta-Lauf-Risiko).
+Marktbereinigtes Lineal pro Trade: der **signierte Abnormal Return (signed BHAR)** —
+rohe Rendite minus Markt (SPY) über dasselbe Fenster, Verkauf invertiert (positiv = besser
+als der Markt). **Deskriptiv, KEIN Scoring-Input.** Zwei Nutzungen aus EINEM Berechnungs-Modul
+(`scoring/abnormal_returns.py`):
+
+1. **Pipeline-Stage `abnormal_returns`** (Modul 9b, `scripts/import_trades.py`): schreibt die
+   kontinuierlichen **Konstrukt-A-Spalten** `signed_ar_{30,60,90,120,180}d` in
+   `trades_master_complete.csv`. Outlier-Flag und Perzentil-Rang werden **NICHT** persistiert
+   (schwellen-/populationsabhängig → in der App bei der Anzeige abgeleitet); Konstrukt B
+   (`signed_ar_disc_*`) wird nicht in den Master geschrieben.
+2. **Standalone-Analyse** `scripts/analyse_event_study.py` (Discovery): validiert `trade_score`
+   gegen den AR, rechnet zusätzlich Konstrukt B + Outlier-Flag + member-geclusterten Bootstrap —
+   alles nur **in-memory**, kein Master-Schreiben. Settings-Änderung = Skript neu starten.
 
 ### Metrik (pro Trade, Horizont H, t0 = Ankerdatum)
 
@@ -1582,19 +1590,38 @@ Berechnungs-Modul. Öffentliche API:
 Reuse der Preis-Primitive aus `scoring/post_trade_returns.py`
 (`_load_price_cache`, `_build_price_lookup`, `_sell_sign_series`) — nicht reimplementiert.
 
-### In-Memory-Spalten (NICHT im Master persistiert)
+### Spalten
+
+**Im Master (`trades_master_complete.csv`, via Stage `abnormal_returns`)** — Konstrukt A:
+
+| Spalte | Typ | Beschreibung |
+|--------|-----|--------------|
+| `signed_ar_30d` | float | Abnormal Return nach 30 Tagen ab `transaction_date` |
+| `signed_ar_60d` | float | Abnormal Return nach 60 Tagen |
+| `signed_ar_90d` | float | Abnormal Return nach 90 Tagen |
+| `signed_ar_120d` | float | Abnormal Return nach 120 Tagen (**Headline-Horizont**, `AR_HEADLINE_HORIZON_DAYS`) |
+| `signed_ar_180d` | float | Abnormal Return nach 180 Tagen |
+
+**Nur in-memory (Standalone-Skript, NICHT im Master)** — Konstrukt B + Outlier-Markierung:
 
 | Spalte | Typ | Konstrukt | Beschreibung |
 |--------|-----|-----------|--------------|
-| `signed_ar_30d` | float | A | Abnormal Return nach 30 Tagen ab `transaction_date` |
-| `signed_ar_60d` | float | A | Abnormal Return nach 60 Tagen |
-| `signed_ar_90d` | float | A | Abnormal Return nach 90 Tagen (Headline-Horizont) |
-| `signed_ar_120d` | float | A | Abnormal Return nach 120 Tagen |
-| `signed_ar_180d` | float | A | Abnormal Return nach 180 Tagen |
 | `signed_ar_disc_30d` | float | B | Abnormal Return nach 30 Tagen ab `disclosure_date` |
 | `signed_ar_disc_90d` | float | B | Abnormal Return nach 90 Tagen ab `disclosure_date` |
-| `ar_outlier_flag` | bool | — | True wenn Trade außerhalb Ausreißer-Band |
+| `ar_outlier_flag` | bool | — | True wenn Trade außerhalb Ausreißer-Band (auf `signed_ar_{headline}d`) |
 | `ar_outlier_direction` | str | — | 'positive', 'negative' oder '' |
+
+### App-Anzeige (Detail-Popups, NUR dort — keine Tabellen-Spalte)
+
+Outlier-Flag und Perzentil-Rang werden **bei der Anzeige** aus den Master-Spalten + den
+`AR_OUTLIER_*`-Schwellen abgeleitet (nicht im Master gefroren). Headline = `AR_HEADLINE_HORIZON_DAYS` (120d).
+
+- **Trade-Detail** (`app/streamlit_app.py`): Sektion „Abnormal Return (marktbereinigt vs. SPY)" —
+  Headline-Metrik AR 120d + **zweiseitiger Perzentil-Rang** gegen alle evaluierbaren Trades
+  („besser als X %" / „schlechter als Y % der Trades") + Tabelle Horizont × {roher `post_return` %, AR %}.
+- **Member-Detail** (`app/member_detail.py`): **Median-AR 120d** + **Ausreißer-Quote** (positiv/negativ
+  getrennt), mit Member-Konzentrations-Caveat.
+- Pure Logik (unit-getestet, `app/member_metrics.py`): `abnormal_return_summary`, `ar_percentile_rank`, `format_ar_rank`.
 
 ### Output-Datei `data/processed/ar_outliers.csv` (gitignored)
 

@@ -563,6 +563,32 @@ def _render_red_flags(mview, bview, terminal):
               help=help_for('best_trade'))
 
 
+def _render_abnormal_return(mview: pd.DataFrame) -> None:
+    """Marktbereinigter Abnormal Return (Konstrukt A) auf Member-Ebene:
+    Median + Ausreisser-Quote (positiv/negativ). Deskriptiv, kein Insider-Beweis."""
+    h = int(settings.AR_HEADLINE_HORIZON_DAYS)
+    summ = mm.abnormal_return_summary(
+        mview, h, settings.AR_OUTLIER_UPPER, settings.AR_OUTLIER_LOWER)
+    if summ['n_eval'] == 0:
+        st.caption(f'Abnormal Return ({h}d): keine evaluierbaren Trades '
+                   '(Right-Censoring) oder Spalte fehlt '
+                   '(Stage `--stage_abnormal_returns`).')
+        return
+    st.markdown(f'**Abnormal Return (marktbereinigt vs. SPY, {h}d)**')
+    a1, a2, a3 = st.columns(3)
+    med = summ['median']
+    a1.metric('Median AR', f'{med * 100:+.2f}%' if pd.notna(med) else '—',
+              help='Median des signierten, marktbereinigten Abnormal Return ueber '
+                   'die evaluierbaren Trades (positiv = schlaegt den Markt im Median).')
+    a2.metric('Ausreißer +', f"{summ['share_pos'] * 100:.0f}%",
+              help='Anteil Trades mit AR >= Schwelle (aussergewoehnlich gut getimt).')
+    a3.metric('Ausreißer −', f"{summ['share_neg'] * 100:.0f}%",
+              help='Anteil Trades mit AR <= negativer Schwelle.')
+    st.caption(f"n={summ['n_eval']:,} evaluierbar — Vorsicht: Member-Konzentration "
+               'und kleine n verzerren; deskriptiv, kein Insider-Beweis.'
+               .replace(',', '.'))
+
+
 # ---------------------------------------------------------------------------
 # Top-Trades
 # ---------------------------------------------------------------------------
@@ -617,6 +643,8 @@ def render_member_detail(member_df: pd.DataFrame, bench_df: pd.DataFrame,
 
     with tab_over:
         _render_red_flags(mview, bview, terminal)
+        st.divider()
+        _render_abnormal_return(mview)
         st.divider()
         st.markdown('**Sektor-Konzentration** '
                     '(orange = Committee-Full-Trades-Branchen des Members)')

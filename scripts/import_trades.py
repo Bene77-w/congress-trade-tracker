@@ -65,6 +65,7 @@ from scoring.post_trade_returns import (
     compute_post_trade_returns,
     compute_paper_returns,
 )
+from scoring.abnormal_returns import compute_abnormal_returns
 from utils.ticker_classifier import (
     classify,
     TickerType,
@@ -308,6 +309,18 @@ STAGE_DEPS = {
                        # Recent-Monitoring (Mark-to-Market, Voll-Pass ueber
                        # RECENT_MONITORING_WINDOW_DAYS, delta-unabhaengig).
                        'paper_return_pct', 'price_as_of'],
+    },
+    'abnormal_returns': {
+        # Signierter, marktbereinigter Abnormal Return (Konstrukt A, Anker
+        # transaction_date) vs. AR_BENCHMARK_TICKER. DESKRIPTIV — kein
+        # Scoring-Input. Nutzt denselben Preis-Cache wie post_trade_performance.
+        # Geschrieben werden NUR die kontinuierlichen signed_ar_{H}d; Outlier-Flag
+        # + Perzentil-Rang sind schwellen-/populationsabhaengig und werden in der
+        # App bei der Anzeige abgeleitet (nicht in den Master gefroren).
+        'input_cols': ['trade_id', 'ticker', 'transaction_date',
+                       'disclosure_date', 'transaction_type'],
+        'output_cols': ['signed_ar_30d', 'signed_ar_60d', 'signed_ar_90d',
+                        'signed_ar_120d', 'signed_ar_180d'],
     },
     'asset_volume': {
         # Phase 8.2: Cross-Class rolling-window Sum(trade_volume_usd) ueber
@@ -2198,6 +2211,54 @@ class TradeImporter:
         df = self._compute_recent_paper_returns(df)
         self._write_stage_output(df, 'post_trade_performance', delta, dry_run)
 
+    def _apply_abnormal_returns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Berechnet die marktbereinigten Abnormal Returns (Konstrukt A) und
+        merged NUR ``signed_ar_{H}d`` in df. Outlier-Flag/Perzentil-Rang werden
+        bewusst NICHT persistiert (schwellen-/populationsabhaengig -> in der App
+        bei der Anzeige abgeleitet); Konstrukt B (disclosure) bleibt dem
+        Standalone-Report (scripts/analyse_event_study.py) vorbehalten.
+
+        signed_ar_{H}d ist pro Trade deterministisch (reine Cache-Lookups) ->
+        delta-sicher.
+        """
+        cache_path = os.path.join(BASE_DIR, settings.POST_TRADE_PRICE_CACHE)
+        ar = compute_abnormal_returns(
+            df,
+            cache_path=cache_path,
+            benchmark_ticker=settings.AR_BENCHMARK_TICKER,
+            horizons_days=settings.AR_HORIZONS_DAYS,
+            headline_horizon_days=settings.AR_HEADLINE_HORIZON_DAYS,
+            disclosure_horizons_days=settings.AR_DISCLOSURE_HORIZONS_DAYS,
+            outlier_mode=settings.AR_OUTLIER_MODE,
+            outlier_upper=settings.AR_OUTLIER_UPPER,
+            outlier_lower=settings.AR_OUTLIER_LOWER,
+            outlier_pct_upper=settings.AR_OUTLIER_PCT_UPPER,
+            outlier_pct_lower=settings.AR_OUTLIER_PCT_LOWER,
+        )
+        ar_cols = [f'signed_ar_{int(h)}d' for h in settings.AR_HORIZONS_DAYS]
+        df = df.copy()
+        for col in ar_cols:
+            if col in ar.columns:
+                df[col] = ar[col].values
+        head_col = f'signed_ar_{int(settings.AR_HEADLINE_HORIZON_DAYS)}d'
+        n_eval = int(ar[head_col].notna().sum()) if head_col in ar.columns else 0
+        print(f"      Abnormal Return (vs. {settings.AR_BENCHMARK_TICKER}): "
+              f"{len(ar_cols)} Horizonte, {n_eval:,} evaluierbar @ "
+              f"{settings.AR_HEADLINE_HORIZON_DAYS}d")
+        return df
+
+    def _stage_abnormal_returns(self, delta: bool = False, dry_run: bool = False):
+        """Stage: signierter, marktbereinigter Abnormal Return (Konstrukt A).
+
+        DESKRIPTIV — kein Scoring-Input. Schreibt signed_ar_{H}d in den Master.
+        """
+        print(f"\n[Stage: abnormal_returns] Abnormal Return (marktbereinigt vs. "
+              f"{settings.AR_BENCHMARK_TICKER})...")
+        df = self._read_stage_input('abnormal_returns', delta, dry_run)
+        self._check_stage_inputs('abnormal_returns', df)
+        df = self._apply_abnormal_returns(df)
+        self._write_stage_output(df, 'abnormal_returns', delta, dry_run)
+
     def _stage_trade_volume(self, delta: bool = False, dry_run: bool = False):
         """Stage: berechnet zwei Volumen-Spalten aus der Disclosure-Amount-Range.
 
@@ -2627,6 +2688,11 @@ class TradeImporter:
         print(f"      {len(ptr_history):,} historische + "
               f"{len(enriched_df):,} Delta-Trades")
 
+        # 10b. Abnormal Return fuer die Delta-Trades (per-Trade deterministisch,
+        # kein historischer Kontext noetig) — deskriptiv, kein Scoring-Input.
+        print("\n[10b/17] Abnormal Return (marktbereinigt vs. SPY)...")
+        enriched_df = self._apply_abnormal_returns(enriched_df)
+
         # 11. Asset-Tradingvolume (Cross-Class rolling-window, Modul 8.2).
         # Im Delta-Mode wird Master-Historie fuer das Fenster-Backfill genutzt.
         z = settings.SCORING_VOLUME_WINDOW_DAYS_Z
@@ -2918,6 +2984,10 @@ class TradeImporter:
         # Recent-Monitoring Papier-Return (Voll-Pass ueber den ganzen Master).
         df = self._compute_recent_paper_returns(df)
 
+        # 9b. Abnormal Return (marktbereinigt vs. SPY) — deskriptiv, kein Scoring-Input.
+        print("\n[9b/17] Abnormal Return (marktbereinigt vs. SPY)...")
+        df = self._apply_abnormal_returns(df)
+
         # 10. Asset-Tradingvolume (Cross-Class rolling-window, Modul 8.2)
         z = settings.SCORING_VOLUME_WINDOW_DAYS_Z
         print(f"\n[10/17] Asset-Tradingvolume ({z}d, Cross-Class)...")
@@ -3057,6 +3127,8 @@ def main():
                         help='Stage: yfinance Sector/Industry-Anreicherung')
     parser.add_argument('--stage_post_trade_performance', action='store_true',
                         help='Stage: Post-Trade-Preise + Exit-Detection (Modul 9.x)')
+    parser.add_argument('--stage_abnormal_returns', action='store_true',
+                        help='Stage: Abnormal Return (marktbereinigt vs. SPY, deskriptiv)')
     parser.add_argument('--stage_trade_volume', action='store_true',
                         help='Stage: trade_volume_usd aus Amount-Range berechnen (Modul 8)')
     parser.add_argument('--stage_asset_volume', action='store_true',
@@ -3099,6 +3171,7 @@ def main():
         'tickeryfinance': args.stage_tickeryfinance,
         'trade_volume': args.stage_trade_volume,
         'post_trade_performance': args.stage_post_trade_performance,
+        'abnormal_returns': args.stage_abnormal_returns,
         'asset_volume': args.stage_asset_volume,
         'gates_tags': args.stage_gates_tags,
         'branch1_signals': args.stage_branch1_signals,
