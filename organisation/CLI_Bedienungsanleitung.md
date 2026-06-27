@@ -196,7 +196,7 @@ python scrapers/senate_pdf_extractor.py --headless False
 
 ---
 
-## 3. Import Pipeline (17 Stages)
+## 3. Import Pipeline (18 Stages)
 
 **Datei:** `scripts/import_trades.py`
 **Zweck:** Liest Quiver-Snapshot (`congress-trading-all.xlsx`), matcht Member-Namen (Alias→Exakt→Former→Fuzzy), klassifiziert Tickers offline, normalisiert via OpenFIGI, reichert via yfinance an, wendet Filter an.
@@ -298,6 +298,7 @@ python scripts/import_trades.py --stage_issuer_group      # Cross-Class Issuer M
 python scripts/import_trades.py --stage_tickeryfinance    # yfinance Sector/Industry
 python scripts/import_trades.py --stage_trade_volume      # trade_volume_usd aus Amount-Range (MUSS VOR post_trade_returns)
 python scripts/import_trades.py --stage_post_trade_performance  # Post-Trade-Preise + Exit-Detection (Modul 9.x, braucht trade_amount_max_usd)
+python scripts/import_trades.py --stage_abnormal_returns  # Abnormal Return (marktbereinigt vs. SPY) → signed_ar_{H}d (deskriptiv, kein Scoring-Input)
 python scripts/import_trades.py --stage_asset_volume      # Cross-Class Asset-Tradingvolume rolling-window
 python scripts/import_trades.py --stage_gates_tags        # Gates + Tags (Asset-Class, Committee, Vote-Timing)
 python scripts/import_trades.py --stage_branch1_signals   # Branch-1 Signale
@@ -496,7 +497,7 @@ python scripts/analyse_event_study.py
 - `organisation/analyse_event_study.md` — Befund-Report (Single-Source der Ergebnisse)
 - `data/processed/ar_outliers.csv` — Ausreißer-Trades (gitignored)
 
-**Hinweise:** Keine Pipeline-Stage, kein Schreiben in den Master. AR-Spalten existieren nur in-memory. Settings-Aenderung = Skript einfach neu starten. Spalten + Metrik: `DATA_STRUCTURE.md` Abschnitt 7e.
+**Hinweise:** Dieses Standalone-Skript schreibt keinen Master (Konstrukt B + Bootstrap nur in-memory). Die **produktive Stage `--stage_abnormal_returns`** (Abschnitt 3) schreibt dagegen die `signed_ar_*` (Konstrukt A) in den Master und speist die App-Detail-Popups. Settings-Aenderung = Skript bzw. Stage neu laufen lassen. Spalten + Metrik: `DATA_STRUCTURE.md` Abschnitt 7e.
 
 ---
 

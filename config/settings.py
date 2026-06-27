@@ -646,17 +646,19 @@ DETAIL_TRAJ_MAX_TRACES = 300
 # als schaerferes Lineal gegenueber dem rohen Kalender-Return. Zweck: aussergewoehn-
 # liche Trades (Ausreisser) entdecken UND pruefen, ob die Verdachts-Signale beim AR
 # einen Edge zeigen (Diskriminator: Signale-sind-Rauschen vs. falsches-Lineal).
-# Wird vom EIGENSTAENDIGEN Analyse-Skript scripts/analyse_event_study.py gelesen —
-# KEIN Master-Schreiben, KEINE Pipeline-Stage. Settings-Aenderung = Skript neu laufen
-# lassen (nur Cache-Lookups, kein yfinance-Download, kein Delta-Lauf-Risiko).
+# Genutzt von der Pipeline-Stage 'abnormal_returns' (schreibt signed_ar_{H}d in den
+# Master — deskriptiv, KEIN Scoring-Input) UND vom eigenstaendigen Analyse-Skript
+# scripts/analyse_event_study.py. Settings-Aenderung = Stage bzw. Skript neu laufen
+# lassen (nur Cache-Lookups, kein yfinance-Download).
 #
 # Markt-Benchmark fuer die Marktbereinigung. Muss im Preis-Cache liegen (SPY ist da).
 AR_BENCHMARK_TICKER = 'SPY'
 # Konstrukt A (Insider, primaer): Event-Fenster ab transaction_date (Kalendertage).
 AR_HORIZONS_DAYS = [30, 60, 90, 120, 180]
-# Primaerhorizont fuer Outlier-Flag + Score-Diskriminator. Muss kein Element von
-# AR_HORIZONS_DAYS sein (wird sonst automatisch ergaenzt).
-AR_HEADLINE_HORIZON_DAYS = 90
+# Primaerhorizont: Outlier-Flag, Score-Diskriminator UND App-Anzeige (Trade-/Member-
+# Detail-Headline + Perzentil-Rang). Muss kein Element von AR_HORIZONS_DAYS sein
+# (wird sonst automatisch ergaenzt).
+AR_HEADLINE_HORIZON_DAYS = 120
 # Konstrukt B (Copycat/Follower, sekundaer): Event-Fenster ab disclosure_date. Misst,
 # ob ein Aussenstehender durch Nachhandeln nach der Meldung profitieren koennte —
 # KEIN Informationsbeweis (skaliert mit Sichtbarkeit/Trade-Groesse). Staerker

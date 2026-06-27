@@ -309,7 +309,7 @@ untracked) validierbar via `scrapers/house_pdf_parsing_tool/validate_house.py`.
 
 ---
 
-## Pipeline 5: Import-Pipeline (Hauptpipeline, 17 Stages)
+## Pipeline 5: Import-Pipeline (Hauptpipeline, 18 Stages)
 
 **Script:** `scripts/import_trades.py`
 **Input:** `data/raw/congress-trading-all.xlsx` (Quiver-Snapshot)
@@ -320,7 +320,7 @@ untracked) validierbar via `scrapers/house_pdf_parsing_tool/validate_house.py`.
   - `data/processed/unmatched_names.csv` (bei Bedarf)
 
 **Modi:**
-- `python scripts/import_trades.py` — Full Rebuild (alle 17 Stages, schreibt complete + curated + review)
+- `python scripts/import_trades.py` — Full Rebuild (alle 18 Stages, schreibt complete + curated + review)
 - `python scripts/import_trades.py --delta` — Delta-Import via `trade_id` (nur neue Trades, merge)
 - `python scripts/import_trades.py --dry_run` — Alle Stages → trades_stage.csv (Master unberuehrt)
 
@@ -340,6 +340,7 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
 --stage_tickeryfinance    # yfinance Sector/Industry-Anreicherung
 --stage_trade_volume      # Trade-Volume aus Amount-Range → trade_volume_usd + trade_amount_max_usd (MUSS VOR post_trade_returns)
 --stage_post_trade_performance  # Post-Trade-Preise + Exit-Detection (Modul 9.x, braucht trade_amount_max_usd)
+--stage_abnormal_returns  # Abnormal Return (marktbereinigt vs. SPY) → signed_ar_{30,60,90,120,180}d (deskriptiv, kein Scoring-Input)
 --stage_asset_volume      # Cross-Class Asset-Tradingvolume → asset_tradingvolume_usd
 --stage_gates_tags        # Gates + Tags (Asset-Class, Committee, Vote-Timing) + Scoring
 --stage_branch1_signals   # Branch-1 Signale (committee, ex_officio, floor_action, extreme_report)
@@ -483,6 +484,16 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
     → Tests: test_post_trade_returns.py (compute_paper_returns, _sell_sign_series, _latest_close_map, _apply_paper_returns)
     → Reihenfolge-Begruendung: nach tickeryfinance (Sektor-Daten bereits vorhanden),
       vor trade_volume (Volume unabhaengig von Preis-Daten)
+         ↓
+[8b] Abnormal Return (Stage `abnormal_returns`, deskriptiv — KEIN Scoring-Input)
+    → scoring/abnormal_returns.compute_abnormal_returns(df, cache_path, AR_*-Settings)
+    → Neue Master-Spalten (Konstrukt A): signed_ar_{30,60,90,120,180}d (Bruchteil, 0.03 = 3 %)
+        signed_ar = sell_sign × ((P_ticker(t0+H)/P_ticker(t0)−1) − (P_SPY(t0+H)/P_SPY(t0)−1))
+    → Teilt den Preis-Cache mit [8]; pro Trade deterministisch (delta-sicher).
+    → NUR signed_ar_{H}d in den Master; Outlier-Flag/Perzentil-Rang werden in der App bei der
+      Anzeige abgeleitet, Konstrukt B (signed_ar_disc_*) nur im Standalone-Report (Pipeline 7).
+    → Im Full-Run als Schritt [9b], im Delta-Run als [10b] (auf den Delta-Trades).
+    → Spalten + App-Anzeige: DATA_STRUCTURE.md Abschnitt 7e.
          ↓
 [9] Trade-Volume (Modul 8 — Stage `trade_volume`)
     → utils/amount_parser.midpoint_usd(amount) und max_usd(amount) — pro
@@ -1032,7 +1043,7 @@ Zwischensummen pro Gruppe, finale Zusammenfassung.
 | `scripts/diagnose_scraper.py` | Senate-Scraper QA (Timing, Konsistenz, Rowcount) | `--test [timing\|consistency\|rowcount\|all] --runs N --days N` |
 | `scripts/analyze_fehler_pdfs.py` | House-Fehler-PDFs analysieren (Textlayer, Rotation, Bilder) | — |
 | `scripts/inspect_excel.py` | Excel-Spaltenstruktur inspizieren | — |
-| `scripts/analyse_event_study.py` | Event-Study / Abnormal Return (Discovery): validiert `trade_score` gegen signierten, marktbereinigten BHAR (2 Konstrukte A/B, member-geclusterter Bootstrap). **Keine Pipeline-Stage, kein Master-Schreiben** — alle AR-Spalten nur in-memory. Liest `trades_master_complete.csv`, schreibt Report `organisation/analyse_event_study.md` + `data/processed/ar_outliers.csv`. Settings-Änderung = Skript neu starten. Konfiguration: `AR_*`-Block in `config/settings.py`. Spalten + Metrik: `DATA_STRUCTURE.md` Abschnitt 7e. | keine Flags |
+| `scripts/analyse_event_study.py` | Event-Study / Abnormal Return (Discovery): validiert `trade_score` gegen signierten, marktbereinigten BHAR (2 Konstrukte A/B, member-geclusterter Bootstrap). **Dieses Standalone-Skript schreibt keinen Master** (Konstrukt B + Bootstrap nur in-memory); die produktive Stage `abnormal_returns` (Pipeline 5, Schritt [8b]) schreibt dagegen die `signed_ar_*` (Konstrukt A) in den Master. Liest `trades_master_complete.csv`, schreibt Report `organisation/analyse_event_study.md` + `data/processed/ar_outliers.csv`. Settings-Änderung = Skript neu starten. Konfiguration: `AR_*`-Block in `config/settings.py`. Spalten + Metrik: `DATA_STRUCTURE.md` Abschnitt 7e. | keine Flags |
 
 ---
 

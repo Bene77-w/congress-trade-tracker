@@ -11,6 +11,28 @@ Historie abgeschlossener Module/Phasen. **Aktiver WIP-Modul-Stand** steht im „
 
 ---
 
+## 2026-06-27 — Abnormal Return: Integration in Master + Detail-Popups (Phase 2)
+
+**Motivation:** Das in der Discovery gebaute AR-Lineal (signierter, marktbereinigter BHAR
+vs. SPY) wird produktiv — als **deskriptives** Maß zur Markteinordnung einzelner Trades/Member,
+**nicht** als Scoring-Input (Diskriminator-Befund: AR korreliert ~0 mit `trade_score`).
+
+- **Neue Pipeline-Stage `abnormal_returns`** (`scripts/import_trades.py`, Schritt [9b] im Full-Run,
+  [10b] im Delta-Run, Single-Stage `--stage_abnormal_returns`): schreibt die kontinuierlichen
+  Konstrukt-A-Spalten `signed_ar_{30,60,90,120,180}d` in `trades_master_complete.csv`. Läuft nach
+  `post_trade_performance` (teilt den Preis-Cache), pro Trade deterministisch (delta-sicher).
+  Outlier-Flag/Perzentil-Rang werden **nicht** persistiert (bei Anzeige abgeleitet); Konstrukt B
+  bleibt dem Standalone-Report vorbehalten.
+- **App-Anzeige in zwei Detail-Popups** (nur dort, keine Tabellen-Spalte): Trade-Detail
+  (Headline AR 120d + zweiseitiger Perzentil-Rang gegen alle Trades + Tabelle roh vs. AR je Horizont);
+  Member-Detail (Median-AR 120d + Ausreißer-Quote positiv/negativ). Pure Logik in
+  `app/member_metrics.py`: `abnormal_return_summary`, `ar_percentile_rank`, `format_ar_rank`.
+- **Default-Headline-Horizont 90 → 120 Tage** (`AR_HEADLINE_HORIZON_DAYS`; greift auch im
+  Standalone-Report).
+- **Tests:** +5 AR-Helper-Tests in `tests/test_member_metrics.py`; Gesamtsuite grün
+  (2 vorbestehende, AR-fremde Fehlschläge: `owner`-Dedup).
+- Doku: `DATA_STRUCTURE.md` 7e, `Pipelines.md` (Stage [8b] + Pipeline 7), `CLI_Bedienungsanleitung.md` (Abschnitt 3 + 5b).
+
 ## 2026-06-26 — Event-Study / Abnormal-Return-Modul (Insider-Aufdeckung, Discovery)
 
 **Motivation:** Der rohe Kalender-Return (`post_return_{X}d`) ist kein scharfes

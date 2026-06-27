@@ -136,7 +136,7 @@ def compute_abnormal_returns(
     cache_path: str,
     benchmark_ticker: str = 'SPY',
     horizons_days: Iterable[int] = (30, 60, 90, 120, 180),
-    headline_horizon_days: int = 90,
+    headline_horizon_days: int = 120,
     disclosure_horizons_days: Iterable[int] = (30, 90),
     outlier_mode: str = 'absolute',
     outlier_upper: float = 0.03,

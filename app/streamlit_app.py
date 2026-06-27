@@ -16,6 +16,7 @@ import sys
 import urllib.parse
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import streamlit as st
 
@@ -29,6 +30,7 @@ from app.chart_helpers import (  # noqa: E402
     build_sale_kind_traces,
 )
 from app.glossary import help_for  # noqa: E402
+from app import member_metrics as mm  # noqa: E402
 from app import score_correlation as score_corr  # noqa: E402
 from app.score_recompute import available_signals, recompute_subset  # noqa: E402
 from app.scoring_presets import (  # noqa: E402
@@ -212,6 +214,20 @@ def load_trades() -> pd.DataFrame:
     if 'price_as_of' in df.columns:
         df['price_as_of'] = pd.to_datetime(df['price_as_of'], errors='coerce')
     return df
+
+
+@st.cache_data(show_spinner=False)
+def _ar_sorted_dist(headline_h: int) -> np.ndarray:
+    """Aufsteigend sortierte, NaN-freie Verteilung von ``signed_ar_{headline}d``
+    ueber ALLE Trades (globale Grundgesamtheit fuer den Perzentil-Rang im
+    Trade-Detail). Einmal pro Session gecacht; leeres Array, falls die Stage
+    ``--stage_abnormal_returns`` noch nicht gelaufen ist."""
+    col = f'signed_ar_{int(headline_h)}d'
+    if col not in trades.columns:
+        return np.array([], dtype='float64')
+    s = pd.to_numeric(trades[col], errors='coerce').dropna().to_numpy('float64')
+    s.sort()
+    return s
 
 
 # ---------------------------------------------------------------------------
@@ -1496,6 +1512,48 @@ def render_trade_detail(trade, trade_rows, key_prefix: str) -> None:
         ret_available = [f for f in ret_fields if f in trade.index]
         ret_data = {k: trade[k] for k in ret_available}
         st.dataframe(pd.Series(ret_data, name='Wert'), width='stretch')
+
+        # --- Abnormal Return (marktbereinigt vs. SPY) -----------------------
+        headline_h = int(settings.AR_HEADLINE_HORIZON_DAYS)
+        ar_head_col = f'signed_ar_{headline_h}d'
+        if ar_head_col not in trade.index:
+            st.caption('Abnormal Return: noch nicht im Master — Stage '
+                       '`--stage_abnormal_returns` ausführen.')
+        else:
+            st.subheader('Abnormal Return (marktbereinigt vs. SPY)',
+                         help='Signierter, marktbereinigter Abnormal Return: '
+                              'rohe Rendite minus SPY ueber dasselbe Fenster, '
+                              'Verkauf invertiert (positiv = besser als der Markt). '
+                              'Zeigt, wie viel ueber blosses Mitschwimmen hinausgeht.')
+            head_val = pd.to_numeric(
+                pd.Series([trade.get(ar_head_col)]), errors='coerce').iloc[0]
+            if pd.notna(head_val):
+                st.metric(f'AR {headline_h}d', f'{head_val * 100:+.1f}%')
+                rank = mm.ar_percentile_rank(head_val, _ar_sorted_dist(headline_h))
+                st.caption(mm.format_ar_rank(rank))
+            else:
+                st.caption(f'AR {headline_h}d: — (noch nicht evaluierbar / '
+                           'offene Position).')
+            # Pro-Horizont: roher Return (bereits %) vs. AR (Bruchteil -> %).
+            ar_rows = []
+            for h in settings.POST_TRADE_HORIZONS_DAYS:
+                raw = pd.to_numeric(
+                    pd.Series([trade.get(f'post_return_{h}d')]),
+                    errors='coerce').iloc[0]
+                arv = pd.to_numeric(
+                    pd.Series([trade.get(f'signed_ar_{h}d')]),
+                    errors='coerce').iloc[0]
+                ar_rows.append({
+                    'Horizont': f'{h}d',
+                    'Roh %': float(raw) if pd.notna(raw) else float('nan'),
+                    'AR %': float(arv) * 100 if pd.notna(arv) else float('nan'),
+                })
+            st.dataframe(
+                pd.DataFrame(ar_rows).set_index('Horizont'), width='stretch',
+                column_config={
+                    'Roh %': st.column_config.NumberColumn('Roh %', format='%.1f%%'),
+                    'AR %': st.column_config.NumberColumn('AR %', format='%.1f%%'),
+                })
 
     # --- Partial-Close-Zerlegung (Display-only, Lite/non-FIFO) -----------
     # Pro Schliessungs-Event (Gegen-Trade aus opposing_trade_ids) eine eigene
