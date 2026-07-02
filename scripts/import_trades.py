@@ -1229,7 +1229,8 @@ class TradeImporter:
         df_events = pd.DataFrame(events, columns=SIGNAL_EVENT_COLUMNS)
         df_events.to_csv(BRANCH1_EVENTS_STAGE_PATH, index=False, encoding='utf-8')
 
-    def _apply_sequence_signals(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _apply_sequence_signals(self, df: pd.DataFrame,
+                                history_df: pd.DataFrame = None) -> pd.DataFrame:
         """Wendet die Sequenz-Signale (contrarian, accumulative) an.
 
         Gruppiert Trades nach (bio_guide_id, issuer_ticker) und evaluiert
@@ -1238,33 +1239,48 @@ class TradeImporter:
         Signal-Typen in signal_count + signals_triggered pro Trade
         akkumuliert (additiv zu den Branch-1-Werten aus der vorhergehenden
         Stage).
+
+        Delta-Kontext (``history_df`` gesetzt): Die Master-Historie (ohne die
+        Delta-trade_ids) wird als Gruppierungs-KONTEXT mitverwendet, damit ein
+        neuer Trade auch mit historischen Trades ein Paar bilden kann. Events
+        und Aggregat-Updates bleiben strikt auf die Delta-Zeilen (``df``)
+        beschraenkt; historische Events werden NICHT (re-)emittiert. Rueckgabe
+        ist immer ``df`` (nur die Delta-Zeilen). ``history_df=None`` (Default)
+        -> bit-identisches Full-Run-Verhalten.
         """
         from signals.committee_signal import _direction_from_transaction_type
 
         signals = [ContrarianSignal(), AccumulativeSignal()]
 
         df = df.copy()
+        delta_mode = history_df is not None
+        if delta_mode:
+            delta_ids = set(df['trade_id'].astype(str))
+            work = pd.concat([history_df, df], ignore_index=True, sort=False)
+        else:
+            work = df
         # Pre-compute _td (Timestamp) und _dir (buy/sell/other) einmalig
-        # global — pro-Gruppen-Conversion in evaluate_group ist sonst der
-        # dominante Kostenpunkt (50k+ Gruppen).
-        df['_td'] = pd.to_datetime(df['transaction_date'], errors='coerce')
-        df['_dir'] = df['transaction_type'].map(_direction_from_transaction_type)
+        # global auf dem Gruppierungs-Frame — pro-Gruppen-Conversion in
+        # evaluate_group ist sonst der dominante Kostenpunkt (50k+ Gruppen).
+        work['_td'] = pd.to_datetime(work['transaction_date'], errors='coerce')
+        work['_dir'] = work['transaction_type'].map(_direction_from_transaction_type)
         # Gruppierungs-Key = issuer_ticker (share_class_figi -> ticker_base ->
         # ticker), in _stage_tickeropenfigi vektorisiert befuellt. Im
         # Defensiv-Fallback (Stage-Single-Run ohne tickeropenfigi) rekonstruieren
         # wir die Kette inline.
-        if 'issuer_ticker' in df.columns:
-            df['_grp_ticker'] = df['issuer_ticker'].fillna('').astype(str).str.strip()
+        if 'issuer_ticker' in work.columns:
+            work['_grp_ticker'] = work['issuer_ticker'].fillna('').astype(str).str.strip()
         else:
-            t_str = df['ticker'].fillna('').astype(str).str.strip()
-            if 'ticker_base' in df.columns:
-                tb_str = df['ticker_base'].fillna('').astype(str).str.strip()
-                df['_grp_ticker'] = tb_str.where(tb_str != '', t_str)
+            t_str = work['ticker'].fillna('').astype(str).str.strip()
+            if 'ticker_base' in work.columns:
+                tb_str = work['ticker_base'].fillna('').astype(str).str.strip()
+                work['_grp_ticker'] = tb_str.where(tb_str != '', t_str)
             else:
-                df['_grp_ticker'] = t_str
-        df['_grp_member'] = df['bio_guide_id'].fillna('').astype(str)
+                work['_grp_ticker'] = t_str
+        work['_grp_member'] = work['bio_guide_id'].fillna('').astype(str)
 
-        # signal_count / signals_triggered sicher initialisieren
+        # signal_count / signals_triggered sicher initialisieren (auf den
+        # Ziel-Zeilen df — nur diese bekommen Aggregate zurueckgeschrieben).
         if 'signal_count' not in df.columns:
             df['signal_count'] = 0
         else:
@@ -1281,8 +1297,8 @@ class TradeImporter:
         per_trade_new: dict = {}
         # Nur Gruppen mit nicht-leerer member_id UND ticker — Trades ohne
         # diese Felder koennen keinen Sequenz-Bezug haben.
-        mask = (df['_grp_member'] != '') & (df['_grp_ticker'] != '')
-        candidate_df = df[mask]
+        mask = (work['_grp_member'] != '') & (work['_grp_ticker'] != '')
+        candidate_df = work[mask]
         groups = candidate_df.groupby(['_grp_member', '_grp_ticker'],
                                        sort=False, dropna=False)
         n_groups = groups.ngroups
@@ -1293,9 +1309,12 @@ class TradeImporter:
             n_qualifying += 1
             for sig in signals:
                 sig_events = sig.evaluate_group(group_df)
-                events.extend(sig_events)
                 for ev in sig_events:
                     tid = ev.get('trade_id', '')
+                    # Delta-Kontext: nur Events fuer Delta-Trades emittieren.
+                    if delta_mode and str(tid) not in delta_ids:
+                        continue
+                    events.append(ev)
                     if tid == '' or tid is None:
                         continue
                     per_trade_new.setdefault(tid, []).append(ev['signal_type'])
@@ -1324,8 +1343,10 @@ class TradeImporter:
                     df.at[idx, 'signals_triggered'] = ';'.join(merged)
                     df.at[idx, 'signal_count'] = len(merged)
 
-        # Cleanup interner Gruppierungs-/Hilfsspalten
-        df = df.drop(columns=['_grp_ticker', '_grp_member', '_td', '_dir'])
+        # Cleanup interner Gruppierungs-/Hilfsspalten. Im Delta-Modus liegen
+        # die Hilfsspalten nur auf `work` (nicht auf `df`) -> nichts zu droppen.
+        if not delta_mode:
+            df = df.drop(columns=['_grp_ticker', '_grp_member', '_td', '_dir'])
 
         self._write_sequence_events(events)
 
@@ -1351,7 +1372,8 @@ class TradeImporter:
     # issuer_group_key (Issuer-Level, CIK-basiert, Cross-Class).
     # =========================================================================
 
-    def _apply_swarm_signals(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _apply_swarm_signals(self, df: pd.DataFrame,
+                             history_df: pd.DataFrame = None) -> pd.DataFrame:
         """Wendet die Schwarm-Signale an (swarm_buy/sell/conflict/paradox).
 
         Gruppiert Trades nach `settings.SWARM_GROUPING_KEY` (=issuer_group_key)
@@ -1363,6 +1385,14 @@ class TradeImporter:
         Werten aus Branch-1 + Sequenz erweitert (pro Trade Dedup).
         SKIP-Buckets (issuer_group_key startet mit "SKIP:") werden im
         Signal-Code uebersprungen.
+
+        Delta-Kontext (``history_df`` gesetzt): Die Master-Historie (ohne die
+        Delta-trade_ids) wird als Gruppierungs-KONTEXT mitverwendet, damit ein
+        neuer Trade auch mit historischen Trades einen Schwarm bilden kann.
+        Events und Aggregat-Updates bleiben strikt auf die Delta-Zeilen
+        (``df``) beschraenkt; historische Events werden NICHT (re-)emittiert.
+        Rueckgabe ist immer ``df`` (nur die Delta-Zeilen). ``history_df=None``
+        (Default) -> bit-identisches Full-Run-Verhalten.
         """
         from signals.committee_signal import _direction_from_transaction_type
 
@@ -1373,19 +1403,27 @@ class TradeImporter:
         grouping_key = getattr(settings, 'SWARM_GROUPING_KEY', 'issuer_group_key')
 
         df = df.copy()
-        df['_td'] = pd.to_datetime(df['transaction_date'], errors='coerce')
-        df['_dir'] = df['transaction_type'].map(_direction_from_transaction_type)
+        delta_mode = history_df is not None
+        if delta_mode:
+            delta_ids = set(df['trade_id'].astype(str))
+            work = pd.concat([history_df, df], ignore_index=True, sort=False)
+        else:
+            work = df
+        work['_td'] = pd.to_datetime(work['transaction_date'], errors='coerce')
+        work['_dir'] = work['transaction_type'].map(_direction_from_transaction_type)
 
-        if grouping_key not in df.columns:
+        if grouping_key not in work.columns:
             # Defensive: ohne Issuer-Group-Key keine Schwarm-Auswertung.
-            df = df.drop(columns=['_td', '_dir'])
+            if not delta_mode:
+                df = df.drop(columns=['_td', '_dir'])
             self._write_swarm_events([])
             print(f"      [SKIP] Spalte '{grouping_key}' fehlt -> 0 Schwarm-Events")
             return df
 
-        df['_grp_swarm'] = df[grouping_key].fillna('').astype(str)
+        work['_grp_swarm'] = work[grouping_key].fillna('').astype(str)
 
-        # signal_count / signals_triggered defensiv initialisieren
+        # signal_count / signals_triggered defensiv initialisieren (auf den
+        # Ziel-Zeilen df — nur diese bekommen Aggregate zurueckgeschrieben).
         if 'signal_count' not in df.columns:
             df['signal_count'] = 0
         else:
@@ -1403,8 +1441,8 @@ class TradeImporter:
         # Nur Gruppen mit nicht-leerem grouping_key (SKIP-Buckets werden im
         # Signal-Code zusaetzlich aussortiert -- hier sparen wir uns das
         # Iterieren).
-        mask = (df['_grp_swarm'] != '') & (~df['_grp_swarm'].str.startswith('SKIP:'))
-        candidate_df = df[mask]
+        mask = (work['_grp_swarm'] != '') & (~work['_grp_swarm'].str.startswith('SKIP:'))
+        candidate_df = work[mask]
         groups = candidate_df.groupby('_grp_swarm', sort=False, dropna=False)
         n_groups = groups.ngroups
         n_qualifying = 0
@@ -1414,9 +1452,12 @@ class TradeImporter:
             n_qualifying += 1
             for sig in signals:
                 sig_events = sig.evaluate_group(group_df)
-                events.extend(sig_events)
                 for ev in sig_events:
                     tid = ev.get('trade_id', '')
+                    # Delta-Kontext: nur Events fuer Delta-Trades emittieren.
+                    if delta_mode and str(tid) not in delta_ids:
+                        continue
+                    events.append(ev)
                     if tid == '' or tid is None:
                         continue
                     per_trade_new.setdefault(tid, []).append(ev['signal_type'])
@@ -1442,7 +1483,9 @@ class TradeImporter:
                     df.at[idx, 'signals_triggered'] = ';'.join(merged)
                     df.at[idx, 'signal_count'] = len(merged)
 
-        df = df.drop(columns=['_grp_swarm', '_td', '_dir'])
+        # Im Delta-Modus liegen die Hilfsspalten nur auf `work` -> nichts droppen.
+        if not delta_mode:
+            df = df.drop(columns=['_grp_swarm', '_td', '_dir'])
 
         self._write_swarm_events(events)
 
@@ -2324,14 +2367,34 @@ class TradeImporter:
         df = self._apply_branch1_signals(df)
         self._write_stage_output(df, 'branch1_signals', delta, dry_run)
 
+    def _load_signal_history(self, df: pd.DataFrame):
+        """Master-Historie (volle Zeilen ohne die df-trade_ids) als
+        Gruppierungs-Kontext fuer die Sequenz-/Schwarm-Signale im Einzelstage-
+        Delta-Modus. Gibt None zurueck, wenn kein Master existiert."""
+        if not os.path.isfile(MASTER_COMPLETE_CSV_PATH):
+            return None
+        history = pd.read_csv(MASTER_COMPLETE_CSV_PATH, low_memory=False)
+        for col in ['transaction_date', 'disclosure_date']:
+            if col in history.columns:
+                history[col] = pd.to_datetime(history[col], errors='coerce')
+        stage_ids = set(df.get('trade_id', pd.Series(dtype=str)).astype(str))
+        if 'trade_id' in history.columns:
+            history = history[~history['trade_id'].astype(str).isin(stage_ids)]
+        return history
+
     def _stage_sequence_signals(self, delta: bool = False, dry_run: bool = False):
         """Stage: wendet die Sequenz-Signale an (contrarian, accumulative).
         Aggregiert signal_count + signals_triggered additiv zu den
-        Branch-1-Werten und schreibt die Events in sequence_events_stage.csv."""
+        Branch-1-Werten und schreibt die Events in sequence_events_stage.csv.
+
+        Im Delta-Modus wird die Master-Historie als Gruppierungs-Kontext
+        mitgeladen (analog run_delta), damit Delta-Trades mit historischen
+        Trades ein Paar bilden koennen; Events/Aggregate bleiben Delta-only."""
         print(f"\n[Stage: sequence_signals] Sequenz-Signale auswerten...")
         df = self._read_stage_input('sequence_signals', delta, dry_run)
         self._check_stage_inputs('sequence_signals', df)
-        df = self._apply_sequence_signals(df)
+        history = self._load_signal_history(df) if delta else None
+        df = self._apply_sequence_signals(df, history_df=history)
         self._write_stage_output(df, 'sequence_signals', delta, dry_run)
 
     def _stage_swarm_signals(self, delta: bool = False, dry_run: bool = False):
@@ -2341,7 +2404,8 @@ class TradeImporter:
         print(f"\n[Stage: swarm_signals] Schwarm-Signale auswerten...")
         df = self._read_stage_input('swarm_signals', delta, dry_run)
         self._check_stage_inputs('swarm_signals', df)
-        df = self._apply_swarm_signals(df)
+        history = self._load_signal_history(df) if delta else None
+        df = self._apply_swarm_signals(df, history_df=history)
         self._write_stage_output(df, 'swarm_signals', delta, dry_run)
 
     def _stage_scoring(self, delta: bool = False, dry_run: bool = False):
@@ -2691,13 +2755,26 @@ class TradeImporter:
         print("\n[13/17] Branch-1 Signale auswerten...")
         enriched_df = self._apply_branch1_signals(enriched_df)
 
+        # Master-Historie als Gruppierungs-KONTEXT fuer die Sequenz-/Schwarm-
+        # Signale: ein Delta-Trade kann mit historischen Trades ein Paar/einen
+        # Schwarm bilden. Volle Master-Zeilen (alle Snapshot-Spalten), ohne die
+        # Delta-trade_ids. Events + Aggregate bleiben auf die Delta-Zeilen.
+        sig_history = master_df.copy()
+        _sig_delta_ids = set(enriched_df['trade_id'].astype(str))
+        if 'trade_id' in sig_history.columns:
+            sig_history = sig_history[
+                ~sig_history['trade_id'].astype(str).isin(_sig_delta_ids)
+            ]
+
         # 14. Sequenz-Signale (contrarian, accumulative)
         print("\n[14/17] Sequenz-Signale auswerten...")
-        enriched_df = self._apply_sequence_signals(enriched_df)
+        enriched_df = self._apply_sequence_signals(
+            enriched_df, history_df=sig_history)
 
         # 15. Schwarm-Signale (swarm_buy/sell/conflict/paradox, P6)
         print("\n[15/17] Schwarm-Signale auswerten...")
-        enriched_df = self._apply_swarm_signals(enriched_df)
+        enriched_df = self._apply_swarm_signals(
+            enriched_df, history_df=sig_history)
 
         # 16. Scoring (trade_score + breakdown + warnings, Modul 8.3)
         print("\n[16/17] Trade-Score berechnen (Modul 8.3)...")
