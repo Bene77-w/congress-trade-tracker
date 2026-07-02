@@ -22,6 +22,7 @@ if str(ROOT) not in sys.path:
 from app.member_metrics import (  # noqa: E402
     DEFAULT_HORIZONS,
     abnormal_return_summary,
+    ar_default_index,
     ar_percentile_rank,
     committee_full_mask,
     committee_oversight_rows,
@@ -714,3 +715,16 @@ def test_format_ar_rank_wording():
     assert format_ar_rank(0.5) == 'besser als 50 % der Trades'
     assert format_ar_rank(0.1) == 'schlechter als 90 % der Trades'
     assert format_ar_rank(float('nan')) == '—'
+
+
+def test_ar_default_index_headline_present():
+    # Headline-Horizont enthalten -> exakter Index.
+    assert ar_default_index([30, 60, 90, 120, 180], 120) == 3
+    assert ar_default_index([30, 60, 90, 120, 180], 30) == 0
+
+
+def test_ar_default_index_headline_absent_falls_back_to_zero():
+    # Headline fehlt (z.B. Spalte nicht im Master) -> defensiver Fallback 0.
+    assert ar_default_index([30, 60, 90], 180) == 0
+    assert ar_default_index([], 120) == 0
+    assert ar_default_index([60, 90], None) == 0

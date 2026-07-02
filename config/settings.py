@@ -722,3 +722,27 @@ SCORE_CORR_BUCKET_DEFAULT = 5
 # das Cap betrifft nur die Visualisierung.
 SCORE_CORR_SCATTER_MAX_POINTS = 20000
 SCORE_CORR_SCATTER_OPACITY = 0.3
+
+
+# ---------------------------------------------------------------------------
+# UI-Scope-Kennzeichnung der Zeitfenster-/Horizont-Widgets (Modul 9.x)
+# ---------------------------------------------------------------------------
+# Jedes Zeit-/Horizont-Widget traegt ein Scope-Praefix im Label + einen
+# Scope-Grundtext im Tooltip, damit von aussen erkennbar ist, wie weit eine
+# Einstellung reicht (die verschiedenen Zeitfenster beschraenkten sich frueher
+# unsichtbar gegenseitig). Bedeutung der drei Stufen:
+#   global  -> wirkt auf Trades-/Assets-/Members-/Post-Trade-Performance-Tab
+#   tab     -> wirkt nur im jeweiligen Tab (umgeht die globalen Einstellungen)
+#   detail  -> wirkt nur im geoeffneten Detail-Popup
+UI_SCOPE_PREFIX = {
+    'global': '[Global]',
+    'tab': '[Tab]',
+    'detail': '[Detail]',
+}
+UI_SCOPE_HELP = {
+    'global': 'Scope Global: wirkt auf Trades-, Assets-, Members- und '
+              'Post-Trade-Performance-Tab.',
+    'tab': 'Scope Tab: wirkt nur in diesem Tab und ist unabhaengig von den '
+           'globalen Horizont-Einstellungen der Sidebar.',
+    'detail': 'Scope Detail: wirkt nur in diesem Detail-Popup.',
+}
