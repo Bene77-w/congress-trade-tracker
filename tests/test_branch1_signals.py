@@ -305,6 +305,17 @@ class TestExtremeReportSignal:
         ))
         assert event is None
 
+    def test_negative_delay_does_not_fast_trigger(self):
+        """F5: disclosure VOR transaction (negativer Delay) darf den
+        Fast-Trigger nicht ausloesen. Ohne Untergrenze wuerde delay_days < 0
+        faelschlich als 'sehr schnelle Meldung' zaehlen."""
+        signal = ExtremeReportSignal(threshold_days=60, fast_threshold_days=5)
+        event = signal.evaluate_row(make_row(
+            transaction_date=date(2026, 3, 10),
+            disclosure_date=date(2026, 3, 1),  # -9 Tage -> kein Fast-Trigger
+        ))
+        assert event is None
+
     def test_triggering_date_is_disclosure_date(self):
         signal = ExtremeReportSignal(threshold_days=60)
         event = signal.evaluate_row(make_row(

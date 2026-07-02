@@ -83,11 +83,12 @@ def find_swarm_clusters(group_df: pd.DataFrame, direction: str,
                         ) -> List[List[Dict[str, Any]]]:
     """Identifiziert Schwarm-Cluster fuer eine Direction.
 
-    Greedy-Algorithmus: Ein Cluster startet beim fruehesten Trade in der
-    gewuenschten Richtung; weitere Trades schliessen sich an, solange
-    `T.date - cluster[0].date <= window_days`. Sobald ein Trade aus diesem
-    Fenster faellt, wird das Cluster geschlossen und (falls qualifizierend)
-    ein Schwarm-Event erzeugt, ein neues Cluster startet.
+    Rollendes Fenster: Trades der gewuenschten Richtung werden in maximale
+    Laeufe zeitlich benachbarter Trades partitioniert (Abstand zum jeweils
+    VORHERIGEN Trade `<= window_days`). Ein Lauf qualifiziert als Cluster,
+    wenn innerhalb eines gleitenden Teilfensters der Laenge `window_days`
+    mindestens `min_members` distinkte Members auftreten. Die zurueckgegebenen
+    Cluster sind disjunkt (kein Trade landet in zwei Clustern).
 
     Args:
         group_df: Trades auf demselben issuer_group_key. Muss die Spalten
@@ -128,28 +129,45 @@ def find_swarm_clusters(group_df: pd.DataFrame, direction: str,
 
     df = df.sort_values('_td').reset_index(drop=True)
     records = df.to_dict('records')
+    if not records:
+        return []
+
+    # Rollendes Fenster: Trades werden zunaechst in maximale Laeufe zeitlich
+    # BENACHBARTER Trades partitioniert (aufeinanderfolgender Abstand
+    # <= window_days -- Abstand zum VORHERIGEN Trade, nicht zum Cluster-Start).
+    # Ein Lauf qualifiziert, wenn IRGENDEIN Teilfenster der Laenge window_days
+    # >= min_members distinkte Members enthaelt (Zwei-Zeiger-Scan). Dadurch
+    # bilden auch verkettete Trades einen Schwarm (A Tag0+Tag5, B Tag9), die
+    # das alte Tumbling-Fenster (verankert am ersten Trade) verpasst haette.
+    # Rueckgegebene Cluster sind disjunkt (echte Partition der Records).
+    def _window_qualifies(run: List[Dict[str, Any]]) -> bool:
+        counts: Dict[str, int] = {}
+        left = 0
+        for right in range(len(run)):
+            m = str(run[right].get('bio_guide_id', ''))
+            counts[m] = counts.get(m, 0) + 1
+            while (run[right]['_td'] - run[left]['_td']).days > window_days:
+                lm = str(run[left].get('bio_guide_id', ''))
+                counts[lm] -= 1
+                if counts[lm] == 0:
+                    del counts[lm]
+                left += 1
+            if len(counts) >= min_members:
+                return True
+        return False
 
     clusters: List[List[Dict[str, Any]]] = []
-    current: List[Dict[str, Any]] = []
-
-    def _close(cluster: List[Dict[str, Any]]):
-        if not cluster:
-            return
-        members = {str(r.get('bio_guide_id', '')) for r in cluster}
-        if len(members) >= min_members:
-            clusters.append(cluster)
-
-    for rec in records:
-        if not current:
-            current = [rec]
-            continue
-        delta = (rec['_td'] - current[0]['_td']).days
-        if delta <= window_days:
+    current: List[Dict[str, Any]] = [records[0]]
+    for rec in records[1:]:
+        gap = (rec['_td'] - current[-1]['_td']).days
+        if gap <= window_days:
             current.append(rec)
         else:
-            _close(current)
+            if _window_qualifies(current):
+                clusters.append(current)
             current = [rec]
-    _close(current)
+    if _window_qualifies(current):
+        clusters.append(current)
 
     return clusters
 

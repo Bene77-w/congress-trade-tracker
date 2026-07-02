@@ -70,7 +70,7 @@ class ExtremeReportSignal:
 
         delay_days = (dd - td).days
         is_late = delay_days > self.threshold_days
-        is_fast = delay_days <= self.fast_threshold_days
+        is_fast = 0 <= delay_days <= self.fast_threshold_days
         if not (is_late or is_fast):
             return None
 
