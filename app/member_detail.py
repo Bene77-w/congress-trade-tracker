@@ -35,6 +35,18 @@ _C_MID = '#475569'
 _TICKER_LINK_REGEX = r'von\+([^&]+)$'
 
 
+def _scope_label(text: str, scope: str) -> str:
+    """Widget-Label mit Scope-Praefix ([Global]/[Tab]/[Detail]). Lokal
+    gehalten (kein Import aus streamlit_app), um Circular-Import zu vermeiden."""
+    return f"{settings.UI_SCOPE_PREFIX[scope]} {text}"
+
+
+def _scope_help(scope: str, extra: str = '') -> str:
+    """Tooltip: Scope-Grundtext + optionaler Widget-spezifischer Zusatz."""
+    base = settings.UI_SCOPE_HELP[scope]
+    return f'{base} {extra}'.strip() if extra else base
+
+
 # ---------------------------------------------------------------------------
 # Helfer
 # ---------------------------------------------------------------------------
@@ -179,16 +191,21 @@ def _render_controls(member_df: pd.DataFrame, bench_df: pd.DataFrame):
     with c1:
         if len(quarters) >= 2:
             q_from, q_to = st.select_slider(
-                'Quartal-Bereich', options=quarters,
-                value=(quarters[0], quarters[-1]), key='md_quarter')
+                _scope_label('Quartal-Bereich', 'detail'), options=quarters,
+                value=(quarters[0], quarters[-1]), key='md_quarter',
+                help=_scope_help('detail', 'Einziges Zeitfilter dieses Popups '
+                                 '(volle Member-Historie als Basis, unabhaengig '
+                                 'vom Sidebar-Zeitfenster). Wirkt auf Member '
+                                 'UND Benchmark identisch.'))
         else:
             q_from = q_to = quarters[0] if quarters else None
             st.caption('Quartal: ' + (q_from or '—'))
     with c2:
         toggle_180 = st.toggle(
-            'Nur ≤180d', value=False, key='md_180',
-            help='Entfernt offene Positionen und Trades, die erst nach 180 '
-                 'Tagen schliessen, aus allen Diagrammen.')
+            _scope_label('Nur ≤180d', 'detail'), value=False, key='md_180',
+            help=_scope_help('detail', 'Entfernt offene Positionen und Trades, '
+                             'die erst nach 180 Tagen schliessen, aus allen '
+                             'Diagrammen dieses Popups.'))
     with c3:
         threshold = st.slider(
             'Schwellwert x (%)', min_value=0.0, max_value=50.0,
@@ -565,8 +582,21 @@ def _render_red_flags(mview, bview, terminal):
 
 def _render_abnormal_return(mview: pd.DataFrame) -> None:
     """Marktbereinigter Abnormal Return (Konstrukt A) auf Member-Ebene:
-    Median + Ausreisser-Quote (positiv/negativ). Deskriptiv, kein Insider-Beweis."""
-    h = int(settings.AR_HEADLINE_HORIZON_DAYS)
+    Median + Ausreisser-Quote (positiv/negativ). Deskriptiv, kein Insider-Beweis.
+    Horizont im UI waehlbar (Scope Detail); Default AR_HEADLINE_HORIZON_DAYS."""
+    ar_present = [hz for hz in settings.AR_HORIZONS_DAYS
+                  if f'signed_ar_{hz}d' in mview.columns]
+    if ar_present:
+        _idx = mm.ar_default_index(ar_present, settings.AR_HEADLINE_HORIZON_DAYS)
+        h = int(st.radio(
+            _scope_label('Abnormal-Return-Horizont', 'detail'),
+            options=ar_present, index=_idx, horizontal=True,
+            key='md_ar_horizon',
+            help=_scope_help('detail', 'Waehlt den Horizont fuer Median-AR und '
+                             'Ausreisser-Quote. Wirkt zusaetzlich zum '
+                             'Quartal-Bereich/≤180d-Filter dieses Popups.')))
+    else:
+        h = int(settings.AR_HEADLINE_HORIZON_DAYS)
     summ = mm.abnormal_return_summary(
         mview, h, settings.AR_OUTLIER_UPPER, settings.AR_OUTLIER_LOWER)
     if summ['n_eval'] == 0:

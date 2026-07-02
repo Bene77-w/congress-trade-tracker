@@ -749,6 +749,19 @@ def abnormal_return_summary(df: pd.DataFrame, horizon: int,
     }
 
 
+def ar_default_index(present: list[int], headline: int) -> int:
+    """Default-Position des Headline-Horizonts in der Selektor-Optionsliste.
+
+    Gibt den Index von ``headline`` in ``present`` zurueck; ist ``headline``
+    nicht enthalten (z.B. weil die Spalte im Master fehlt) -> defensiver
+    Fallback 0. Leere Liste -> 0. Reine Logik hinter den AR-Horizont-Radios
+    in Trade- und Member-Detail (dort NUR im UI verdrahtet)."""
+    try:
+        return present.index(int(headline))
+    except (ValueError, TypeError):
+        return 0
+
+
 def ar_percentile_rank(value: Any, sorted_dist: np.ndarray) -> float:
     """Perzentil-Rang von ``value`` in ``sorted_dist`` (aufsteigend sortiert,
     NaN-frei). Rueckgabe in [0, 1] = Anteil der Verteilung ``<= value``.
