@@ -575,6 +575,13 @@ CURATED_COLUMNS = [
     'trade_warnings',
 ]
 
+# Coalesce-Mapping fuer den kuratierten Export: kuratierte Zielspalte ->
+# Liste von Quellspalten im Master (erste nicht-leere gewinnt). Noetig, weil
+# 'Member_Committees' im Master nur als 'Member_Committees_Full' existiert.
+CURATED_COALESCE = {
+    'Member_Committees': ['Member_Committees_Full'],
+}
+
 # Backup-Verzeichnis fuer automatische Master-Backups vor destruktiven Aenderungen
 ARCHIVE_BACKUP_PATH = 'archive/trades_master_backup'
 
