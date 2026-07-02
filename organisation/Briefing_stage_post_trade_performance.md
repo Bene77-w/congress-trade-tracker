@@ -520,6 +520,12 @@ Beim aktuellen Pytest-Lauf (29.05.2026):
 Beide betreffen Scraper-Dedup-Logik, nicht post_trade_returns oder
 das Ticker-System. Nicht durch Stage #9 fixen.
 
+> **Update 2026-07-02 (Branch `agent/new_scoring`):** Beide behoben —
+> `DUPLICATE_CHECK_COLUMNS` entfernt, die Dedup-Identität auf
+> `utils/trade_id.py` (`TRADE_ID_SOURCE_COLUMNS` → `trade_id`) kanonisiert.
+> Die beiden Tests prüfen jetzt den `owner`-Erhalt im jeweiligen
+> Scraper-`DEDUP_SUBSET` (`test_dedup_subset_includes_owner`).
+
 ---
 
 ## 13. Schnell-Checks beim Debugging

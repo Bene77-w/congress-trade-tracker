@@ -330,11 +330,10 @@ SCRAPER_USER_AGENT = 'CongressTracker/1.0 (Python)'
 # Fuzzy-Matching Schwellenwert (0-100)
 FUZZY_MATCH_THRESHOLD = 85
 
-# Spalten fuer Duplikat-Erkennung (angepasst an Quiver-Daten: kein asset_type, owner, ptr_link)
-DUPLICATE_CHECK_COLUMNS = [
-    'name', 'ticker', 'asset_name', 'transaction_type',
-    'amount', 'transaction_date', 'subholding', 'comment',
-]
+# Hinweis: Die Definition "wann sind zwei Trade-Zeilen derselbe Trade?" liegt
+# kanonisch in utils/trade_id.py (TRADE_ID_SOURCE_COLUMNS -> trade_id-Hash).
+# Das frueher hier gepflegte DUPLICATE_CHECK_COLUMNS war eine veraltete Kopie
+# und wurde entfernt; Konsumenten nutzen jetzt TRADE_ID_SOURCE_COLUMNS.
 
 # Ticker-Industry Lookup (yfinance)
 TICKER_INDUSTRY_CACHE_FILE = 'ticker_industry_cache.json'   # in DATA_MAPPINGS_PATH (nur positive)
