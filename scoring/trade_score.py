@@ -148,17 +148,17 @@ def compute_trade_score(signals_value: Any,
         ``config.settings``).
     """
     weights = getattr(settings_module, 'SCORING_WEIGHTS', {}) or {}
-    paradox_damper = float(getattr(settings_module, 'SCORING_PARADOX_DAMPER', 0.0))
+    paradox_damper = float(getattr(settings_module, 'SCORING_PARADOX_DAMPER', 1.0))
     paradox_tag = getattr(settings_module, 'SCORING_PARADOX_WARNING_TAG',
                           'paradox_swarm')
     volume_enabled = bool(getattr(
-        settings_module, 'SCORING_TRADE_VOLUME_ENABLED', True
+        settings_module, 'SCORING_TRADE_VOLUME_ENABLED', False
     ))
     volume_tiers = getattr(
         settings_module, 'SCORING_TRADE_VOLUME_TIERS', []
     ) or []
     volume_trigger_floor = float(getattr(
-        settings_module, 'SCORING_TRADE_VOLUME_TRIGGER_FLOOR', 0.0
+        settings_module, 'SCORING_TRADE_VOLUME_TRIGGER_FLOOR', 15_000
     ))
     role_bonuses = getattr(settings_module,
                            'SCORING_EX_OFFICIO_ROLE_BONUSES', {}) or {}
@@ -179,7 +179,11 @@ def compute_trade_score(signals_value: Any,
     # wenn der Trade zusaetzlich mindestens ein Primaersignal triggert. Fehlt
     # ein Primaersignal vollstaendig, ist der Score immer 0 — unabhaengig von
     # den Hint-Gewichten. (Leere primary_signals => Gate aus, Rueckwaerts-Kompat.)
+    # Ausnahme: das paradox_swarm-Warning-Tag bleibt unabhaengig vom Gate
+    # sichtbar (Score/Breakdown bleiben 0/leer).
     if primary_signals and not (triggered & primary_signals):
+        if PARADOX_SIGNAL in triggered:
+            return 0, '', paradox_tag
         return 0, '', ''
 
     is_paradox = PARADOX_SIGNAL in triggered

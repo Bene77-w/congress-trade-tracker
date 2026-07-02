@@ -469,10 +469,22 @@ def test_gate_off_when_no_primary_signals_configured():
 
 def test_gate_swarm_paradox_alone_is_gated():
     # swarm_paradox ist kein Primaersignal -> ohne swarm_buy/committee_full
-    # wird der Trade gegated (Score 0, keine Warning).
-    s, _b, w = compute_trade_score('swarm_paradox', '', 0, _gated_settings())
+    # wird der Trade gegated (Score 0, leerer Breakdown). Das paradox_swarm-
+    # Warning-Tag bleibt aber unabhaengig vom Gate sichtbar (F2).
+    s, b, w = compute_trade_score('swarm_paradox', '', 0, _gated_settings())
     assert s == 0
-    assert w == ''
+    assert b == ''
+    assert w == 'paradox_swarm'
+
+
+def test_gate_paradox_with_hint_still_shows_warning():
+    # Hint-Signal + swarm_paradox, aber KEIN Primaersignal -> gegated
+    # (0/leer), Warning bleibt sichtbar (F2).
+    s, b, w = compute_trade_score('floor_action;swarm_paradox', '', 0,
+                                  _gated_settings())
+    assert s == 0
+    assert b == ''
+    assert w == 'paradox_swarm'
 
 
 # ---------------------------------------------------------------------------
