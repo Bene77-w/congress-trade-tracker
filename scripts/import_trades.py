@@ -107,17 +107,6 @@ IGNORED_TICKERS_PATH = os.path.join(BASE_DIR, settings.DATA_MAPPINGS_PATH,
                                     settings.IGNORED_TICKERS_FILE)
 CHECKPOINT_PATH = os.path.join(PROCESSED_DIR, '.enrichment_checkpoint.pkl')
 
-# Pipeline-interne Spalten — werden nicht in trades_master*.csv persistiert.
-# api_strategy: Routing-Key fuer OpenFIGI-Normalizer, aus ticker_type ableitbar.
-MASTER_INTERNAL_COLUMNS = ('api_strategy',)
-
-
-def _strip_master_internal(df: pd.DataFrame) -> pd.DataFrame:
-    """Entfernt Pipeline-interne Spalten vor dem Persistieren des Masters."""
-    drop = [c for c in MASTER_INTERNAL_COLUMNS if c in df.columns]
-    return df.drop(columns=drop) if drop else df
-
-
 def _sort_master_by_date(df: pd.DataFrame) -> pd.DataFrame:
     """Sortiert den Master stabil absteigend nach transaction_date.
 
@@ -518,6 +507,10 @@ class TradeImporter:
                 logger.info(f"Fallback: {n_filled} fehlende transaction_dates mit disclosure_date gefuellt")
 
             # Fall 2: transaction_date liegt NACH disclosure_date (z.B. Bond-Maturity-Date)
+            # Bewusste Entscheidung: In diesem Fall wird transaction_date durch
+            # disclosure_date ersetzt. Typischer Ausloeser ist ein versehentlich als
+            # Handelsdatum erfasstes Anleihe-Faelligkeitsdatum; das Meldedatum ist
+            # hier die verlaesslichere Naeherung an das tatsaechliche Handelsdatum.
             future_mask = (
                 df['transaction_date'].notna() &
                 df['disclosure_date'].notna() &
@@ -1048,22 +1041,6 @@ class TradeImporter:
     # Filter-Logik: Scoring + Filter 0 + Filter 4
     # =========================================================================
 
-    def _apply_match_scores(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Setzt MatchScore + MatchSource via NameMatcher (fuer filter-Stage)."""
-        self._init_matcher()
-        df = df.copy()
-        df['MatchScore'] = 0
-        df['MatchSource'] = ''
-
-        for idx, row in df.iterrows():
-            name = row.get('name', '')
-            chamber = str(row.get('chamber', '')).lower()
-            result = self.matcher.match(name, chamber)
-            df.at[idx, 'MatchScore'] = result['score']
-            df.at[idx, 'MatchSource'] = result['source']
-
-        return df
-
     def _apply_committee_relevance(self, df: pd.DataFrame) -> pd.DataFrame:
         """Berechnet Insider_Sectors (alle Committee-Sektoren),
         Relevant_Sectors (Intersection mit sector_yf/industry_yf, jeder
@@ -1182,9 +1159,6 @@ class TradeImporter:
         """
         # Pre-Hook: Vote-Daten frisch halten (fuer Vote-Timing-Tag)
         self._ensure_fresh_vote_data()
-
-        # 1. MatchScore + MatchSource
-        df = self._apply_match_scores(df)
 
         # 2. Committee-Tag
         df = self._apply_committee_relevance(df)
@@ -1943,7 +1917,7 @@ class TradeImporter:
             print(f"      -> {STAGE_CSV_PATH} ({len(df):,} Trades)")
         else:
             self._backup_master()
-            _strip_master_internal(_sort_master_by_date(df)).to_csv(
+            _sort_master_by_date(df).to_csv(
                 MASTER_COMPLETE_CSV_PATH, index=False, encoding='utf-8')
             print(f"      -> {MASTER_COMPLETE_CSV_PATH} ({len(df):,} Trades)")
 
@@ -2474,7 +2448,7 @@ class TradeImporter:
         df = _sort_master_by_date(df)
 
         # 1. Complete-Master (alle Spalten)
-        _strip_master_internal(df).to_csv(MASTER_COMPLETE_CSV_PATH, index=False, encoding='utf-8')
+        df.to_csv(MASTER_COMPLETE_CSV_PATH, index=False, encoding='utf-8')
         print(f"      -> {MASTER_COMPLETE_CSV_PATH} ({len(df):,} Trades)")
 
         # 2. Curated-Master
@@ -2765,7 +2739,7 @@ class TradeImporter:
             # Master durchgehend absteigend nach transaction_date sortieren —
             # Complete- und Curated-Master erben dieselbe Reihenfolge.
             updated_master = _sort_master_by_date(updated_master)
-            _strip_master_internal(updated_master).to_csv(MASTER_COMPLETE_CSV_PATH, index=False, encoding='utf-8')
+            updated_master.to_csv(MASTER_COMPLETE_CSV_PATH, index=False, encoding='utf-8')
             curated = self._export_curated_master(updated_master)
             curated.to_csv(MASTER_CSV_PATH, index=False, encoding='utf-8')
             self._write_manual_review_subset(updated_master)
@@ -2835,7 +2809,7 @@ class TradeImporter:
         enriched_df = _sort_master_by_date(enriched_df)
 
         # 1. Complete-Master (alle Spalten)
-        _strip_master_internal(enriched_df).to_csv(MASTER_COMPLETE_CSV_PATH, index=False, encoding='utf-8')
+        enriched_df.to_csv(MASTER_COMPLETE_CSV_PATH, index=False, encoding='utf-8')
         logger.info(f"Complete-Master: {MASTER_COMPLETE_CSV_PATH} ({len(enriched_df)} Trades)")
 
         # 2. Curated-Master (Spalten gemaess settings.CURATED_COLUMNS)
