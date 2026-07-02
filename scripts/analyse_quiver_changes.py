@@ -19,6 +19,7 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BASE_DIR)
 
 from config import settings
+from utils.trade_id import TRADE_ID_SOURCE_COLUMNS
 
 # Spalten-Mapping (Quiver → intern)
 COLUMN_MAP = {
@@ -29,8 +30,9 @@ COLUMN_MAP = {
     'Party': 'Member_Party', 'Chamber': 'chamber', 'State': 'Member_State',
 }
 
-# Key-Spalten fuer Vergleich
-KEY_COLS = settings.DUPLICATE_CHECK_COLUMNS
+# Key-Spalten fuer Vergleich — kanonische Trade-Identitaet (dieselbe Spaltenmenge,
+# aus der auch der trade_id-Hash gebildet wird).
+KEY_COLS = TRADE_ID_SOURCE_COLUMNS
 
 
 def make_keys(df: pd.DataFrame) -> pd.Series:

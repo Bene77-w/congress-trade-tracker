@@ -381,14 +381,6 @@ STAGE_DEPS = {
 
 ARCHIVE_BACKUP_DIR = os.path.join(BASE_DIR, settings.ARCHIVE_BACKUP_PATH)
 
-# Duplikat-Spalten fuer Delta-Modus (aus Config)
-DUPLICATE_COLUMNS = getattr(
-    settings,
-    'DUPLICATE_CHECK_COLUMNS',
-    ['name', 'ticker', 'asset_name', 'transaction_type',
-     'amount', 'transaction_date', 'subholding', 'comment']
-)
-
 # Quiver → internes Spalten-Mapping
 QUIVER_COLUMN_MAP = {
     'Name': 'name',

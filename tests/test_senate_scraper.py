@@ -1075,16 +1075,17 @@ class TestBondMetadataExtraction:
 
 
 # ============================================================================
-# 11. DUPLICATE_CHECK_COLUMNS enthält 'owner'
+# 11. Senate-Dedup-Subset enthält 'owner'
 # ============================================================================
 
-class TestDuplicateCheckColumnsIncludesOwner:
-    """Test fuer Fix: 'owner' in settings.DUPLICATE_CHECK_COLUMNS."""
+class TestDedupSubsetIncludesOwner:
+    """Self/Spouse-Erhalt: 'owner' bleibt im effektiven Dedup-Subset des Senate-Scrapers."""
 
-    def test_duplicate_check_columns_includes_owner(self):
-        """DUPLICATE_CHECK_COLUMNS muss 'owner' enthalten, um Self/Spouse-Dedup zu verhindern."""
-        from config import settings
-        assert "owner" in settings.DUPLICATE_CHECK_COLUMNS
+    def test_dedup_subset_includes_owner(self):
+        """owner muss im Dedup-Subset bleiben, sonst kollabieren Self/Spouse-Trades."""
+        dedup_subset = [c for c in CSV_COLUMNS
+                        if c not in ("disclosure_date", "csv_upload_time")]
+        assert "owner" in dedup_subset
 
 
 # ============================================================================
