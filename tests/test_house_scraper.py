@@ -1089,13 +1089,12 @@ class TestSave(unittest.TestCase):
             saved = pd.read_csv(path)
             self.assertEqual(len(saved), 2, "Different asset_name trades were incorrectly deduped")
 
-    def test_dedup_subset_matches_settings(self):
-        """DEDUP_SUBSET muss mit settings.DUPLICATE_CHECK_COLUMNS uebereinstimmen."""
-        from config import settings as cfg
-        self.assertEqual(
-            sorted(DEDUP_SUBSET),
-            sorted(cfg.DUPLICATE_CHECK_COLUMNS),
-            "DEDUP_SUBSET and settings.DUPLICATE_CHECK_COLUMNS are out of sync",
+    def test_dedup_subset_includes_owner(self):
+        """DEDUP_SUBSET muss 'owner' enthalten, damit Self/Spouse-Trades nicht kollabieren."""
+        self.assertIn(
+            "owner",
+            DEDUP_SUBSET,
+            "owner fehlt im House-DEDUP_SUBSET — Self/Spouse-Trades wuerden dedupliziert",
         )
 
 

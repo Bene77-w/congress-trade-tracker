@@ -139,6 +139,39 @@ class TestSwarmBuy:
         ])
         assert sig.evaluate_group(group) == []
 
+    def test_rolling_window_chained_beyond_first(self):
+        """F4-Rolling-Window: A kauft Tag 0 + Tag 5, B kauft Tag 9 (window=7).
+        A(5)+B(9) liegen 4 Tage auseinander -> Schwarm, obwohl B(9) mehr als
+        window_days vom ERSTEN Trade A(0) entfernt ist (Tumbling haette das
+        verpasst). Semantik-Wahl: der Cluster umfasst den ganzen verketteten
+        Lauf inkl. A(0) (Abstand zum jeweils vorherigen Trade <= window_days),
+        also alle drei Trades."""
+        sig = SwarmBuySignal(window_days=7, min_members=2)
+        group = make_group([
+            make_swarm_trade('A', 'AAPL', 'buy', date(2026, 3, 1),
+                            trade_id='A0'),
+            make_swarm_trade('A', 'AAPL', 'buy', date(2026, 3, 6),
+                            trade_id='A5'),
+            make_swarm_trade('B', 'AAPL', 'buy', date(2026, 3, 10),
+                            trade_id='B9'),
+        ])
+        events = sig.evaluate_group(group)
+        tids = {e['trade_id'] for e in events}
+        assert {'A5', 'B9'} <= tids
+        assert tids == {'A0', 'A5', 'B9'}
+        # Ein einziger Cluster -> eine signal_event_id.
+        assert len({e['signal_event_id'] for e in events}) == 1
+
+    def test_rolling_window_gap_too_large_no_swarm(self):
+        """Gegen-Test: A Tag 0, B Tag 20 (window=7) -> Abstand > window_days,
+        kein verketteter Lauf, kein Schwarm."""
+        sig = SwarmBuySignal(window_days=7, min_members=2)
+        group = make_group([
+            make_swarm_trade('A', 'AAPL', 'buy', date(2026, 3, 1)),
+            make_swarm_trade('B', 'AAPL', 'buy', date(2026, 3, 21)),
+        ])
+        assert sig.evaluate_group(group) == []
+
     def test_sell_trades_ignored_in_buy_swarm(self):
         """SwarmBuy ignoriert Sell-Trades."""
         sig = SwarmBuySignal(window_days=7, min_members=2)
@@ -276,8 +309,11 @@ class TestSwarmParadox:
         """A+B kaufen, C+D verkaufen -> 2 swarm_paradox (symmetrisch).
 
         Beide Richtungen bilden Schwaerme, beide Schwaerme haben den
-        jeweils anderen als Gegen-Trades. Resultat: 2 paradox-Events
-        (buy-perspektive, sell-perspektive) mit je 2 Trade-Zeilen = 4 Zeilen.
+        jeweils anderen als Gegen-Trades. Pro Paradox-Auslösung werden jetzt
+        SOWOHL die Cluster-Trades (damit der Daempfer dort greift) ALS AUCH
+        die Gegen-Trades getaggt: buy-scope = {A,B (Cluster), C,D (Gegen)},
+        sell-scope = {C,D (Cluster), A,B (Gegen)} = 2 x 4 = 8 Zeilen bei
+        weiterhin 2 signal_event_ids.
         Bewusste Design-Entscheidung (User-Wunsch: 'existieren 2 paradox_schwarm').
         """
         sig = SwarmParadoxSignal(
@@ -295,16 +331,52 @@ class TestSwarmParadox:
                             trade_id='D_sell'),
         ])
         events = sig.evaluate_group(group)
-        assert len(events) == 4
+        assert len(events) == 8
         assert all(e['signal_type'] == 'swarm_paradox' for e in events)
         # 2 distinkte signal_event_ids (buy-paradox, sell-paradox)
         ids = {e['signal_event_id'] for e in events}
         assert len(ids) == 2
-        # Buy-Perspektive: paradox|TICKER:AAPL|buy|... mit Gegen-Trades C,D
-        # Sell-Perspektive: paradox|TICKER:AAPL|sell|... mit Gegen-Trades A,B
+        # Buy-Perspektive: paradox|TICKER:AAPL|buy|... mit Cluster A,B + Gegen C,D
+        # Sell-Perspektive: paradox|TICKER:AAPL|sell|... mit Cluster C,D + Gegen A,B
         scope_keys = {e['scope_key'] for e in events}
         assert any(sk.startswith('paradox|TICKER:AAPL|buy|') for sk in scope_keys)
         assert any(sk.startswith('paradox|TICKER:AAPL|sell|') for sk in scope_keys)
+        # Cluster-Trades der buy-Perspektive (A,B) sind nun ebenfalls getaggt.
+        buy_scope = next(sk for sk in scope_keys
+                         if sk.startswith('paradox|TICKER:AAPL|buy|'))
+        buy_tids = {e['trade_id'] for e in events if e['scope_key'] == buy_scope}
+        assert buy_tids == {'A_buy', 'B_buy', 'C_sell', 'D_sell'}
+
+    def test_paradox_asymmetric_cluster_trades_tagged(self):
+        """Asymmetrisch: A+B kaufen (swarm_buy-Cluster), C verkauft 2x im
+        Konflikt-Fenster -> paradox_min erreicht, aber C bildet KEINEN
+        eigenen sell-Schwarm (nur 1 distinkter Member). Erwartung: die
+        auslösenden Cluster-Trades A_buy + B_buy tragen swarm_paradox in
+        ihren Events (Regression zu F1 -- vorher nur Gegen-Trades getaggt)."""
+        sig = SwarmParadoxSignal(
+            window_days=7, min_members=2,
+            before_days=3, after_days=5, paradox_min=2,
+        )
+        group = make_group([
+            make_swarm_trade('A', 'AAPL', 'buy',  date(2026, 3, 1),
+                            trade_id='A_buy'),
+            make_swarm_trade('B', 'AAPL', 'buy',  date(2026, 3, 2),
+                            trade_id='B_buy'),
+            make_swarm_trade('C', 'AAPL', 'sell', date(2026, 3, 4),
+                            trade_id='C_sell1'),
+            make_swarm_trade('C', 'AAPL', 'sell', date(2026, 3, 5),
+                            trade_id='C_sell2'),
+        ])
+        events = sig.evaluate_group(group)
+        # Nur die buy-Perspektive triggert (C bildet keinen sell-Schwarm).
+        assert all(e['signal_type'] == 'swarm_paradox' for e in events)
+        scope_keys = {e['scope_key'] for e in events}
+        assert all(sk.startswith('paradox|TICKER:AAPL|buy|') for sk in scope_keys)
+        tagged = {e['trade_id'] for e in events}
+        # Cluster-Trades A,B UND Gegen-Trades C1,C2 sind getaggt.
+        assert {'A_buy', 'B_buy'} <= tagged
+        assert {'C_sell1', 'C_sell2'} <= tagged
+        assert tagged == {'A_buy', 'B_buy', 'C_sell1', 'C_sell2'}
 
     def test_paradox_no_trigger_below_threshold(self):
         """Nur 1 Gegen-Trade -> kein Paradox (Conflict-Bereich)."""

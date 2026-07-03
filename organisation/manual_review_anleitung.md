@@ -20,7 +20,7 @@ Reine **Output-Dateien ohne Review-Pflicht** (Information / Diagnose):
 | Datei | Zweck |
 |-------|-------|
 | `delisted_trades.csv` | Trades zu Tickern, für die yfinance keinen Sektor mehr liefert (delisted, ge-mergt, umbenannt). Information, keine Aktion nötig. |
-| `ticker_liste_index.csv` | Helfer-Index: pro Ticker der älteste Trade (mit `asset_name` + `transaction_date`). Wird durch `script.py` aus `delisted_trades_stage.csv` erzeugt; nur als Lookup-Tabelle für manuelle Recherchen gedacht. |
+| `ticker_liste_index.csv` | Helfer-Index: pro Ticker der älteste Trade (mit `asset_name` + `transaction_date`). Wird durch `scripts/build_ticker_liste_index.py` aus `delisted_trades_stage.csv` erzeugt; nur als Lookup-Tabelle für manuelle Recherchen gedacht. |
 
 ---
 
@@ -242,7 +242,7 @@ BRK.B, shareclass, Berkshire Hathaway Inc. New Common Stock, SHARECLASS_DOT_SING
 
 ### `data/processed/ticker_liste_index.csv`
 
-Wird von `script.py` (im Repo-Root) aus `delisted_trades_stage.csv` erzeugt. Hilfs-Index: pro Ticker ein einzelner Eintrag mit `asset_name` + ältestem `transaction_date`. **Reine Recherchehilfe** für manuelle Lookups (welcher Trade kam zuerst, was war der Asset-Name?). Keine Pipeline-Funktion.
+Wird von `scripts/build_ticker_liste_index.py` aus `delisted_trades_stage.csv` erzeugt. Hilfs-Index: pro Ticker ein einzelner Eintrag mit `asset_name` + ältestem `transaction_date`. **Reine Recherchehilfe** für manuelle Lookups (welcher Trade kam zuerst, was war der Asset-Name?). Keine Pipeline-Funktion.
 
 ---
 

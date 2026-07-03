@@ -21,6 +21,9 @@ if str(ROOT) not in sys.path:
 
 from app.member_metrics import (  # noqa: E402
     DEFAULT_HORIZONS,
+    abnormal_return_summary,
+    ar_default_index,
+    ar_percentile_rank,
     committee_full_mask,
     committee_oversight_rows,
     compute_member_trajectories,
@@ -37,6 +40,7 @@ from app.member_metrics import (  # noqa: E402
     parse_committees_full,
     qualifies_for_horizon,
     qualifying_horizons,
+    format_ar_rank,
     quarter_options,
     red_flag_summary,
     resolve_highlight_from_selection,
@@ -663,3 +667,64 @@ def test_red_flag_summary():
     assert s['committee_full_rate'] == pytest.approx(0.25)
     assert s['outperformance'] == pytest.approx(5.5)
     assert s['top_terminal'] == pytest.approx(40.0)
+
+
+# ---------------------------------------------------------------------------
+# Abnormal Return — Member-Aggregat (Median + Ausreisser-Quote) + Perzentil-Rang
+# ---------------------------------------------------------------------------
+
+def test_abnormal_return_summary_median_and_shares():
+    df = pd.DataFrame({
+        'signed_ar_120d': [0.10, -0.05, 0.02, np.nan, -0.20],
+    })
+    out = abnormal_return_summary(df, 120, upper=0.03, lower=-0.03)
+    assert out['n_eval'] == 4                       # NaN faellt raus
+    # sortiert [-0.20, -0.05, 0.02, 0.10] -> Median (-0.05 + 0.02) / 2
+    assert out['median'] == pytest.approx(-0.015)
+    assert out['share_pos'] == pytest.approx(0.25)  # nur 0.10 >= 0.03
+    assert out['share_neg'] == pytest.approx(0.50)  # -0.05 und -0.20 <= -0.03
+
+
+def test_abnormal_return_summary_missing_or_empty():
+    # Spalte fehlt -> n_eval 0 (defensiv, Stage noch nicht gelaufen).
+    out = abnormal_return_summary(pd.DataFrame({'x': [1, 2]}), 120, 0.03, -0.03)
+    assert out['n_eval'] == 0
+    assert np.isnan(out['median'])
+    # Alle NaN -> ebenfalls n_eval 0.
+    out2 = abnormal_return_summary(
+        pd.DataFrame({'signed_ar_120d': [np.nan, np.nan]}), 120, 0.03, -0.03)
+    assert out2['n_eval'] == 0
+
+
+def test_ar_percentile_rank_two_sided():
+    dist = np.arange(10, dtype='float64')           # 0..9, sortiert
+    assert ar_percentile_rank(9.0, dist) == pytest.approx(1.0)
+    assert ar_percentile_rank(-1.0, dist) == pytest.approx(0.0)
+    assert ar_percentile_rank(4.5, dist) == pytest.approx(0.5)
+    # monoton: hoeherer Wert -> hoeherer (oder gleicher) Rang
+    assert ar_percentile_rank(2.0, dist) <= ar_percentile_rank(7.0, dist)
+
+
+def test_ar_percentile_rank_nan_and_empty():
+    assert np.isnan(ar_percentile_rank(np.nan, np.arange(5, dtype='float64')))
+    assert np.isnan(ar_percentile_rank(1.0, np.array([], dtype='float64')))
+
+
+def test_format_ar_rank_wording():
+    assert format_ar_rank(0.95) == 'besser als 95 % der Trades'
+    assert format_ar_rank(0.5) == 'besser als 50 % der Trades'
+    assert format_ar_rank(0.1) == 'schlechter als 90 % der Trades'
+    assert format_ar_rank(float('nan')) == '—'
+
+
+def test_ar_default_index_headline_present():
+    # Headline-Horizont enthalten -> exakter Index.
+    assert ar_default_index([30, 60, 90, 120, 180], 120) == 3
+    assert ar_default_index([30, 60, 90, 120, 180], 30) == 0
+
+
+def test_ar_default_index_headline_absent_falls_back_to_zero():
+    # Headline fehlt (z.B. Spalte nicht im Master) -> defensiver Fallback 0.
+    assert ar_default_index([30, 60, 90], 180) == 0
+    assert ar_default_index([], 120) == 0
+    assert ar_default_index([60, 90], None) == 0

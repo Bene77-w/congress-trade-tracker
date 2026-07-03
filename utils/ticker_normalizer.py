@@ -179,8 +179,6 @@ class TickerNormalizer:
         self.batch_size = batch_with_key if self.api_key else batch_without_key
         self.mapping_pause = mapping_pause_with_key if self.api_key else mapping_pause_without_key
         self.search_pause = search_pause_with_key if self.api_key else search_pause_without_key
-        # Legacy-Attribut (Default = mapping-Pause); wird nicht mehr in Pfaden genutzt.
-        self.request_pause = self.mapping_pause
 
         # Defensive-Schwellen — Constructor-Argument > settings > Fallback.
         self.network_pause_seconds = (
@@ -366,7 +364,9 @@ class TickerNormalizer:
                         payloads[cls.raw_ticker] = None
                         if cls not in self._retry_queue:
                             self._retry_queue.append(cls)
-                elif error_kind in ("429", "abort"):
+                elif error_kind == "http":
+                    # Permanenter HTTP-/Parse-Fehler: KEIN Cache-Write (sonst
+                    # wuerde ein API-Fehler als Negativ-Ergebnis persistiert).
                     for cls in uncached:
                         payloads[cls.raw_ticker] = None
                 else:
@@ -383,7 +383,8 @@ class TickerNormalizer:
                                 "source": "empty",
                             }
                         payloads[cls.raw_ticker] = parsed
-                        self._cache_write(self._cache_key(cls, "TICKER"), parsed)
+                        self._cache_write(self._cache_key(cls, "TICKER"), parsed,
+                                          cls.ticker_type.value)
                         self._lookups_since_checkpoint += 1
 
                 if batch_start + self.batch_size < len(items):
@@ -424,20 +425,25 @@ class TickerNormalizer:
                     uncached_rawtickers.add(cls.raw_ticker)
 
             # 2. Uncached → API-Call.
+            http_failed: set[str] = set()
             if uncached:
                 jobs = [self._build_mapping_job(c) for c in uncached]
                 response, error_kind = self._api_post(self.api_url, jobs)
 
-                if error_kind in ("network", "429", "abort"):
-                    # Bei Network: Items in Retry-Queue, kein Cache-Eintrag.
-                    if error_kind == "network":
-                        for cls in uncached:
-                            payloads[cls.raw_ticker] = None
-                            if cls not in self._retry_queue:
-                                self._retry_queue.append(cls)
-                    else:  # 429 oder abort
-                        for cls in uncached:
-                            payloads[cls.raw_ticker] = None
+                if error_kind == "network":
+                    # Items in Retry-Queue, kein Cache-Eintrag.
+                    for cls in uncached:
+                        payloads[cls.raw_ticker] = None
+                        if cls not in self._retry_queue:
+                            self._retry_queue.append(cls)
+                elif error_kind == "http":
+                    # Permanenter HTTP-/Parse-Fehler: KEIN Cache-Write und KEIN
+                    # Search-Fallback — sonst degradiert ein einzelner 4xx den
+                    # ganzen Batch zur teuren Einzel-Search-Kaskade (search_pause
+                    # pro Ticker) bzw. persistiert Fehler als Negativ-Eintrag.
+                    for cls in uncached:
+                        payloads[cls.raw_ticker] = None
+                        http_failed.add(cls.raw_ticker)
                 else:
                     # Response parsen.
                     for cls, resp_item in zip(uncached, response or []):
@@ -454,7 +460,8 @@ class TickerNormalizer:
                                 "source": "empty",
                             }
                         payloads[cls.raw_ticker] = parsed
-                        self._cache_write(self._cache_key(cls, "TICKER"), parsed)
+                        self._cache_write(self._cache_key(cls, "TICKER"), parsed,
+                                          cls.ticker_type.value)
                         self._lookups_since_checkpoint += 1
 
                 # Rate-Limiting zwischen Mapping-Batches.
@@ -464,6 +471,11 @@ class TickerNormalizer:
             # 3. Result-Konstruktion mit Mapping-Search-Fallback.
             for cls in batch:
                 payload = payloads.get(cls.raw_ticker)
+
+                if cls.raw_ticker in http_failed:
+                    # s. oben: HTTP-Fehler -> kein Search-Fallback, kein Cache.
+                    results.append(self._empty_result(cls, ["http_error"]))
+                    continue
 
                 if payload is None or not payload.get("figi"):
                     # 0 Treffer → Fallback zu Search.
@@ -553,8 +565,10 @@ class TickerNormalizer:
                     self._retry_queue.append(cls)
                 results.append(self._empty_result(cls, [f"network_error:search"]))
                 continue
-            if error_kind in ("429", "abort"):
-                results.append(self._empty_result(cls, [f"abort:{error_kind}"]))
+            if error_kind == "http":
+                # Permanenter HTTP-/Parse-Fehler: NICHT als search_empty
+                # negativ-cachen (ein API-Fehler ist kein "existiert nicht").
+                results.append(self._empty_result(cls, ["http_error"]))
                 continue
 
             data_list = (response or {}).get("data", []) if isinstance(response, dict) else []
@@ -570,14 +584,14 @@ class TickerNormalizer:
                     "share_class_figi": None,
                     "source": "search_empty",
                 }
-                self._cache_write(key, empty_payload)
+                self._cache_write(key, empty_payload, cls.ticker_type.value)
                 self._lookups_since_checkpoint += 1
                 results.append(self._empty_result(cls, [reason]))
                 time.sleep(self.search_pause)
                 continue
 
             payload = self._parse_data_item(accepted, source="search")
-            self._cache_write(key, payload)
+            self._cache_write(key, payload, cls.ticker_type.value)
             self._lookups_since_checkpoint += 1
             results.append(self._build_normalized(cls, payload, []))
 
@@ -615,16 +629,28 @@ class TickerNormalizer:
                         payloads[cls.raw_ticker] = None
                         if cls not in self._retry_queue:
                             self._retry_queue.append(cls)
-                elif error_kind in ("429", "abort"):
+                elif error_kind == "http":
+                    # Permanenter HTTP-/Parse-Fehler: kein Cache-Write.
                     for cls in uncached:
                         payloads[cls.raw_ticker] = None
                 else:
                     for cls, resp_item in zip(uncached, response or []):
                         parsed = self._parse_mapping_response(resp_item)
+                        # Misses zu explizitem empty-Payload normalisieren, damit
+                        # der Negativ-Cache greift (wie _process_mapping) — sonst
+                        # wiederholen sich treffersfreie CUSIP-Calls jeden Lauf.
+                        if parsed is None:
+                            parsed = {
+                                "figi": None, "ticker_figi": None,
+                                "asset_name_figi": None, "security_type_figi": None,
+                                "raw_security_type": None, "raw_security_type2": None,
+                                "market_sector_figi": None, "share_class_figi": None,
+                                "source": "empty",
+                            }
                         payloads[cls.raw_ticker] = parsed
-                        if parsed is not None:
-                            self._cache_write(self._cache_key(cls, "ID_CUSIP"), parsed)
-                            self._lookups_since_checkpoint += 1
+                        self._cache_write(self._cache_key(cls, "ID_CUSIP"), parsed,
+                                          cls.ticker_type.value)
+                        self._lookups_since_checkpoint += 1
 
                 if batch_start + self.batch_size < len(items):
                     time.sleep(self.mapping_pause)
@@ -680,7 +706,8 @@ class TickerNormalizer:
     ) -> tuple[Optional[object], Optional[str]]:
         """Single POST. Returns (json_or_None, error_kind).
 
-        error_kind in {None, 'network', '429', 'http', 'abort'}.
+        error_kind in {None, 'network', 'http'}. 429 wird intern per Backoff
+        wiederholt (bei Dauer-429: RuntimeError); Abbrueche werfen RuntimeError.
         """
         headers = {"Content-Type": "application/json"}
         if self.api_key:
@@ -860,6 +887,14 @@ class TickerNormalizer:
 
     @staticmethod
     def _cache_key(cls: TickerClassification, id_type: str) -> str:
+        if id_type == "SEARCH":
+            # ticker_type gehoert in den SEARCH-Key: Warrant (ABC-W) und Unit
+            # (ABC.U) derselben Base (SPAC-Paare!) haetten sonst denselben Key
+            # und erbten gegenseitig den FIGI aus dem Cache — die Typ-Filter
+            # (_is_acceptable_search_item) greifen nur beim Erst-Write.
+            # Alt-Format-Eintraege verfehlen schlicht (Cache kalt, refetch).
+            return (f"{cls.ticker_base}:{id_type}:"
+                    f"{cls.ticker_type.value}:{cls.exch_code or '*'}")
         return f"{cls.ticker_base}:{id_type}:{cls.exch_code or '*'}"
 
     def _cache_lookup(self, key: str) -> Optional[dict]:
@@ -907,7 +942,8 @@ class TickerNormalizer:
             "source": row["source"],
         }
 
-    def _cache_write(self, key: str, payload: dict) -> None:
+    def _cache_write(self, key: str, payload: dict,
+                     classification_type: Optional[str] = None) -> None:
         self._ensure_db()
         now_iso = datetime.now().isoformat()
         with sqlite3.connect(self.cache_db_path) as conn:
@@ -918,6 +954,7 @@ class TickerNormalizer:
                      market_sector_figi, share_class_figi, source, checked_date)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(cache_key) DO UPDATE SET
+                    classification_type = excluded.classification_type,
                     figi = excluded.figi,
                     ticker_figi = excluded.ticker_figi,
                     asset_name_figi = excluded.asset_name_figi,
@@ -930,7 +967,10 @@ class TickerNormalizer:
                     checked_date = excluded.checked_date
             """, (
                 key,
-                payload.get("source", "unknown"),
+                # Echter Klassifikationstyp (z. B. 'stock', 'unit') — vorher
+                # wurde hier faelschlich die source dupliziert, wodurch
+                # report_ticker_types eine falsche Typ-Statistik zeigte.
+                classification_type or "unknown",
                 payload.get("figi"),
                 payload.get("ticker_figi"),
                 payload.get("asset_name_figi"),

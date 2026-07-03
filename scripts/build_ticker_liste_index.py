@@ -1,7 +1,21 @@
-import csv
+"""Baut data/processed/ticker_liste_index.csv aus delisted_trades_stage.csv.
 
-input_pfad = 'data/processed/delisted_trades_stage.csv'
-output_pfad = 'data/processed/ticker_liste_index.csv'
+Helfer-Index fuer manuelle Recherchen (organisation/manual_review_anleitung.md,
+Ticker-Review): pro Ticker der erste Treffer (aeltester Trade) mit asset_name
++ transaction_date. Reine Recherchehilfe — keine Pipeline-Funktion.
+
+Aufruf (cwd-unabhaengig): python scripts/build_ticker_liste_index.py
+Historie: lag als script.py im Repo-Root; im Debug-Intervall 4 hierher
+verschoben und repo-root-verankert.
+"""
+
+import csv
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+input_pfad = BASE_DIR / 'data' / 'processed' / 'delisted_trades_stage.csv'
+output_pfad = BASE_DIR / 'data' / 'processed' / 'ticker_liste_index.csv'
 
 # Dictionary speichert den ersten Treffer: { 'ticker': {'asset_name': '...', 'transaction_date': '...'} }
 ticker_daten = {}

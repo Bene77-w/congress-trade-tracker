@@ -41,7 +41,7 @@ Zwei Ebenen der Issuer-Gruppierung werden genutzt:
 | 1b | `committee_full`       | 1      | `signals/committee_full_signal.py`         | mind. 1 Eintrag in `Relevant_Sectors` hat `match_type == 'full'`                                                                  | `transaction_date`                           |
 | 2  | `committee_ex_officio` | 1      | `signals/committee_ex_officio_signal.py`   | **v2 (2026-06-12):** Signal 1 ausgelöst UND `ex_officio_role_keys` nicht leer (≥1 relevanter Sektor-Treffer trägt eine Führungsrolle; statt globalem `Member_ExOfficio`) | `transaction_date`                           |
 | 3  | `floor_action`         | 1      | `signals/floor_action_signal.py`           | `vote_timing_hit_count >= VOTE_TIMING_HIT_THRESHOLD`                                                                              | `transaction_date`                           |
-| 4  | `extreme_report`       | 1      | `signals/extreme_report_signal.py`         | `disclosure_date - transaction_date > EXTREME_REPORT_DAYS`                                                                        | `disclosure_date`                            |
+| 4  | `extreme_report`       | 1      | `signals/extreme_report_signal.py`         | `delay > EXTREME_REPORT_DAYS` ODER `0 <= delay <= EXTREME_REPORT_FAST_DAYS` (mit `delay = disclosure_date - transaction_date`; sehr späte ODER sehr schnelle Meldung; **Untergrenze Bugfix 2026-07-02** — negativer `delay`, ein Datenfehler, triggert nicht mehr) | `disclosure_date`                            |
 | 4b | `trade_volume`         | 1      | `signals/trade_volume_signal.py`           | `trade_amount_max_usd > SCORING_TRADE_VOLUME_TRIGGER_FLOOR` (Default 15.000 USD). Score-Beitrag stufenweise aus `SCORING_TRADE_VOLUME_TIERS` | `transaction_date` |
 | 5  | `contrarian`           | seq    | `signals/contrarian_signal.py`             | Buy↔Sell desselben Members auf demselben `issuer_ticker` innerhalb `CONTRARIAN_WINDOW_DAYS`                                       | Datum des Kontra-Trades                       |
 | 6  | `accumulative`         | seq    | `signals/accumulative_signal.py`           | ≥ `ACCUMULATIVE_MIN_COUNT` Trades desselben Members auf demselben `issuer_ticker` (gleiche Richtung) in `ACCUMULATIVE_WINDOW_DAYS` | Datum des Trades, der die Schwelle erreicht  |
@@ -76,7 +76,7 @@ Der `scope_key` definiert, **welche Trades zu derselben Auslösung gehören** (g
 | Sequenz per-Member×Asset: `contrarian`, `accumulative` | `member_id + "\|" + issuer_ticker + "\|" + window_start_iso` | Alle Trades desselben Members auf demselben `issuer_ticker` im selben Fenster → gleiche ID. |
 | Schwarm Buy/Sell: `swarm_buy`, `swarm_sell` | `issuer_group_key + "\|" + direction + "\|" + window_start_iso` | Alle Trades innerhalb desselben Schwarms (Cross-Class) → gleiche ID. |
 | Schwarm Konflikt: `swarm_conflict` | `"conflict\|" + issuer_group_key + "\|" + swarm_direction + "\|" + window_start_iso` | Der einzelne Gegen-Trade zum referenzierten Schwarm. |
-| Schwarm Paradox: `swarm_paradox` | `"paradox\|" + issuer_group_key + "\|" + swarm_direction + "\|" + window_start_iso` | Alle Gegen-Trades (≥ 2) zum referenzierten Schwarm → gleiche ID. |
+| Schwarm Paradox: `swarm_paradox` | `"paradox\|" + issuer_group_key + "\|" + swarm_direction + "\|" + window_start_iso` | **Bugfix 2026-07-02:** Cluster-Trades (auslösende Schwarm-Trades) UND alle Gegen-Trades (≥ 2) zum referenzierten Schwarm → gleiche ID; dedupliziert über (trade_id, scope_key). Vorher nur die Gegen-Trades. |
 
 ---
 
@@ -257,6 +257,8 @@ swarm_events_stage.csv     ─┘            │  concat + (signal_event_id, tra
 
 ## Trade-Score-Formel
 
+**Hard-Gate (2026-06-27):** Triggert ein Trade kein Primärsignal (`SCORING_PRIMARY_SIGNALS`), gibt `compute_trade_score` sofort `(0, '', '')` zurück — Score 0, leerer Breakdown/Warnings. **Ausnahme (Bugfix 2026-07-02):** Triggert der Trade `swarm_paradox`, liefert das Gate stattdessen `(0, '', 'paradox_swarm')` — das Warning bleibt trotz Score 0 sichtbar. Kanonische Quelle: [Filter_Instanz_Parameter.md](../Filter_Instanz_Parameter.md).
+
 ```
 trade_score = other_part + swarm_part + ex_officio_bonus + volume_part
 ```
@@ -279,12 +281,14 @@ trade_score = other_part + swarm_part + ex_officio_bonus + volume_part
 
 | Variable | Default | Wirkung |
 |---|---|---|
+| `SCORING_PRIMARY_SIGNALS` | `('committee_full', 'swarm_buy')` | **NEU (2026-06-27).** Hard-Gate-Tuple — s. Filter_Instanz_Parameter.md. |
 | ~~`COMMITTEE_THRESHOLD`~~ | entfernt | Trigger-Logik: `len(Relevant_Sectors) > 0` (kein Schwellwert mehr) |
 | `VOTE_TIMING_HIT_THRESHOLD` | 1 | Untergrenze `vote_timing_hit_count` für `floor_action` |
 | `CONTRARIAN_WINDOW_DAYS` | 30 | Max Tage zwischen Buy und Gegen-Sell |
 | `ACCUMULATIVE_WINDOW_DAYS` | 30 | Rolling-Window für mehrfaches Aufstocken |
 | `ACCUMULATIVE_MIN_COUNT` | 2 | Mindestanzahl Trades im Window |
-| `EXTREME_REPORT_DAYS` | 60 | Schwelle `disclosure_date - transaction_date` |
+| `EXTREME_REPORT_DAYS` | 60 | Obere Schwelle `disclosure_date - transaction_date` (sehr späte Meldung) |
+| `EXTREME_REPORT_FAST_DAYS` | 5 | Untere Schwelle `disclosure_date - transaction_date` (≤ X = sehr schnelle Meldung) |
 | `SUSPICIOUS_ASSET_PERSISTENCE_DAYS` | 30 | Y-Tage-Filter für `suspicious_assets.csv` |
 | `SWARM_WINDOW_DAYS` | 7 | Rolling-Window für Schwarm-Erkennung |
 | `SWARM_MIN_MEMBERS` | 2 | Mindestanzahl distinct Members im Schwarm |

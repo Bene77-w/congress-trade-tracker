@@ -11,6 +11,12 @@ WICHTIG:
 - None/NaN werden vor dem Hashing in leeren String konvertiert. Das ist
   äquivalent zum alten _create_dup_key-Mechanismus
   (pandas.Series.str.cat mit na_rep='').
+- Die ID hängt von der str()-REPRÄSENTATION der Werte ab. Die Pipeline hasht
+  NACH normalize_dates(), d.h. transaction_date ist dort ein Timestamp
+  (str -> 'YYYY-MM-DD 00:00:00'). Wer den Master aus der CSV lädt (dort steht
+  'YYYY-MM-DD') und hasht, MUSS die Datums-Spalten vorher via pd.to_datetime
+  konvertieren, sonst entstehen inkompatible IDs (s. migrate_add_trade_ids.py,
+  diagnose_master_quiver_delta.py).
 """
 
 import hashlib

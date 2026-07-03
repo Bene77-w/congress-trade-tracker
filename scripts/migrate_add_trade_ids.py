@@ -30,7 +30,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
 
 from config import settings
-from utils.trade_id import compute_trade_ids
+from utils.trade_id import TRADE_ID_SOURCE_COLUMNS, compute_trade_ids
 from scripts.import_trades import (
     MASTER_CSV_PATH,
     MASTER_COMPLETE_CSV_PATH,
@@ -62,9 +62,19 @@ def main():
             print("  Abbruch.")
             return
 
-    # 1. trade_id berechnen
+    # 1. trade_id berechnen.
+    # WICHTIG: Datums-Spalten vor dem Hashen pipeline-aequivalent nach
+    # Timestamp konvertieren — die Pipeline hasht NACH normalize_dates()
+    # (str(Timestamp) = 'YYYY-MM-DD 00:00:00'), die CSV speichert aber
+    # 'YYYY-MM-DD'. Ohne die Konvertierung entstehen andere IDs als im
+    # Master -> der naechste Delta-Lauf saehe ALLE Trades als neu
+    # (Massen-Duplikate). Empirisch gegen bestehende Master-IDs verifiziert.
     print("\nBerechne trade_id ...")
-    df['trade_id'] = compute_trade_ids(df)
+    hash_df = df.copy()
+    for _col in ('transaction_date', 'disclosure_date'):
+        if _col in hash_df.columns and _col in TRADE_ID_SOURCE_COLUMNS:
+            hash_df[_col] = pd.to_datetime(hash_df[_col], errors='coerce')
+    df['trade_id'] = compute_trade_ids(hash_df)
     n_unique = df['trade_id'].nunique()
     n_dup = len(df) - n_unique
     print(f"  {n_unique:,} unique IDs, {n_dup:,} Duplikate "

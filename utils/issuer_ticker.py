@@ -24,11 +24,17 @@ import pandas as pd
 
 
 def _is_empty(val: Any) -> bool:
-    """True wenn val None, NaN oder leerer/whitespace-only String ist."""
+    """True wenn val None, NaN/pd.NA/NaT oder leerer/whitespace-String ist."""
     if val is None:
         return True
-    if isinstance(val, float) and pd.isna(val):
-        return True
+    try:
+        # pd.isna statt isinstance(float): faengt auch pd.NA/NaT (nullable/
+        # Arrow-Dtypes ab pandas 3.0), die sonst als '<NA>'/'NaT' als
+        # Issuer-Key durchgingen.
+        if pd.isna(val):
+            return True
+    except (TypeError, ValueError):
+        pass  # Container-Typen: pd.isna liefert Array/wirft -> kein NaN
     if isinstance(val, str) and not val.strip():
         return True
     return False

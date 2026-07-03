@@ -23,8 +23,6 @@ python scrapers/senate_pdf_extractor.py    # → ergaenzt senate_trades.csv (irr
 # 3. Import-Pipeline (Anreicherung + Dedup)
 python scripts/import_trades.py            # → trades_master.csv + trades_new.csv
 
-# 4. Optional: Referenz-CSVs aktualisieren (nur bei xlsx-Aenderungen)
-python scripts/convert_xlsx_to_csv.py      # → mapping-CSVs neu generieren
 ```
 
 ---
@@ -309,7 +307,7 @@ untracked) validierbar via `scrapers/house_pdf_parsing_tool/validate_house.py`.
 
 ---
 
-## Pipeline 5: Import-Pipeline (Hauptpipeline, 17 Stages)
+## Pipeline 5: Import-Pipeline (Hauptpipeline, 18 Stages)
 
 **Script:** `scripts/import_trades.py`
 **Input:** `data/raw/congress-trading-all.xlsx` (Quiver-Snapshot)
@@ -320,7 +318,7 @@ untracked) validierbar via `scrapers/house_pdf_parsing_tool/validate_house.py`.
   - `data/processed/unmatched_names.csv` (bei Bedarf)
 
 **Modi:**
-- `python scripts/import_trades.py` — Full Rebuild (alle 17 Stages, schreibt complete + curated + review)
+- `python scripts/import_trades.py` — Full Rebuild (alle 18 Stages, schreibt complete + curated + review)
 - `python scripts/import_trades.py --delta` — Delta-Import via `trade_id` (nur neue Trades, merge)
 - `python scripts/import_trades.py --dry_run` — Alle Stages → trades_stage.csv (Master unberuehrt)
 
@@ -340,6 +338,7 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
 --stage_tickeryfinance    # yfinance Sector/Industry-Anreicherung
 --stage_trade_volume      # Trade-Volume aus Amount-Range → trade_volume_usd + trade_amount_max_usd (MUSS VOR post_trade_returns)
 --stage_post_trade_performance  # Post-Trade-Preise + Exit-Detection (Modul 9.x, braucht trade_amount_max_usd)
+--stage_abnormal_returns  # Abnormal Return (marktbereinigt vs. SPY) → signed_ar_{30,60,90,120,180}d (deskriptiv, kein Scoring-Input)
 --stage_asset_volume      # Cross-Class Asset-Tradingvolume → asset_tradingvolume_usd
 --stage_gates_tags        # Gates + Tags (Asset-Class, Committee, Vote-Timing) + Scoring
 --stage_branch1_signals   # Branch-1 Signale (committee, ex_officio, floor_action, extreme_report)
@@ -484,6 +483,16 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
     → Reihenfolge-Begruendung: nach tickeryfinance (Sektor-Daten bereits vorhanden),
       vor trade_volume (Volume unabhaengig von Preis-Daten)
          ↓
+[8b] Abnormal Return (Stage `abnormal_returns`, deskriptiv — KEIN Scoring-Input)
+    → scoring/abnormal_returns.compute_abnormal_returns(df, cache_path, AR_*-Settings)
+    → Neue Master-Spalten (Konstrukt A): signed_ar_{30,60,90,120,180}d (Bruchteil, 0.03 = 3 %)
+        signed_ar = sell_sign × ((P_ticker(t0+H)/P_ticker(t0)−1) − (P_SPY(t0+H)/P_SPY(t0)−1))
+    → Teilt den Preis-Cache mit [8]; pro Trade deterministisch (delta-sicher).
+    → NUR signed_ar_{H}d in den Master; Outlier-Flag/Perzentil-Rang werden in der App bei der
+      Anzeige abgeleitet, Konstrukt B (signed_ar_disc_*) nur im Standalone-Report (Pipeline 7).
+    → Im Full-Run als Schritt [9b], im Delta-Run als [10b] (auf den Delta-Trades).
+    → Spalten + App-Anzeige: DATA_STRUCTURE.md Abschnitt 7e.
+         ↓
 [9] Trade-Volume (Modul 8 — Stage `trade_volume`)
     → utils/amount_parser.midpoint_usd(amount) und max_usd(amount) — pro
       Trade zwei Spalten aus der Disclosure-Amount-Range.
@@ -527,7 +536,6 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
       Schema-Migrate: Beim Resume-Laden der bill_summaries.json/bill_subjects.json
       werden Alt-Eintraege ohne 'has_summary'/'subject_count' (Felder nachtraeglich
       eingefuehrt) automatisch nachgeruestet — verhindert KeyError im Progress-Print.
-    → MatchScore/MatchSource (NameMatcher)
     → Insider_Sectors / Relevant_Sectors (CommitteeTag — User-Sicht „Filter 3")
       Insider_Sectors  = JSON-Liste ALLER (sub)committee-Sektoren des Members
       Relevant_Sectors = Intersection Insider × sector_yf/industry_yf, jeder Eintrag
@@ -546,7 +554,8 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
       floor_action, extreme_report (signals/*.py)
       committee triggert bei len(Relevant_Sectors) > 0
       committee_full triggert zusätzlich wenn mind. 1 Eintrag match_type='full'
-    → Schwellwerte aus settings.py: VOTE_TIMING_HIT_THRESHOLD, EXTREME_REPORT_DAYS
+    → Schwellwerte aus settings.py: VOTE_TIMING_HIT_THRESHOLD, EXTREME_REPORT_DAYS,
+      EXTREME_REPORT_FAST_DAYS
     → Neue Trade-Spalten: signal_count (int 0-4), signals_triggered (str, ";"-getrennt)
     → Auslöse-Events werden in data/processed/branch1_events_stage.csv
       geschrieben (Snapshot pro Auslösung, 21 Spalten inkl. issuer_ticker,
@@ -585,6 +594,15 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
       (mutually exclusive zu conflict) -> 1 signal_event_id mit N Zeilen
     → Aggregiert additiv in signal_count + signals_triggered (dedupliziert)
     → Events nach data/processed/swarm_events_stage.csv (21 Spalten)
+    → **Delta-Kontext-Fix (2026-07-02):** Im Delta-Modus (`--delta`) laden beide Stages
+      ([13] Sequenz-Signale und [14] Schwarm-Signale) jetzt zusaetzlich die Master-Historie als
+      Gruppierungs-Kontext (Union, analog zu Stage [10] Asset-Volume) — historische Trades
+      liefern nur Kontext (keine Events/Aggregate), Events/Aggregate entstehen weiterhin nur
+      fuer Delta-Zeilen. Vorher sah eine neue Delta-Charge Gruppen isoliert (< 2 Mitglieder) und
+      contrarian/accumulative/swarm_buy/swarm_sell/conflict/paradox loesten im Produktivbetrieb
+      (taeglicher Delta-Lauf) systematisch nicht aus (`swarm_buy` ist Primaersignal!). Gilt fuer
+      `run_delta()` und Einzelstage-Delta (`--delta --stage_sequence_signals` /
+      `--delta --stage_swarm_signals`), Helper `_load_signal_history` in `scripts/import_trades.py`.
          ↓
 [15] Trade-Score (Modul 8 — _stage_scoring)
     → scoring/trade_score.compute_trade_scores(df, settings)
@@ -630,6 +648,9 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
       trade_score, trade_score_breakdown, trade_warnings aus Modul 8)
     → trades_master.csv (kuratiert via settings.CURATED_COLUMNS — inkl.
       signal_count + signals_triggered + alle 6 Modul-8-Spalten)
+    → CURATED_COALESCE (Bugfix 2026-07-02): `Member_Committees` existiert im Master nur als
+      `Member_Committees_Full` — der kuratierte Export befuellt sie jetzt per Coalesce
+      (erstes nicht-leeres Element der Quellspalten-Liste). Vorher war die Spalte immer leer.
     → manual_review_tickers.csv (falls Tickers mit manual_review_flag)
     → _promote_problem_outputs(delta) — siehe Abschnitt unten
         - unmatched_names.csv
@@ -735,19 +756,12 @@ Senate-Besonderheit: Zwei Lookup-Keys pro Senator ("Last, First" + "First Last")
 
 ---
 
-## Pipeline 6: XLSX→CSV Konvertierung
+## Pipeline 6: XLSX→CSV Konvertierung (entfernt, Debug-Intervall 4)
 
-**Script:** `scripts/convert_xlsx_to_csv.py`
-**Zweck:** Referenz-Excel-Dateien in CSV konvertieren (schneller ladbar)
-
-**Konvertierungen:**
-| Input (xlsx) | Sheet | Output (csv) |
-|---|---|---|
-| `data/mappings/yf_secotors_with_industries.xlsx` | — | `data/mappings/yf_sectors_with_industries.csv` |
-| `data/mappings/subcommittee_sector_industry_mapping_v3.xlsx` | Industry_Mapping | `data/mappings/subcommittee_sector_industry_mapping.csv` |
-| `data/mappings/subcommittee_sector_industry_mapping_v3.xlsx` | Region_Mapping | `data/mappings/subcommittee_region_mapping.csv` |
-
-Nur ausfuehren wenn xlsx-Dateien geaendert wurden.
+`scripts/convert_xlsx_to_csv.py` wurde entfernt: die Input-xlsx existieren nicht
+mehr, der Mapping-Master `subcommittee_sector_industry_mapping.csv` wird heute
+vom Committee-Mapping-Agent erzeugt (s. Pipeline 11). Heading bleibt fuer die
+stabile Pipeline-Nummerierung stehen.
 
 ---
 
@@ -774,7 +788,7 @@ Nur ausfuehren wenn xlsx-Dateien geaendert wurden.
 | `signals/committee_full_signal.py` | Branch-1 Per-Trade-Signal: triggert wenn mind. 1 Eintrag in `Relevant_Sectors` hat `match_type='full'` | (in `test_branch1_signals.py`) |
 | `signals/committee_ex_officio_signal.py` | Branch-1 Per-Trade-Signal: triggert wenn CommitteeSignal + `Member_ExOfficio` | 4 |
 | `signals/floor_action_signal.py` | Branch-1 Per-Trade-Signal: triggert bei `Vote_Timing_Hit_Count >= VOTE_TIMING_HIT_THRESHOLD` | 4 |
-| `signals/extreme_report_signal.py` | Branch-1 Per-Trade-Signal: triggert bei `disclosure_date - transaction_date > EXTREME_REPORT_DAYS` | 5 |
+| `signals/extreme_report_signal.py` | Branch-1 Per-Trade-Signal: triggert bei `delay > EXTREME_REPORT_DAYS` ODER `delay <= EXTREME_REPORT_FAST_DAYS` (`delay = disclosure_date - transaction_date`; sehr späte ODER sehr schnelle Meldung) | 8 (in `test_branch1_signals.py`) |
 | `signals/contrarian_signal.py` | Branch-1 Sequenz-Signal: triggert bei Buy↔Sell-Wende eines Members auf demselben issuer_ticker innerhalb `CONTRARIAN_WINDOW_DAYS` | 8 (in `test_sequence_signals.py`) |
 | `signals/accumulative_signal.py` | Branch-1 Sequenz-Signal: triggert bei `>= ACCUMULATIVE_MIN_COUNT` gleichgerichteten Trades eines Members innerhalb `ACCUMULATIVE_WINDOW_DAYS` | 8 |
 
@@ -1017,7 +1031,7 @@ Default-Verhalten: reversibler **Move** nach `archive/reset_pipeline/reset_<ts>/
 **Geschützt (nie verschoben/gelöscht):** `name_aliases.csv`,
 `house_member&(sub)committees.csv`, `senate_member&(sub)committees.csv`,
 `subcommittee_sector_industry_mapping*.csv`, `yf_sectors_with_industries.csv`,
-`vote_sector_mapping.py`, `logs/house_pdf_extractor_done.csv` (State).
+`logs/house_pdf_extractor_done.csv` (State).
 
 **Terminal-Output:** Pro Datei `[OK]`/`[X]`/`[SKIP]` mit Größe und Dauer,
 Zwischensummen pro Gruppe, finale Zusammenfassung.
@@ -1029,8 +1043,7 @@ Zwischensummen pro Gruppe, finale Zusammenfassung.
 | Script | Zweck | CLI |
 |--------|-------|-----|
 | `scripts/diagnose_scraper.py` | Senate-Scraper QA (Timing, Konsistenz, Rowcount) | `--test [timing\|consistency\|rowcount\|all] --runs N --days N` |
-| `scripts/analyze_fehler_pdfs.py` | House-Fehler-PDFs analysieren (Textlayer, Rotation, Bilder) | — |
-| `scripts/inspect_excel.py` | Excel-Spaltenstruktur inspizieren | — |
+| `scripts/analyse_event_study.py` | Event-Study / Abnormal Return (Discovery): validiert `trade_score` gegen signierten, marktbereinigten BHAR (2 Konstrukte A/B, member-geclusterter Bootstrap). **Dieses Standalone-Skript schreibt keinen Master** (Konstrukt B + Bootstrap nur in-memory); die produktive Stage `abnormal_returns` (Pipeline 5, Schritt [8b]) schreibt dagegen die `signed_ar_*` (Konstrukt A) in den Master. Liest `trades_master_complete.csv`, schreibt Report `organisation/analyse_event_study.md` + `data/processed/ar_outliers.csv`. Settings-Änderung = Skript neu starten. Konfiguration: `AR_*`-Block in `config/settings.py`. Spalten + Metrik: `DATA_STRUCTURE.md` Abschnitt 7e. | keine Flags |
 
 ---
 
@@ -1072,8 +1085,8 @@ ThreadPool-parallelisiert). Full-Run über alle House/Senate-Committees + `promo
            ┌───────────────┼───────────────┐
            ↓               ↓               ↓
     ┌──────────────┐ ┌────────────┐ ┌──────────────────┐
-    │House Scraper │ │Senate      │ │convert_xlsx_to_csv│
-    │(Pipeline 1)  │ │Scraper     │ │(Pipeline 6)       │
+    │House Scraper │ │Senate      │ │(Pipeline 6 entf.)  
+    │(Pipeline 1)  │ │Scraper     │ │                   │
     └──────┬───────┘ │(Pipeline 2)│ └────────┬─────────┘
            │         └─────┬──────┘          │
            │               │           Referenz-CSVs
@@ -1137,7 +1150,6 @@ Diese Dateien werden nicht durch Pipelines erzeugt, sondern manuell gepflegt:
 | `data/mappings/name_aliases.csv` | Bei Bedarf (neue Varianten) | Manuelle Namenskorrekturen (11 Eintraege) |
 | `data/mappings/ignored_tickers.csv` | Bei Bedarf | Manuelle Ignore-Liste fuer raw_ticker (z.B. private Funds ohne oeffentlichen Ticker). Wird in Stage `tickerclassify` ausgewertet → setzt `ticker_type=ignored`, kein Manual-Review-Eintrag |
 | `data/mappings/subcommittee_sector_industry_mapping.csv` | Bei Bedarf | Subcommittee→Sektor/Industry (861 Zeilen) |
-| `data/mappings/vote_sector_mapping.py` | Bei Bedarf | Policy Area→YF-Sektoren (Python, 12 Mappings) |
 | `data/raw/former_members.csv` | Bei Bedarf (Congresswechsel) | Ehemalige Politiker mit Trades (6 Eintraege) |
 | `config/settings.py` | Bei Bedarf | Alle Schwellenwerte, Pfade, Gewichtungen |
 
