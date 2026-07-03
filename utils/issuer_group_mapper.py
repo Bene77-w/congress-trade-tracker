@@ -126,12 +126,10 @@ class IssuerGroupMapper:
         if cache_on_disk and self._is_fresh(cache_on_disk):
             self._cache = cache_on_disk
             return self._cache
-        # TTL abgelaufen oder kein Cache -> Refresh-Versuch.
-        try:
-            fresh = self._fetch_from_sec()
-        except IssuerGroupMapperUnreachableError:
-            # Strikter Abbruch: kein silent Fallback auf veralteten Cache.
-            raise
+        # TTL abgelaufen oder kein Cache -> Refresh-Versuch. Wirft bei
+        # Nichterreichbarkeit IssuerGroupMapperUnreachableError durch —
+        # strikter Abbruch, kein silent Fallback auf veralteten Cache.
+        fresh = self._fetch_from_sec()
         self._write_disk_cache(fresh)
         self._cache = fresh
         return self._cache
@@ -246,6 +244,11 @@ def _get_str(row: Any, key: str) -> str:
             return ''
     if val is None:
         return ''
-    if isinstance(val, float) and pd.isna(val):
-        return ''
+    try:
+        # pd.isna statt isinstance(float): faengt auch pd.NA/NaT (nullable/
+        # Arrow-Dtypes ab pandas 3.0), die sonst als '<NA>'/'NaT' durchgehen.
+        if pd.isna(val):
+            return ''
+    except (TypeError, ValueError):
+        pass  # Container-Typen: pd.isna liefert Array/wirft -> kein NaN
     return str(val).strip()

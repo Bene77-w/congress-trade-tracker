@@ -150,6 +150,85 @@ class TestHttpErrorNotCached:
             normalizer._cache_key(cls, "TICKER")) is None
 
 
+# ---------------------------------------------------------------------------
+# Haeppchen C — misc utils + migrate_add_trade_ids
+# ---------------------------------------------------------------------------
+
+class TestTradeIdCsvRoundtrip:
+    def test_normalized_dates_reproduce_pipeline_ids(self, tmp_path):
+        """CSV-Roundtrip: Hash nach pd.to_datetime == Pipeline-Hash (Timestamps)."""
+        from utils.trade_id import TRADE_ID_SOURCE_COLUMNS, compute_trade_ids
+        df = pd.DataFrame({
+            'name': ['Doe, John'], 'ticker': ['AAPL'],
+            'asset_name': ['Apple Inc.'], 'transaction_type': ['Purchase'],
+            'amount': ['$1,001 - $15,000'],
+            'transaction_date': pd.to_datetime(['2026-06-16']),
+            'subholding': [''], 'comment': [''],
+        })
+        pipeline_ids = compute_trade_ids(df)
+        p = tmp_path / 'master.csv'
+        df.to_csv(p, index=False)
+        loaded = pd.read_csv(p).fillna('')
+        raw_ids = compute_trade_ids(loaded)
+        for col in ('transaction_date',):
+            if col in TRADE_ID_SOURCE_COLUMNS:
+                loaded[col] = pd.to_datetime(loaded[col], errors='coerce')
+        fixed_ids = compute_trade_ids(loaded)
+        assert list(fixed_ids) == list(pipeline_ids)
+        assert list(raw_ids) != list(pipeline_ids)  # fixiert die Fehlerursache
+
+
+class TestPdNaHandling:
+    def test_issuer_ticker_is_empty_catches_pd_na(self):
+        from utils.issuer_ticker import _is_empty
+        assert _is_empty(pd.NA) is True
+        assert _is_empty(pd.NaT) is True
+        assert _is_empty(float('nan')) is True
+        assert _is_empty('AAPL') is False
+
+    def test_issuer_group_mapper_get_str_catches_pd_na(self):
+        from utils.issuer_group_mapper import _get_str
+        assert _get_str({'k': pd.NA}, 'k') == ''
+        assert _get_str({'k': pd.NaT}, 'k') == ''
+        assert _get_str({'k': ' X '}, 'k') == 'X'
+
+
+class TestTransientClassificationEdges:
+    def test_http_error_without_code_falls_back_to_text(self):
+        import requests
+        from utils.network_retry import is_transient_exception
+        exc = requests.HTTPError('503 Service Unavailable')
+        assert getattr(exc, 'response', None) is None
+        assert is_transient_exception(exc) is True
+
+    def test_ssl_config_error_is_permanent(self):
+        from utils.network_retry import is_transient_exception
+        assert is_transient_exception(
+            ValueError('ssl certificate path invalid')) is False
+
+    def test_sslerror_still_transient(self):
+        from utils.network_retry import is_transient_exception
+        assert is_transient_exception(
+            Exception('SSLError: handshake failed')) is True
+
+
+class TestNameMatcherMemoEquivalence:
+    def test_merged_lookup_memoized_and_equivalent(self):
+        from utils.name_matcher import NameMatcher
+        m = NameMatcher.__new__(NameMatcher)  # ohne teures _load_data
+        m.former_lookup = {'a': {'name': 'A'}}
+        m.house_lookup = {'b': {'name': 'B'}}
+        m.senate_lookup = {'c': {'name': 'C'}}
+        assert m._get_lookup_for_chamber('house') == {
+            'a': {'name': 'A'}, 'b': {'name': 'B'}}
+        assert m._get_lookup_for_chamber('senate') == {
+            'a': {'name': 'A'}, 'c': {'name': 'C'}}
+        assert m._get_lookup_for_chamber('') == {
+            'a': {'name': 'A'}, 'b': {'name': 'B'}, 'c': {'name': 'C'}}
+        # Memo: zweiter Aufruf liefert dasselbe Objekt (kein Re-Merge)
+        assert m._get_lookup_for_chamber('house') is m._get_lookup_for_chamber('house')
+
+
 class TestClassificationTypeColumn:
     def test_cache_write_stores_real_type(self, normalizer):
         import sqlite3

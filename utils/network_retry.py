@@ -56,7 +56,12 @@ _TRANSIENT_TEXT_PATTERNS = (
     "temporary failure in name resolution",
     "nodename nor servname",
     "tls connect error",
-    "ssl",
+    # "ssl" allein waere zu breit (matcht auch Config-Fehler wie "ssl
+    # certificate path invalid" -> volles Backoff-Budget statt Sofort-Fail);
+    # die typischen transienten Faelle tragen "sslerror"/"ssl error"
+    # (SSLError-Klassenname erscheint im str()).
+    "sslerror",
+    "ssl error",
     "certificate verify failed",
     "connection refused",
     "connection reset",
@@ -86,7 +91,8 @@ def is_transient_exception(exc: BaseException) -> bool:
     Typ-basiert (robust) wo moeglich, Text-Fallback fuer untypisierte Libs:
 
     - ``requests.Timeout`` / ``requests.ConnectionError`` -> transient.
-    - ``requests.HTTPError`` -> transient nur bei HTTP 429 oder 5xx; 4xx permanent.
+    - ``requests.HTTPError`` -> transient nur bei HTTP 429 oder 5xx; 4xx
+      permanent; ohne Status-Code entscheidet der Text-Fallback.
     - sonst -> Text-Pattern-Match (``_TRANSIENT_TEXT_PATTERNS``).
 
     Permanent sind insbesondere HTTP 4xx (ausser 429) sowie Parse-/Schema-
@@ -100,7 +106,9 @@ def is_transient_exception(exc: BaseException) -> bool:
             code = getattr(resp, "status_code", None)
             if code is not None:
                 return code == 429 or 500 <= code < 600
-            return False  # HTTPError ohne Status -> konservativ permanent
+            # HTTPError ohne Status-Code: nicht pauschal permanent — in den
+            # Text-Fallback durchfallen ("503 Service Unavailable" im Text
+            # soll als transient erkannt werden).
     msg = str(exc).lower()
     return any(p in msg for p in _TRANSIENT_TEXT_PATTERNS)
 
