@@ -16,6 +16,7 @@ import sys
 import urllib.parse
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import streamlit as st
 
@@ -29,16 +30,19 @@ from app.chart_helpers import (  # noqa: E402
     build_sale_kind_traces,
 )
 from app.glossary import help_for  # noqa: E402
+from app import member_metrics as mm  # noqa: E402
 from app import score_correlation as score_corr  # noqa: E402
 from app.score_recompute import available_signals, recompute_subset  # noqa: E402
 from app.scoring_presets import (  # noqa: E402
     DEFAULT_PRESET_NAME,
+    consume_corrupt_warning,
     default_payload,
     delete_preset,
     load_presets,
     save_preset,
 )
 from config import settings  # noqa: E402
+from scoring.trade_score import split_primary_hint  # noqa: E402
 from signals.committee_signal import (  # noqa: E402
     _direction_from_transaction_type,
 )
@@ -213,6 +217,20 @@ def load_trades() -> pd.DataFrame:
     return df
 
 
+@st.cache_data(show_spinner=False)
+def _ar_sorted_dist(headline_h: int) -> np.ndarray:
+    """Aufsteigend sortierte, NaN-freie Verteilung von ``signed_ar_{headline}d``
+    ueber ALLE Trades (globale Grundgesamtheit fuer den Perzentil-Rang im
+    Trade-Detail). Einmal pro Session gecacht; leeres Array, falls die Stage
+    ``--stage_abnormal_returns`` noch nicht gelaufen ist."""
+    col = f'signed_ar_{int(headline_h)}d'
+    if col not in trades.columns:
+        return np.array([], dtype='float64')
+    s = pd.to_numeric(trades[col], errors='coerce').dropna().to_numpy('float64')
+    s.sort()
+    return s
+
+
 # ---------------------------------------------------------------------------
 # Aggregation
 # ---------------------------------------------------------------------------
@@ -223,12 +241,29 @@ def _unique_join(series: pd.Series, sep: str = ',') -> str:
 
 
 def _unique_signals(series: pd.Series) -> str:
+    """Aggregiert nur die PRIMAERSIGNALE (gescort) ueber alle Zellen.
+
+    Hint-Signale (Default 0 Score-Einfluss) werden in Tabellen ausgeblendet und
+    nur pro Trade im Detail-Popup ausgewiesen. Faellt ``SCORING_PRIMARY_SIGNALS``
+    weg/leer, werden alle Signale gezeigt (Rueckwaerts-Kompatibilitaet).
+    """
+    primary_set = set(getattr(settings, 'SCORING_PRIMARY_SIGNALS', ()) or ())
     seen: set[str] = set()
     for cell in series.dropna().astype(str):
         for tok in cell.split(';'):
-            if tok:
+            if tok and (not primary_set or tok in primary_set):
                 seen.add(tok)
     return ';'.join(sorted(seen))
+
+
+def _primary_only(value) -> str:
+    """``signals_triggered``-Zelle -> nur Primaersignale (``;``-getrennter String).
+
+    Tabellen zeigen ausschliesslich Primaersignale; die Hints erscheinen nur im
+    Trade-Detail-Popup (s. ``split_primary_hint``).
+    """
+    primary, _hint = split_primary_hint(value, settings.SCORING_PRIMARY_SIGNALS)
+    return ';'.join(primary)
 
 
 def aggregate_assets(df: pd.DataFrame, date_col: str,
@@ -530,26 +565,42 @@ def _diff_params(current: dict, defaults: dict) -> dict:
     return out
 
 
+def _scope_label(text: str, scope: str) -> str:
+    """Widget-Label mit Scope-Praefix ([Global]/[Tab]/[Detail])."""
+    return f"{settings.UI_SCOPE_PREFIX[scope]} {text}"
+
+
+def _scope_help(scope: str, extra: str = '') -> str:
+    """Tooltip-Text: Scope-Grundtext + optionaler Widget-spezifischer Zusatz."""
+    base = settings.UI_SCOPE_HELP[scope]
+    return f'{base} {extra}'.strip() if extra else base
+
+
 # --- Sidebar -------------------------------------------------------------
 with st.sidebar:
     st.header('Filter')
 
     with st.expander('Datum & Suche', expanded=True):
         date_basis = st.radio(
-            'Datumsbasis',
+            _scope_label('Datumsbasis', 'global'),
             options=['disclosure_date', 'transaction_date'],
             index=1,  # Default transaction_date (Projektregel 3): das
                       # disclosure-Fenster zeigt sonst wegen 45-Tage-
                       # Meldefrist Transaktionen aus weit zurueckliegenden
                       # Jahren (z.B. 365d -> Trades aus 2024).
             horizontal=False,
-            help=help_for('datumsbasis'),
+            help=_scope_help('global', help_for('datumsbasis')),
         )
         window_label = st.radio(
-            'Zeitfenster',
+            _scope_label('Zeitfenster', 'global'),
             options=['7 Tage', '30 Tage', '365 Tage', 'Alles'],
             index=1,
             horizontal=True,
+            help=_scope_help('global', 'Datums-Cutoff (auf der gewaehlten '
+                             'Datumsbasis) fuer Trades-/Assets-/Members-/'
+                             'Performance-Tab. Wirkt NICHT im Member-Detail-'
+                             'Popup (dort volle Member-Historie) und nicht im '
+                             'Recent-Trades-Tab (eigenes Fenster).'),
         )
         window_days = {'7 Tage': 7, '30 Tage': 30,
                        '365 Tage': 365, 'Alles': None}[window_label]
@@ -579,20 +630,38 @@ with st.sidebar:
             help=help_for('min_score'),
         )
         primary_horizon = st.selectbox(
-            'Primaerer Return-Horizont',
+            _scope_label('Primaerer Return-Horizont', 'global'),
             options=settings.POST_TRADE_HORIZONS_DAYS,
             index=2,  # Default 90d
-            help='Bestimmt welcher post_return_{X}d in Asset-/Member-Aggregaten '
-                 'verwendet wird UND (bei aktivem Horizont-Filter) bis wann der '
-                 'erste Close liegen darf, damit ein Trade sichtbar bleibt.',
+            help=_scope_help('global', 'Doppelrolle: (1) bestimmt welcher '
+                             'post_return_{X}d in Asset-/Member-Aggregaten '
+                             'verwendet wird; (2) bei aktivem Horizont-Filter '
+                             'die Grenze, bis wann der erste Close liegen darf, '
+                             'damit ein Trade sichtbar bleibt. Der Score-'
+                             'Analyse-Tab nutzt einen eigenen Horizont und '
+                             'ignoriert diesen Wert.'),
         )
+        # Der Score-Analyse-Tab umgeht den Horizont-Filter datenseitig ohnehin
+        # (er wertet bewusst alle Trades inkl. offener Positionen aus). Ist er
+        # aktiv, wird die Checkbox ausgegraut + der Filter effektiv aus ->
+        # kein irrefuehrend „aktiver" Filter neben einer Auswertung, auf die
+        # er gar nicht wirkt.
+        _BYPASS_HORIZON_TABS = {'Score-Analyse'}
+        horizon_tab_bypass = st.session_state.get('main_tabs') in _BYPASS_HORIZON_TABS
         horizon_filter_active = st.checkbox(
-            'Horizont-Filter aktiv',
+            _scope_label('Horizont-Filter aktiv', 'global'),
             value=True,
-            help='Blendet Trades aus, deren erster Close nach dem gewaehlten '
-                 'Horizont liegt (bzw. nie geschlossen wurde). Aus = alle Trades '
-                 'sichtbar.',
+            disabled=horizon_tab_bypass,
+            help=_scope_help('global', 'Blendet Trades aus, deren erster Close '
+                             'nach dem Primaeren Return-Horizont liegt (bzw. nie '
+                             'geschlossen wurde). Aus = alle Trades sichtbar. '
+                             'Wirkt nicht im Member-Detail-Popup und im '
+                             'Score-Analyse-Tab.'),
         )
+        if horizon_tab_bypass:
+            st.caption('Im Score-Analyse-Tab ohne Wirkung — er wertet bewusst '
+                       'alle Trades inkl. offener Positionen aus.')
+            horizon_filter_active = False
 
     with st.expander('Spalten', expanded=False):
         trade_cols_sel = st.multiselect(
@@ -625,6 +694,10 @@ with st.sidebar:
     with st.expander('Score-Gewichte', expanded=False):
         # Preset-Auswahl (ausserhalb der Form: sofortiger Effekt)
         presets = load_presets()
+        # Korrupte Presets-Datei? -> einmalige Warnung (Backup liegt als .bak)
+        _corrupt_msg = consume_corrupt_warning()
+        if _corrupt_msg:
+            st.warning(_corrupt_msg)
         preset_options = [DEFAULT_PRESET_NAME] + sorted(
             n for n in presets.keys() if n != DEFAULT_PRESET_NAME
         )
@@ -882,16 +955,21 @@ def _search_mask(df: pd.DataFrame, query: str) -> pd.Series:
 
 
 def apply_prefilter(df: pd.DataFrame,
-                    apply_horizon_filter: bool = True) -> pd.DataFrame:
+                    apply_horizon_filter: bool = True,
+                    apply_window: bool = True) -> pd.DataFrame:
     """Datum-/Such-Vorfilter + (optionaler) Horizont-Sichtbarkeitsfilter.
 
     ``apply_horizon_filter=False`` ueberspringt NUR den Horizont-Filter
-    (Datum/Suche bleiben) — fuer das Member-Detail-Popup, das offene Positionen
-    und spaet geschlossene Trades fuer die Trajektorien braucht.
+    (Datum/Suche bleiben) — fuer die Analyse-Tabs, die offene Positionen und
+    spaet geschlossene Trades brauchen.
+    ``apply_window=False`` ueberspringt zusaetzlich das Sidebar-Zeitfenster
+    (Datums-Cutoff) — fuer das Member-Detail-Popup, das die VOLLE Historie des
+    Members zeigt (der Quartal-Slider im Popup ist dort das einzige Zeitfilter).
+    Die globale Suche bleibt in beiden Faellen aktiv.
     """
     out = df
 
-    if window_days is not None and date_basis in out.columns:
+    if apply_window and window_days is not None and date_basis in out.columns:
         date_col = pd.to_datetime(out[date_basis], errors='coerce')
         max_date = date_col.max()
         if pd.notna(max_date):
@@ -913,38 +991,39 @@ def apply_prefilter(df: pd.DataFrame,
     return out
 
 
-prefilt = apply_prefilter(trades)
-
-# --- Score-Recompute (vor Min-Score, gilt fuer alle drei Tabs) -----------
+# --- Score-Recompute-Parameter (vor Min-Score, gilt fuer alle Tabs) -------
 weights_override = _diff_weights(st.session_state['scoring']['weights'],
                                  DEFAULTS['weights'])
 params_override = _diff_params(st.session_state['scoring'], DEFAULTS)
 override_active = bool(weights_override or params_override)
 needs_recompute = bool(excluded_signals) or override_active
-if needs_recompute:
-    with st.spinner(f'Score neu berechnen für {len(prefilt):,} Trades …'):
-        prefilt = recompute_subset(
-            prefilt,
-            excluded_signals,
-            weights_override=weights_override or None,
-            params_override=params_override or None,
-        )
 
-# --- Score-Korrelations-Basis (horizont-filter-frei, Recompute-konsistent) ---
-# Beide Korrelations-Tabs umgehen den globalen Horizont-Sichtbarkeitsfilter
-# (held-Positionen sind die relevanten Daten) und spiegeln die Sidebar-Overrides
-# (Muster wie der Recent-Tab). Einmal berechnet, von beiden Tabs geteilt -> nur
-# EIN Recompute statt zwei. min_score/primary_horizon wirken hier bewusst NICHT.
+# --- Score-Analyse-Basis (horizont-filter-frei, Recompute-konsistent) -----
+# Der Score-Analyse-Tab umgeht den globalen Horizont-Sichtbarkeitsfilter
+# (held-Positionen sind die relevanten Daten) und spiegelt die Sidebar-Overrides
+# (Muster wie der Recent-Tab). Der horizont-gefilterte ``prefilt`` (Trades-/
+# Assets-/Members-Tabs) ist eine ECHTE Teilmenge dieser Basis: identisches
+# Zeitfenster + Suche, nur zusaetzlich der Horizont-Filter. Da der Recompute pro
+# Zeile deterministisch ist (und ``first_close_offset_days`` unberuehrt laesst),
+# wird ``prefilt`` unten per Horizont-Schritt aus ``corr_base`` ABGELEITET statt
+# separat rekomputet -> nur EIN Recompute statt zwei (zeilenidentisches
+# Ergebnis). min_score/primary_horizon wirken auf corr_base bewusst NICHT.
 corr_base = apply_prefilter(trades, apply_horizon_filter=False)
 if needs_recompute and not corr_base.empty:
-    with st.spinner(f'Score für Korrelation neu berechnen '
-                    f'({len(corr_base):,} Trades) …'):
+    with st.spinner(f'Score neu berechnen für {len(corr_base):,} Trades …'):
         corr_base = recompute_subset(
             corr_base,
             excluded_signals,
             weights_override=weights_override or None,
             params_override=params_override or None,
         )
+
+# --- Trades-/Assets-/Members-Basis: nur der Horizont-Schritt auf corr_base ---
+# Ableitung statt separater Recompute — apply_prefilter wendet auf die bereits
+# gefensterte/gesuchte (und ggf. rekomputete) Basis nur noch den Horizont-Filter
+# an (apply_window=False; die Suche ist idempotent). Kein zweiter Recompute.
+prefilt = apply_prefilter(corr_base, apply_window=False,
+                          apply_horizon_filter=True)
 
 # --- Trade-Tab-Subset (mit Min-Score + Sortierung) -----------------------
 trade_rows = prefilt
@@ -1151,12 +1230,17 @@ def _member_column_config(score_max_val: int) -> dict:
 
 
 def _related_return_style(v):
-    """Hintergrund fuer effective_return_pct: >+10% gruen, <-10% rot."""
+    """Hintergrund fuer effective_return_pct: Schwelle aus settings.
+
+    ``+DETAIL_RELATED_RETURN_COLOR_PCT`` -> gruen,
+    ``-DETAIL_RELATED_RETURN_COLOR_PCT`` -> rot (Default 10.0 %).
+    """
     if pd.isna(v):
         return ''
-    if v > 10:
+    thr = settings.DETAIL_RELATED_RETURN_COLOR_PCT
+    if v > thr:
         return 'background-color: #14532d; color: #dcfce7'
-    if v < -10:
+    if v < -thr:
         return 'background-color: #7f1d1d; color: #fee2e2'
     return ''
 
@@ -1181,7 +1265,11 @@ def _render_related_table(related: pd.DataFrame) -> None:
         'trade_id': 'Hash-ID',
     }
     src_cols = [c for c in col_map if c in related.columns]
-    tdf = related.sort_values(
+    related_src = related.copy()
+    if 'signals_triggered' in related_src.columns:
+        related_src['signals_triggered'] = \
+            related_src['signals_triggered'].map(_primary_only)
+    tdf = related_src.sort_values(
         'transaction_date', kind='mergesort', na_position='last',
     )[src_cols].rename(columns=col_map)
 
@@ -1223,8 +1311,11 @@ def render_trade_detail(trade, trade_rows, key_prefix: str) -> None:
 
     # Toggles: steuern Chart-Marker UND Tabelle gemeinsam.
     scope_all = st.toggle(
-        'Alle Trades (Zeitfenster ignorieren)',
+        _scope_label('Alle Trades (Zeitfenster ignorieren)', 'detail'),
         value=False, key=f'{key_prefix}_scope_all',
+        help=_scope_help('detail', 'Weitet Chart + Related-Trades-Tabelle auf '
+                         'den gesamten Trade-Zeitraum aus, statt auf das '
+                         'Sidebar-Zeitfenster. Betrifft nur dieses Popup.'),
     )
     show_others = st.toggle(
         'Andere Politiker einbeziehen',
@@ -1439,7 +1530,15 @@ def render_trade_detail(trade, trade_rows, key_prefix: str) -> None:
             'trade_score_breakdown',
         ]
         ctx_available = [f for f in ctx_fields if f in trade.index]
-        ctx_data = {k: trade[k] for k in ctx_available}
+        ctx_data: dict = {}
+        for k in ctx_available:
+            if k == 'signals_triggered':
+                primary, hint = split_primary_hint(
+                    trade[k], settings.SCORING_PRIMARY_SIGNALS)
+                ctx_data['signals_triggered'] = ';'.join(primary)
+                ctx_data['hints'] = ';'.join(hint) if hint else '—'
+            else:
+                ctx_data[k] = trade[k]
         st.dataframe(pd.Series(ctx_data, name='Wert'), width='stretch')
 
     with col_right:
@@ -1453,6 +1552,72 @@ def render_trade_detail(trade, trade_rows, key_prefix: str) -> None:
         ret_available = [f for f in ret_fields if f in trade.index]
         ret_data = {k: trade[k] for k in ret_available}
         st.dataframe(pd.Series(ret_data, name='Wert'), width='stretch')
+
+        # --- Abnormal Return (marktbereinigt vs. SPY) -----------------------
+        # Horizont im UI waehlbar (Scope Detail): steuert Headline-Metrik +
+        # Perzentil-Rang live. Optionen = im Master vorhandene AR-Horizonte,
+        # Default = AR_HEADLINE_HORIZON_DAYS (defensiver Fallback Index 0).
+        _ar_present = [h for h in settings.AR_HORIZONS_DAYS
+                       if f'signed_ar_{h}d' in trade.index]
+        if _ar_present:
+            _ar_idx = mm.ar_default_index(
+                _ar_present, settings.AR_HEADLINE_HORIZON_DAYS)
+            headline_h = int(st.radio(
+                _scope_label('Abnormal-Return-Horizont', 'detail'),
+                options=_ar_present, index=_ar_idx, horizontal=True,
+                key=f'{key_prefix}_ar_horizon',
+                help=_scope_help('detail', 'Waehlt den Horizont fuer die '
+                                 'AR-Headline-Metrik und den zweiseitigen '
+                                 'Perzentil-Rang. Der Rang vergleicht gegen '
+                                 'ALLE Trades im Master (ungefiltert), nicht '
+                                 'gegen die aktuelle Auswahl.'),
+            ))
+        else:
+            headline_h = int(settings.AR_HEADLINE_HORIZON_DAYS)
+        ar_head_col = f'signed_ar_{headline_h}d'
+        if ar_head_col not in trade.index:
+            st.caption('Abnormal Return: noch nicht im Master — Stage '
+                       '`--stage_abnormal_returns` ausführen.')
+        else:
+            st.subheader('Abnormal Return (marktbereinigt vs. SPY)',
+                         help='Signierter, marktbereinigter Abnormal Return: '
+                              'rohe Rendite minus SPY ueber dasselbe Fenster, '
+                              'Verkauf invertiert (positiv = besser als der Markt). '
+                              'Zeigt, wie viel ueber blosses Mitschwimmen hinausgeht.')
+            head_val = pd.to_numeric(
+                pd.Series([trade.get(ar_head_col)]), errors='coerce').iloc[0]
+            if pd.notna(head_val):
+                st.metric(f'AR {headline_h}d', f'{head_val * 100:+.1f}%')
+                rank = mm.ar_percentile_rank(head_val, _ar_sorted_dist(headline_h))
+                st.caption(mm.format_ar_rank(rank))
+            else:
+                st.caption(f'AR {headline_h}d: — (noch nicht evaluierbar / '
+                           'offene Position).')
+            # Pro-Horizont: roher Return (bereits %) vs. AR (Bruchteil -> %).
+            # Vereinigung beider Horizont-Listen, damit AR-only- oder
+            # Return-only-Horizonte nicht stillschweigend fehlen, falls die
+            # Listen kuenftig divergieren (heute identisch). .get()/NaN-tolerant.
+            _union_h = sorted(set(settings.POST_TRADE_HORIZONS_DAYS)
+                              | set(settings.AR_HORIZONS_DAYS))
+            ar_rows = []
+            for h in _union_h:
+                raw = pd.to_numeric(
+                    pd.Series([trade.get(f'post_return_{h}d')]),
+                    errors='coerce').iloc[0]
+                arv = pd.to_numeric(
+                    pd.Series([trade.get(f'signed_ar_{h}d')]),
+                    errors='coerce').iloc[0]
+                ar_rows.append({
+                    'Horizont': f'{h}d',
+                    'Roh %': float(raw) if pd.notna(raw) else float('nan'),
+                    'AR %': float(arv) * 100 if pd.notna(arv) else float('nan'),
+                })
+            st.dataframe(
+                pd.DataFrame(ar_rows).set_index('Horizont'), width='stretch',
+                column_config={
+                    'Roh %': st.column_config.NumberColumn('Roh %', format='%.1f%%'),
+                    'AR %': st.column_config.NumberColumn('AR %', format='%.1f%%'),
+                })
 
     # --- Partial-Close-Zerlegung (Display-only, Lite/non-FIFO) -----------
     # Pro Schliessungs-Event (Gegen-Trade aus opposing_trade_ids) eine eigene
@@ -1499,9 +1664,15 @@ def render_trade_detail(trade, trade_rows, key_prefix: str) -> None:
 
 # --- Tabs ----------------------------------------------------------------
 (tab_trades, tab_assets, tab_members, tab_detail, tab_recent,
- tab_corr, tab_corr_analysis) = st.tabs(
+ tab_analysis) = st.tabs(
     ['Trades', 'Assets', 'Members', 'Post Trade Performance', 'Recent Trades',
-     'Score-Korrelation', 'Score-Analyse'])
+     'Score-Analyse'],
+    # key schreibt das Label des aktiven Tabs in session_state['main_tabs'];
+    # on_change='rerun' erzwingt nach einem Tab-Klick einen Folge-Rerun, damit
+    # die weiter oben gerenderte Sidebar den neuen aktiven Tab sieht (sie liest
+    # den Wert aus dem vorigen Lauf). Genutzt fuer die Auto-Deaktivierung des
+    # Horizont-Filters im Score-Analyse-Tab (s. Sidebar).
+    key='main_tabs', on_change='rerun')
 
 with tab_trades:
     n = len(trade_rows)
@@ -1521,10 +1692,12 @@ with tab_trades:
     st.caption('Tipp: Zeile anklicken öffnet die Detail-Ansicht '
                '(Chart + Kontext) als Popup. Doppelklick auf eine Zelle '
                'zeigt weiterhin den vollen Zellinhalt. Ticker = Google-Link.')
-    trade_display = trade_rows[display_cols]
+    trade_display = trade_rows[display_cols].copy()
+    if 'signals_triggered' in display_cols:
+        trade_display['signals_triggered'] = \
+            trade_display['signals_triggered'].map(_primary_only)
     ticker_link = 'ticker' in display_cols
     if ticker_link:
-        trade_display = trade_display.copy()
         trade_display['ticker'] = trade_display['ticker'].map(_ticker_google_url)
     sel_state = st.dataframe(
         trade_display,
@@ -1628,12 +1801,20 @@ with tab_members:
 
     @st.dialog('Member-Detail', width='large')
     def _show_member_dialog(m_name, m_chamber):
-        # Popup-Datenpfad: Datum/Suche-Filter, ABER ohne Horizont-Filter
-        # (offene + spaet geschlossene Trades fuer Verlaeufe noetig). Score nur
-        # auf dem Member rekomputiert (billig); Sidebar-Signal-/Gewichts-Filter
-        # gelten, der Horizont-Sichtbarkeitsfilter nicht.
+        # Popup-Datenpfad: VOLLE Member-Historie — weder Sidebar-Zeitfenster
+        # noch Horizont-Filter wirken (der Quartal-Slider im Popup ist das
+        # einzige Zeitfilter; offene + spaet geschlossene Trades fuer Verlaeufe
+        # noetig). Nur die globale Suche bleibt aktiv. Score nur auf dem Member
+        # rekomputiert (billig); Sidebar-Signal-/Gewichts-Filter gelten.
         from app.member_detail import render_member_detail
-        base = apply_prefilter(trades, apply_horizon_filter=False)
+        base = apply_prefilter(trades, apply_horizon_filter=False,
+                               apply_window=False)
+        # Datenbasis transparent machen: alles, was hier noch (nicht) wirkt.
+        basis_parts = ['volle Member-Historie (Sidebar-Zeitfenster und '
+                       'Horizont-Filter wirken hier nicht)']
+        if search_query:
+            basis_parts.append(f'globale Suche „{search_query}" aktiv')
+        st.caption('Datenbasis: ' + '; '.join(basis_parts) + '.')
         msel = (base['name'] == m_name) & (base['chamber'] == m_chamber)
         m_df = base[msel]
         if needs_recompute and not m_df.empty:
@@ -1767,10 +1948,15 @@ with tab_recent:
         rc1, _rc2 = st.columns([1, 3])
         with rc1:
             recent_window = st.selectbox(
-                'Zeitfenster (Tage, transaction_date)',
+                _scope_label('Zeitfenster (Tage, transaction_date)', 'tab'),
                 options=window_opts,
                 index=len(window_opts) - 1,  # Default groesstes Fenster
                 key='recent_window_days',
+                help=_scope_help('tab', 'Eigenes Fenster (Bezug '
+                                 'transaction_date); umgeht das globale '
+                                 'Sidebar-Zeitfenster, den Horizont-Filter und '
+                                 'den Min-Score. Nur die globale Suche wirkt '
+                                 'zusaetzlich.'),
             )
 
         # Basis: globale Suche anwenden (eigene Controls — KEIN Horizont-/
@@ -1819,8 +2005,12 @@ with tab_recent:
                 int(recent_pool['trade_score'].max()) if len(recent_pool) else 200,
                 200,
             )
+            recent_display = top_pool[display_cols].copy()
+            if 'signals_triggered' in display_cols:
+                recent_display['signals_triggered'] = \
+                    recent_display['signals_triggered'].map(_primary_only)
             st.dataframe(
-                top_pool[display_cols],
+                recent_display,
                 width='stretch',
                 hide_index=True,
                 height=_dyn_height(len(top_pool)),
@@ -1843,13 +2033,11 @@ with tab_recent:
                         st.rerun()
 
 
-# --- Score-Korrelation: gemeinsame Helfer ---------------------------------
+# --- Score-Analyse: Helfer -------------------------------------------------
 _HORIZON_OPTS = list(settings.POST_TRADE_HORIZONS_DAYS)
-try:
-    _HORIZON_DEFAULT_IDX = _HORIZON_OPTS.index(
-        settings.SCORE_CORR_DEFAULT_HORIZON_DAYS)
-except ValueError:
-    _HORIZON_DEFAULT_IDX = len(_HORIZON_OPTS) - 1
+_HORIZON_DEFAULT = settings.SCORE_CORR_DEFAULT_HORIZON_DAYS
+if _HORIZON_DEFAULT not in _HORIZON_OPTS:
+    _HORIZON_DEFAULT = _HORIZON_OPTS[-1] if _HORIZON_OPTS else None
 
 
 def _fmt_metric(value, fmt: str = '{:.3f}') -> str:
@@ -1866,7 +2054,7 @@ def _matured_subset(df: pd.DataFrame, ret_c: str) -> pd.DataFrame:
     return df[df[ret_c].notna() & df['trade_score'].notna()]
 
 
-with tab_corr:
+with tab_analysis:
     import plotly.graph_objects as go
 
     st.caption(
@@ -1875,7 +2063,9 @@ with tab_corr:
         'positiv = Trade lag in seiner Richtung richtig, fuer Kauf UND '
         'Verkauf). Umgeht den globalen Horizont-Filter und spiegelt die '
         'globale Suche sowie die Sidebar-Score-Overrides; der globale Datums-/'
-        'Min-Score-Filter wirkt NICHT. Spearman ist die Leitkennzahl '
+        'Min-Score-Filter wirkt NICHT. Kammer-/Partei-Filter wirken auf ALLE '
+        'Auswertungen dieses Tabs (Kennzahlen, Scatter, Score-Buckets, '
+        'Pro-Signal-Korrelation). Spearman ist die Leitkennzahl '
         '(Rangkorrelation, robust gegen Return-Ausreisser).'
     )
     st.caption(
@@ -1887,12 +2077,47 @@ with tab_corr:
         'angezeigt.'
     )
 
-    corr_horizon = st.selectbox(
-        'Horizont X (Tage)', _HORIZON_OPTS, index=_HORIZON_DEFAULT_IDX,
-        key='corr_horizon',
-    )
-    rc = score_corr.return_col(corr_horizon)
-    mat = _matured_subset(corr_base, rc)
+    chambers = sorted(c for c in corr_base['chamber'].dropna().unique()) \
+        if 'chamber' in corr_base.columns else []
+    parties = sorted(p for p in corr_base['Member_Party'].dropna().unique()) \
+        if 'Member_Party' in corr_base.columns else []
+    cc1, cc2, cc3, cc4 = st.columns(4)
+    with cc1:
+        an_horizon = st.selectbox(
+            _scope_label('Horizont X (Tage)', 'tab'), _HORIZON_OPTS,
+            index=(_HORIZON_OPTS.index(_HORIZON_DEFAULT)
+                   if _HORIZON_DEFAULT in _HORIZON_OPTS else 0),
+            key='an_horizon',
+            help=_scope_help('tab', 'Unabhaengig vom globalen '
+                             'Primaer-Horizont der Sidebar.'),
+        )
+    with cc2:
+        n_buckets = st.selectbox(
+            'Score-Buckets (gleich breit)',
+            list(settings.SCORE_CORR_BUCKET_OPTIONS),
+            index=list(settings.SCORE_CORR_BUCKET_OPTIONS).index(
+                settings.SCORE_CORR_BUCKET_DEFAULT)
+            if settings.SCORE_CORR_BUCKET_DEFAULT
+            in settings.SCORE_CORR_BUCKET_OPTIONS else 0,
+            key='corr_an_buckets',
+        )
+    with cc3:
+        sel_chambers = st.multiselect('Kammer', chambers, default=chambers,
+                                      key='corr_an_chamber')
+    with cc4:
+        sel_parties = st.multiselect('Partei', parties, default=parties,
+                                     key='corr_an_party')
+    st.caption('Hinweis: Beim Partei-Filter fallen Trades ohne hinterlegte '
+               'Partei aus der Stichprobe.')
+
+    an_base = corr_base
+    if chambers and set(sel_chambers) != set(chambers):
+        an_base = an_base[an_base['chamber'].isin(sel_chambers)]
+    if parties and set(sel_parties) != set(parties):
+        an_base = an_base[an_base['Member_Party'].isin(sel_parties)]
+
+    rc = score_corr.return_col(an_horizon)
+    mat = _matured_subset(an_base, rc)
     stats = score_corr.correlation_stats(mat['trade_score'], mat[rc]) \
         if not mat.empty else {'spearman': float('nan'),
                                'pearson': float('nan'), 'n': 0}
@@ -1900,9 +2125,10 @@ with tab_corr:
               if 'exit_status' in mat.columns else 0)
 
     mc1, mc2, mc3, mc4 = st.columns(4)
-    mc1.metric('Spearman-ρ', _fmt_metric(stats['spearman']),
-               help=help_for('score'))
-    mc2.metric('Pearson-r', _fmt_metric(stats['pearson']))
+    mc1.metric('Spearman-Rangkorrelation (ρ)', _fmt_metric(stats['spearman']),
+               help=help_for('spearman'))
+    mc2.metric('Pearson-Korrelation (r)', _fmt_metric(stats['pearson']),
+               help=help_for('pearson'))
     mc3.metric('n (Stichprobe)', f'{stats["n"]:,}')
     mc4.metric('davon held', f'{n_held:,}')
 
@@ -1928,7 +2154,7 @@ with tab_corr:
         ))
         fig.update_layout(
             xaxis_title='trade_score',
-            yaxis_title=f'post_return_{corr_horizon}d (%)',
+            yaxis_title=f'post_return_{an_horizon}d (%)',
             height=460, margin=dict(l=10, r=10, t=10, b=10),
             showlegend=False,
         )
@@ -1941,59 +2167,6 @@ with tab_corr:
                + (f' (Sample aus {len(mat):,})' if sampled else '')
                + '. Y-Achse auf 1.–99.-Perzentil geklippt (nur Darstellung).')
         st.caption(cap)
-
-
-with tab_corr_analysis:
-    import plotly.graph_objects as go
-
-    st.caption(
-        'Score-Validierung wie im Korrelations-Tab, aber zum Slicen: '
-        'Score-Buckets (gleich breite Score-Intervalle, mittlerer Return je '
-        'Score-Niveau) und '
-        'Pro-Signal-Korrelation, beide filterbar nach Kammer und Partei. '
-        'Umgeht den globalen Horizont-Filter; globale Suche + Sidebar-Score-'
-        'Overrides wirken mit.'
-    )
-
-    ac1, ac2 = st.columns(2)
-    with ac1:
-        an_horizon = st.selectbox(
-            'Horizont X (Tage)', _HORIZON_OPTS, index=_HORIZON_DEFAULT_IDX,
-            key='corr_an_horizon',
-        )
-    with ac2:
-        n_buckets = st.selectbox(
-            'Score-Buckets (gleich breit)',
-            list(settings.SCORE_CORR_BUCKET_OPTIONS),
-            index=list(settings.SCORE_CORR_BUCKET_OPTIONS).index(
-                settings.SCORE_CORR_BUCKET_DEFAULT)
-            if settings.SCORE_CORR_BUCKET_DEFAULT
-            in settings.SCORE_CORR_BUCKET_OPTIONS else 0,
-            key='corr_an_buckets',
-        )
-
-    chambers = sorted(c for c in corr_base['chamber'].dropna().unique()) \
-        if 'chamber' in corr_base.columns else []
-    parties = sorted(p for p in corr_base['Member_Party'].dropna().unique()) \
-        if 'Member_Party' in corr_base.columns else []
-    fc1, fc2 = st.columns(2)
-    with fc1:
-        sel_chambers = st.multiselect('Kammer', chambers, default=chambers,
-                                      key='corr_an_chamber')
-    with fc2:
-        sel_parties = st.multiselect('Partei', parties, default=parties,
-                                     key='corr_an_party')
-    st.caption('Hinweis: Beim Partei-Filter fallen Trades ohne hinterlegte '
-               'Partei aus der Stichprobe.')
-
-    an_base = corr_base
-    if chambers and set(sel_chambers) != set(chambers):
-        an_base = an_base[an_base['chamber'].isin(sel_chambers)]
-    if parties and set(sel_parties) != set(parties):
-        an_base = an_base[an_base['Member_Party'].isin(sel_parties)]
-
-    rc = score_corr.return_col(an_horizon)
-    mat = _matured_subset(an_base, rc)
 
     st.subheader('Score-Buckets')
     if mat.empty:
@@ -2051,8 +2224,10 @@ with tab_corr_analysis:
                     'delta': st.column_config.NumberColumn(
                         'Δ (%)', format='%.2f'),
                     'spearman': st.column_config.NumberColumn(
-                        'Spearman-ρ', format='%.3f'),
+                        'Spearman-Rangkorrelation (ρ)', format='%.3f',
+                        help=help_for('spearman')),
                     'pearson': st.column_config.NumberColumn(
-                        'Pearson-r', format='%.3f'),
+                        'Pearson-Korrelation (r)', format='%.3f',
+                        help=help_for('pearson')),
                 },
             )

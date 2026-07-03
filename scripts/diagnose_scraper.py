@@ -251,7 +251,9 @@ def test_consistency(runs: int = 3, days: int = 30):
 
                 print(
                     f"    Seite {current_page}: {len(valid_rows)} Zeilen "
-                    f"({', '.join(set(page_senators)[:3])}...)"
+                    # dict.fromkeys statt set: dedupliziert UND ist slicebar
+                    # (set(...)[:3] wirft TypeError)
+                    f"({', '.join(list(dict.fromkeys(page_senators))[:3])}...)"
                 )
 
                 # Nächste Seite

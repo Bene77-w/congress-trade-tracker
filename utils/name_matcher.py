@@ -245,14 +245,27 @@ class NameMatcher:
         """
         Gibt das passende Lookup-Dict fuer die Chamber zurueck.
         Former Members werden als Fallback mit einbezogen.
+
+        Memoisiert pro Chamber-Variante: die Quell-Lookups aendern sich nach
+        dem Laden nicht mehr, aber match() laeuft pro Trade-Zeile — der
+        Dict-Merge (~500+ Eintraege) pro Aufruf war der dominante Kostenpunkt
+        (O(Zeilen x Mitglieder) reine Kopierarbeit).
         """
         chamber_lower = str(chamber).lower().strip()
-        if chamber_lower == 'house':
-            return {**self.former_lookup, **self.house_lookup}
-        elif chamber_lower == 'senate':
-            return {**self.former_lookup, **self.senate_lookup}
-        else:
-            return {**self.former_lookup, **self.house_lookup, **self.senate_lookup}
+        variant = chamber_lower if chamber_lower in ('house', 'senate') else '*'
+        cache = getattr(self, '_merged_lookup_cache', None)
+        if cache is None:
+            cache = {}
+            self._merged_lookup_cache = cache
+        if variant not in cache:
+            if variant == 'house':
+                cache[variant] = {**self.former_lookup, **self.house_lookup}
+            elif variant == 'senate':
+                cache[variant] = {**self.former_lookup, **self.senate_lookup}
+            else:
+                cache[variant] = {**self.former_lookup, **self.house_lookup,
+                                  **self.senate_lookup}
+        return cache[variant]
 
     def match(self, trade_name: str, chamber: str = '') -> dict:
         """

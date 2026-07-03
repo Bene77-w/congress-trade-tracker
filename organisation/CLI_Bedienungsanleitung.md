@@ -196,7 +196,7 @@ python scrapers/senate_pdf_extractor.py --headless False
 
 ---
 
-## 3. Import Pipeline (17 Stages)
+## 3. Import Pipeline (18 Stages)
 
 **Datei:** `scripts/import_trades.py`
 **Zweck:** Liest Quiver-Snapshot (`congress-trading-all.xlsx`), matcht Member-Namen (Alias→Exakt→Former→Fuzzy), klassifiziert Tickers offline, normalisiert via OpenFIGI, reichert via yfinance an, wendet Filter an.
@@ -298,6 +298,7 @@ python scripts/import_trades.py --stage_issuer_group      # Cross-Class Issuer M
 python scripts/import_trades.py --stage_tickeryfinance    # yfinance Sector/Industry
 python scripts/import_trades.py --stage_trade_volume      # trade_volume_usd aus Amount-Range (MUSS VOR post_trade_returns)
 python scripts/import_trades.py --stage_post_trade_performance  # Post-Trade-Preise + Exit-Detection (Modul 9.x, braucht trade_amount_max_usd)
+python scripts/import_trades.py --stage_abnormal_returns  # Abnormal Return (marktbereinigt vs. SPY) → signed_ar_{H}d (deskriptiv, kein Scoring-Input)
 python scripts/import_trades.py --stage_asset_volume      # Cross-Class Asset-Tradingvolume rolling-window
 python scripts/import_trades.py --stage_gates_tags        # Gates + Tags (Asset-Class, Committee, Vote-Timing)
 python scripts/import_trades.py --stage_branch1_signals   # Branch-1 Signale
@@ -373,7 +374,7 @@ Die Pipeline schreibt **zwei** Master-Dateien:
 
 | Datei | Spalten | Zweck |
 |---|---|---|
-| `data/processed/trades_master_complete.csv` | **alle** Pipeline-Spalten (~50+, inkl. interner Felder wie `MatchScore`, `MatchSource`, `Member_Committees_Full`, `figi`, `ticker_figi`, `manual_review_flag`, `classification_reason`) | "Quelle der Wahrheit", verlustfrei — daraus wird alles andere abgeleitet |
+| `data/processed/trades_master_complete.csv` | **alle** Pipeline-Spalten (~50+, inkl. interner Felder wie `Member_Committees_Full`, `figi`, `ticker_figi`, `manual_review_flag`, `classification_reason`) | "Quelle der Wahrheit", verlustfrei — daraus wird alles andere abgeleitet |
 | `data/processed/trades_master.csv` (**curated**) | nur die ~25 Spalten aus `settings.CURATED_COLUMNS` | **kuratierte Sicht** für Analyse / Dashboard / LibreOffice — schmaler, lesbarer |
 
 "Curated" = englisch *kuratiert / handverlesen* — die für den Endbenutzer relevante Spaltenauswahl.
@@ -436,20 +437,11 @@ Schreibt die **Diagnose-CSV** `data/processed/manual_review_tickers.csv` neu —
 
 ---
 
-## 4. XLSX → CSV Konvertierung
+## 4. XLSX → CSV Konvertierung (entfernt)
 
-**Datei:** `scripts/convert_xlsx_to_csv.py`
-**Zweck:** Konvertiert die xlsx-Mapping-Dateien in CSVs (nach manuellen Änderungen an den xlsx-Dateien)
-**Keine Argumente** – Script läuft einfach durch
-
-```bash
-python scripts/convert_xlsx_to_csv.py
-```
-
-**Konvertiert:**
-- `data/raw/yf_secotors_with_industries.xlsx` → `data/raw/yf_sectors_with_industries.csv`
-- `data/raw/subcommittee_sector_industry_mapping_v3.xlsx` (Sheet: Industry_Mapping) → `data/raw/subcommittee_sector_industry_mapping.csv`
-- `data/raw/subcommittee_sector_industry_mapping_v3.xlsx` (Sheet: Region_Mapping) → `data/raw/subcommittee_region_mapping.csv`
+`scripts/convert_xlsx_to_csv.py` wurde im Debug-Intervall 4 entfernt (Input-xlsx
+existieren nicht mehr; der Mapping-Master `subcommittee_sector_industry_mapping.csv`
+wird heute vom Committee-Mapping-Agent erzeugt, s. Abschnitt 15).
 
 ---
 
@@ -480,6 +472,23 @@ python scripts/diagnose_scraper.py --test consistency --runs 3 --days 14
 | `consistency` | Mehrere Runs, vergleicht Ergebnisse |
 | `rowcount` | Prüft Anzahl gefundener Trades |
 | `all` | Alle Tests (default) |
+
+---
+
+## 5b. Event-Study / Abnormal-Return-Analyse (Discovery)
+
+**Datei:** `scripts/analyse_event_study.py`
+**Zweck:** Validiert den `trade_score` gegen den signierten, marktbereinigten Abnormal Return (signed BHAR). Keine Flags — alle Parameter ueber den `AR_*`-Block in `config/settings.py`.
+
+```bash
+python scripts/analyse_event_study.py
+```
+
+**Outputs:**
+- `organisation/analyse_event_study.md` — Befund-Report (Single-Source der Ergebnisse)
+- `data/processed/ar_outliers.csv` — Ausreißer-Trades (gitignored)
+
+**Hinweise:** Dieses Standalone-Skript schreibt keinen Master (Konstrukt B + Bootstrap nur in-memory). Die **produktive Stage `--stage_abnormal_returns`** (Abschnitt 3) schreibt dagegen die `signed_ar_*` (Konstrukt A) in den Master und speist die App-Detail-Popups. Settings-Aenderung = Skript bzw. Stage neu laufen lassen. Spalten + Metrik: `DATA_STRUCTURE.md` Abschnitt 7e.
 
 ---
 
@@ -907,7 +916,7 @@ im Archiv-Ordner für Wiederherstellung.
 
 **Geschützte Mappings (nie betroffen):** `name_aliases.csv`,
 House/Senate Member-CSVs, Subcommittee-Mappings, `yf_sectors_with_industries.csv`,
-`vote_sector_mapping.py`, `logs/house_pdf_extractor_done.csv` (State).
+`logs/house_pdf_extractor_done.csv` (State).
 
 ---
 
@@ -1028,7 +1037,6 @@ python -m pytest scripts/committee_mapping_agent/tests/
 | Senate Scraper | `python scrapers/senate_scraper.py` | Senate-Trades scrapen |
 | Senate PDF Extractor | `python scrapers/senate_pdf_extractor.py` | Paper-PTRs via OCR |
 | Import Pipeline | `python scripts/import_trades.py` | Trades anreichern (Name-Match + Committees) |
-| XLSX → CSV | `python scripts/convert_xlsx_to_csv.py` | Mapping-CSVs aktualisieren |
 | Senate Diagnose | `python scripts/diagnose_scraper.py` | Scraper-Tests |
 | House Committee Parser | `python scrapers/house_pdf_parsing_tool/parse_house_committee_pdf.py --pdf ...` | House Committee PDF (scsoal.pdf) → F2-Roster |
 | Senate Committee XML Fetch | `python scrapers/senate_committee_xml/fetch_senate_xml.py` | Senate-Committee-XML-Snapshots aktualisieren |

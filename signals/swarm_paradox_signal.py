@@ -115,7 +115,18 @@ class SwarmParadoxSignal:
                 sig_id = make_signal_event_id(
                     triggering_date, self.SIGNAL_TYPE, scope_key
                 )
-                for trade in opposing:
+                # Events fuer Cluster-Trades (die auslösenden Schwarm-Trades,
+                # damit der Paradox-Daempfer im Scoring dort greift) UND fuer
+                # die Gegen-Trades (dokumentieren das Gegenindiz). Cluster
+                # zuerst. Dedup ueber (trade_id, scope_key) gegen doppelte
+                # Zeilen, falls ein Trade mehrfach auftaucht.
+                seen: set = set()
+                for trade in cluster + opposing:
+                    tid = str(trade.get('trade_id', '') or '')
+                    key = (tid, scope_key)
+                    if key in seen:
+                        continue
+                    seen.add(key)
                     events.append(_swarm_event_snapshot(
                         trade, sig_id, scope_key, triggering_date,
                         self.SIGNAL_TYPE

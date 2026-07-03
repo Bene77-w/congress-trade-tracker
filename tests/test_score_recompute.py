@@ -51,29 +51,31 @@ def test_weights_override_takes_effect():
 
 
 def test_recompute_uses_weights_override():
-    df = _df([_trade_row('committee')])
+    # committee_full ist Primaersignal -> passiert den Hard-Gate.
+    df = _df([_trade_row('committee_full')])
     out = recompute_subset(df, excluded=[],
-                           weights_override={'committee': 77})
+                           weights_override={'committee_full': 77})
     assert int(out.iloc[0]['trade_score']) == 77
-    assert 'committee:77' in out.iloc[0]['trade_score_breakdown']
+    assert 'committee_full:77' in out.iloc[0]['trade_score_breakdown']
 
 
 # ---------------------------------------------------------------------------
 # 2. params_override (Paradox-Damper) greift durch
 # ---------------------------------------------------------------------------
 def test_params_override_paradox_damper():
-    # Default-Damper = 0.0  -> Schwarm wird auf 0 gedaempft.
+    # swarm_buy ist Primaer -> Gate passt. Default-Damper = 1.0 -> voller
+    # Schwarm-Score; Override 0.0 -> swarm_buy wird gedaempft.
     df = _df([_trade_row('swarm_buy;swarm_paradox')])
     base = recompute_subset(df, excluded=[])
     base_score = int(base.iloc[0]['trade_score'])
+    assert base_score == _settings.SCORING_WEIGHTS['swarm_buy']
 
-    # Damper = 1.0 -> keine Daempfung, voller Schwarm-Score.
     overridden = recompute_subset(
-        df, excluded=[], params_override={'paradox_damper': 1.0},
+        df, excluded=[], params_override={'paradox_damper': 0.0},
     )
     over_score = int(overridden.iloc[0]['trade_score'])
-    assert over_score > base_score
-    assert over_score == _settings.SCORING_WEIGHTS['swarm_buy']
+    assert over_score < base_score
+    assert over_score == 0
 
 
 # ---------------------------------------------------------------------------
@@ -116,32 +118,45 @@ def test_no_override_matches_settings_defaults():
 
 
 def test_volume_tiers_override():
+    # trade_volume ist Hint (per Default deaktiviert + gegated). Mit swarm_buy
+    # als Primaersignal (Gate-Pass, Gewicht via Override auf 0 -> isoliert) und
+    # aktiviertem Volume testen wir die Tier-Skalierung pur.
     # Override-Tiers: alles ueber 0 -> 50 Punkte (einmaliger Catch-all-Tier).
     # weights[trade_volume]=16 (Default) und tier_max=50 -> scale = 16/50 = 0.32
     # 100k Trade -> 50 * 0.32 = 16 Punkte.
     custom_tiers = [(None, 50)]
-    df = _df([_trade_row('trade_volume', vol=100_000)])
+    df = _df([_trade_row('swarm_buy;trade_volume', vol=100_000)])
     out = recompute_subset(
         df, excluded=[],
-        params_override={'trade_volume_tiers': custom_tiers,
+        weights_override={'swarm_buy': 0},
+        params_override={'trade_volume_enabled': True,
+                         'trade_volume_tiers': custom_tiers,
                          'trade_volume_trigger': 0.0},
     )
     assert int(out.iloc[0]['trade_score']) == 16
 
 
 def test_volume_excluded_disables_signal():
-    # Trade ueber Floor + trade_volume getriggert -> normal +16 (Top-Tier)
-    df = _df([_trade_row('trade_volume', vol=5_000_000)])
-    base = recompute_subset(df, excluded=[])
+    # swarm_buy als Primaer (Gate), Gewicht 0 -> isoliert den Volume-Beitrag.
+    df = _df([_trade_row('swarm_buy;trade_volume', vol=5_000_000)])
+    base = recompute_subset(
+        df, excluded=[], weights_override={'swarm_buy': 0},
+        params_override={'trade_volume_enabled': True})
     assert int(base.iloc[0]['trade_score']) == 16
 
-    # Mit excluded='trade_volume' -> Signal-Beitrag faellt weg
-    excluded = recompute_subset(df, excluded=['trade_volume'])
+    # Mit excluded='trade_volume' -> SCORING_TRADE_VOLUME_ENABLED=False -> 0
+    excluded = recompute_subset(
+        df, excluded=['trade_volume'], weights_override={'swarm_buy': 0},
+        params_override={'trade_volume_enabled': True})
     assert int(excluded.iloc[0]['trade_score']) == 0
 
 
 def test_ex_officio_role_bonuses_override():
-    df = _df([_trade_row('committee', role_keys='committee_ranking_member')])
+    # Bonus feuert nur bei Trigger {committee, floor_action} (beide Hints) UND
+    # benoetigt ein Primaersignal (Gate). Daher swarm_buy (Primaer) + committee
+    # (Trigger). Default-Bonus ist jetzt 0 -> Wirkung via Override testen.
+    df = _df([_trade_row('swarm_buy;committee',
+                         role_keys='committee_ranking_member')])
     base = recompute_subset(df, excluded=[])
     base_score = int(base.iloc[0]['trade_score'])
 
@@ -151,7 +166,7 @@ def test_ex_officio_role_bonuses_override():
                          {'committee_ranking_member': 50.0}},
     )
     over_score = int(out.iloc[0]['trade_score'])
-    # Differenz = neuer Bonus - alter Bonus (Default aus Settings-Tabelle)
+    # Differenz = neuer Bonus - alter Bonus (Default aus Settings-Tabelle = 0)
     expected_delta = 50 - int(
         _settings.SCORING_EX_OFFICIO_ROLE_BONUSES['committee_ranking_member']
     )
@@ -173,31 +188,71 @@ def test_exclude_committee_ex_officio_wins_over_override():
 
 
 def test_recompute_exclude_committee_ex_officio_drops_bonus():
-    df = _df([_trade_row('committee', role_keys='committee_chairman')])
-    base = recompute_subset(df, excluded=[])
-    excl = recompute_subset(df, excluded=['committee_ex_officio'])
-    expected_delta = -int(
-        _settings.SCORING_EX_OFFICIO_ROLE_BONUSES['committee_chairman']
-    )
-    assert (int(excl.iloc[0]['trade_score'])
-            - int(base.iloc[0]['trade_score'])) == expected_delta
+    # Primaer (swarm_buy) + Trigger (committee); Bonus via Override aktiv setzen,
+    # damit das Exclude etwas zu entfernen hat (Default-Bonus = 0).
+    df = _df([_trade_row('swarm_buy;committee', role_keys='committee_chairman')])
+    bonus_override = {'ex_officio_role_bonuses': {'committee_chairman': 30.0}}
+    base = recompute_subset(df, excluded=[], params_override=bonus_override)
+    excl = recompute_subset(df, excluded=['committee_ex_officio'],
+                            params_override=bonus_override)
+    # exclude leert die Bonus-Tabelle -> Bonus 0; base hatte +30
+    assert (int(base.iloc[0]['trade_score'])
+            - int(excl.iloc[0]['trade_score'])) == 30
     # Das committee-Signal selbst bleibt aktiv, nur der Bonus faellt weg.
     assert 'committee:' in excl.iloc[0]['trade_score_breakdown']
     assert 'ex_officio:+0' in excl.iloc[0]['trade_score_breakdown']
 
 
+# ---------------------------------------------------------------------------
+# 5. Exclude neutralisiert Primaersignale auch im Hard-Gate (R2a)
+# ---------------------------------------------------------------------------
+def test_exclude_removes_signal_from_primary_signals():
+    proxy = build_settings_proxy(excluded=['committee_full'])
+    assert 'committee_full' not in proxy.SCORING_PRIMARY_SIGNALS
+    assert 'swarm_buy' in proxy.SCORING_PRIMARY_SIGNALS
+
+
+def test_excluded_primary_signal_closes_gate():
+    # committee_full ist Primaersignal, floor_action ist Hint (Gewicht via
+    # Override 10). Wird committee_full ausgeschlossen, ist es kein Primaer-
+    # signal mehr -> Trade triggert kein Primaersignal -> Gate greift -> 0.
+    df = _df([_trade_row('committee_full;floor_action')])
+    out = recompute_subset(
+        df, excluded=['committee_full'],
+        weights_override={'floor_action': 10},
+    )
+    assert int(out.iloc[0]['trade_score']) == 0
+
+
+def test_both_primary_excluded_disables_gate():
+    # Beide Primaersignale ausgeschlossen -> Tuple leer -> Gate aus (Rueck-
+    # waerts-Kompat) -> Hint-Score kommt durch.
+    df = _df([_trade_row('committee_full;floor_action')])
+    out = recompute_subset(
+        df, excluded=['committee_full', 'swarm_buy'],
+        weights_override={'floor_action': 10},
+    )
+    proxy = build_settings_proxy(excluded=['committee_full', 'swarm_buy'])
+    assert proxy.SCORING_PRIMARY_SIGNALS == ()
+    assert int(out.iloc[0]['trade_score']) == 10
+
+
 def test_ex_officio_committee_global_override_disables_committee_keys():
-    df = _df([_trade_row('committee', role_keys='committee_ranking_member')])
-    base = recompute_subset(df, excluded=[])
+    # Primaer (swarm_buy) + Trigger (committee); Bonus via Override aktiv (30),
+    # damit das committee_global=False-Filtern eine messbare Wirkung hat
+    # (Default-Bonus ist 0).
+    df = _df([_trade_row('swarm_buy;committee',
+                         role_keys='committee_ranking_member')])
+    bonus_override = {'ex_officio_role_bonuses':
+                      {'committee_ranking_member': 30.0}}
+    base = recompute_subset(df, excluded=[], params_override=bonus_override)
     base_score = int(base.iloc[0]['trade_score'])
 
     out = recompute_subset(
         df, excluded=[],
-        params_override={'ex_officio_committee_global': False},
+        params_override={**bonus_override,
+                         'ex_officio_committee_global': False},
     )
     over_score = int(out.iloc[0]['trade_score'])
-    # committee_*-Key faellt weg -> Score sinkt um den Default-Bonus
-    expected_delta = -int(
-        _settings.SCORING_EX_OFFICIO_ROLE_BONUSES['committee_ranking_member']
-    )
-    assert over_score - base_score == expected_delta
+    # committee_*-Key faellt weg -> Bonus 0 -> Score sinkt um 30
+    assert over_score - base_score == -30

@@ -47,7 +47,6 @@ ASSET_CLASS_KEEP_TYPES = {
 #   'sector_or_industry'  — full + sector (Halb- und Voll-Treffer)
 #   'sector_and_industry' — nur full (strikt)
 #   'hybrid'              — full bevorzugt, sector als Fallback wenn kein full
-COMMITTEE_EX_OFFICIO_ROLES = ['Chairman', 'Ranking Member', 'Vice Chairman', 'Cochairman', 'EXOfficio']
 RELEVANT_SECTORS_MATCH_MODE = 'sector_and_industry'
 
 # =============================================================================
@@ -65,7 +64,6 @@ VOTE_TIMING_WINDOW_AFTER  = 5      # Trade max X Tage NACH Abstimmung
 # Skala aufsteigend: 'Niedrig' < 'Mittel' < 'Hoch'. 'Niedrig' = kein Filter
 # (alle Zuordnungen). Ungueltige Werte -> ValueError (fail-loud) beim Laden.
 VOTE_MIN_SUBJECT_CONFIDENCE = 'Niedrig'
-VOTE_CONGRESS_NUMBER      = 119    # Ab welchem Kongress Daten laden (119th = 2025-2027)
 LEGISLATIVE_SUBJECT_MAPPING_FILE = 'legislative_subject_mapping_complete.csv'
 BILL_SUBJECTS_FILE = 'bill_subjects.json'
 # Auto-Refresh: bill_actions.json/bill_subjects.json werden zu Beginn der gates_tags-Stage
@@ -84,7 +82,7 @@ VOTE_DATA_TTL_HOURS       = 24     # Skip-Schwelle fuer Auto-Refresh in Stunden
 #                   (Master-Spalte ex_officio_role_keys nicht leer).
 # Code: signals/committee_signal.py, committee_full_signal.py,
 #       committee_ex_officio_signal.py.
-# Konfiguration: RELEVANT_SECTORS_MATCH_MODE (oben), COMMITTEE_EX_OFFICIO_ROLES.
+# Konfiguration: RELEVANT_SECTORS_MATCH_MODE (oben).
 # Score-Gewichte siehe SCORING_WEIGHTS weiter unten.
 # =============================================================================
 
@@ -115,11 +113,14 @@ ACCUMULATIVE_MIN_COUNT   = 2            # Mindest-Trade-Zahl im Fenster fuer Tri
 
 # =============================================================================
 # SIGNAL: EXTREME REPORT (Branch 1)
-# Ungewoehnlich grosse Verzoegerung zwischen transaction_date und
-# disclosure_date (Pflicht-Frist ist 45 Tage).
+# Auffaelliges Meldeverhalten zwischen transaction_date und disclosure_date.
+# Zwei Trigger (ODER-verknuepft):
+#   - sehr SPAETE Meldung: delay_days > EXTREME_REPORT_DAYS (Pflicht-Frist 45 Tage)
+#   - sehr SCHNELLE Meldung: delay_days <= EXTREME_REPORT_FAST_DAYS
 # Code: signals/extreme_report_signal.py (ExtremeReportSignal)
 # =============================================================================
 EXTREME_REPORT_DAYS = 60                # disclosure_date - transaction_date > X (45 = Pflicht, 60 = mit Toleranz)
+EXTREME_REPORT_FAST_DAYS = 5            # disclosure_date - transaction_date <= X (ungewoehnlich schnelle Meldung)
 
 # =============================================================================
 # SIGNAL: SWARM (Branch 2)
@@ -168,24 +169,34 @@ SEC_EDGAR_TTL_DAYS   = 7
 # Code: scoring/trade_score.py (geplant in Phase 8.3)
 # =============================================================================
 SCORING_WEIGHTS = {
-    'committee':       10,    # Halb-Treffer (Sector matcht) + Voll-Treffer
-    'committee_full':   5,    # Zusatz fuer Voll-Treffer (Sector + Industry)
-    'floor_action':    15,    # Vote-Timing-Treffer (VoteTimingTag → FloorActionSignal)
-    'extreme_report':   5,
-    'contrarian':       8,
-    'accumulative':    10,
-    'swarm_buy':       20,
-    'swarm_sell':      20,
-    'swarm_conflict':  -5,    # Gegenindiz: mindert Score des einzelnen
-                              # Contrarian-Trades (lone opposite trade gegen
-                              # aktiven Schwarm). Negativ = bewusster Abzug.
-    'trade_volume':    16,    # nomineller Max-Beitrag (Top-Tier); konkreter Wert
-                              # je Trade aus SCORING_TRADE_VOLUME_TIERS, nicht aus
-                              # diesem Dict. Der Wert hier steuert nur die
-                              # UI-Slider-Obergrenze.
+    # PRIMAER (steuern den Score; s. SCORING_PRIMARY_SIGNALS + Hard-Gate)
+    'committee_full':   5,    # PRIMAER: Voll-Treffer (Sector + Industry)
+    'swarm_buy':       20,    # PRIMAER: >=2 Politiker kaufen denselben Issuer
+    # HINT (Default 0 Score-Einfluss; nur Kontext-Indikator, im Trade-Detail-
+    # Popup als "Hints" ausgewiesen). Voll konfigurierbar ueber den
+    # UI-Gewichts-Editor — ein Wert > 0 wirkt nur, wenn der Trade zusaetzlich
+    # mindestens ein Primaersignal triggert (Hard-Gate).
+    'committee':        0,    # HINT: Halb-Treffer (nur Sector)
+    'floor_action':     0,    # HINT: Vote-Timing-Treffer
+    'extreme_report':   0,    # HINT
+    'contrarian':       0,    # HINT
+    'accumulative':     0,    # HINT
+    'swarm_sell':       0,    # HINT
+    'swarm_conflict':   0,    # HINT: Gegenindiz (frueher -5)
+    'trade_volume':    16,    # HINT: per Default via SCORING_TRADE_VOLUME_ENABLED
+                              # =False deaktiviert; der Wert hier bleibt nur
+                              # UI-Slider-Obergrenze / Tier-Skalierungsfaktor.
     # 'swarm_paradox':         kein additives Gewicht — Multiplikator (s.u.)
     # 'committee_ex_officio':  kein eigenes Gewicht — Bonus X (s.u.)
 }
+
+# Primaersignale (Hard-Gate, Modul 8): Nur Trades, die mindestens eines dieser
+# Signale triggern, erhalten ueberhaupt einen Score > 0. Triggert ein Trade
+# kein Primaersignal, gibt scoring/trade_score.compute_trade_score frueh 0
+# zurueck — unabhaengig davon, wie Hint-Gewichte konfiguriert sind. Alle nicht
+# hier gelisteten Signale sind "Hints" (Default 0 Score-Einfluss, reiner
+# Kontext-Indikator), bleiben aber ueber den UI-Gewichts-Editor konfigurierbar.
+SCORING_PRIMARY_SIGNALS = ('committee_full', 'swarm_buy')
 
 # Ex-Officio-Bonus v2 (rollen-differenziert): pro Trade leitet der
 # CommitteeTag aus den relevanten Treffern Fuehrungsrollen-Keys ab
@@ -197,15 +208,19 @@ SCORING_WEIGHTS = {
 # subcommittee_*-Keys gelten nur fuer Treffer des eigenen Subcommittees.
 # Cochairman wird auf den Chairman-Key seiner Ebene gemappt
 # (tags/committee_tag.py: COMMITTEE_ROLE_KEYS / SUBCOMMITTEE_ROLE_KEYS).
+# HINT-Komponente: per Default 0 (kein Ex-Officio-Bonus mehr — frueher dominierte
+# jeder Ex-Officio-Trade den Score). Keys bleiben erhalten, damit der Bonus im
+# UI-Editor pro Rolle weiter konfigurierbar ist; committee_ex_officio wird wie
+# die uebrigen Hints im Trade-Detail-Popup ausgewiesen.
 SCORING_EX_OFFICIO_ROLE_BONUSES = {
-    'committee_chairman':          15,
-    'committee_vice_chairman':     12,
-    'committee_ranking_member':    10,
-    'committee_ex_officio':        10,
-    'subcommittee_chair':          12,
-    'subcommittee_vice_chair':      9,
-    'subcommittee_ranking_member':  8,
-    'subcommittee_ex_officio':      8,
+    'committee_chairman':          0,
+    'committee_vice_chairman':     0,
+    'committee_ranking_member':    0,
+    'committee_ex_officio':        0,
+    'subcommittee_chair':          0,
+    'subcommittee_vice_chair':     0,
+    'subcommittee_ranking_member': 0,
+    'subcommittee_ex_officio':     0,
 }
 SCORING_EX_OFFICIO_COMMITTEE_GLOBAL = True
 SCORING_EX_OFFICIO_TRIGGERS = ['committee', 'floor_action']
@@ -214,7 +229,9 @@ SCORING_EX_OFFICIO_TRIGGERS = ['committee', 'floor_action']
 # (swarm_buy + swarm_sell + swarm_conflict). 0.0 = Schwarm-Anteil ausgeknockt;
 # 0.5 = halbiert; 1.0 = keine Daempfung. Warning-Tag bleibt unabhaengig sichtbar
 # in der trade_warnings-Spalte, damit das Gegenindiz visualisierbar ist.
-SCORING_PARADOX_DAMPER       = 0.0
+# Default 1.0 (neutral), damit das Primaersignal swarm_buy sauber bleibt; im
+# UI-Editor reaktivierbar (Damper < 1.0 daempft dann den swarm_buy-Beitrag).
+SCORING_PARADOX_DAMPER       = 1.0
 SCORING_PARADOX_WARNING_TAG  = 'paradox_swarm'
 
 # Trade-Volume-Signal: diskrete Stufen auf trade_amount_max_usd (obere
@@ -234,7 +251,9 @@ SCORING_PARADOX_WARNING_TAG  = 'paradox_swarm'
 #
 # Format: aufsteigend sortierte Liste (max_inclusive, score). Der letzte
 # Eintrag MUSS float('inf') als Obergrenze haben (Catch-all).
-SCORING_TRADE_VOLUME_ENABLED = True
+# HINT-Komponente: per Default deaktiviert (0 Score-Einfluss). Im UI-Editor
+# reaktivierbar; trade_volume bleibt eine reine Hint-Anzeige.
+SCORING_TRADE_VOLUME_ENABLED = False
 SCORING_TRADE_VOLUME_TIERS   = [
     (50_000,        2),
     (100_000,       4),
@@ -292,19 +311,6 @@ PDF_EXTRACTOR_AMOUNT_PIXEL_THRESHOLD = 50            # Min. dunkle Pixel fuer "x
 PDF_EXTRACTOR_USE_GRID_DETECTION = True              # img2table Grid-Erkennung aktivieren
 PDF_EXTRACTOR_ROW_BATCH_SIZE = 5                     # Zeilen pro Vision API Batch
 
-# PDF Extractor (Tesseract – lokales OCR, kostenlos)
-_TESSERACT_DEFAULT = (
-    r'C:\Program Files\Tesseract-OCR\tesseract.exe'
-    if sys.platform == 'win32' else
-    '/usr/bin/tesseract'
-)
-PDF_EXTRACTOR_TESSERACT_PATH = os.getenv('TESSERACT_PATH', _TESSERACT_DEFAULT)
-PDF_EXTRACTOR_TESSERACT_PSM = 6       # Page Segmentation Mode: uniform text block
-PDF_EXTRACTOR_TESSERACT_CONF_MIN = 30 # Wörter mit Confidence < 30 werden ignoriert
-
-# Standard-Zeiträume für Datenabfragen
-SCRAPER_DEFAULT_DAYS_BACK = 90      # Standard: Trades der letzten 90 Tage
-
 # User-Agent für HTTP-Requests
 SCRAPER_USER_AGENT = 'CongressTracker/1.0 (Python)'
 
@@ -314,18 +320,15 @@ SCRAPER_USER_AGENT = 'CongressTracker/1.0 (Python)'
 # Fuzzy-Matching Schwellenwert (0-100)
 FUZZY_MATCH_THRESHOLD = 85
 
-# Spalten fuer Duplikat-Erkennung (angepasst an Quiver-Daten: kein asset_type, owner, ptr_link)
-DUPLICATE_CHECK_COLUMNS = [
-    'name', 'ticker', 'asset_name', 'transaction_type',
-    'amount', 'transaction_date', 'subholding', 'comment',
-]
+# Hinweis: Die Definition "wann sind zwei Trade-Zeilen derselbe Trade?" liegt
+# kanonisch in utils/trade_id.py (TRADE_ID_SOURCE_COLUMNS -> trade_id-Hash).
+# Das frueher hier gepflegte DUPLICATE_CHECK_COLUMNS war eine veraltete Kopie
+# und wurde entfernt; Konsumenten nutzen jetzt TRADE_ID_SOURCE_COLUMNS.
 
 # Ticker-Industry Lookup (yfinance)
 TICKER_INDUSTRY_CACHE_FILE = 'ticker_industry_cache.json'   # in DATA_MAPPINGS_PATH (nur positive)
 TICKER_0_CACHE_FILE = 'ticker_0_cache.json'                  # in DATA_MAPPINGS_PATH (null-Eintraege)
 TICKER_LOOKUP_PAUSE_SECONDS = 0.5    # Pause zwischen yfinance-Calls (Rate-Limit-Schutz)
-TICKER_LOOKUP_RETRY_ATTEMPTS = 3     # Wiederholungsversuche bei Fehler
-TICKER_LOOKUP_RETRY_DELAY = 5.0      # Wartezeit (Sekunden) zwischen Retries, verdoppelt sich
 TICKER_LOOKUP_CONFIRM_THRESHOLD = 100 # Ab dieser Anzahl neuer Ticker: User-Bestaetigung
 TICKER_LOOKUP_AUTO_CONFIRM = True     # True: große Ticker-Batches ohne Enter-Bestaetigung fetchen (autonomer Run/Scheduler). False: interaktive Rueckfrage ab CONFIRM_THRESHOLD.
 TICKER_LOOKUP_CACHE_INTERVAL = 100    # Cache alle N Ticker zwischenspeichern
@@ -337,26 +340,6 @@ TICKER_SECTOR_CACHE_TTL_DAYS = 30     # TTL fuer ticker_industry_cache (positive
 # Ticker-Pattern-Konstanten (TICKER_TYPE_PATTERNS, TICKER_FILTER_PATTERNS,
 # TICKER_WHITELIST) wurden im Rebuild Teil 3 entfernt — die Klassifikation
 # liegt jetzt in utils/ticker_classifier.py (Regex-Entscheidungsbaum).
-
-# OpenFIGI securityType -> ticker_type Mapping (primaer, wird zuerst geprueft)
-# Wichtig: securityType "ETP" identifiziert ETFs korrekt, waehrend securityType2
-# fuer ETFs faelschlicherweise "Mutual Fund" zurueckgibt.
-OPENFIGI_SEC_TYPE_MAP = {
-    "ETP": "ETF",
-}
-
-# OpenFIGI securityType2 -> ticker_type Mapping (sekundaer, Fallback)
-OPENFIGI_TYPE_MAP = {
-    "Common Stock": "Stock",
-    "Open-End Fund": "Mutual Fund",
-    "Closed-End Fund": "Closed-End Fund",
-    "Preferred Stock": "Preferred Stock",
-    "Warrant": "Warrant",
-    "Right": "Rights",
-    "Unit": "SPAC Unit",
-    "REIT": "Stock",
-    "ADR": "Stock",
-}
 
 # OpenFIGI Konfiguration
 OPENFIGI_API_KEY = os.getenv('OPENFIGI_API_KEY', '')
@@ -383,9 +366,6 @@ OPENFIGI_MAPPING_PAUSE_WITH_KEY = 0.3       # Sek. zwischen Mapping-Batches (mit
 OPENFIGI_MAPPING_PAUSE_WITHOUT_KEY = 3.5    # ohne Key (war 2.5 — zu knapp am 25/min-Limit)
 OPENFIGI_SEARCH_PAUSE_WITH_KEY = 0.4        # ~150/min, 25% Puffer zum 200/min-Limit
 OPENFIGI_SEARCH_PAUSE_WITHOUT_KEY = 13.0    # ohne Key: 5 req/min → 1 alle 12s
-# Legacy-Aliase (rückwärtskompatibel; werden nicht mehr direkt genutzt)
-OPENFIGI_REQUEST_PAUSE_WITH_KEY = OPENFIGI_MAPPING_PAUSE_WITH_KEY
-OPENFIGI_REQUEST_PAUSE_WITHOUT_KEY = OPENFIGI_MAPPING_PAUSE_WITHOUT_KEY
 OPENFIGI_RATE_LIMIT_BACKOFF_BASE = 2.0   # 429-Backoff Basis (2^n Sek.)
 OPENFIGI_RATE_LIMIT_BACKOFF_MAX = 90.0   # 429-Backoff Cap (Sek.) — war 60
 
@@ -401,22 +381,12 @@ OPENFIGI_RATE_LIMIT_BACKOFF_MAX = 90.0   # 429-Backoff Cap (Sek.) — war 60
 NETWORK_RETRY_BACKOFFS = [2, 4, 8, 16, 32, 64, 128]
 NETWORK_RETRY_ENABLED = True   # False: nur 1 Versuch (kein Retry) — fuer Tests/Debug
 
-# post_trade_returns: Healthy-Network-Heuristik. Ein leeres yf.download()-
-# Ergebnis ist nicht von einem echten Delisting unterscheidbar. Solange in
-# diesem Lauf bereits ein echter Download gelang UND weniger als N Fehler in
-# Folge auftraten, gilt das Netz als gesund -> leeres Ergebnis = echtes
-# Delisting (Marker). Sonst = netzbedingt -> Retry, bei Erschoepfung ueber-
-# springen (kein falscher exit_status='delisted').
-# LEGACY (R1-R6): durch den Netzwerk-Canary (s.u.) abgeloest; bleibt fuer
-# Backcompat/Doku, wird aber nicht mehr aktiv ausgewertet.
-POST_TRADE_NETWORK_HEALTHY_TOLERANCE = 3
-
 # =============================================================================
 # NETZWERK-CANARY (utils/network_canary.py)
 # =============================================================================
 # Ein leeres yfinance-Ergebnis ist NICHT von einem echten Delisting unterscheidbar
 # (HTTP 200, keine Exception). Statt das aus dem mehrdeutigen Ergebnis selbst zu
-# raten (zirkulaere Heuristik, s. LEGACY oben), probt der Canary garantiert-live
+# raten (zirkulaere Heuristik, abgeloest), probt der Canary garantiert-live
 # Ticker als UNABHAENGIGES Out-of-Band-Signal: schlagen >= CANARY_MIN_POSITIVE der
 # CANARY_TICKERS an, gilt das Netz als GRUEN -> ein leeres Ergebnis ist ein echtes
 # Delisting; sonst ROT -> kein Marker, Fenster verwerfen, warten (fail-closed bei
@@ -447,26 +417,16 @@ DEDUP_STRATEGY = 'keep_all'
 # =============================================================================
 # ALLGEMEINE EINSTELLUNGEN
 # =============================================================================
-# Politiker haben 45 Tage Zeit ihre Trades zu melden
-DISCLOSURE_DELAY_DAYS = 45
-
 # Daten-Pfade (relativ zum Projektverzeichnis)
 DATA_RAW_PATH = 'data/raw'
 DATA_PROCESSED_PATH = 'data/processed'
 DATA_MAPPINGS_PATH = 'data/mappings'
-DATA_UPLOADS_PATH = 'data/uploads'
 DATA_CONGRESS_API_PATH = 'data/congress_api'
 LOGS_PATH = 'logs'
-
-# Maximales Alter der Daten bevor neu geladen wird (in Stunden)
-DATA_MAX_AGE_HOURS = 24
 
 # =============================================================================
 # DATEIPFADE (bei Neuwahlen hier anpassen!)
 # =============================================================================
-# Aktuelle Kongress-Session
-CONGRESS_SESSION = "119th"  # 2025-2027
-
 # Mapping-Dateien (data/mappings/)
 HOUSE_COMMITTEES_FILE = 'house_member&(sub)committees.csv'
 SENATE_COMMITTEES_FILE = 'senate_member&(sub)committees.csv'
@@ -476,8 +436,6 @@ IGNORED_TICKERS_FILE = 'ignored_tickers.csv'
 
 # Trade-Daten
 QUIVER_TRADES_FILE = 'congress-trading-all.xlsx'  # Quiver-Daten (primaere Quelle, xlsx)
-HOUSE_TRADES_FILE = 'house_trades.csv'            # Eigene House-Scraper-Daten (Ergaenzung)
-SENATE_TRADES_FILE = 'senate_trades.csv'          # Eigene Senate-Scraper-Daten (Ergaenzung)
 
 # QUIVER-AUTO-DOWNLOAD-SCRAPER (scrapers/quiver_scraper.py)
 # Headless Credential-Login + XLSX-Download; taeglich 03:00 via systemd-User-Timer.
@@ -559,6 +517,13 @@ CURATED_COLUMNS = [
     'trade_warnings',
 ]
 
+# Coalesce-Mapping fuer den kuratierten Export: kuratierte Zielspalte ->
+# Liste von Quellspalten im Master (erste nicht-leere gewinnt). Noetig, weil
+# 'Member_Committees' im Master nur als 'Member_Committees_Full' existiert.
+CURATED_COALESCE = {
+    'Member_Committees': ['Member_Committees_Full'],
+}
+
 # Backup-Verzeichnis fuer automatische Master-Backups vor destruktiven Aenderungen
 ARCHIVE_BACKUP_PATH = 'archive/trades_master_backup'
 
@@ -622,6 +587,58 @@ DETAIL_TRAJ_SAMPLE_DAYS = 3
 #   Per Popup-Toggle ("Alle Verlaeufe zeichnen") abschaltbar.
 DETAIL_TRAJ_MAX_TRACES = 300
 
+# Member-Detail Red-Flag-Ampel — Schwellen der drei Indikatoren (Anteil
+# Vote-Timing-Trades, Anteil committee_full-Trades, Outperformance vs.
+# Vergleichsgruppe in Prozentpunkten). Anzeige-Parameter, kein Scoring-Input.
+DETAIL_RED_FLAG_VOTE_TIMING_RATE = 0.20
+DETAIL_RED_FLAG_COMMITTEE_FULL_RATE = 0.20
+DETAIL_RED_FLAG_OUTPERFORMANCE_PP = 5.0
+
+# Trade-Detail "Related"-Tabelle: |effective_return_pct| ab dieser Schwelle
+# (Prozent) wird gruen/rot hinterlegt. Reine Anzeige-Faerbung.
+DETAIL_RELATED_RETURN_COLOR_PCT = 10.0
+
+
+# ---------------------------------------------------------------------------
+# Event-Study / Abnormal Return (Insider-Aufdeckung — Discovery-Modul)
+# ---------------------------------------------------------------------------
+# Marktbereinigter, richtungsbereinigter Abnormal Return (signed BHAR) pro Trade
+# als schaerferes Lineal gegenueber dem rohen Kalender-Return. Zweck: aussergewoehn-
+# liche Trades (Ausreisser) entdecken UND pruefen, ob die Verdachts-Signale beim AR
+# einen Edge zeigen (Diskriminator: Signale-sind-Rauschen vs. falsches-Lineal).
+# Genutzt von der Pipeline-Stage 'abnormal_returns' (schreibt signed_ar_{H}d in den
+# Master — deskriptiv, KEIN Scoring-Input) UND vom eigenstaendigen Analyse-Skript
+# scripts/analyse_event_study.py. Settings-Aenderung = Stage bzw. Skript neu laufen
+# lassen (nur Cache-Lookups, kein yfinance-Download).
+#
+# Markt-Benchmark fuer die Marktbereinigung. Muss im Preis-Cache liegen (SPY ist da).
+AR_BENCHMARK_TICKER = 'SPY'
+# Konstrukt A (Insider, primaer): Event-Fenster ab transaction_date (Kalendertage).
+AR_HORIZONS_DAYS = [30, 60, 90, 120, 180]
+# Primaerhorizont: Outlier-Flag, Score-Diskriminator UND App-Anzeige (Trade-/Member-
+# Detail-Headline + Perzentil-Rang). Muss kein Element von AR_HORIZONS_DAYS sein
+# (wird sonst automatisch ergaenzt).
+AR_HEADLINE_HORIZON_DAYS = 120
+# Konstrukt B (Copycat/Follower, sekundaer): Event-Fenster ab disclosure_date. Misst,
+# ob ein Aussenstehender durch Nachhandeln nach der Meldung profitieren koennte —
+# KEIN Informationsbeweis (skaliert mit Sichtbarkeit/Trade-Groesse). Staerker
+# right-censored als A (Melde-Latenz, median ~20d).
+AR_DISCLOSURE_HORIZONS_DAYS = [30, 90]
+# Ausreisser-Definition auf signed_ar_{headline}d:
+#   'absolute'   -> feste Bandgrenzen AR_OUTLIER_UPPER/LOWER (BRUCHTEIL, 0.03 = 3%)
+#   'percentile' -> obere/untere Quantile AR_OUTLIER_PCT_UPPER/LOWER (robuster gegen
+#                   schwere Tails / Horizont-Skalierung)
+AR_OUTLIER_MODE = 'absolute'
+AR_OUTLIER_UPPER = 0.03      # signed_AR >= X -> positiver Ausreisser (Insider-verdaechtig)
+AR_OUTLIER_LOWER = -0.03     # signed_AR <= X -> negativer Ausreisser
+AR_OUTLIER_PCT_UPPER = 0.95  # nur MODE='percentile'
+AR_OUTLIER_PCT_LOWER = 0.05  # nur MODE='percentile'
+# Member-geclusterter Block-Bootstrap (resamplet ganze Member ueber bio_guide_id,
+# nicht Einzeltrades — Swarm = Clustering per Definition; naives Row-Resampling
+# erzeugt Schein-Signifikanz). Anzahl Wiederholungen + Seed (Reproduzierbarkeit).
+AR_BOOTSTRAP_ITERS = 2000
+AR_BOOTSTRAP_SEED = 0
+
 
 # ---------------------------------------------------------------------------
 # Recent-Trade-Monitoring (Modul 9.x — Live-Beobachtung frischer Trades)
@@ -651,10 +668,6 @@ RECENT_PRICE_MAX_AGE_BUSINESS_DAYS = 1
 # Daten) und nutzen die Horizonte aus POST_TRADE_HORIZONS_DAYS.
 # Default-Horizont X (Tage); muss in POST_TRADE_HORIZONS_DAYS enthalten sein.
 SCORE_CORR_DEFAULT_HORIZON_DAYS = 180
-# Leitkennzahl der Korrelation. Spearman = Rangkorrelation (robust gegen
-# Return-Ausreisser); Pearson wird zusaetzlich angezeigt. Spearman wird ohne
-# scipy als Pearson auf Raengen berechnet (a.rank().corr(b.rank())).
-SCORE_CORR_DEFAULT_METHOD = 'spearman'
 # Im "Score-Analyse"-Tab waehlbare Bucket-Anzahl: Anzahl gleich breiter
 # Score-Intervalle (pd.cut ueber die trade_score-Spanne), NICHT Quantile.
 SCORE_CORR_BUCKET_OPTIONS = [3, 4, 5, 10]
@@ -665,3 +678,27 @@ SCORE_CORR_BUCKET_DEFAULT = 5
 # das Cap betrifft nur die Visualisierung.
 SCORE_CORR_SCATTER_MAX_POINTS = 20000
 SCORE_CORR_SCATTER_OPACITY = 0.3
+
+
+# ---------------------------------------------------------------------------
+# UI-Scope-Kennzeichnung der Zeitfenster-/Horizont-Widgets (Modul 9.x)
+# ---------------------------------------------------------------------------
+# Jedes Zeit-/Horizont-Widget traegt ein Scope-Praefix im Label + einen
+# Scope-Grundtext im Tooltip, damit von aussen erkennbar ist, wie weit eine
+# Einstellung reicht (die verschiedenen Zeitfenster beschraenkten sich frueher
+# unsichtbar gegenseitig). Bedeutung der drei Stufen:
+#   global  -> wirkt auf Trades-/Assets-/Members-/Post-Trade-Performance-Tab
+#   tab     -> wirkt nur im jeweiligen Tab (umgeht die globalen Einstellungen)
+#   detail  -> wirkt nur im geoeffneten Detail-Popup
+UI_SCOPE_PREFIX = {
+    'global': '[Global]',
+    'tab': '[Tab]',
+    'detail': '[Detail]',
+}
+UI_SCOPE_HELP = {
+    'global': 'Scope Global: wirkt auf Trades-, Assets-, Members- und '
+              'Post-Trade-Performance-Tab.',
+    'tab': 'Scope Tab: wirkt nur in diesem Tab und ist unabhaengig von den '
+           'globalen Horizont-Einstellungen der Sidebar.',
+    'detail': 'Scope Detail: wirkt nur in diesem Detail-Popup.',
+}

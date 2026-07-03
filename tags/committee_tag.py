@@ -253,25 +253,3 @@ class CommitteeTag:
             elif sector.get('rank', 99) < unique[key].get('rank', 99):
                 unique[key] = sector
         return list(unique.values())
-
-    def filter_by_ticker_sector(
-        self,
-        sectors: List[Dict[str, Any]],
-        ticker: str
-    ) -> List[Dict[str, Any]]:
-        """
-        Filter sectors to only those matching ticker's actual sector.
-
-        [PLACEHOLDER for Modul 5]
-        For now, returns all sectors unchanged.
-
-        Args:
-            sectors: List of sector dicts
-            ticker: Stock ticker
-
-        Returns:
-            Filtered list (currently unchanged)
-        """
-        # TODO: Implement in Modul 5
-        # Will use yfinance or pre-built ticker->sector mapping
-        return sectors

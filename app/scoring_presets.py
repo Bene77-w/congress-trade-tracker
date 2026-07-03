@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import math
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +37,30 @@ ROOT = Path(__file__).resolve().parent.parent
 PRESETS_PATH = ROOT / 'data' / 'config' / 'scoring_presets.json'
 
 DEFAULT_PRESET_NAME = 'Default'
+
+# Modul-globales Flag: True, sobald ein Read auf eine korrupte (nicht
+# parsebare) Presets-Datei stiess. Die UI (streamlit_app) kann die Warnung
+# ueber ``consume_corrupt_warning()`` einmalig abholen und anzeigen —
+# scoring_presets importiert bewusst kein streamlit.
+_last_load_corrupt: bool = False
+
+
+def consume_corrupt_warning() -> str | None:
+    """Liefert einmalig eine Warnmeldung, falls zuletzt eine korrupte
+    Presets-Datei geladen wurde, und setzt das Flag zurueck (sonst ``None``).
+
+    Gedacht zum Verdrahten in der UI (z.B. ``msg = consume_corrupt_warning();
+    if msg: st.warning(msg)``), ohne dass scoring_presets streamlit importiert.
+    """
+    global _last_load_corrupt
+    if not _last_load_corrupt:
+        return None
+    _last_load_corrupt = False
+    return (
+        f"Presets-Datei war beschaedigt und konnte nicht gelesen werden. "
+        f"Eine Sicherung wurde unter '{PRESETS_PATH.name}.bak' abgelegt; die "
+        f"Preset-Liste startet leer (nur 'Default')."
+    )
 
 
 def _tiers_to_json(tiers: Any) -> list[list]:
@@ -92,12 +117,25 @@ def default_payload() -> dict[str, Any]:
 
 
 def _read_file() -> dict[str, dict[str, Any]]:
+    global _last_load_corrupt
     if not PRESETS_PATH.exists():
         return {}
     try:
         with PRESETS_PATH.open('r', encoding='utf-8') as fh:
             data = json.load(fh)
-    except (OSError, json.JSONDecodeError):
+    except json.JSONDecodeError:
+        # Korrupte JSON: Original nach <pfad>.bak sichern, damit ein
+        # nachfolgendes save_preset die kaputte Datei nicht ueberschreibt und
+        # den Inhalt endgueltig verliert (Nextcloud-Sync-Konflikte real). Die
+        # .bak darf eine aeltere .bak ueberschreiben (letzter Stand zaehlt).
+        try:
+            shutil.copy2(PRESETS_PATH, PRESETS_PATH.with_suffix(
+                PRESETS_PATH.suffix + '.bak'))
+        except OSError:
+            pass
+        _last_load_corrupt = True
+        return {}
+    except OSError:
         return {}
     if not isinstance(data, dict):
         return {}
