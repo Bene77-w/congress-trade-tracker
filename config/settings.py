@@ -47,7 +47,6 @@ ASSET_CLASS_KEEP_TYPES = {
 #   'sector_or_industry'  — full + sector (Halb- und Voll-Treffer)
 #   'sector_and_industry' — nur full (strikt)
 #   'hybrid'              — full bevorzugt, sector als Fallback wenn kein full
-COMMITTEE_EX_OFFICIO_ROLES = ['Chairman', 'Ranking Member', 'Vice Chairman', 'Cochairman', 'EXOfficio']
 RELEVANT_SECTORS_MATCH_MODE = 'sector_and_industry'
 
 # =============================================================================
@@ -59,8 +58,6 @@ RELEVANT_SECTORS_MATCH_MODE = 'sector_and_industry'
 CONGRESS_API_KEY = os.getenv('CONGRESS_API_KEY', '')
 VOTE_TIMING_WINDOW_BEFORE = 30     # Trade max X Tage VOR Abstimmung
 VOTE_TIMING_WINDOW_AFTER  = 5      # Trade max X Tage NACH Abstimmung
-VOTE_MIN_POLICY_CONFIDENCE = 0.7   # Min-Konfidenz fuer Sektor-Match
-VOTE_CONGRESS_NUMBER      = 119    # Ab welchem Kongress Daten laden (119th = 2025-2027)
 LEGISLATIVE_SUBJECT_MAPPING_FILE = 'legislative_subject_mapping_complete.csv'
 BILL_SUBJECTS_FILE = 'bill_subjects.json'
 # Auto-Refresh: bill_actions.json/bill_subjects.json werden zu Beginn der gates_tags-Stage
@@ -79,7 +76,7 @@ VOTE_DATA_TTL_HOURS       = 24     # Skip-Schwelle fuer Auto-Refresh in Stunden
 #                   (Master-Spalte ex_officio_role_keys nicht leer).
 # Code: signals/committee_signal.py, committee_full_signal.py,
 #       committee_ex_officio_signal.py.
-# Konfiguration: RELEVANT_SECTORS_MATCH_MODE (oben), COMMITTEE_EX_OFFICIO_ROLES.
+# Konfiguration: RELEVANT_SECTORS_MATCH_MODE (oben).
 # Score-Gewichte siehe SCORING_WEIGHTS weiter unten.
 # =============================================================================
 
@@ -308,19 +305,6 @@ PDF_EXTRACTOR_AMOUNT_PIXEL_THRESHOLD = 50            # Min. dunkle Pixel fuer "x
 PDF_EXTRACTOR_USE_GRID_DETECTION = True              # img2table Grid-Erkennung aktivieren
 PDF_EXTRACTOR_ROW_BATCH_SIZE = 5                     # Zeilen pro Vision API Batch
 
-# PDF Extractor (Tesseract – lokales OCR, kostenlos)
-_TESSERACT_DEFAULT = (
-    r'C:\Program Files\Tesseract-OCR\tesseract.exe'
-    if sys.platform == 'win32' else
-    '/usr/bin/tesseract'
-)
-PDF_EXTRACTOR_TESSERACT_PATH = os.getenv('TESSERACT_PATH', _TESSERACT_DEFAULT)
-PDF_EXTRACTOR_TESSERACT_PSM = 6       # Page Segmentation Mode: uniform text block
-PDF_EXTRACTOR_TESSERACT_CONF_MIN = 30 # Wörter mit Confidence < 30 werden ignoriert
-
-# Standard-Zeiträume für Datenabfragen
-SCRAPER_DEFAULT_DAYS_BACK = 90      # Standard: Trades der letzten 90 Tage
-
 # User-Agent für HTTP-Requests
 SCRAPER_USER_AGENT = 'CongressTracker/1.0 (Python)'
 
@@ -339,8 +323,6 @@ FUZZY_MATCH_THRESHOLD = 85
 TICKER_INDUSTRY_CACHE_FILE = 'ticker_industry_cache.json'   # in DATA_MAPPINGS_PATH (nur positive)
 TICKER_0_CACHE_FILE = 'ticker_0_cache.json'                  # in DATA_MAPPINGS_PATH (null-Eintraege)
 TICKER_LOOKUP_PAUSE_SECONDS = 0.5    # Pause zwischen yfinance-Calls (Rate-Limit-Schutz)
-TICKER_LOOKUP_RETRY_ATTEMPTS = 3     # Wiederholungsversuche bei Fehler
-TICKER_LOOKUP_RETRY_DELAY = 5.0      # Wartezeit (Sekunden) zwischen Retries, verdoppelt sich
 TICKER_LOOKUP_CONFIRM_THRESHOLD = 100 # Ab dieser Anzahl neuer Ticker: User-Bestaetigung
 TICKER_LOOKUP_AUTO_CONFIRM = True     # True: große Ticker-Batches ohne Enter-Bestaetigung fetchen (autonomer Run/Scheduler). False: interaktive Rueckfrage ab CONFIRM_THRESHOLD.
 TICKER_LOOKUP_CACHE_INTERVAL = 100    # Cache alle N Ticker zwischenspeichern
@@ -352,26 +334,6 @@ TICKER_SECTOR_CACHE_TTL_DAYS = 30     # TTL fuer ticker_industry_cache (positive
 # Ticker-Pattern-Konstanten (TICKER_TYPE_PATTERNS, TICKER_FILTER_PATTERNS,
 # TICKER_WHITELIST) wurden im Rebuild Teil 3 entfernt — die Klassifikation
 # liegt jetzt in utils/ticker_classifier.py (Regex-Entscheidungsbaum).
-
-# OpenFIGI securityType -> ticker_type Mapping (primaer, wird zuerst geprueft)
-# Wichtig: securityType "ETP" identifiziert ETFs korrekt, waehrend securityType2
-# fuer ETFs faelschlicherweise "Mutual Fund" zurueckgibt.
-OPENFIGI_SEC_TYPE_MAP = {
-    "ETP": "ETF",
-}
-
-# OpenFIGI securityType2 -> ticker_type Mapping (sekundaer, Fallback)
-OPENFIGI_TYPE_MAP = {
-    "Common Stock": "Stock",
-    "Open-End Fund": "Mutual Fund",
-    "Closed-End Fund": "Closed-End Fund",
-    "Preferred Stock": "Preferred Stock",
-    "Warrant": "Warrant",
-    "Right": "Rights",
-    "Unit": "SPAC Unit",
-    "REIT": "Stock",
-    "ADR": "Stock",
-}
 
 # OpenFIGI Konfiguration
 OPENFIGI_API_KEY = os.getenv('OPENFIGI_API_KEY', '')
@@ -398,9 +360,6 @@ OPENFIGI_MAPPING_PAUSE_WITH_KEY = 0.3       # Sek. zwischen Mapping-Batches (mit
 OPENFIGI_MAPPING_PAUSE_WITHOUT_KEY = 3.5    # ohne Key (war 2.5 — zu knapp am 25/min-Limit)
 OPENFIGI_SEARCH_PAUSE_WITH_KEY = 0.4        # ~150/min, 25% Puffer zum 200/min-Limit
 OPENFIGI_SEARCH_PAUSE_WITHOUT_KEY = 13.0    # ohne Key: 5 req/min → 1 alle 12s
-# Legacy-Aliase (rückwärtskompatibel; werden nicht mehr direkt genutzt)
-OPENFIGI_REQUEST_PAUSE_WITH_KEY = OPENFIGI_MAPPING_PAUSE_WITH_KEY
-OPENFIGI_REQUEST_PAUSE_WITHOUT_KEY = OPENFIGI_MAPPING_PAUSE_WITHOUT_KEY
 OPENFIGI_RATE_LIMIT_BACKOFF_BASE = 2.0   # 429-Backoff Basis (2^n Sek.)
 OPENFIGI_RATE_LIMIT_BACKOFF_MAX = 90.0   # 429-Backoff Cap (Sek.) — war 60
 
@@ -416,22 +375,12 @@ OPENFIGI_RATE_LIMIT_BACKOFF_MAX = 90.0   # 429-Backoff Cap (Sek.) — war 60
 NETWORK_RETRY_BACKOFFS = [2, 4, 8, 16, 32, 64, 128]
 NETWORK_RETRY_ENABLED = True   # False: nur 1 Versuch (kein Retry) — fuer Tests/Debug
 
-# post_trade_returns: Healthy-Network-Heuristik. Ein leeres yf.download()-
-# Ergebnis ist nicht von einem echten Delisting unterscheidbar. Solange in
-# diesem Lauf bereits ein echter Download gelang UND weniger als N Fehler in
-# Folge auftraten, gilt das Netz als gesund -> leeres Ergebnis = echtes
-# Delisting (Marker). Sonst = netzbedingt -> Retry, bei Erschoepfung ueber-
-# springen (kein falscher exit_status='delisted').
-# LEGACY (R1-R6): durch den Netzwerk-Canary (s.u.) abgeloest; bleibt fuer
-# Backcompat/Doku, wird aber nicht mehr aktiv ausgewertet.
-POST_TRADE_NETWORK_HEALTHY_TOLERANCE = 3
-
 # =============================================================================
 # NETZWERK-CANARY (utils/network_canary.py)
 # =============================================================================
 # Ein leeres yfinance-Ergebnis ist NICHT von einem echten Delisting unterscheidbar
 # (HTTP 200, keine Exception). Statt das aus dem mehrdeutigen Ergebnis selbst zu
-# raten (zirkulaere Heuristik, s. LEGACY oben), probt der Canary garantiert-live
+# raten (zirkulaere Heuristik, abgeloest), probt der Canary garantiert-live
 # Ticker als UNABHAENGIGES Out-of-Band-Signal: schlagen >= CANARY_MIN_POSITIVE der
 # CANARY_TICKERS an, gilt das Netz als GRUEN -> ein leeres Ergebnis ist ein echtes
 # Delisting; sonst ROT -> kein Marker, Fenster verwerfen, warten (fail-closed bei
@@ -462,26 +411,16 @@ DEDUP_STRATEGY = 'keep_all'
 # =============================================================================
 # ALLGEMEINE EINSTELLUNGEN
 # =============================================================================
-# Politiker haben 45 Tage Zeit ihre Trades zu melden
-DISCLOSURE_DELAY_DAYS = 45
-
 # Daten-Pfade (relativ zum Projektverzeichnis)
 DATA_RAW_PATH = 'data/raw'
 DATA_PROCESSED_PATH = 'data/processed'
 DATA_MAPPINGS_PATH = 'data/mappings'
-DATA_UPLOADS_PATH = 'data/uploads'
 DATA_CONGRESS_API_PATH = 'data/congress_api'
 LOGS_PATH = 'logs'
-
-# Maximales Alter der Daten bevor neu geladen wird (in Stunden)
-DATA_MAX_AGE_HOURS = 24
 
 # =============================================================================
 # DATEIPFADE (bei Neuwahlen hier anpassen!)
 # =============================================================================
-# Aktuelle Kongress-Session
-CONGRESS_SESSION = "119th"  # 2025-2027
-
 # Mapping-Dateien (data/mappings/)
 HOUSE_COMMITTEES_FILE = 'house_member&(sub)committees.csv'
 SENATE_COMMITTEES_FILE = 'senate_member&(sub)committees.csv'
@@ -491,8 +430,6 @@ IGNORED_TICKERS_FILE = 'ignored_tickers.csv'
 
 # Trade-Daten
 QUIVER_TRADES_FILE = 'congress-trading-all.xlsx'  # Quiver-Daten (primaere Quelle, xlsx)
-HOUSE_TRADES_FILE = 'house_trades.csv'            # Eigene House-Scraper-Daten (Ergaenzung)
-SENATE_TRADES_FILE = 'senate_trades.csv'          # Eigene Senate-Scraper-Daten (Ergaenzung)
 
 # QUIVER-AUTO-DOWNLOAD-SCRAPER (scrapers/quiver_scraper.py)
 # Headless Credential-Login + XLSX-Download; taeglich 03:00 via systemd-User-Timer.
@@ -725,10 +662,6 @@ RECENT_PRICE_MAX_AGE_BUSINESS_DAYS = 1
 # Daten) und nutzen die Horizonte aus POST_TRADE_HORIZONS_DAYS.
 # Default-Horizont X (Tage); muss in POST_TRADE_HORIZONS_DAYS enthalten sein.
 SCORE_CORR_DEFAULT_HORIZON_DAYS = 180
-# Leitkennzahl der Korrelation. Spearman = Rangkorrelation (robust gegen
-# Return-Ausreisser); Pearson wird zusaetzlich angezeigt. Spearman wird ohne
-# scipy als Pearson auf Raengen berechnet (a.rank().corr(b.rank())).
-SCORE_CORR_DEFAULT_METHOD = 'spearman'
 # Im "Score-Analyse"-Tab waehlbare Bucket-Anzahl: Anzahl gleich breiter
 # Score-Intervalle (pd.cut ueber die trade_score-Spanne), NICHT Quantile.
 SCORE_CORR_BUCKET_OPTIONS = [3, 4, 5, 10]
