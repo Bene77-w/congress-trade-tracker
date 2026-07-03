@@ -63,7 +63,7 @@ Erkennt Trades kurz vor / nach relevanten Abstimmungen via Congress.gov API.
 |-----------|------|----------|
 | Fenster VOR Abstimmung   | 30 Tage | `VOTE_TIMING_WINDOW_BEFORE = 30` |
 | Fenster NACH Abstimmung  | 5 Tage  | `VOTE_TIMING_WINDOW_AFTER = 5` |
-| Kongress                 | 119th   | `VOTE_CONGRESS_NUMBER = 119` |
+| Min-Konfidenz Subject-Mapping | 'Niedrig' (= kein Filter) | `VOTE_MIN_SUBJECT_CONFIDENCE = 'Niedrig'` |
 | Auto-Refresh-TTL         | 24 h    | `VOTE_DATA_TTL_HOURS = 24` |
 
 **Master-Output:** `Vote_Timing_Hit`, `Vote_Timing_Hits` (JSON, alle Treffer im
