@@ -637,16 +637,16 @@ with st.sidebar:
                              'post_return_{X}d in Asset-/Member-Aggregaten '
                              'verwendet wird; (2) bei aktivem Horizont-Filter '
                              'die Grenze, bis wann der erste Close liegen darf, '
-                             'damit ein Trade sichtbar bleibt. Die Analyse-Tabs '
-                             '(Score-Korrelation/-Analyse) nutzen einen eigenen '
-                             'Horizont und ignorieren diesen Wert.'),
+                             'damit ein Trade sichtbar bleibt. Der Score-'
+                             'Analyse-Tab nutzt einen eigenen Horizont und '
+                             'ignoriert diesen Wert.'),
         )
-        # Score-Korrelation/-Analyse umgehen den Horizont-Filter datenseitig
-        # ohnehin (sie werten bewusst alle Trades inkl. offener Positionen aus).
-        # Ist einer dieser Tabs aktiv, wird die Checkbox ausgegraut + der Filter
-        # effektiv aus -> kein irrefuehrend „aktiver" Filter neben einer Auswertung,
-        # auf die er gar nicht wirkt.
-        _BYPASS_HORIZON_TABS = {'Score-Korrelation', 'Score-Analyse'}
+        # Der Score-Analyse-Tab umgeht den Horizont-Filter datenseitig ohnehin
+        # (er wertet bewusst alle Trades inkl. offener Positionen aus). Ist er
+        # aktiv, wird die Checkbox ausgegraut + der Filter effektiv aus ->
+        # kein irrefuehrend „aktiver" Filter neben einer Auswertung, auf die
+        # er gar nicht wirkt.
+        _BYPASS_HORIZON_TABS = {'Score-Analyse'}
         horizon_tab_bypass = st.session_state.get('main_tabs') in _BYPASS_HORIZON_TABS
         horizon_filter_active = st.checkbox(
             _scope_label('Horizont-Filter aktiv', 'global'),
@@ -655,13 +655,12 @@ with st.sidebar:
             help=_scope_help('global', 'Blendet Trades aus, deren erster Close '
                              'nach dem Primaeren Return-Horizont liegt (bzw. nie '
                              'geschlossen wurde). Aus = alle Trades sichtbar. '
-                             'Wirkt nicht im Member-Detail-Popup und in den '
-                             'Analyse-Tabs.'),
+                             'Wirkt nicht im Member-Detail-Popup und im '
+                             'Score-Analyse-Tab.'),
         )
         if horizon_tab_bypass:
-            st.caption('Im Score-Korrelation/-Analyse-Tab ohne Wirkung — diese '
-                       'Tabs werten bewusst alle Trades inkl. offener Positionen '
-                       'aus.')
+            st.caption('Im Score-Analyse-Tab ohne Wirkung — er wertet bewusst '
+                       'alle Trades inkl. offener Positionen aus.')
             horizon_filter_active = False
 
     with st.expander('Spalten', expanded=False):
@@ -999,9 +998,9 @@ params_override = _diff_params(st.session_state['scoring'], DEFAULTS)
 override_active = bool(weights_override or params_override)
 needs_recompute = bool(excluded_signals) or override_active
 
-# --- Score-Korrelations-Basis (horizont-filter-frei, Recompute-konsistent) ---
-# Beide Korrelations-Tabs umgehen den globalen Horizont-Sichtbarkeitsfilter
-# (held-Positionen sind die relevanten Daten) und spiegeln die Sidebar-Overrides
+# --- Score-Analyse-Basis (horizont-filter-frei, Recompute-konsistent) -----
+# Der Score-Analyse-Tab umgeht den globalen Horizont-Sichtbarkeitsfilter
+# (held-Positionen sind die relevanten Daten) und spiegelt die Sidebar-Overrides
 # (Muster wie der Recent-Tab). Der horizont-gefilterte ``prefilt`` (Trades-/
 # Assets-/Members-Tabs) ist eine ECHTE Teilmenge dieser Basis: identisches
 # Zeitfenster + Suche, nur zusaetzlich der Horizont-Filter. Da der Recompute pro
@@ -1665,14 +1664,14 @@ def render_trade_detail(trade, trade_rows, key_prefix: str) -> None:
 
 # --- Tabs ----------------------------------------------------------------
 (tab_trades, tab_assets, tab_members, tab_detail, tab_recent,
- tab_corr, tab_corr_analysis) = st.tabs(
+ tab_analysis) = st.tabs(
     ['Trades', 'Assets', 'Members', 'Post Trade Performance', 'Recent Trades',
-     'Score-Korrelation', 'Score-Analyse'],
+     'Score-Analyse'],
     # key schreibt das Label des aktiven Tabs in session_state['main_tabs'];
     # on_change='rerun' erzwingt nach einem Tab-Klick einen Folge-Rerun, damit
     # die weiter oben gerenderte Sidebar den neuen aktiven Tab sieht (sie liest
     # den Wert aus dem vorigen Lauf). Genutzt fuer die Auto-Deaktivierung des
-    # Horizont-Filters in den Korrelations-/Analyse-Tabs (s. Sidebar).
+    # Horizont-Filters im Score-Analyse-Tab (s. Sidebar).
     key='main_tabs', on_change='rerun')
 
 with tab_trades:
@@ -2034,41 +2033,11 @@ with tab_recent:
                         st.rerun()
 
 
-# --- Score-Korrelation: gemeinsame Helfer ---------------------------------
+# --- Score-Analyse: Helfer -------------------------------------------------
 _HORIZON_OPTS = list(settings.POST_TRADE_HORIZONS_DAYS)
 _HORIZON_DEFAULT = settings.SCORE_CORR_DEFAULT_HORIZON_DAYS
 if _HORIZON_DEFAULT not in _HORIZON_OPTS:
     _HORIZON_DEFAULT = _HORIZON_OPTS[-1] if _HORIZON_OPTS else None
-
-# Beide Analyse-Tabs (Score-Korrelation + Score-Analyse) teilen EINEN
-# Horizont-Zustand: bei identischen Optionen/Default hatten sie bisher
-# getrennten State (corr_horizon vs. corr_an_horizon) -> ein Tab konnte 90d
-# zeigen, der andere 180d, ohne dass das erkennbar war. Kanonischer Schluessel
-# + on_change-Sync haelt beide Selektoren deckungsgleich.
-_ANALYSIS_HORIZON_KEY = 'analysis_horizon_shared'
-if _ANALYSIS_HORIZON_KEY not in st.session_state:
-    st.session_state[_ANALYSIS_HORIZON_KEY] = _HORIZON_DEFAULT
-
-
-def _sync_analysis_horizon(src_key: str) -> None:
-    """on_change: Auswahl eines Tabs in den geteilten Horizont-State spiegeln."""
-    st.session_state[_ANALYSIS_HORIZON_KEY] = st.session_state[src_key]
-
-
-def _analysis_horizon_selectbox(widget_key: str):
-    """Horizont-Selektor mit geteiltem Zustand (beide Analyse-Tabs).
-
-    Seedet den eigenen Widget-Key vor der Instanz aus dem kanonischen Wert ->
-    der Tab, der NICHT geaendert wurde, uebernimmt die Auswahl des anderen.
-    """
-    st.session_state[widget_key] = st.session_state[_ANALYSIS_HORIZON_KEY]
-    return st.selectbox(
-        _scope_label('Horizont X (Tage)', 'tab'), _HORIZON_OPTS,
-        key=widget_key, on_change=_sync_analysis_horizon, args=(widget_key,),
-        help=_scope_help('tab', 'Gilt gemeinsam fuer Score-Korrelation und '
-                         'Score-Analyse (geteilter Zustand). Unabhaengig vom '
-                         'globalen Primaer-Horizont der Sidebar.'),
-    )
 
 
 def _fmt_metric(value, fmt: str = '{:.3f}') -> str:
@@ -2085,7 +2054,7 @@ def _matured_subset(df: pd.DataFrame, ret_c: str) -> pd.DataFrame:
     return df[df[ret_c].notna() & df['trade_score'].notna()]
 
 
-with tab_corr:
+with tab_analysis:
     import plotly.graph_objects as go
 
     st.caption(
@@ -2094,7 +2063,9 @@ with tab_corr:
         'positiv = Trade lag in seiner Richtung richtig, fuer Kauf UND '
         'Verkauf). Umgeht den globalen Horizont-Filter und spiegelt die '
         'globale Suche sowie die Sidebar-Score-Overrides; der globale Datums-/'
-        'Min-Score-Filter wirkt NICHT. Spearman ist die Leitkennzahl '
+        'Min-Score-Filter wirkt NICHT. Kammer-/Partei-Filter wirken auf ALLE '
+        'Auswertungen dieses Tabs (Kennzahlen, Scatter, Score-Buckets, '
+        'Pro-Signal-Korrelation). Spearman ist die Leitkennzahl '
         '(Rangkorrelation, robust gegen Return-Ausreisser).'
     )
     st.caption(
@@ -2106,9 +2077,47 @@ with tab_corr:
         'angezeigt.'
     )
 
-    corr_horizon = _analysis_horizon_selectbox('corr_horizon')
-    rc = score_corr.return_col(corr_horizon)
-    mat = _matured_subset(corr_base, rc)
+    chambers = sorted(c for c in corr_base['chamber'].dropna().unique()) \
+        if 'chamber' in corr_base.columns else []
+    parties = sorted(p for p in corr_base['Member_Party'].dropna().unique()) \
+        if 'Member_Party' in corr_base.columns else []
+    cc1, cc2, cc3, cc4 = st.columns(4)
+    with cc1:
+        an_horizon = st.selectbox(
+            _scope_label('Horizont X (Tage)', 'tab'), _HORIZON_OPTS,
+            index=(_HORIZON_OPTS.index(_HORIZON_DEFAULT)
+                   if _HORIZON_DEFAULT in _HORIZON_OPTS else 0),
+            key='an_horizon',
+            help=_scope_help('tab', 'Unabhaengig vom globalen '
+                             'Primaer-Horizont der Sidebar.'),
+        )
+    with cc2:
+        n_buckets = st.selectbox(
+            'Score-Buckets (gleich breit)',
+            list(settings.SCORE_CORR_BUCKET_OPTIONS),
+            index=list(settings.SCORE_CORR_BUCKET_OPTIONS).index(
+                settings.SCORE_CORR_BUCKET_DEFAULT)
+            if settings.SCORE_CORR_BUCKET_DEFAULT
+            in settings.SCORE_CORR_BUCKET_OPTIONS else 0,
+            key='corr_an_buckets',
+        )
+    with cc3:
+        sel_chambers = st.multiselect('Kammer', chambers, default=chambers,
+                                      key='corr_an_chamber')
+    with cc4:
+        sel_parties = st.multiselect('Partei', parties, default=parties,
+                                     key='corr_an_party')
+    st.caption('Hinweis: Beim Partei-Filter fallen Trades ohne hinterlegte '
+               'Partei aus der Stichprobe.')
+
+    an_base = corr_base
+    if chambers and set(sel_chambers) != set(chambers):
+        an_base = an_base[an_base['chamber'].isin(sel_chambers)]
+    if parties and set(sel_parties) != set(parties):
+        an_base = an_base[an_base['Member_Party'].isin(sel_parties)]
+
+    rc = score_corr.return_col(an_horizon)
+    mat = _matured_subset(an_base, rc)
     stats = score_corr.correlation_stats(mat['trade_score'], mat[rc]) \
         if not mat.empty else {'spearman': float('nan'),
                                'pearson': float('nan'), 'n': 0}
@@ -2145,7 +2154,7 @@ with tab_corr:
         ))
         fig.update_layout(
             xaxis_title='trade_score',
-            yaxis_title=f'post_return_{corr_horizon}d (%)',
+            yaxis_title=f'post_return_{an_horizon}d (%)',
             height=460, margin=dict(l=10, r=10, t=10, b=10),
             showlegend=False,
         )
@@ -2158,56 +2167,6 @@ with tab_corr:
                + (f' (Sample aus {len(mat):,})' if sampled else '')
                + '. Y-Achse auf 1.–99.-Perzentil geklippt (nur Darstellung).')
         st.caption(cap)
-
-
-with tab_corr_analysis:
-    import plotly.graph_objects as go
-
-    st.caption(
-        'Score-Validierung wie im Korrelations-Tab, aber zum Slicen: '
-        'Score-Buckets (gleich breite Score-Intervalle, mittlerer Return je '
-        'Score-Niveau) und '
-        'Pro-Signal-Korrelation, beide filterbar nach Kammer und Partei. '
-        'Umgeht den globalen Horizont-Filter; globale Suche + Sidebar-Score-'
-        'Overrides wirken mit.'
-    )
-
-    ac1, ac2 = st.columns(2)
-    with ac1:
-        an_horizon = _analysis_horizon_selectbox('corr_an_horizon')
-    with ac2:
-        n_buckets = st.selectbox(
-            'Score-Buckets (gleich breit)',
-            list(settings.SCORE_CORR_BUCKET_OPTIONS),
-            index=list(settings.SCORE_CORR_BUCKET_OPTIONS).index(
-                settings.SCORE_CORR_BUCKET_DEFAULT)
-            if settings.SCORE_CORR_BUCKET_DEFAULT
-            in settings.SCORE_CORR_BUCKET_OPTIONS else 0,
-            key='corr_an_buckets',
-        )
-
-    chambers = sorted(c for c in corr_base['chamber'].dropna().unique()) \
-        if 'chamber' in corr_base.columns else []
-    parties = sorted(p for p in corr_base['Member_Party'].dropna().unique()) \
-        if 'Member_Party' in corr_base.columns else []
-    fc1, fc2 = st.columns(2)
-    with fc1:
-        sel_chambers = st.multiselect('Kammer', chambers, default=chambers,
-                                      key='corr_an_chamber')
-    with fc2:
-        sel_parties = st.multiselect('Partei', parties, default=parties,
-                                     key='corr_an_party')
-    st.caption('Hinweis: Beim Partei-Filter fallen Trades ohne hinterlegte '
-               'Partei aus der Stichprobe.')
-
-    an_base = corr_base
-    if chambers and set(sel_chambers) != set(chambers):
-        an_base = an_base[an_base['chamber'].isin(sel_chambers)]
-    if parties and set(sel_parties) != set(parties):
-        an_base = an_base[an_base['Member_Party'].isin(sel_parties)]
-
-    rc = score_corr.return_col(an_horizon)
-    mat = _matured_subset(an_base, rc)
 
     st.subheader('Score-Buckets')
     if mat.empty:
