@@ -638,7 +638,7 @@ User erweiterbar):
 - `transaction_date`, `transaction_type`, `amount`
 - `chamber`, `Member_Party`, `Member_State`
 - `security_type_figi`, `sector_yf`, `industry_yf`
-- `MatchScore`, `Vote_Timing_Hit`
+- `Member_Committees` (via `CURATED_COALESCE` ← `Member_Committees_Full`, Bugfix 2026-07-02 — vorher immer leer), `Vote_Timing_Hit`
 - **Modul 8**: `trade_volume_usd`, `trade_amount_max_usd`, `asset_tradingvolume_usd`, `trade_score`, `trade_score_breakdown`, `trade_warnings`
 
 `issuer_ticker` (P5.5): Fallback-Kette `share_class_figi → ticker_base
@@ -695,8 +695,6 @@ Member_Party,           # D oder R
 Member_State,           # CA, TX, etc.
 Member_ExOfficio,       # True/False
 Member_Chamber,         # House/Senate
-MatchScore,             # 0-100 (Fuzzy Match Score)
-MatchSource,            # exact, fuzzy, alias, none
 
 # Anreicherung durch Committee Filter (Modul 4)
 Member_Committees_Full, # Vollstaendiger Committee-String, F2-Format (siehe Abschnitt 2 oben
@@ -937,7 +935,7 @@ Die `app/chart_helpers.py`-Funktion `build_partial_close_rows` zerlegt im Post-T
 **Limitierung (nicht-FIFO Partition):** Derselbe Verkauf kann bei mehreren Käufen als Gegen-Trade auftauchen. Volumen-Partitionierung erfolgt global NICHT sauber → Zerlegungs-Zeilen dürfen niemals in Volumen-Aggregate (Asset-Tab, Member-Tab) eingehen. Nur für Performance-Charts zulässig.
 
 **Horizont-Sichtbarkeitsfilter (2026-06-04, Modul 9):**
-Die vier historischen Tabs (Trades / Assets / Members / Post Trade Performance) filtern global nach `first_close_offset_days`. Sidebar-Toggle „Horizont-Filter aktiv" (Standard an) begrenzt Sichtbarkeit auf Trades mit `first_close_offset_days ≤ PRIMARY_HORIZON_DAYS` (benutzerwählter primärer Horizont aus 30/60/90/120/180). **Design: offene/gehaltene Positionen (held mit NaN) werden AUSGEBLENDET** (Filter-Bedingung `off.notna() & off <= horizon`). Sinn: Real geschlossene Positionen mit Exits >120d später zeigen sich erst wenn der Horizont aufgedreht wird. **Monitoring offener Positionen** erfolgt ausschließlich über den neuem 5. Tab „Recent Trades" (aktiviert über `build_recent_pool()`, überschreibt den Horizont-Filter für Fresh-Position-Überwachung mit aktuellen Papier-Returns). Auch die Tabs **„Score-Korrelation"** und **„Score-Analyse"** (6+7, Modul 9.x) umgehen den Horizont-Filter via `apply_prefilter(..., apply_horizon_filter=False)` — sie validieren den `trade_score` gegen den signierten Objective Return `post_return_{X}d` **inklusive** gehaltener (held) Positionen (Details: Abschnitt „7d. App-Module").
+Die vier historischen Tabs (Trades / Assets / Members / Post Trade Performance) filtern global nach `first_close_offset_days`. Sidebar-Toggle „Horizont-Filter aktiv" (Standard an) begrenzt Sichtbarkeit auf Trades mit `first_close_offset_days ≤ PRIMARY_HORIZON_DAYS` (benutzerwählter primärer Horizont aus 30/60/90/120/180). **Design: offene/gehaltene Positionen (held mit NaN) werden AUSGEBLENDET** (Filter-Bedingung `off.notna() & off <= horizon`). Sinn: Real geschlossene Positionen mit Exits >120d später zeigen sich erst wenn der Horizont aufgedreht wird. **Monitoring offener Positionen** erfolgt ausschließlich über den neuem 5. Tab „Recent Trades" (aktiviert über `build_recent_pool()`, überschreibt den Horizont-Filter für Fresh-Position-Überwachung mit aktuellen Papier-Returns). Auch der Tab **„Score-Analyse"** (6, Modul 9.x) umgeht den Horizont-Filter via `apply_prefilter(..., apply_horizon_filter=False)` — er validiert den `trade_score` gegen den signierten Objective Return `post_return_{X}d` **inklusive** gehaltener (held) Positionen (Details: Abschnitt „7d. App-Module").
 
 ---
 
@@ -1330,6 +1328,12 @@ ist reserviert (nicht überschreib-/löschbar).
 `weights_override` / `params_override` an `app/score_recompute.recompute_subset()`
 gereicht; nur tatsächlich veränderte Felder landen im Override-Dict.
 
+**Korruptionsschutz (Bugfix 2026-07-02):** Ist die Datei nicht parsebar (korruptes JSON),
+sichert `app/scoring_presets.py` sie einmalig nach `scoring_presets.json.bak`
+(überschreibt eine ältere `.bak` — letzter Stand zählt) und lädt mit leeren Presets weiter;
+die UI zeigt einmalig eine Warnung an (`consume_corrupt_warning()`). Vorher drohte beim
+nächsten Speichern stiller Totalverlust.
+
 ### `config/settings.py::DETAIL_RETURN_THRESHOLD_PCT`
 **Default**: `10.0` (Prozent). Reiner **Anzeige-Schwellwert** für das
 Member-Detail-Popup (kein Scoring-Parameter, daher nicht in
@@ -1337,31 +1341,93 @@ Member-Detail-Popup (kein Scoring-Parameter, daher nicht in
 mit `paper_return_terminal > x` — in den Diagrammen D1/D7. Im Popup per Slider
 live überschreibbar, ohne Recompute oder Pipeline-Lauf.
 
-### `config/settings.py::SCORE_CORR_*` (Score-Korrelations-Tabs)
-Reine **Anzeige-/Analyse-Parameter** für die Tabs „Score-Korrelation" und
-„Score-Analyse" (kein Scoring-Parameter, daher nicht in
+### `config/settings.py::DETAIL_RED_FLAG_*`
+**NEU (Bugfix 2026-07-02):** Schwellen der Red-Flag-Ampel im Member-Detail-Popup
+(`app/member_detail.py::_count_red_flags`), reine **Anzeige-Parameter** (kein
+Scoring-Input, daher nicht in `Filter_Instanz_Parameter.md`):
+- `DETAIL_RED_FLAG_VOTE_TIMING_RATE` — Default `0.20`; Schwelle Anteil
+  Vote-Timing-Trades.
+- `DETAIL_RED_FLAG_COMMITTEE_FULL_RATE` — Default `0.20`; Schwelle Anteil
+  `committee_full`-Trades.
+- `DETAIL_RED_FLAG_OUTPERFORMANCE_PP` — Default `5.0` (Prozentpunkte);
+  Schwelle Outperformance vs. Vergleichsgruppe.
+
+Ampel-Level (`RED_FLAG_LEVELS` in `app/member_detail.py`) sind seit diesem Fix
+**emoji-frei** — reine Streamlit-Farbsyntax (`:green[Niedrig]`,
+`:orange[Erhöht]`, ...).
+
+### `config/settings.py::DETAIL_RELATED_RETURN_COLOR_PCT`
+**Default**: `10.0` (Prozent). Reiner **Anzeige-Schwellwert** (kein Scoring-Parameter,
+daher nicht in `Filter_Instanz_Parameter.md`), **NEU (2026-07-02)**: ±Schwelle der
+Grün-/Rot-Färbung der Related-Trades-Tabelle im Trade-Detail-Popup
+(`app/streamlit_app.py`) — Return `>= +x` grün, `<= -x` rot.
+
+### `app/score_recompute.py` — Signal-Ausschluss & Recompute-Performance
+**Primärsignal-Exclude-Semantik (Bugfix 2026-07-02):** Ausgeschlossene Signale (Sidebar
+„Signale ausschließen") fliegen jetzt auch aus dem `SCORING_PRIMARY_SIGNALS`-Tuple des
+Settings-Proxys (`build_settings_proxy`/`recompute_subset`) — ein ausgeschlossenes
+Primärsignal (`committee_full`/`swarm_buy`) kann das Hard-Gate nicht mehr öffnen. Werden
+**beide** Primärsignale ausgeschlossen, ist das Tuple leer → Gate komplett aus
+(Rückwärts-Kompat-Semantik in `compute_trade_score`) → alle Trades werden nach
+Hint-Gewichten gescort (bewusst, für Was-wäre-wenn-Analysen).
+
+**Recompute-Ableitung (`app/streamlit_app.py`, Performance-Fix 2026-07-02):** `prefilt`
+(Trades-/Assets-/Members-Tabs) wird bei aktiven Score-Overrides nicht mehr separat
+rekomputet, sondern per Horizont-Schritt aus dem bereits einmal rekomputeten `corr_base`
+abgeleitet (`apply_prefilter(corr_base, apply_window=False, ...)`) — 1 statt 2
+Voll-Recomputes pro Rerun, zeilenidentisches Ergebnis. `min_score`/`primary_horizon` wirken
+auf `corr_base` bewusst nicht.
+
+### `config/settings.py::SCORE_CORR_*` (Score-Analyse-Tab)
+Reine **Anzeige-/Analyse-Parameter** für den Tab „Score-Analyse" (kein
+Scoring-Parameter, daher nicht in
 `Filter_Instanz_Parameter.md`). Block in `config/settings.py` unter
 „Score-Korrelation (Modul 9.x)":
-- `SCORE_CORR_DEFAULT_HORIZON_DAYS` — Default `180`; Default-Horizont X der
-  beiden Tabs. Muss in `POST_TRADE_HORIZONS_DAYS` (30/60/90/120/180) enthalten
+- `SCORE_CORR_DEFAULT_HORIZON_DAYS` — Default `180`; Default-Horizont X des
+  Tabs. Muss in `POST_TRADE_HORIZONS_DAYS` (30/60/90/120/180) enthalten
   sein.
 - `SCORE_CORR_DEFAULT_METHOD` — `'spearman'`; Leitkennzahl (Pearson zusätzlich).
   Spearman wird **ohne scipy** als Pearson auf Rängen berechnet
   (`a.rank().corr(b.rank())`, identisch inkl. Tie-Korrektur).
 - `SCORE_CORR_BUCKET_OPTIONS` / `SCORE_CORR_BUCKET_DEFAULT` — `[3,4,5,10]` / `5`;
-  wählbare Score-Quantil-Anzahl (Tertil/Quartil/Quintil/Dezil) im Analyse-Tab.
+  wählbare Anzahl gleich breiter Score-Buckets im Score-Analyse-Tab.
 - `SCORE_CORR_SCATTER_MAX_POINTS` / `SCORE_CORR_SCATTER_OPACITY` — `20000` /
   `0.3`; Sample-Cap + Opazität des Scatters (nur Visualisierung; die Kennzahlen
   Spearman/Pearson/n rechnen immer über die volle Stichprobe).
+
+### `config/settings.py::UI_SCOPE_PREFIX` / `UI_SCOPE_HELP`
+Reine **Anzeige-Config** (kein Scoring-Parameter): Grundtexte für die
+Scope-Kennzeichnung der Zeit-/Horizont-Widgets im Dashboard. Jedes
+Zeit-/Horizont-Widget trägt ein Label-Präfix aus `UI_SCOPE_PREFIX` plus einen
+Tooltip-Grundtext aus `UI_SCOPE_HELP` (Helfer `_scope_label`/`_scope_help`,
+in `app/streamlit_app.py` definiert, in `app/member_detail.py` lokal
+dupliziert gegen Circular-Import), damit von außen erkennbar ist, wie weit
+eine Einstellung reicht (die Zeitfenster beschränkten sich vorher unsichtbar
+gegenseitig). Drei Scope-Stufen, je ein Key in beiden Dicts:
+- `global` (`[Global]`) — wirkt auf Trades-/Assets-/Members-/Post-Trade-
+  Performance-Tab. Betrifft die Sidebar: Datumsbasis, Zeitfenster, Primärer
+  Return-Horizont, Horizont-Filter aktiv.
+- `tab` (`[Tab]`) — wirkt nur im jeweiligen Tab, umgeht die globalen
+  Einstellungen. Betrifft: Recent-Trades-Fenster, Score-Analyse-Horizont
+  (s. Abschnitt „7d").
+- `detail` (`[Detail]`) — wirkt nur im geöffneten Detail-Popup. Betrifft:
+  Trade-Detail „Alle Trades", Member-Detail Quartal-Bereich + „Nur ≤180d" +
+  AR-Horizont-Radios (s. Abschnitte „7c"/„7e").
 
 ---
 
 ## 7c. App-Module: Member-Detail-Popup (Modul 9)
 
 Live-Berechnung pro Kongress-Mitglied — **keine neuen Master-Spalten, kein
-Pipeline-Lauf**. Datenbasis ist das bereits gefilterte Trade-Subset
-(`apply_prefilter(..., apply_horizon_filter=False)`); bei aktivem
-Signal-Ausschluss wird pro Member per `recompute_subset` neu gescort.
+Pipeline-Lauf**. Datenbasis ist die **volle Member-Historie**
+(`apply_prefilter(trades, apply_horizon_filter=False, apply_window=False)`,
+neuer Parameter `apply_window: bool = True` an `apply_prefilter`); weder
+Sidebar-Zeitfenster noch Horizont-Filter wirken im Popup — der
+Quartal-Range-Slider ist das **einzige Zeitfilter**. Nur die globale Suche
+bleibt aktiv. Eine Caption oben im Dialog macht die Datenbasis transparent
+(„volle Member-Historie … Sidebar-Zeitfenster und Horizont-Filter wirken hier
+nicht; ggf. globale Suche aktiv"). Bei aktivem Signal-Ausschluss wird pro
+Member per `recompute_subset` neu gescort.
 **Primär-/Hint-Anzeige (2026-06-27):** Tabellen (Members, Related-Tabelle im
 Popup) zeigen in der `signals`-Spalte nur Primärsignale; Hints erscheinen
 ausschließlich im Trade-Detail-Popup als eigene Zeile „hints". Keine neuen
@@ -1422,14 +1488,26 @@ geöffnet.
 Inhalt:
 - Header mit verschachteltem Gremien-Panel (`parse_committees_full`) und
   Google-Namenssuche-Button.
-- Controls: Quartal-Range-Slider, Toggle „Nur ≤180d"
-  (`filter_long_trades_out`), Schwellwert-x-Slider (Default
-  `DETAIL_RETURN_THRESHOLD_PCT`).
+- Controls: Quartal-Range-Slider (`[Detail]`, einziges Zeitfilter des
+  Popups), Toggle „Nur ≤180d" (`[Detail]`, `filter_long_trades_out`),
+  Schwellwert-x-Slider (Default `DETAIL_RETURN_THRESHOLD_PCT`).
+- **Abnormal-Return-Horizont** (`st.radio`, `[Detail]`): Optionen = im Master
+  vorhandene `AR_HORIZONS_DAYS`-Horizonte, Default-Index über
+  `member_metrics.ar_default_index(present, AR_HEADLINE_HORIZON_DAYS)`
+  (defensiver Fallback Index 0, falls die Headline-Spalte fehlt). Median-AR
+  und Ausreißer-Quote (s. Abschnitt „7e") folgen der Auswahl live. `_scope_label`/
+  `_scope_help` sind lokal in `member_detail.py` dupliziert (Circular-Import
+  gegen `streamlit_app.py` vermeiden).
 - 4 Tabs: **Übersicht / Performance / Verläufe / Timing** mit Diagrammen
   D1/D2/D5/D6/D7/Z3 sowie Spaghetti-Charts D3b/D4.
 - **Bidirektionales Highlight** zwischen Trade-Liste und Spaghetti-Plot
   (`on_select`-Callbacks via `resolve_highlight_from_selection`,
-  most-recent-wins).
+  most-recent-wins). **Highlight-Fix (Bugfix 2026-07-02):** ein verwaister
+  `session_state`-Highlight-Key (vom vorigen Member-Popup, oder ein Trade,
+  der durch Quartal-/≤180d-Filter herausfällt) wird gegen die aktuellen
+  Trajektorien validiert (`_resolve_highlight` — vorher blieben dadurch alle
+  Linien gedimmt); ein Doppelklick auf die highlighte Linie hebt das
+  Highlight jetzt wirklich wieder auf.
 - **Terminal-Return-Fallback in der Spaghetti-Liste** (`_render_spaghetti_section`,
   2026-06-13): Ist `post_return_180d` für einen Trade NaN (junge, noch offene
   Position ohne 180d-Horizont), fällt die Liste auf den letzten verfügbaren
@@ -1440,7 +1518,8 @@ Inhalt:
   zum letzten verfügbaren Kurstag — junge Trades enden daher vor Tag 180.
 - Timeline (Z1+Z2): Scatter über Transaktionsdatum, ★ markiert
   Vote-Timing-Treffer, Farbe kodiert Kauf/Verkauf.
-- Red-Flag-Ampel (`red_flag_summary`).
+- Red-Flag-Ampel (`red_flag_summary`; emoji-freie, konfigurierbare Schwellen —
+  s. `config/settings.py::DETAIL_RED_FLAG_*` oben).
 - Ticker-Zellen als Google-Links („Aktienkurs von {Ticker}",
   `_ticker_google_url`).
 
@@ -1464,7 +1543,6 @@ Inhalt:
    ↓
    [Member_Party, Member_State, Member_ExOfficio,
     Member_Chamber, Member_Committees_Full]
-   (MatchScore/MatchSource kommen in Stage 4)
 
 3. TICKER-TYPE + TICKER-INDUSTRY
    + OpenFIGI API (Stage tickeropenfigi, Suffix _figi)
@@ -1477,7 +1555,6 @@ Inhalt:
    + subcommittee_sector_industry_mapping.csv (CommitteeTag)
    + bill_actions.json + bill_subjects.json (VoteTimingTag)
    ↓
-   _apply_match_scores → [MatchScore, MatchSource]
    _apply_committee_relevance → [Insider_Sectors, Relevant_Sectors]
    AssetClassGate → [asset_class_excluded]
    VoteTimingTag → [Vote_Timing_Hit, Vote_Timing_Hits, Vote_Timing_Hit_Count]
@@ -1491,18 +1568,20 @@ Inhalt:
 
 ---
 
-## 7d. App-Module: Score-Korrelation (Modul 9.x)
+## 7d. App-Module: Score-Analyse (Modul 9.x)
 
 Validiert objektiv, wie gut der `trade_score` den **signierten** Objective
 Return `post_return_{X}d` vorhersagt — **keine neuen Master-Spalten, kein
-Pipeline-Lauf**, alles live aus dem Master. **Primär-/Hint-Anzeige
-(2026-06-27):** Trades-Tab, Score-Korrelation/Score-Analyse und Recent-Tab
+Pipeline-Lauf**, alles live aus dem Master. Ein einzelner Tab „Score-Analyse"
+(bis 2026-07-03 zwei Tabs „Score-Korrelation" + „Score-Analyse", zusammengeführt
+bei vollem Funktionserhalt). **Primär-/Hint-Anzeige
+(2026-06-27):** Trades-Tab, Score-Analyse-Tab und Recent-Tab
 zeigen in der `signals_triggered`-Spalte nur Primärsignale; Hints erscheinen
 ausschließlich im Trade-Detail-Popup. Datenbasis ist
 `apply_prefilter(trades, apply_horizon_filter=False)` (umgeht den
 Horizont-Filter → held-Positionen inklusive), bei aktivem Signal-Ausschluss /
-Gewichts-Override einmalig per `recompute_subset` neu gescort (geteilte Basis
-`corr_base` für beide Tabs). Der Return ist exit-agnostisch und bereits
+Gewichts-Override einmalig per `recompute_subset` neu gescort (Basis
+`corr_base`). Der Return ist exit-agnostisch und bereits
 `sell_sign`-bereinigt (positiv = Trade lag in seiner Richtung richtig, für Kauf
 UND Verkauf).
 
@@ -1513,9 +1592,9 @@ Reine pandas-Helfer (kein Streamlit/Plotly), testbar
 - `correlation_stats(scores, returns)` → `{spearman, pearson, n}` (paarweiser
   NaN-Drop). Spearman = Pearson auf Rängen (kein scipy nötig).
 - `score_bucket_returns(df, score_col, ret_col, n_buckets)` → mittlerer/median
-  Return je Score-Quantil-Bucket (`pd.qcut(..., duplicates='drop')`, da
-  `trade_score` diskret/stark gebunden ist; bei zu wenigen distinkten Werten ein
-  Sammel-Bucket).
+  Return je **gleich breitem, ganzzahligem** Score-Intervall (`pd.cut` über die
+  Score-Spanne — bewusst keine Quantile; leere Buckets bleiben als Balken
+  erhalten, bei kollabierter Spanne ein Sammel-Bucket).
 - `per_signal_return_table(df, ret_col)` → pro Signal binärer „gefeuert"-
   Indikator gegen den Return: `[signal, n_fired, mean_fired, mean_not, delta,
   spearman, pearson]`, sortiert nach |spearman|. Signal-Universum
@@ -1528,17 +1607,23 @@ Reine pandas-Helfer (kein Streamlit/Plotly), testbar
   und erscheinen mit deckungsgleichen Werten; in `sector_or_industry`
   divergieren sie.
 
-### Tabs in `app/streamlit_app.py`
-- **„Score-Korrelation"** (Headline): Horizont-Selectbox (Default 180);
-  Kennzahlen Spearman-ρ / Pearson-r / n / davon held; `go.Scattergl`
-  `trade_score` × `post_return_{X}d` (Sample-Cap, Y-Achse auf 1.–99.-Perzentil
-  geklippt — nur Darstellung). Caption nennt die Limitationen **Delisting-Bias**
-  (Survivorship: Ticker delistet vor Tag X → Return NaN → fällt aus der
-  Stichprobe → Verzerrung nach oben) und **Reife-Beschränkung** (Trades < X Tage
-  haben per Konstruktion keinen X-Tage-Return; kein Bias).
-- **„Score-Analyse"**: Score-Quantil-Bucket-Balken (Ø Return je Score-Niveau) +
-  Pro-Signal-Korrelationstabelle, beide filterbar nach **Kammer** und **Partei**
-  (Partei-Filter blendet Trades ohne hinterlegte Partei aus).
+### Tab „Score-Analyse" in `app/streamlit_app.py`
+Aufbau flach untereinander (ein `with tab_analysis`-Block):
+- **Kontrollzeile** (4 Spalten): Horizont-Selectbox (Widget-Key `an_horizon`,
+  Default 180, Scope `[Tab]`, unabhängig vom globalen Primär-Horizont) ·
+  Bucket-Anzahl · **Kammer**- und **Partei**-Multiselect. Die Kammer-/Partei-
+  Filter wirken auf ALLE Auswertungen des Tabs (Kennzahlen, Scatter, Buckets,
+  Pro-Signal-Tabelle); Default = alles ausgewählt. Der Partei-Filter blendet
+  Trades ohne hinterlegte Partei aus.
+- **Kennzahlen**: Spearman-ρ / Pearson-r / n / davon held.
+- **Scatter**: `go.Scattergl` `trade_score` × `post_return_{X}d` (Sample-Cap,
+  Y-Achse auf 1.–99.-Perzentil geklippt — nur Darstellung). Caption nennt die
+  Limitationen **Delisting-Bias** (Survivorship: Ticker delistet vor Tag X →
+  Return NaN → fällt aus der Stichprobe → Verzerrung nach oben) und
+  **Reife-Beschränkung** (Trades < X Tage haben per Konstruktion keinen
+  X-Tage-Return; kein Bias).
+- **Score-Buckets**: Balken mit Ø Return je gleich breitem Score-Intervall.
+- **Pro-Signal-Korrelation**: Tabelle (s. `per_signal_return_table` oben).
 
 Konfiguration: `config/settings.py::SCORE_CORR_*` (s. Abschnitt „7b.
 App-Konfiguration").
@@ -1614,14 +1699,34 @@ Reuse der Preis-Primitive aus `scoring/post_trade_returns.py`
 ### App-Anzeige (Detail-Popups, NUR dort — keine Tabellen-Spalte)
 
 Outlier-Flag und Perzentil-Rang werden **bei der Anzeige** aus den Master-Spalten + den
-`AR_OUTLIER_*`-Schwellen abgeleitet (nicht im Master gefroren). Headline = `AR_HEADLINE_HORIZON_DAYS` (120d).
+`AR_OUTLIER_*`-Schwellen abgeleitet (nicht im Master gefroren).
+
+**AR-Horizont im UI wählbar** (statt fix): In BEIDEN Detail-Popups ein `st.radio`
+(horizontal, Scope `[Detail]`) — Optionen = die im Master vorhandenen
+`AR_HORIZONS_DAYS`-Horizonte, Default = `AR_HEADLINE_HORIZON_DAYS` (120d) über
+den Pure-Helper `member_metrics.ar_default_index(present, headline)`
+(defensiver Fallback Index 0, falls die Headline-Spalte fehlt). Fehlt die
+Spalte / ist der Wert NaN → bestehende Hinweis-Caption bleibt (kein Radio,
+kein Crash).
 
 - **Trade-Detail** (`app/streamlit_app.py`): Sektion „Abnormal Return (marktbereinigt vs. SPY)" —
-  Headline-Metrik AR 120d + **zweiseitiger Perzentil-Rang** gegen alle evaluierbaren Trades
-  („besser als X %" / „schlechter als Y % der Trades") + Tabelle Horizont × {roher `post_return` %, AR %}.
-- **Member-Detail** (`app/member_detail.py`): **Median-AR 120d** + **Ausreißer-Quote** (positiv/negativ
-  getrennt), mit Member-Konzentrations-Caveat.
-- Pure Logik (unit-getestet, `app/member_metrics.py`): `abnormal_return_summary`, `ar_percentile_rank`, `format_ar_rank`.
+  Headline-Metrik `AR {H}d` + **zweiseitiger Perzentil-Rang** gegen alle evaluierbaren Trades
+  („besser als X %" / „schlechter als Y % der Trades") folgen der Radio-Auswahl live (Rang
+  weiterhin gegen ALLE Trades im Master, ungefiltert) + Tabelle Horizont × {roher `post_return` %, AR %}
+  über die **Vereinigung** `POST_TRADE_HORIZONS_DAYS | AR_HORIZONS_DAYS` (zukunftssicher, falls die
+  Listen künftig divergieren; heute identisch → optisch unverändert).
+- **Member-Detail** (`app/member_detail.py`): **Median-AR** + **Ausreißer-Quote** (positiv/negativ
+  getrennt) folgen der Radio-Auswahl live, mit Member-Konzentrations-Caveat.
+  **Perzentil-Modus respektiert (Bugfix 2026-07-02):** `_resolve_ar_outlier_thresholds`
+  löst bei `AR_OUTLIER_MODE='percentile'` die Ausreißer-Schwellen jetzt aus den
+  Quantilen (`AR_OUTLIER_PCT_UPPER/LOWER`) der vollen **sichtbaren** Verteilung
+  (Member + Benchmark aller anderen Politiker im Popup, global — nicht
+  member-relativ) auf, statt weiterhin die absoluten `AR_OUTLIER_UPPER/LOWER`-
+  Schwellen zu verwenden. Bei < 2 Werten in der Referenzverteilung Fallback auf
+  die absoluten Schwellen.
+- Pure Logik (unit-getestet, `app/member_metrics.py`): `abnormal_return_summary`, `ar_percentile_rank`,
+  `format_ar_rank`, `ar_default_index` (Default-Position des Headline-Horizonts in der
+  Optionsliste des Radios).
 
 ### Output-Datei `data/processed/ar_outliers.csv` (gitignored)
 
@@ -1921,7 +2026,6 @@ existieren nicht mehr — alle Treffer liegen jetzt in `Vote_Timing_Hits`.
 **Benoetigt**:
 - yfinance Integration ODER
 - Pre-built ticker→sector mapping CSV
-- Erweiterung von `CommitteeTag.filter_by_ticker_sector()`
 
 **Ziel**: Filter `Relevant_Sectors` auf tatsaechlichen Ticker-Sector → Boost bei Exact Match
 

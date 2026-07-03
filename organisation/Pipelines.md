@@ -538,7 +538,6 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
       Schema-Migrate: Beim Resume-Laden der bill_summaries.json/bill_subjects.json
       werden Alt-Eintraege ohne 'has_summary'/'subject_count' (Felder nachtraeglich
       eingefuehrt) automatisch nachgeruestet — verhindert KeyError im Progress-Print.
-    → MatchScore/MatchSource (NameMatcher)
     → Insider_Sectors / Relevant_Sectors (CommitteeTag — User-Sicht „Filter 3")
       Insider_Sectors  = JSON-Liste ALLER (sub)committee-Sektoren des Members
       Relevant_Sectors = Intersection Insider × sector_yf/industry_yf, jeder Eintrag
@@ -597,6 +596,15 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
       (mutually exclusive zu conflict) -> 1 signal_event_id mit N Zeilen
     → Aggregiert additiv in signal_count + signals_triggered (dedupliziert)
     → Events nach data/processed/swarm_events_stage.csv (21 Spalten)
+    → **Delta-Kontext-Fix (2026-07-02):** Im Delta-Modus (`--delta`) laden beide Stages
+      ([13] Sequenz-Signale und [14] Schwarm-Signale) jetzt zusaetzlich die Master-Historie als
+      Gruppierungs-Kontext (Union, analog zu Stage [10] Asset-Volume) — historische Trades
+      liefern nur Kontext (keine Events/Aggregate), Events/Aggregate entstehen weiterhin nur
+      fuer Delta-Zeilen. Vorher sah eine neue Delta-Charge Gruppen isoliert (< 2 Mitglieder) und
+      contrarian/accumulative/swarm_buy/swarm_sell/conflict/paradox loesten im Produktivbetrieb
+      (taeglicher Delta-Lauf) systematisch nicht aus (`swarm_buy` ist Primaersignal!). Gilt fuer
+      `run_delta()` und Einzelstage-Delta (`--delta --stage_sequence_signals` /
+      `--delta --stage_swarm_signals`), Helper `_load_signal_history` in `scripts/import_trades.py`.
          ↓
 [15] Trade-Score (Modul 8 — _stage_scoring)
     → scoring/trade_score.compute_trade_scores(df, settings)
@@ -642,6 +650,9 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
       trade_score, trade_score_breakdown, trade_warnings aus Modul 8)
     → trades_master.csv (kuratiert via settings.CURATED_COLUMNS — inkl.
       signal_count + signals_triggered + alle 6 Modul-8-Spalten)
+    → CURATED_COALESCE (Bugfix 2026-07-02): `Member_Committees` existiert im Master nur als
+      `Member_Committees_Full` — der kuratierte Export befuellt sie jetzt per Coalesce
+      (erstes nicht-leeres Element der Quellspalten-Liste). Vorher war die Spalte immer leer.
     → manual_review_tickers.csv (falls Tickers mit manual_review_flag)
     → _promote_problem_outputs(delta) — siehe Abschnitt unten
         - unmatched_names.csv
