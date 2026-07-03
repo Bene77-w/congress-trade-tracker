@@ -161,8 +161,10 @@ GLOSSARY: dict[str, str] = {
         "ausschussweit — auch ohne formale Mitgliedschaft im Unterausschuss."
     ),
     "swarm_paradox": (
-        "Schwarm-Effekt: handeln auffaellig viele Politiker denselben Titel, "
-        "verstaerkt das den Score."
+        "Gegenlaeufiger Schwarm: im selben Fenster kaufen UND verkaufen "
+        "mehrere Politiker denselben Titel gleichzeitig. Das ist ein "
+        "Gegenindiz — es daempft den Schwarm-Beitrag (Faktor Paradox-Damper) "
+        "bzw. setzt das Warning 'paradox_swarm'."
     ),
     "paradox_damper": (
         "Daempfungsfaktor, der die Score-Verstaerkung durch den Schwarm-Effekt "

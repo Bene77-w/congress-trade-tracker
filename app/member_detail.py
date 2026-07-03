@@ -34,6 +34,59 @@ _C_MID = '#475569'
 
 _TICKER_LINK_REGEX = r'von\+([^&]+)$'
 
+# Red-Flag-Ampel-Stufen (0..3 gesetzte Indikatoren). Emoji-frei — Streamlit-
+# Farbsyntax (:green[]/:orange[]/:red[]) rendert in st.markdown. Als Konstante
+# gehalten, damit unit-testbar (kein Emoji-Regress).
+RED_FLAG_LEVELS = [':green[Niedrig]', ':orange[Erhöht]',
+                   ':orange[Hoch]', ':red[Sehr hoch]']
+
+
+def _count_red_flags(s: dict) -> int:
+    """Zaehlt die gesetzten Red-Flag-Indikatoren gegen die Settings-Schwellen
+    (``DETAIL_RED_FLAG_*``). Schwellen werden bei jedem Aufruf aus ``settings``
+    gelesen -> zur Laufzeit konfigurierbar + im Test monkeypatchbar."""
+    flags = 0
+    if s.get('vote_timing_rate', 0) >= settings.DETAIL_RED_FLAG_VOTE_TIMING_RATE:
+        flags += 1
+    if s.get('committee_full_rate', 0) >= settings.DETAIL_RED_FLAG_COMMITTEE_FULL_RATE:
+        flags += 1
+    out = s.get('outperformance')
+    if pd.notna(out) and out >= settings.DETAIL_RED_FLAG_OUTPERFORMANCE_PP:
+        flags += 1
+    return flags
+
+
+def _resolve_highlight(hl, trajs: list[dict]):
+    """Validiert den Spaghetti-Highlight-Key gegen die aktuellen Trajektorien.
+
+    Der Highlight-Key lebt im ``session_state`` und ueberlebt Dialog-Wechsel;
+    zeigt ``hl`` auf eine ``trade_id``, die in ``trajs`` nicht (mehr) existiert
+    (anderes Member-Popup, oder Trade durch Quartal-/≤180d-Filter raus), gibt
+    diese Funktion ``None`` zurueck. Sonst ``hl`` unveraendert."""
+    if hl is None:
+        return None
+    return hl if hl in {t['trade_id'] for t in trajs} else None
+
+
+def _resolve_ar_outlier_thresholds(ref_ar):
+    """Loest die AR-Ausreisser-Schwellen (upper, lower) fuer den Summary auf.
+
+    ``AR_OUTLIER_MODE == 'absolute'`` -> feste Settings-Bandgrenzen
+    (``AR_OUTLIER_UPPER/LOWER``). ``'percentile'`` -> Quantile
+    (``AR_OUTLIER_PCT_UPPER/LOWER``) der Referenzverteilung ``ref_ar`` (im Popup:
+    voller sichtbarer Bestand = Member + andere Politiker -> global, NICHT
+    member-relativ). Reicht die Referenzverteilung nicht (< 2 Werte), Fallback
+    auf die absoluten Schwellen. Returns ``(upper, lower, fallback_used)``."""
+    mode = getattr(settings, 'AR_OUTLIER_MODE', 'absolute')
+    if mode != 'percentile':
+        return settings.AR_OUTLIER_UPPER, settings.AR_OUTLIER_LOWER, False
+    s = pd.to_numeric(pd.Series(ref_ar), errors='coerce').dropna()
+    if len(s) < 2:
+        return settings.AR_OUTLIER_UPPER, settings.AR_OUTLIER_LOWER, True
+    upper = float(s.quantile(settings.AR_OUTLIER_PCT_UPPER))
+    lower = float(s.quantile(settings.AR_OUTLIER_PCT_LOWER))
+    return upper, lower, False
+
 
 def _scope_label(text: str, scope: str) -> str:
     """Widget-Label mit Scope-Praefix ([Global]/[Tab]/[Detail]). Lokal
@@ -241,9 +294,9 @@ def _empty_horizons_caption(stats: dict[int, dict]) -> str | None:
         return None
     return ('/'.join(empty) + ': keine Daten — der h-Tage-Return eines '
             'Trades existiert erst h Tage nach der Transaktion. Alle '
-            'Trades im gewählten Datumsfenster sind dafür noch zu jung. '
-            'Datumsfenster in der Sidebar vergrößern, um diese Horizonte '
-            'zu füllen.')
+            'Trades im gewählten Quartal-Bereich sind dafür noch zu jung. '
+            'Quartal-Bereich erweitern (oder auf ältere Quartale ausdehnen), '
+            'um diese Horizonte zu füllen.')
 
 
 def _fig_d1(mview, threshold, stats):
@@ -456,9 +509,8 @@ def _render_spaghetti_section(trajs: list[dict], key: str, caption: str,
     plot_trajs = mm.select_top_trajectories(trajs, cap)
     st.caption(
         'Linien laufen vom Transaktionstag bis zum Voll-Close, höchstens aber '
-        'bis zum letzten verfügbaren Kurstag — bei jungen Trades (kleines '
-        'Zeitfenster in der Sidebar) enden deshalb alle Linien deutlich vor '
-        'Tag 180.')
+        'bis zum letzten verfügbaren Kurstag — bei jungen Trades enden deshalb '
+        'alle Linien deutlich vor Tag 180.')
     if not draw_all and len(plot_trajs) < len(trajs):
         st.caption(
             f'Zeichne {len(plot_trajs):,} von {len(trajs):,} Verläufen '
@@ -472,10 +524,17 @@ def _render_spaghetti_section(trajs: list[dict], key: str, caption: str,
     def _on_plot():
         tid = mm.resolve_highlight_from_selection(
             _sel(st.session_state.get(plot_key)))
-        if tid is not None:
-            st.session_state[hl_key] = tid
+        # Leere Selektion (Doppelklick/Deselect) -> Highlight aufheben; erfuellt
+        # das Caption-Versprechen "Doppelklick im Chart hebt auf".
+        st.session_state[hl_key] = tid
 
-    hl = st.session_state.get(hl_key)
+    # Verwaisten Highlight-Key gegen die aktuellen Trajektorien validieren:
+    # zeigt er auf einen Trade, der hier nicht (mehr) existiert (anderes Member-
+    # Popup oder durch Quartal-/≤180d-Filter raus), aufraeumen -> sonst faerbt
+    # _spaghetti_figure ALLE Linien auf opacity 0.18.
+    hl = _resolve_highlight(st.session_state.get(hl_key), trajs)
+    if hl is None:
+        st.session_state.pop(hl_key, None)
     col_plot, col_list = st.columns([3, 2])
     with col_plot:
         with st.spinner('Baue Verlaufs-Diagramm …'):
@@ -555,14 +614,8 @@ def _render_red_flags(mview, bview, terminal):
     bvals = mm.horizon_mean_returns(bview, HORIZONS)
     s = mm.red_flag_summary(mview, mvals, bvals, terminal, HORIZONS)
 
-    flags = 0
-    if s['vote_timing_rate'] >= 0.20:
-        flags += 1
-    if s['committee_full_rate'] >= 0.20:
-        flags += 1
-    if pd.notna(s['outperformance']) and s['outperformance'] >= 5.0:
-        flags += 1
-    level = ['🟢 Niedrig', '🟡 Erhöht', '🟠 Hoch', '🔴 Sehr hoch'][min(flags, 3)]
+    flags = _count_red_flags(s)
+    level = RED_FLAG_LEVELS[min(flags, 3)]
 
     st.markdown(f'**Red-Flag-Ampel: {level}**  ({flags}/3 Indikatoren)')
     m1, m2, m3, m4 = st.columns(4)
@@ -580,7 +633,8 @@ def _render_red_flags(mview, bview, terminal):
               help=help_for('best_trade'))
 
 
-def _render_abnormal_return(mview: pd.DataFrame) -> None:
+def _render_abnormal_return(mview: pd.DataFrame,
+                            bview: pd.DataFrame | None = None) -> None:
     """Marktbereinigter Abnormal Return (Konstrukt A) auf Member-Ebene:
     Median + Ausreisser-Quote (positiv/negativ). Deskriptiv, kein Insider-Beweis.
     Horizont im UI waehlbar (Scope Detail); Default AR_HEADLINE_HORIZON_DAYS."""
@@ -597,8 +651,17 @@ def _render_abnormal_return(mview: pd.DataFrame) -> None:
                              'Quartal-Bereich/≤180d-Filter dieses Popups.')))
     else:
         h = int(settings.AR_HEADLINE_HORIZON_DAYS)
-    summ = mm.abnormal_return_summary(
-        mview, h, settings.AR_OUTLIER_UPPER, settings.AR_OUTLIER_LOWER)
+    # Ausreisser-Schwellen aufloesen: bei MODE='percentile' aus der vollen im
+    # Popup sichtbaren AR-Verteilung (Member + andere Politiker) — global, nicht
+    # member-relativ. Reicht die Verteilung nicht, Fallback auf absolute Schwellen
+    # (mit Hinweis-Caption).
+    col = f'signed_ar_{int(h)}d'
+    ref_parts = [mview[col]] if col in mview.columns else []
+    if bview is not None and col in getattr(bview, 'columns', []):
+        ref_parts.append(bview[col])
+    ref_ar = pd.concat(ref_parts) if ref_parts else pd.Series(dtype=float)
+    upper, lower, ar_fallback = _resolve_ar_outlier_thresholds(ref_ar)
+    summ = mm.abnormal_return_summary(mview, h, upper, lower)
     if summ['n_eval'] == 0:
         st.caption(f'Abnormal Return ({h}d): keine evaluierbaren Trades '
                    '(Right-Censoring) oder Spalte fehlt '
@@ -617,6 +680,9 @@ def _render_abnormal_return(mview: pd.DataFrame) -> None:
     st.caption(f"n={summ['n_eval']:,} evaluierbar — Vorsicht: Member-Konzentration "
                'und kleine n verzerren; deskriptiv, kein Insider-Beweis.'
                .replace(',', '.'))
+    if ar_fallback:
+        st.caption('Perzentil-Modus: Schwellen aus der Popup-Verteilung nicht '
+                   'ableitbar (zu wenige Werte) — absolute Schwellen verwendet.')
 
 
 # ---------------------------------------------------------------------------
@@ -674,7 +740,7 @@ def render_member_detail(member_df: pd.DataFrame, bench_df: pd.DataFrame,
     with tab_over:
         _render_red_flags(mview, bview, terminal)
         st.divider()
-        _render_abnormal_return(mview)
+        _render_abnormal_return(mview, bview)
         st.divider()
         st.markdown('**Sektor-Konzentration** '
                     '(orange = Committee-Full-Trades-Branchen des Members)')

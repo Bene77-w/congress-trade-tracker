@@ -80,6 +80,17 @@ def build_settings_proxy(
     for attr in SCORING_ATTRS:
         proxy_kwargs[attr] = getattr(_settings, attr, None)
 
+    # Ausgeschlossene Signale fliegen AUCH aus SCORING_PRIMARY_SIGNALS — ein
+    # ausgeschlossenes Primaersignal (committee_full/swarm_buy) darf das
+    # Hard-Gate nicht mehr oeffnen. Bewusste Konsequenz: schliesst der User
+    # BEIDE Primaersignale aus, ist das Tuple leer -> Gate deaktiviert
+    # (Rueckwaerts-Kompat-Semantik in compute_trade_score) -> alle Trades
+    # werden nach Hint-Gewichten gescort.
+    primary = getattr(_settings, 'SCORING_PRIMARY_SIGNALS', ()) or ()
+    proxy_kwargs['SCORING_PRIMARY_SIGNALS'] = tuple(
+        s for s in primary if s not in excluded_set
+    )
+
     weights = dict(proxy_kwargs.get('SCORING_WEIGHTS') or {})
     if weights_override:
         for sig, value in weights_override.items():
@@ -121,9 +132,10 @@ def recompute_subset(
 ) -> pd.DataFrame:
     """Berechnet trade_score / trade_score_breakdown / trade_warnings neu.
 
-    Liefert eine Kopie von ``df`` mit ueberschriebenen Score-Spalten. Bei
-    leerem ``excluded`` und ohne Overrides werden die Original-Spalten
-    (sofern vorhanden) beibehalten, sonst neu berechnet.
+    Rekomputet immer (auch bei leerem ``excluded`` und ohne Overrides) und
+    liefert eine Kopie von ``df`` mit ueberschriebenen Score-Spalten. Ein
+    Pass-Through-Schnellpfad existiert hier bewusst nicht; ob ueberhaupt neu
+    gerechnet werden muss, entscheiden die Aufrufer (needs_recompute).
     """
     if df.empty:
         return df.copy()

@@ -35,6 +35,7 @@ from app import score_correlation as score_corr  # noqa: E402
 from app.score_recompute import available_signals, recompute_subset  # noqa: E402
 from app.scoring_presets import (  # noqa: E402
     DEFAULT_PRESET_NAME,
+    consume_corrupt_warning,
     default_payload,
     delete_preset,
     load_presets,
@@ -694,6 +695,10 @@ with st.sidebar:
     with st.expander('Score-Gewichte', expanded=False):
         # Preset-Auswahl (ausserhalb der Form: sofortiger Effekt)
         presets = load_presets()
+        # Korrupte Presets-Datei? -> einmalige Warnung (Backup liegt als .bak)
+        _corrupt_msg = consume_corrupt_warning()
+        if _corrupt_msg:
+            st.warning(_corrupt_msg)
         preset_options = [DEFAULT_PRESET_NAME] + sorted(
             n for n in presets.keys() if n != DEFAULT_PRESET_NAME
         )
@@ -987,38 +992,39 @@ def apply_prefilter(df: pd.DataFrame,
     return out
 
 
-prefilt = apply_prefilter(trades)
-
-# --- Score-Recompute (vor Min-Score, gilt fuer alle drei Tabs) -----------
+# --- Score-Recompute-Parameter (vor Min-Score, gilt fuer alle Tabs) -------
 weights_override = _diff_weights(st.session_state['scoring']['weights'],
                                  DEFAULTS['weights'])
 params_override = _diff_params(st.session_state['scoring'], DEFAULTS)
 override_active = bool(weights_override or params_override)
 needs_recompute = bool(excluded_signals) or override_active
-if needs_recompute:
-    with st.spinner(f'Score neu berechnen für {len(prefilt):,} Trades …'):
-        prefilt = recompute_subset(
-            prefilt,
-            excluded_signals,
-            weights_override=weights_override or None,
-            params_override=params_override or None,
-        )
 
 # --- Score-Korrelations-Basis (horizont-filter-frei, Recompute-konsistent) ---
 # Beide Korrelations-Tabs umgehen den globalen Horizont-Sichtbarkeitsfilter
 # (held-Positionen sind die relevanten Daten) und spiegeln die Sidebar-Overrides
-# (Muster wie der Recent-Tab). Einmal berechnet, von beiden Tabs geteilt -> nur
-# EIN Recompute statt zwei. min_score/primary_horizon wirken hier bewusst NICHT.
+# (Muster wie der Recent-Tab). Der horizont-gefilterte ``prefilt`` (Trades-/
+# Assets-/Members-Tabs) ist eine ECHTE Teilmenge dieser Basis: identisches
+# Zeitfenster + Suche, nur zusaetzlich der Horizont-Filter. Da der Recompute pro
+# Zeile deterministisch ist (und ``first_close_offset_days`` unberuehrt laesst),
+# wird ``prefilt`` unten per Horizont-Schritt aus ``corr_base`` ABGELEITET statt
+# separat rekomputet -> nur EIN Recompute statt zwei (zeilenidentisches
+# Ergebnis). min_score/primary_horizon wirken auf corr_base bewusst NICHT.
 corr_base = apply_prefilter(trades, apply_horizon_filter=False)
 if needs_recompute and not corr_base.empty:
-    with st.spinner(f'Score für Korrelation neu berechnen '
-                    f'({len(corr_base):,} Trades) …'):
+    with st.spinner(f'Score neu berechnen für {len(corr_base):,} Trades …'):
         corr_base = recompute_subset(
             corr_base,
             excluded_signals,
             weights_override=weights_override or None,
             params_override=params_override or None,
         )
+
+# --- Trades-/Assets-/Members-Basis: nur der Horizont-Schritt auf corr_base ---
+# Ableitung statt separater Recompute — apply_prefilter wendet auf die bereits
+# gefensterte/gesuchte (und ggf. rekomputete) Basis nur noch den Horizont-Filter
+# an (apply_window=False; die Suche ist idempotent). Kein zweiter Recompute.
+prefilt = apply_prefilter(corr_base, apply_window=False,
+                          apply_horizon_filter=True)
 
 # --- Trade-Tab-Subset (mit Min-Score + Sortierung) -----------------------
 trade_rows = prefilt
@@ -1225,12 +1231,17 @@ def _member_column_config(score_max_val: int) -> dict:
 
 
 def _related_return_style(v):
-    """Hintergrund fuer effective_return_pct: >+10% gruen, <-10% rot."""
+    """Hintergrund fuer effective_return_pct: Schwelle aus settings.
+
+    ``+DETAIL_RELATED_RETURN_COLOR_PCT`` -> gruen,
+    ``-DETAIL_RELATED_RETURN_COLOR_PCT`` -> rot (Default 10.0 %).
+    """
     if pd.isna(v):
         return ''
-    if v > 10:
+    thr = settings.DETAIL_RELATED_RETURN_COLOR_PCT
+    if v > thr:
         return 'background-color: #14532d; color: #dcfce7'
-    if v < -10:
+    if v < -thr:
         return 'background-color: #7f1d1d; color: #fee2e2'
     return ''
 

@@ -644,6 +644,17 @@ DETAIL_TRAJ_SAMPLE_DAYS = 3
 #   Per Popup-Toggle ("Alle Verlaeufe zeichnen") abschaltbar.
 DETAIL_TRAJ_MAX_TRACES = 300
 
+# Member-Detail Red-Flag-Ampel — Schwellen der drei Indikatoren (Anteil
+# Vote-Timing-Trades, Anteil committee_full-Trades, Outperformance vs.
+# Vergleichsgruppe in Prozentpunkten). Anzeige-Parameter, kein Scoring-Input.
+DETAIL_RED_FLAG_VOTE_TIMING_RATE = 0.20
+DETAIL_RED_FLAG_COMMITTEE_FULL_RATE = 0.20
+DETAIL_RED_FLAG_OUTPERFORMANCE_PP = 5.0
+
+# Trade-Detail "Related"-Tabelle: |effective_return_pct| ab dieser Schwelle
+# (Prozent) wird gruen/rot hinterlegt. Reine Anzeige-Faerbung.
+DETAIL_RELATED_RETURN_COLOR_PCT = 10.0
+
 
 # ---------------------------------------------------------------------------
 # Event-Study / Abnormal Return (Insider-Aufdeckung — Discovery-Modul)
