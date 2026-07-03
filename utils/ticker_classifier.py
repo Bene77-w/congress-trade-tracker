@@ -150,8 +150,12 @@ _RE_PREF_DASH_P    = re.compile(r'^([A-Z]+)-P$')
 _RE_PREF_DOT_PR    = re.compile(r'^([A-Z]+)\.PR([A-Z])?$')
 _RE_PREF_DOT_PX    = re.compile(r'^([A-Z]+)\.P([A-Z])$')  # Guard gegen Exchange-Suffix
 
-# T-Bills: "T" gefolgt von 8-9 alphanumerischen Zeichen (9-10 insgesamt)
-_RE_TBILL          = re.compile(r'^T[A-Z0-9]{8,9}$')
+# T-Bills: "T" gefolgt von 8-9 alphanumerischen Zeichen (9-10 insgesamt).
+# Ziffern-Pflicht (Lookahead): echte T-Bill-IDs sind T+CUSIP und enthalten immer
+# Ziffern — ohne den Guard wuerden 9-10-buchstabige Woerter mit T (TRANSPORT,
+# TELEFONICA) still als Treasury/SKIP klassifiziert statt ins Manual-Review
+# (LONG_ALPHA_SUSPECT) zu laufen.
+_RE_TBILL          = re.compile(r'^T(?=.*\d)[A-Z0-9]{8,9}$')
 
 # CUSIP: 9 alnum-Zeichen mit mindestens einer Ziffer
 _RE_CUSIP          = re.compile(r'^(?=.*\d)[A-Z0-9]{9}$')
@@ -215,6 +219,9 @@ def _make_invalid(raw_ticker: str, company_name: str, reason: str) -> TickerClas
 # Quiver-Notationen wie BLOC-U, ALIN-P-E, T-P-A, STT-P-E-CL matchen den
 # UNIT-/PREFERRED-Pattern, sind aber Muni-Bonds (siehe asset_name).
 # Ohne Override liefern OpenFIGI-Anfragen nur Müll-Treffer (zufällige Munis).
+# Wortgrenzen-Match (\b): reiner Substring-Match wuerde z. B. "AUTH" in
+# "AUTHENTIC EQUITY ACQUISITION CORP UNITS" treffen und echte SPAC-Units
+# still als Muni-Bond klassifizieren (SKIP, kein Review-Flag).
 _MUNI_MARKERS = (
     "CNTY", "COUNTY",
     "SCH DIST", "SCHDIST",
@@ -223,14 +230,17 @@ _MUNI_MARKERS = (
     "ULTD TAX", "TAXSCHOOL",
     "STATE COLLEGE",
 )
+_RE_MUNI_MARKERS = re.compile(
+    r'\b(?:' + '|'.join(re.escape(m) for m in _MUNI_MARKERS) + r')\b'
+)
 
 
 def _muni_override(cls: TickerClassification) -> TickerClassification:
-    """UNIT/PREFERRED + Muni-Marker in company_name → BOND/SKIP."""
+    """UNIT/PREFERRED + Muni-Marker (ganzes Wort) in company_name → BOND/SKIP."""
     if cls.ticker_type not in (TickerType.UNIT, TickerType.PREFERRED):
         return cls
     name_upper = (cls.company_name or "").upper()
-    if not any(marker in name_upper for marker in _MUNI_MARKERS):
+    if not _RE_MUNI_MARKERS.search(name_upper):
         return cls
     return dataclasses.replace(
         cls,

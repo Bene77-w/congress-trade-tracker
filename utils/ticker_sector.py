@@ -34,20 +34,6 @@ from utils.ticker_routing import SECTOR_LOOKUP_TYPES
 logger = logging.getLogger(__name__)
 
 
-# Identische Pattern-Liste wie in ticker_normalizer (bewusst dupliziert, Pitch §16).
-# Hinweis: Die Netzwerkfehler-Klassifikation laeuft jetzt zentral ueber
-# utils/network_retry.is_transient_exception (typ-basiert, breiter). Diese Liste
-# bleibt nur fuer Rueckwaertskompatibilitaet von _is_network_error stehen.
-_NETWORK_ERROR_PATTERNS = (
-    "Could not resolve host",
-    "TLS connect error",
-    "Connection refused",
-    "Connection reset",
-    "Connection timed out",
-    "Network is unreachable",
-)
-
-
 def _info_has_identity(info: object) -> bool:
     """True, wenn ein yfinance-``.info``-Dict mindestens ein Identitaets-Feld traegt.
 
@@ -139,7 +125,6 @@ class TickerSectorEnricher:
         self._null_cache: set[str] = set()
         self._lookups_since_checkpoint = 0
         self._consecutive_network_errors = 0
-        self._successful_lookups = 0  # echte Sektor-Treffer (Healthy-Network-Signal)
         self._retry_queue: list[NormalizedTicker] = []
         self._delisted_records: list[dict] = []
         self._loaded = False
@@ -176,7 +161,6 @@ class TickerSectorEnricher:
 
         self._ensure_loaded()
         self._consecutive_network_errors = 0
-        self._successful_lookups = 0
 
         # 1. Vorab klassifizieren — was muss überhaupt gefetcht werden?
         targets: list[tuple[int, NormalizedTicker, Optional[str]]] = []
@@ -328,10 +312,17 @@ class TickerSectorEnricher:
         for i, ticker in enumerate(misses):
             info, error_kind = self._fetch_yf_info(ticker)
 
-            if error_kind in ("network", "network_exhausted"):
+            if error_kind == "network_exhausted":
                 net_errors += 1
                 if ticker not in {n.classification.raw_ticker for n in self._retry_queue}:
                     self._retry_queue.append(self._fake_normalized_for_retry(ticker))
+                continue
+
+            if error_kind == "other":
+                # Permanenter/nicht-transienter Fehler (yfinance-Parsing,
+                # API-Aenderung, 4xx): KEIN Null-Cache-Write — der Null-Cache
+                # ist persistent ohne TTL und wuerde den Ticker dauerhaft als
+                # delisted fuehren. Naechster Lauf versucht es erneut.
                 continue
 
             if info is None or not info.get("sector"):
@@ -405,7 +396,6 @@ class TickerSectorEnricher:
             # echtes delisted/unbekannt -> legitimer Null-Cache-Eintrag.
             print(f"      [i] {ticker}: kein Sektor (delisted/unbekannt)")
             return info if isinstance(info, dict) else {}, None
-        self._successful_lookups += 1  # echter Sektor-Treffer -> Netz ist gesund
         return info, None
 
     def _get_canary(self) -> NetworkCanary:
@@ -428,13 +418,6 @@ class TickerSectorEnricher:
             return False
         return self._get_canary().verdict() == RED
 
-    def _network_healthy(self) -> bool:
-        """LEGACY (durch den Canary abgeloest, nicht mehr aufgerufen): Netz galt
-        als gesund, sobald ein echter Sektor-Lookup gelang UND kein Fehler-Streak
-        lief. Bleibt fuer Backcompat/Doku stehen."""
-        return (self._successful_lookups > 0
-                and self._consecutive_network_errors < self.net_error_pause_threshold)
-
     def _run_retry_round(self) -> None:
         retries = list({n.classification.raw_ticker for n in self._retry_queue})
         self._retry_queue = []
@@ -450,7 +433,11 @@ class TickerSectorEnricher:
         try:
             for ticker in retries:
                 info, error_kind = self._fetch_yf_info(ticker)
-                if error_kind in ("network", "network_exhausted"):
+                if error_kind == "network_exhausted":
+                    fail += 1
+                    continue
+                if error_kind == "other":
+                    # s. _fetch_misses: permanente Fehler nicht null-cachen.
                     fail += 1
                     continue
                 if info is None or not info.get("sector"):
@@ -492,9 +479,6 @@ class TickerSectorEnricher:
     # ------------------------------------------------------------------
     # Defensive Helpers
     # ------------------------------------------------------------------
-
-    def _is_network_error(self, error_msg: str) -> bool:
-        return any(p in error_msg for p in _NETWORK_ERROR_PATTERNS)
 
     def _handle_network_error(self, error_msg: str) -> bool:
         self._consecutive_network_errors += 1
