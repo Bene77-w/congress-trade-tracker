@@ -38,7 +38,6 @@ api.data.gov (Congress.gov)  →  scrapers/fetch_congress_data.py  →  data/con
                                                                       ↓
 house_trades.csv + senate_trades.csv  →  scripts/import_trades.py  →  data/processed/trades_master.csv
                                                                          (36 Spalten, ~9.591 Trades)
-data/mappings/*.xlsx          →  scripts/convert_xlsx_to_csv.py  →  data/mappings/*.csv
 ```
 
 **Import-Pipeline:** 17 Stages — Reihenfolge, Stage-Indizes und Details: siehe [Pipelines.md](Pipelines.md). CLI-Flags: [CLI_Bedienungsanleitung.md](CLI_Bedienungsanleitung.md).
@@ -55,7 +54,6 @@ data/mappings/*.xlsx          →  scripts/convert_xlsx_to_csv.py  →  data/map
 | `scrapers/senate_scraper.py` | Senate PTR Scraper (Playwright + DataTables API) |
 | `scrapers/house_pdf_extractor_v2.py` | OCR für handübergebene House PTR PDFs |
 | `scrapers/fetch_congress_data.py` | Congress.gov API (Bills, Votes, Subjects) |
-| `scripts/convert_xlsx_to_csv.py` | Mapping-Excel-Dateien in CSV konvertieren |
 | `scripts/diagnose_scraper.py` | QA-Tests für Senate-Scraper |
 | `scripts/reset_pipeline.py` | Granularer Reset (Logs/Cache/Stage/Processed); Flags: `--logs`, `--stage-files`, `--cache_reset` (data/cache/* + yfinance-Caches), `--processed`, `--congress-api`, `--rebuild` (= stage-files+cache_reset+processed), `--all`; Default reversibler Move nach `archive/reset_pipeline/`, optional `--purge` |
 
@@ -106,8 +104,6 @@ python scripts/import_trades.py
 # 3. Optional: Hand-Delivered PDFs per OCR
 python scrapers/house_pdf_extractor_v2.py
 
-# 4. Optional: Mapping-CSVs neu generieren (nach xlsx-Änderungen)
-python scripts/convert_xlsx_to_csv.py
 ```
 
 Vollständige CLI-Referenz: siehe [CLI_Bedienungsanleitung.md](CLI_Bedienungsanleitung.md)

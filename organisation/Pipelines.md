@@ -23,8 +23,6 @@ python scrapers/senate_pdf_extractor.py    # → ergaenzt senate_trades.csv (irr
 # 3. Import-Pipeline (Anreicherung + Dedup)
 python scripts/import_trades.py            # → trades_master.csv + trades_new.csv
 
-# 4. Optional: Referenz-CSVs aktualisieren (nur bei xlsx-Aenderungen)
-python scripts/convert_xlsx_to_csv.py      # → mapping-CSVs neu generieren
 ```
 
 ---
@@ -758,19 +756,12 @@ Senate-Besonderheit: Zwei Lookup-Keys pro Senator ("Last, First" + "First Last")
 
 ---
 
-## Pipeline 6: XLSX→CSV Konvertierung
+## Pipeline 6: XLSX→CSV Konvertierung (entfernt, Debug-Intervall 4)
 
-**Script:** `scripts/convert_xlsx_to_csv.py`
-**Zweck:** Referenz-Excel-Dateien in CSV konvertieren (schneller ladbar)
-
-**Konvertierungen:**
-| Input (xlsx) | Sheet | Output (csv) |
-|---|---|---|
-| `data/mappings/yf_secotors_with_industries.xlsx` | — | `data/mappings/yf_sectors_with_industries.csv` |
-| `data/mappings/subcommittee_sector_industry_mapping_v3.xlsx` | Industry_Mapping | `data/mappings/subcommittee_sector_industry_mapping.csv` |
-| `data/mappings/subcommittee_sector_industry_mapping_v3.xlsx` | Region_Mapping | `data/mappings/subcommittee_region_mapping.csv` |
-
-Nur ausfuehren wenn xlsx-Dateien geaendert wurden.
+`scripts/convert_xlsx_to_csv.py` wurde entfernt: die Input-xlsx existieren nicht
+mehr, der Mapping-Master `subcommittee_sector_industry_mapping.csv` wird heute
+vom Committee-Mapping-Agent erzeugt (s. Pipeline 11). Heading bleibt fuer die
+stabile Pipeline-Nummerierung stehen.
 
 ---
 
@@ -1040,7 +1031,7 @@ Default-Verhalten: reversibler **Move** nach `archive/reset_pipeline/reset_<ts>/
 **Geschützt (nie verschoben/gelöscht):** `name_aliases.csv`,
 `house_member&(sub)committees.csv`, `senate_member&(sub)committees.csv`,
 `subcommittee_sector_industry_mapping*.csv`, `yf_sectors_with_industries.csv`,
-`vote_sector_mapping.py`, `logs/house_pdf_extractor_done.csv` (State).
+`logs/house_pdf_extractor_done.csv` (State).
 
 **Terminal-Output:** Pro Datei `[OK]`/`[X]`/`[SKIP]` mit Größe und Dauer,
 Zwischensummen pro Gruppe, finale Zusammenfassung.
@@ -1052,8 +1043,6 @@ Zwischensummen pro Gruppe, finale Zusammenfassung.
 | Script | Zweck | CLI |
 |--------|-------|-----|
 | `scripts/diagnose_scraper.py` | Senate-Scraper QA (Timing, Konsistenz, Rowcount) | `--test [timing\|consistency\|rowcount\|all] --runs N --days N` |
-| `scripts/analyze_fehler_pdfs.py` | House-Fehler-PDFs analysieren (Textlayer, Rotation, Bilder) | — |
-| `scripts/inspect_excel.py` | Excel-Spaltenstruktur inspizieren | — |
 | `scripts/analyse_event_study.py` | Event-Study / Abnormal Return (Discovery): validiert `trade_score` gegen signierten, marktbereinigten BHAR (2 Konstrukte A/B, member-geclusterter Bootstrap). **Dieses Standalone-Skript schreibt keinen Master** (Konstrukt B + Bootstrap nur in-memory); die produktive Stage `abnormal_returns` (Pipeline 5, Schritt [8b]) schreibt dagegen die `signed_ar_*` (Konstrukt A) in den Master. Liest `trades_master_complete.csv`, schreibt Report `organisation/analyse_event_study.md` + `data/processed/ar_outliers.csv`. Settings-Änderung = Skript neu starten. Konfiguration: `AR_*`-Block in `config/settings.py`. Spalten + Metrik: `DATA_STRUCTURE.md` Abschnitt 7e. | keine Flags |
 
 ---
@@ -1096,8 +1085,8 @@ ThreadPool-parallelisiert). Full-Run über alle House/Senate-Committees + `promo
            ┌───────────────┼───────────────┐
            ↓               ↓               ↓
     ┌──────────────┐ ┌────────────┐ ┌──────────────────┐
-    │House Scraper │ │Senate      │ │convert_xlsx_to_csv│
-    │(Pipeline 1)  │ │Scraper     │ │(Pipeline 6)       │
+    │House Scraper │ │Senate      │ │(Pipeline 6 entf.)  
+    │(Pipeline 1)  │ │Scraper     │ │                   │
     └──────┬───────┘ │(Pipeline 2)│ └────────┬─────────┘
            │         └─────┬──────┘          │
            │               │           Referenz-CSVs
@@ -1161,7 +1150,6 @@ Diese Dateien werden nicht durch Pipelines erzeugt, sondern manuell gepflegt:
 | `data/mappings/name_aliases.csv` | Bei Bedarf (neue Varianten) | Manuelle Namenskorrekturen (11 Eintraege) |
 | `data/mappings/ignored_tickers.csv` | Bei Bedarf | Manuelle Ignore-Liste fuer raw_ticker (z.B. private Funds ohne oeffentlichen Ticker). Wird in Stage `tickerclassify` ausgewertet → setzt `ticker_type=ignored`, kein Manual-Review-Eintrag |
 | `data/mappings/subcommittee_sector_industry_mapping.csv` | Bei Bedarf | Subcommittee→Sektor/Industry (861 Zeilen) |
-| `data/mappings/vote_sector_mapping.py` | Bei Bedarf | Policy Area→YF-Sektoren (Python, 12 Mappings) |
 | `data/raw/former_members.csv` | Bei Bedarf (Congresswechsel) | Ehemalige Politiker mit Trades (6 Eintraege) |
 | `config/settings.py` | Bei Bedarf | Alle Schwellenwerte, Pfade, Gewichtungen |
 

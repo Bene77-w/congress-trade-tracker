@@ -11,6 +11,45 @@ Historie abgeschlossener Module/Phasen. **Aktiver WIP-Modul-Stand** steht im „
 
 ---
 
+## 2026-07-03 — Codebase-weites Debugging: Intervall 4 (Utils & Cross-Cutting)
+
+**Abschluss des Debugging-Zyklus** (Commits `da88ed4`…`ace7e6c`, unabhängige Fable-Verifikation:
+alle Punkte bestätigt, 1 Staging-Blocker gefunden + behoben). Teststand: **1037 passed, 0 failed** (+18 neue).
+
+**utils/ (Fixes):**
+- `ticker_sector`: permanenter yfinance-Fehler (`error_kind='other'`) landet nicht mehr im
+  persistenten Null-Cache (Ticker galt sonst dauerhaft als delisted); toter Legacy-Block entfernt.
+- `ticker_classifier`: T-Bill-Regex mit Ziffern-Pflicht (Wörter wie TRANSPORT → Manual-Review statt
+  still Treasury/SKIP); Muni-Marker mit Wortgrenzen (AUTHENTIC-SPAC-Units nicht mehr als Muni-Bond).
+- `ticker_normalizer`: SEARCH-Cache-Key enthält `ticker_type` (SPAC-Warrant/Unit erbten gegenseitig
+  den FIGI); Cache-Spalte `classification_type` bekommt den echten Typ; HTTP-4xx wird nicht mehr
+  negativ gecacht und löst keine Einzel-Search-Kaskade aus; unerreichbare 429/abort-Zweige entfernt;
+  CUSIP-Misses werden negativ gecacht.
+- `trade_id`/`migrate_add_trade_ids`: Migrationsskript hashte rohe CSV-Strings, die Pipeline hasht
+  Timestamps → inkompatible IDs (Massen-Duplikat-Risiko). Fix: Datums-Konvertierung vor dem Hashen
+  (empirisch: 113.675/113.675 IDs matchen den Master); Repräsentations-Abhängigkeit dokumentiert.
+- `network_retry`: `ssl`-Pattern präzisiert; HTTPError ohne Status-Code fällt in den Text-Fallback.
+- `issuer_ticker`/`issuer_group_mapper`: pd.NA/NaT-Lücke geschlossen (pandas 3.0/Arrow-Dtypes).
+- `name_matcher`: merged Lookups memoisiert (war O(Zeilen×Mitglieder) Kopierarbeit pro match()).
+
+**scripts/ (Fixes):** `analyse_event_study` lädt `post_return_{AR_HEADLINE_HORIZON_DAYS}d` dynamisch
+(KeyError bei Headline 120 behoben — Voraussetzung für den geplanten Perzentil-Rerun);
+`diagnose_scraper` set-Slicing-TypeError; `reset_pipeline` nutzt `settings.TRADES_MASTER_CSV` +
+resettet `ar_outliers.csv`; `diagnose_master_quiver_delta` settings-Pfade + beidseitige
+Drift-Anker an der normalize_dates-Logik-Kopie.
+
+**Aufräumen (alle Löschungen grep-verifiziert, 0 Code-Referenzen):** `fetch_congress_votes.py`
+(581 Z., Produzent ohne Konsument) + `vote_sector_mapping.py`; `analyse_quiver_changes.py`
+(redundant + fehlerhaft); 8 tote Einmal-Skripte (`analyze_ticker_types`, `list_non_stock_tickers`,
+`list_unknown_tickers`, `classify_tickers`, `convert_senate_data`, `convert_xlsx_to_csv`,
+`inspect_excel`, `analyze_fehler_pdfs`, `extract_pdf_images`); Wurzel-Streuner `main.py`/`test.py`/
+`print_columns.py`; leere Skelette `automation/`/`dashboard/`/`data_sources/` (`notifications/`
+bleibt für Modul 10); `script.py` → `scripts/build_ticker_liste_index.py` (repo-root-verankert);
+22 tote Settings entfernt (OpenFIGI-Legacy, Tesseract, VOTE_*, u. a.); `requirements.txt`
++`curl_cffi`/`openai`/`ddgs`/`jsonschema`, −`schedule`/`tenacity`/`pytesseract`.
+
+---
+
 ## 2026-07-02/03 — Codebase-weites Debugging: Intervalle 1–3 (Import-Pipeline, Scoring/Signale, App/Streamlit)
 
 **Motivation:** Systematische Fehlersuche über die produktive Pipeline, das Scoring-System und
