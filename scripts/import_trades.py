@@ -503,6 +503,8 @@ class TradeImporter:
             # disclosure_date ersetzt. Typischer Ausloeser ist ein versehentlich als
             # Handelsdatum erfasstes Anleihe-Faelligkeitsdatum; das Meldedatum ist
             # hier die verlaesslichere Naeherung an das tatsaechliche Handelsdatum.
+            # ACHTUNG: Logik-Kopie in scripts/diagnose_master_quiver_delta.py
+            # (_load_quiver_with_ids) — bei Aenderungen dort mitziehen.
             future_mask = (
                 df['transaction_date'].notna() &
                 df['disclosure_date'].notna() &

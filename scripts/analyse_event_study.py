@@ -51,10 +51,17 @@ SIGNALS = ['committee_ex_officio', 'floor_action', 'swarm_buy', 'swarm_sell',
            'accumulative']
 
 # Spalten, die wir aus dem Master brauchen (Rest wird nicht geladen).
+# post_return-Spalten dynamisch: Abschnitt 2 (Diskriminator) vergleicht gegen
+# post_return_{AR_HEADLINE_HORIZON_DAYS}d — der Headline-Horizont ist
+# konfigurierbar (z. B. 120) und muss mitgeladen werden, sonst KeyError.
+_RAW_RETURN_COLS = sorted({
+    'post_return_90d',
+    'post_return_180d',
+    f'post_return_{int(settings.AR_HEADLINE_HORIZON_DAYS)}d',
+})
 LOAD_COLS = ['trade_id', 'bio_guide_id', 'name', 'chamber', 'sector_yf',
              'ticker', 'transaction_type', 'transaction_date', 'disclosure_date',
-             'trade_score', 'signals_triggered', 'post_return_90d',
-             'post_return_180d']
+             'trade_score', 'signals_triggered'] + _RAW_RETURN_COLS
 
 
 def _spearman(a: pd.Series, b: pd.Series) -> tuple[float, int]:
@@ -80,7 +87,7 @@ def _fmt_pct(x: float) -> str:
 def _load() -> pd.DataFrame:
     cols = [c for c in LOAD_COLS if c in pd.read_csv(TRADES_MASTER, nrows=0).columns]
     df = pd.read_csv(TRADES_MASTER, usecols=cols, low_memory=False)
-    for c in ['trade_score', 'post_return_90d', 'post_return_180d']:
+    for c in ['trade_score'] + _RAW_RETURN_COLS:
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors='coerce')
     return df

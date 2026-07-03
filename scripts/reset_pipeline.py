@@ -76,13 +76,16 @@ TARGETS: dict[str, list[Path | str]] = {
         DATA_MAPPINGS / settings.TICKER_0_CACHE_FILE,
     ],
     "processed": [
-        DATA_PROCESSED / "trades_master.csv",
+        DATA_PROCESSED / settings.TRADES_MASTER_CSV,
         DATA_PROCESSED / settings.TRADES_MASTER_COMPLETE_CSV,
         DATA_PROCESSED / settings.MANUAL_REVIEW_CSV,
         DATA_PROCESSED / "unmatched_names.csv",
         DATA_PROCESSED / "unmatched_preferred.csv",
         DATA_PROCESSED / "delisted_trades.csv",
         DATA_PROCESSED / "ticker_liste_index.csv",
+        # Output von scripts/analyse_event_study.py — ohne Reset ueberlebt er
+        # jeden --rebuild als Stale-Artefakt.
+        DATA_PROCESSED / "ar_outliers.csv",
         # Suspicious-Persistenz: suspicious_events.csv ist append-only und wird
         # von import_trades.py NIE getruncatet (full+delta nur append+dedup) ->
         # fuer einen sauberen Rebuild zwingend zuruecksetzen. Die beiden Views

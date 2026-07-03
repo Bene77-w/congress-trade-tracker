@@ -22,7 +22,7 @@ QUIVER_PATH = os.path.join(
     REPO_ROOT, 'data', 'raw', settings.QUIVER_TRADES_FILE
 )
 MASTER_PATH = os.path.join(
-    REPO_ROOT, 'data', 'processed', 'trades_master_complete.csv'
+    REPO_ROOT, settings.DATA_PROCESSED_PATH, settings.TRADES_MASTER_COMPLETE_CSV
 )
 
 
@@ -36,7 +36,10 @@ def _load_quiver_with_ids() -> pd.DataFrame:
     if 'chamber' in df.columns:
         df['chamber'] = df['chamber'].fillna('')
 
-    # Identische Date-Normalisierung wie in TradeImporter.normalize_dates
+    # Identische Date-Normalisierung wie in TradeImporter.normalize_dates —
+    # LOGIK-KOPIE: aendert sich normalize_dates (Fallbacks/Reihenfolge), MUSS
+    # dieser Block mitgezogen werden, sonst diagnostiziert das Skript still
+    # falsche ENTFERNT/NEU-Paare.
     if 'transaction_date' in df.columns:
         df['transaction_date'] = pd.to_datetime(
             df['transaction_date'], errors='coerce')
