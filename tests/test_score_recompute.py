@@ -203,6 +203,40 @@ def test_recompute_exclude_committee_ex_officio_drops_bonus():
     assert 'ex_officio:+0' in excl.iloc[0]['trade_score_breakdown']
 
 
+# ---------------------------------------------------------------------------
+# 5. Exclude neutralisiert Primaersignale auch im Hard-Gate (R2a)
+# ---------------------------------------------------------------------------
+def test_exclude_removes_signal_from_primary_signals():
+    proxy = build_settings_proxy(excluded=['committee_full'])
+    assert 'committee_full' not in proxy.SCORING_PRIMARY_SIGNALS
+    assert 'swarm_buy' in proxy.SCORING_PRIMARY_SIGNALS
+
+
+def test_excluded_primary_signal_closes_gate():
+    # committee_full ist Primaersignal, floor_action ist Hint (Gewicht via
+    # Override 10). Wird committee_full ausgeschlossen, ist es kein Primaer-
+    # signal mehr -> Trade triggert kein Primaersignal -> Gate greift -> 0.
+    df = _df([_trade_row('committee_full;floor_action')])
+    out = recompute_subset(
+        df, excluded=['committee_full'],
+        weights_override={'floor_action': 10},
+    )
+    assert int(out.iloc[0]['trade_score']) == 0
+
+
+def test_both_primary_excluded_disables_gate():
+    # Beide Primaersignale ausgeschlossen -> Tuple leer -> Gate aus (Rueck-
+    # waerts-Kompat) -> Hint-Score kommt durch.
+    df = _df([_trade_row('committee_full;floor_action')])
+    out = recompute_subset(
+        df, excluded=['committee_full', 'swarm_buy'],
+        weights_override={'floor_action': 10},
+    )
+    proxy = build_settings_proxy(excluded=['committee_full', 'swarm_buy'])
+    assert proxy.SCORING_PRIMARY_SIGNALS == ()
+    assert int(out.iloc[0]['trade_score']) == 10
+
+
 def test_ex_officio_committee_global_override_disables_committee_keys():
     # Primaer (swarm_buy) + Trigger (committee); Bonus via Override aktiv (30),
     # damit das committee_global=False-Filtern eine messbare Wirkung hat
