@@ -33,6 +33,9 @@ from config import settings
 
 logger = logging.getLogger(__name__)
 
+# Konfidenz-Rangordnung fuer das Subject->Sektor-Mapping (aufsteigend).
+KONFIDENZ_ORDER = {'Niedrig': 1, 'Mittel': 2, 'Hoch': 3}
+
 # Pfade
 CONGRESS_API_DIR = os.path.join(BASE_DIR, settings.DATA_CONGRESS_API_PATH)
 BILL_ACTIONS_PATH = os.path.join(CONGRESS_API_DIR, 'bill_actions.json')
@@ -82,9 +85,18 @@ class VoteTimingTag:
             self._subject_mapping = {}
             return self._subject_mapping
 
+        # Min-Konfidenz-Schwelle (fail-loud bei ungueltigem Config-Wert)
+        min_konfidenz = settings.VOTE_MIN_SUBJECT_CONFIDENCE
+        if min_konfidenz not in KONFIDENZ_ORDER:
+            raise ValueError(
+                f"VOTE_MIN_SUBJECT_CONFIDENCE='{min_konfidenz}' ungueltig. "
+                f"Erlaubt: {sorted(KONFIDENZ_ORDER, key=KONFIDENZ_ORDER.get)}"
+            )
+        min_rank = KONFIDENZ_ORDER[min_konfidenz]
+
         df = pd.read_csv(SUBJECT_MAPPING_PATH, encoding='utf-8')
         mapping = {}
-        konfidenz_order = {'Hoch': 3, 'Mittel': 2, 'Niedrig': 1}
+        skipped_low_conf = 0
 
         for _, row in df.iterrows():
             sector = row.get('yf_sector', '')
@@ -97,17 +109,25 @@ class VoteTimingTag:
 
             konfidenz = str(row.get('konfidenz', 'Niedrig')).strip()
 
+            # Min-Konfidenz-Filter: Zuordnung unterhalb der Schwelle verwerfen
+            if KONFIDENZ_ORDER.get(konfidenz, 0) < min_rank:
+                skipped_low_conf += 1
+                continue
+
             if subject not in mapping:
                 mapping[subject] = {'sectors': set(), 'konfidenz': konfidenz}
 
             mapping[subject]['sectors'].add(str(sector).strip())
-            # Hoechste Konfidenz behalten
-            if konfidenz_order.get(konfidenz, 0) > konfidenz_order.get(mapping[subject]['konfidenz'], 0):
+            # Hoechste (verbleibende) Konfidenz behalten
+            if KONFIDENZ_ORDER.get(konfidenz, 0) > KONFIDENZ_ORDER.get(mapping[subject]['konfidenz'], 0):
                 mapping[subject]['konfidenz'] = konfidenz
 
         self._subject_mapping = mapping
         total_sectors = sum(len(e['sectors']) for e in mapping.values())
-        logger.info(f"Subject-Mapping geladen: {len(mapping)} Subjects, {total_sectors} Sektor-Zuordnungen")
+        logger.info(
+            f"Subject-Mapping geladen: {len(mapping)} Subjects, {total_sectors} Sektor-Zuordnungen "
+            f"(Min-Konfidenz '{min_konfidenz}', {skipped_low_conf} Zuordnungen unter Schwelle verworfen)"
+        )
         return self._subject_mapping
 
     def _map_subjects_to_sectors(self, legislative_subjects: list) -> tuple[set, str]:
@@ -123,13 +143,12 @@ class VoteTimingTag:
         mapping = self._load_subject_mapping()
         sectors = set()
         best_konfidenz = 'Niedrig'
-        konfidenz_order = {'Hoch': 3, 'Mittel': 2, 'Niedrig': 1}
 
         for subject in legislative_subjects:
             entry = mapping.get(subject)
             if entry:
                 sectors.update(entry['sectors'])
-                if konfidenz_order.get(entry['konfidenz'], 0) > konfidenz_order.get(best_konfidenz, 0):
+                if KONFIDENZ_ORDER.get(entry['konfidenz'], 0) > KONFIDENZ_ORDER.get(best_konfidenz, 0):
                     best_konfidenz = entry['konfidenz']
 
         return sectors, best_konfidenz
