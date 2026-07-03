@@ -11,6 +11,61 @@ Historie abgeschlossener Module/Phasen. **Aktiver WIP-Modul-Stand** steht im „
 
 ---
 
+## 2026-07-02/03 — Codebase-weites Debugging: Intervalle 1–3 (Import-Pipeline, Scoring/Signale, App/Streamlit)
+
+**Motivation:** Systematische Fehlersuche über die produktive Pipeline, das Scoring-System und
+das Streamlit-Dashboard (Branch `agent/new_scoring`); Intervall 4 (Utils/Scripts) läuft separat weiter.
+
+**Intervall 1 — Import-Pipeline** (`scripts/import_trades.py`, `config/settings.py`):
+- BUG-Fix: `Member_Committees` in `trades_master.csv` war immer leer (Master führt nur
+  `Member_Committees_Full`) — neues `CURATED_COALESCE`-Mapping befüllt die Spalte per Coalesce.
+- BUG-Fix (wichtigster): Im Delta-Modus sahen `sequence_signals`/`swarm_signals` nur die neue
+  Delta-Charge — ein Trade, der erst mit einem historischen Master-Trade ein Paar/einen Schwarm
+  bildet, blieb isoliert (`swarm_buy` ist Primärsignal!). Fix: beide Stages laden im Delta-Modus
+  die Master-Historie als Gruppierungs-Kontext (Union, Pattern wie `asset_volume`); nur
+  Delta-Trades erhalten Events/Aggregate. Neuer Helper `_load_signal_history`.
+- Cleanup: `_apply_match_scores` entfernt — `MatchScore`/`MatchSource` werden nicht mehr erzeugt
+  (kein Konsument, doppelter Fuzzy-Match-Durchlauf gespart). `_strip_master_internal`/
+  `MASTER_INTERNAL_COLUMNS` entfernt (schützten vor nie existierender Spalte `api_strategy`).
+
+**Intervall 2 — Scoring & Signale** (`scoring/trade_score.py`, `signals/`):
+- BUG-Fix `swarm_paradox`: Events werden jetzt auch für die auslösenden Cluster-Trades emittiert
+  (vorher nur Gegen-Trades) — Paradox-Dämpfer (`SCORING_PARADOX_DAMPER`) + `paradox_swarm`-Warning
+  erreichen damit erstmals die swarm_buy-Trades.
+- Hard-Gate: `paradox_swarm`-Warning bleibt jetzt auch bei Score 0 in `trade_warnings` sichtbar.
+- `find_swarm_clusters`: Tumbling- → Rolling-Window (verkettete Schwärme über mehrere Sub-Fenster
+  werden jetzt erkannt, vorher am ersten Trade verankert und verpasst). Wirkt auf alle 4
+  Schwarm-Signale (buy/sell/conflict/paradox).
+- `extreme_report` Fast-Trigger mit Untergrenze: `0 <= delay_days <= EXTREME_REPORT_FAST_DAYS`
+  (negativer Delay = Datenfehler triggert nicht mehr).
+- Toter Modul-5-Platzhalter `filter_by_ticker_sector` aus `tags/committee_tag.py` entfernt.
+
+**Intervall 3 — App/Streamlit** (`app/*`, `config/settings.py`):
+- Red-Flag-Ampel im Member-Detail-Popup emoji-frei, Schwellen konfigurierbar
+  (`DETAIL_RED_FLAG_VOTE_TIMING_RATE`, `DETAIL_RED_FLAG_COMMITTEE_FULL_RATE`,
+  `DETAIL_RED_FLAG_OUTPERFORMANCE_PP`).
+- Neu `DETAIL_RELATED_RETURN_COLOR_PCT` (±Schwelle der Grün/Rot-Färbung der Related-Trades-Tabelle
+  im Trade-Detail-Popup).
+- Spaghetti-Highlight-Fix: verwaister session_state-Key (voriges Member-Popup) wird gegen die
+  aktuellen Trajektorien validiert — Doppelklick hebt das Highlight jetzt wirklich auf.
+- AR-Anzeige respektiert jetzt `AR_OUTLIER_MODE='percentile'` im Member-Popup (Quantile über die
+  volle sichtbare Verteilung; Fallback auf absolute Schwellen bei < 2 Werten).
+- Performance: `prefilt` (Trades-/Assets-/Members-Tabs) wird bei aktiven Score-Overrides aus dem
+  einmal rekomputeten `corr_base` abgeleitet statt separat rekomputet (1 statt 2
+  Voll-Recomputes pro Rerun, zeilenidentisches Ergebnis).
+- `scoring_presets.json`-Korruptionsschutz: nicht parsebare Datei wird nach `.bak` gesichert +
+  einmalige UI-Warnung (vorher drohte stiller Totalverlust beim nächsten Speichern).
+- Signal-Ausschluss (Sidebar) neutralisiert Primärsignale jetzt auch im Hard-Gate — schließt der
+  User beide Primärsignale aus, ist das Gate ganz aus (Hint-Scores kommen durch, für
+  Was-wäre-wenn-Analysen).
+- Glossar-Korrektur: `swarm_paradox`-Eintrag beschrieb fälschlich `swarm_buy`.
+
+**Tests:** 1019 passed, 0 failed (Intervall 1: +4 Delta-Kontext-Tests; Intervall 2: +5, zwei
+bestehende bewusst an neues Verhalten angepasst; Intervall 3: +26, zusätzlich unabhängig
+verifiziert — 0 Blocker).
+Doku: `Pipelines.md`, `DATA_STRUCTURE.md`, `Filter_Instanz_Parameter.md`,
+`tool_specific_md/signal_info.md`, `AGENTS.md`.
+
 ## 2026-06-27 — Abnormal Return: Integration in Master + Detail-Popups (Phase 2)
 
 **Motivation:** Das in der Discovery gebaute AR-Lineal (signierter, marktbereinigter BHAR

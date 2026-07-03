@@ -136,10 +136,10 @@ SKIP-Buckets (Options, Bonds, Cash) werden gebypassed.
 
 | Signal | Trigger | scope_key | Event-Form |
 |---|---|---|---|
-| `swarm_buy`  | ≥ `SWARM_MIN_MEMBERS` distinkte Members kaufen denselben Issuer innerhalb `SWARM_WINDOW_DAYS` (Rolling-Greedy-Cluster, Anker = frühester Trade des Clusters) | `{igk}\|buy\|{window_start}` | 1 signal_event_id pro Cluster, N Event-Zeilen (eine pro beteiligtem Trade) |
+| `swarm_buy`  | ≥ `SWARM_MIN_MEMBERS` distinkte Members kaufen denselben Issuer innerhalb `SWARM_WINDOW_DAYS` (**Rolling-Window, Bugfix 2026-07-02** — vorher Tumbling: Trades werden in maximale Läufe zeitlich benachbarter Trades partitioniert, Abstand zum VORHERIGEN Trade ≤ `SWARM_WINDOW_DAYS`; ein Lauf qualifiziert, sobald irgendein gleitendes Teilfenster ≥ `SWARM_MIN_MEMBERS` distinkte Members enthält. Cluster = ganzer verketteter Lauf, disjunkt — verkettete Schwärme über mehrere Sub-Fenster werden jetzt erkannt, vorher am ersten Trade verankert und verpasst) | `{igk}\|buy\|{window_start}` | 1 signal_event_id pro Cluster, N Event-Zeilen (eine pro beteiligtem Trade) |
 | `swarm_sell` | Analog für Sells | `{igk}\|sell\|{window_start}` | wie buy |
 | `swarm_conflict` | Bei aktivem Schwarm: GENAU 1 Gegen-Trade im erweiterten Fenster `[first_swarm - BEFORE, last_swarm + AFTER]`. Selbst-Umkehr (Member im Schwarm dreht später) zählt | `conflict\|{igk}\|{swarm_dir}\|{window_start}` | 1 Event-Zeile pro Konflikt-Trade |
-| `swarm_paradox` | Bei aktivem Schwarm: ≥ `SWARM_PARADOX_MIN_CONFLICTS` Gegen-Trades im erweiterten Fenster. Mutually exclusive zu `swarm_conflict` pro Schwarm-Auslösung | `paradox\|{igk}\|{swarm_dir}\|{window_start}` | 1 signal_event_id mit N Event-Zeilen (eine pro Gegen-Trade) |
+| `swarm_paradox` | Bei aktivem Schwarm: ≥ `SWARM_PARADOX_MIN_CONFLICTS` Gegen-Trades im erweiterten Fenster. Mutually exclusive zu `swarm_conflict` pro Schwarm-Auslösung | `paradox\|{igk}\|{swarm_dir}\|{window_start}` | 1 signal_event_id mit N Event-Zeilen — **Bugfix 2026-07-02:** jetzt auch für die auslösenden Cluster-Trades (nicht mehr nur Gegen-Trades), damit der Paradox-Dämpfer sie im Scoring erreicht; dedupliziert über (trade_id, scope_key) |
 
 **Parameter (`config/settings.py`):**
 
@@ -184,7 +184,7 @@ Pipeline jetzt 16 Stages. 61 Unit-Tests grün. Phase 8.6 (Voll-Pipeline-Smoke-Ru
 
 ### Primär-/Hint-Signalsystem (2026-06-27)
 
-**Primärsignale** (`SCORING_PRIMARY_SIGNALS = ('committee_full', 'swarm_buy')`) sind die einzigen Signale, die per Default den Score bilden. Triggert ein Trade kein Primärsignal, gibt `compute_trade_score` früh `(0, '', '')` zurück — Score 0, leerer Breakdown/Warnings (**Hard-Gate**). Gate ist rückwärts-kompatibel: fehlt/leer `SCORING_PRIMARY_SIGNALS` → Gate aus.
+**Primärsignale** (`SCORING_PRIMARY_SIGNALS = ('committee_full', 'swarm_buy')`) sind die einzigen Signale, die per Default den Score bilden. Triggert ein Trade kein Primärsignal, gibt `compute_trade_score` früh `(0, '', '')` zurück — Score 0, leerer Breakdown/Warnings (**Hard-Gate**). Gate ist rückwärts-kompatibel: fehlt/leer `SCORING_PRIMARY_SIGNALS` → Gate aus. **Warnings-Ausnahme (Bugfix 2026-07-02):** Triggert der Trade `swarm_paradox`, bleibt das `paradox_swarm`-Warning trotz Gate in `trade_warnings` sichtbar — nur Score/Breakdown bleiben 0/leer.
 
 **Hint-Signale** = alle übrigen Signale (`committee`, `floor_action`, `extreme_report`, `contrarian`, `accumulative`, `swarm_sell`, `swarm_conflict`, `trade_volume`). Default-Gewicht 0; beeinflussen den Score nur wenn der Trade zusätzlich ein Primärsignal triggert. Über den UI-Gewichts-Editor vollständig konfigurierbar.
 
@@ -195,10 +195,11 @@ Pipeline jetzt 16 Stages. 61 Unit-Tests grün. Phase 8.6 (Voll-Pipeline-Smoke-Ru
 ### Score-Formel (aktiv)
 
 ```python
-# Hard-Gate (2026-06-27): kein Primärsignal → sofort (0, '', '') zurück.
+# Hard-Gate (2026-06-27): kein Primärsignal → sofort (0, '', ...) zurück.
 # Rückwärts-kompatibel: fehlt/leer SCORING_PRIMARY_SIGNALS → Gate aus.
+# Warnings-Ausnahme (Bugfix 2026-07-02): paradox_swarm bleibt trotz Gate sichtbar.
 if SCORING_PRIMARY_SIGNALS and not (signals_triggered ∩ SCORING_PRIMARY_SIGNALS):
-    return (0, '', '')
+    return (0, '', 'paradox_swarm' if 'swarm_paradox' in signals_triggered else '')
 
 swarm_signals = {'swarm_buy', 'swarm_sell', 'swarm_conflict'}
 
