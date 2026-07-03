@@ -205,7 +205,7 @@ Foreign Affairs Committees mit schwacher Sektor-Zuordnung
 **Format**: CSV
 **Größe**: 99 KB
 **Zeilen**: 862 (861 Mappings + Header)
-**Generierung**: `python scripts/convert_xlsx_to_csv.py`
+**Generierung**: durch den Committee-Mapping-Agent (`scripts/committee_mapping_agent/`, s. Abschnitt 3a); das fruehere `scripts/convert_xlsx_to_csv.py` wurde entfernt (Debug-Intervall 4)
 
 **Spalten**: Gleich wie Industry_Mapping Sheet (siehe oben)
 
@@ -1807,14 +1807,11 @@ unter dem `confidence`-Key.
 
 ## Datei-Generierung
 
-### CSV aus xlsx erzeugen:
-```bash
-cd congress_tracker
-.\venv\Scripts\activate
-python scripts/convert_xlsx_to_csv.py
-```
+### CSV aus xlsx erzeugen (Skript entfernt, Debug-Intervall 4):
+Das fruehere `scripts/convert_xlsx_to_csv.py` existiert nicht mehr; der
+Mapping-Master kommt vom Committee-Mapping-Agent (Abschnitt 3a).
 
-Erzeugt:
+Erzeugte damals:
 - `yf_sectors_with_industries.csv`
 - `subcommittee_sector_industry_mapping.csv`
 - `subcommittee_region_mapping.csv`
@@ -1963,32 +1960,11 @@ Legislative Subjects listen alle Themen explizit auf und erfassen auch Rider.
 
 ---
 
-### `config/vote_sector_mapping.py`
-**Quelle**: Manuell erstellt (basierend auf `organisation/modul6_mapping.md`)
-**Format**: Python-Modul
-
-**Inhalt**:
-- `POLICY_AREA_TO_SECTORS` — 12 sichere Mappings: Policy Area → [YF-Sektoren]
-- `AGENT_REQUIRED_POLICY_AREAS` — 3 kontextabhaengige Areas (fuer spaetere AI-Agent-Integration)
-- `SYSTEMIC_POLICY_AREAS` — 6 systemische Areas (Steuer, Aussenpolitik, etc.)
-- `IRRELEVANT_POLICY_AREAS` — 10 wirtschaftlich irrelevante Areas
-
-**Hilfsfunktionen**:
-- `get_relevant_sectors(policy_area)` → Liste von Sektoren
-- `is_sector_relevant(policy_area, trade_sector)` → bool
-- `get_unmapped_policy_areas()` → Liste fuer AI-Agent
-- `get_mapping_coverage()` → Statistiken (aktuell ~38.7% der bekannten Areas)
-
-**Abdeckung**: 12/31 bekannte Policy Areas = 38.7% fest gemappt.
-Erweiterung durch AI-Agent geplant (analysiert bill_title + summary fuer unmapped Areas).
-
----
-
 ### `tags/vote_timing_tag.py`
 **Klasse**: `VoteTimingTag` (User-Sicht „Filter 4")
 
 **Methoden**:
-- `load_votes()` → laedt congress_votes.csv
+- `load_votes()` → laedt Vote-Daten aus `bill_actions.json`/`bill_subjects.json`
 - `apply(trades_df, votes_df)` → reichert DataFrame mit Vote_Timing_* Spalten an
 
 **Matching-Logik**:
@@ -2011,16 +1987,9 @@ existieren nicht mehr — alle Treffer liegen jetzt in `Vote_Timing_Hits`.
 
 ## Zukünftige Erweiterungen
 
-### AI-Agent fuer Vote-Sektor-Mapping
-**Zweck**: `AGENT_REQUIRED_POLICY_AREAS` klassifizieren (Commerce, Crime, Gov. Operations)
-**Input**: bill_title + bill_summary + trade_sector
-**Output**: {relevant: bool, confidence: 0-1, sectors: [...], reason: str}
-**Vorbereitung**: `get_unmapped_policy_areas()` in vote_sector_mapping.py bereit
-
 ### Senate-Vote-Parsing
 **Zweck**: Senate-Votes aus XML-Roll-Call-Dateien parsen
 **Quelle**: clerk.senate.gov XML-Dateien (separater Endpoint)
-**Vorbereitung**: `chamber='Senate'` in congress_votes.csv-Schema vorgesehen
 
 ### Modul 5: Ticker → Sector Lookup
 **Benoetigt**:

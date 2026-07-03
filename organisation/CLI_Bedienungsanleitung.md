@@ -437,20 +437,11 @@ Schreibt die **Diagnose-CSV** `data/processed/manual_review_tickers.csv` neu —
 
 ---
 
-## 4. XLSX → CSV Konvertierung
+## 4. XLSX → CSV Konvertierung (entfernt)
 
-**Datei:** `scripts/convert_xlsx_to_csv.py`
-**Zweck:** Konvertiert die xlsx-Mapping-Dateien in CSVs (nach manuellen Änderungen an den xlsx-Dateien)
-**Keine Argumente** – Script läuft einfach durch
-
-```bash
-python scripts/convert_xlsx_to_csv.py
-```
-
-**Konvertiert:**
-- `data/raw/yf_secotors_with_industries.xlsx` → `data/raw/yf_sectors_with_industries.csv`
-- `data/raw/subcommittee_sector_industry_mapping_v3.xlsx` (Sheet: Industry_Mapping) → `data/raw/subcommittee_sector_industry_mapping.csv`
-- `data/raw/subcommittee_sector_industry_mapping_v3.xlsx` (Sheet: Region_Mapping) → `data/raw/subcommittee_region_mapping.csv`
+`scripts/convert_xlsx_to_csv.py` wurde im Debug-Intervall 4 entfernt (Input-xlsx
+existieren nicht mehr; der Mapping-Master `subcommittee_sector_industry_mapping.csv`
+wird heute vom Committee-Mapping-Agent erzeugt, s. Abschnitt 15).
 
 ---
 
@@ -925,7 +916,7 @@ im Archiv-Ordner für Wiederherstellung.
 
 **Geschützte Mappings (nie betroffen):** `name_aliases.csv`,
 House/Senate Member-CSVs, Subcommittee-Mappings, `yf_sectors_with_industries.csv`,
-`vote_sector_mapping.py`, `logs/house_pdf_extractor_done.csv` (State).
+`logs/house_pdf_extractor_done.csv` (State).
 
 ---
 
@@ -1046,7 +1037,6 @@ python -m pytest scripts/committee_mapping_agent/tests/
 | Senate Scraper | `python scrapers/senate_scraper.py` | Senate-Trades scrapen |
 | Senate PDF Extractor | `python scrapers/senate_pdf_extractor.py` | Paper-PTRs via OCR |
 | Import Pipeline | `python scripts/import_trades.py` | Trades anreichern (Name-Match + Committees) |
-| XLSX → CSV | `python scripts/convert_xlsx_to_csv.py` | Mapping-CSVs aktualisieren |
 | Senate Diagnose | `python scripts/diagnose_scraper.py` | Scraper-Tests |
 | House Committee Parser | `python scrapers/house_pdf_parsing_tool/parse_house_committee_pdf.py --pdf ...` | House Committee PDF (scsoal.pdf) → F2-Roster |
 | Senate Committee XML Fetch | `python scrapers/senate_committee_xml/fetch_senate_xml.py` | Senate-Committee-XML-Snapshots aktualisieren |
