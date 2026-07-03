@@ -59,7 +59,12 @@ RELEVANT_SECTORS_MATCH_MODE = 'sector_and_industry'
 CONGRESS_API_KEY = os.getenv('CONGRESS_API_KEY', '')
 VOTE_TIMING_WINDOW_BEFORE = 30     # Trade max X Tage VOR Abstimmung
 VOTE_TIMING_WINDOW_AFTER  = 5      # Trade max X Tage NACH Abstimmung
-VOTE_MIN_POLICY_CONFIDENCE = 0.7   # Min-Konfidenz fuer Sektor-Match
+# Mindest-Konfidenz fuer Subject->Sektor-Zuordnungen aus
+# LEGISLATIVE_SUBJECT_MAPPING_FILE (Spalte 'konfidenz'). Zeilen (Subject-Sektor-
+# Paare) mit niedrigerer Konfidenz werden beim Laden des Mappings verworfen.
+# Skala aufsteigend: 'Niedrig' < 'Mittel' < 'Hoch'. 'Niedrig' = kein Filter
+# (alle Zuordnungen). Ungueltige Werte -> ValueError (fail-loud) beim Laden.
+VOTE_MIN_SUBJECT_CONFIDENCE = 'Niedrig'
 VOTE_CONGRESS_NUMBER      = 119    # Ab welchem Kongress Daten laden (119th = 2025-2027)
 LEGISLATIVE_SUBJECT_MAPPING_FILE = 'legislative_subject_mapping_complete.csv'
 BILL_SUBJECTS_FILE = 'bill_subjects.json'
