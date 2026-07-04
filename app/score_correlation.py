@@ -16,7 +16,6 @@ from __future__ import annotations
 import math
 import re
 
-import numpy as np
 import pandas as pd
 
 
@@ -54,25 +53,19 @@ def correlation_stats(scores: pd.Series, returns: pd.Series) -> dict:
     }
 
 
-def score_bucket_returns(df: pd.DataFrame, score_col: str, ret_col: str,
-                         n_buckets: int) -> pd.DataFrame:
-    """Mittlerer/median Return je gleich breitem Score-Intervall.
+def score_bucket_returns(df: pd.DataFrame, score_col: str,
+                         ret_col: str) -> pd.DataFrame:
+    """Mittlerer/median Return je Score-Bucket mit Sonder-Bucket ``0``.
 
-    Teilt die Score-Spanne ``[min, max]`` in ``n_buckets`` **gleich breite,
-    ganzzahlige** Intervalle (``pd.cut`` — bewusst KEINE Quantile/``qcut``):
-    die Bucket-Anzahl entspricht damit immer der Auswahl und die Intervalle
-    sind gleich breit, unabhaengig davon, wie viele Trades je Bucket fallen
-    (Datenanteil irrelevant). Leere Buckets bleiben als Balken erhalten
+    Score ``0`` (Hard-Gate: kein Primaersignal -> ``trade_score = 0``) bildet
+    ein **eigenes** Bucket, damit unverdaechtige Trades nicht mit gescorten
+    Trades vermischt werden. Alle Scores ``> 0`` werden in **feste 5er-Schritte**
+    gruppiert: ``1–5``, ``6–10``, ``11–15`` usw. (Intervall ``((k-1)*5, k*5]``).
+    Leere Buckets bis zum Maximum bleiben als Balken erhalten
     (``mean/median = NaN``). Liefert DataFrame mit Spalten ``[bucket, n,
     mean_return, median_return, score_min, score_max]`` in aufsteigender
-    Score-Reihenfolge; ``bucket`` ist ein disjunktes Integer-Label aus den
-    Bin-Grenzen, ``score_min/score_max`` sind die tatsaechlichen Daten-Werte
-    je Bucket (fuer den Hover).
-
-    Bei kollabierter Spanne (alle Scores gleich) entsteht ein Sammel-Bucket.
-    Ist die Score-Spanne kleiner als ``n_buckets`` Integer-Schritte, fallen
-    Bin-Grenzen zusammen (``np.unique``) -> dann weniger Buckets als gewuenscht
-    (bei ganzzahligen Grenzen unvermeidbar).
+    Score-Reihenfolge; ``score_min/score_max`` sind die tatsaechlichen
+    Daten-Werte je Bucket (fuer den Hover).
     """
     cols = ['bucket', 'n', 'mean_return', 'median_return',
             'score_min', 'score_max']
@@ -83,22 +76,20 @@ def score_bucket_returns(df: pd.DataFrame, score_col: str, ret_col: str,
     if work.empty:
         return pd.DataFrame(columns=cols)
 
-    lo = int(math.floor(work['score'].min()))
-    hi = int(math.ceil(work['score'].max()))
-    n = max(1, int(n_buckets))
-    # Ganzzahlige, gleich breite Bin-Grenzen. np.unique faengt zu kleine
-    # Spannen ab (dann < n_buckets Buckets) und garantiert streng steigende
-    # Grenzen.
-    edges = np.unique(np.round(np.linspace(lo, hi, n + 1)).astype(int))
+    def _label(s: float) -> str:
+        if s <= 0:
+            return '0'
+        k = int(math.ceil(s / 5.0))          # 0<s<=5 -> 1, 5<s<=10 -> 2, ...
+        return f'{(k - 1) * 5 + 1}–{k * 5}'
 
-    if edges.size < 2:
-        # Score-Spanne kollabiert (alle Werte gleich) -> ein Sammel-Bucket.
-        work['bucket'] = 'all'
-        grp = work.groupby('bucket', observed=True)
-    else:
-        # observed=False -> leere Buckets bleiben als Balken erhalten.
-        work['bucket'] = pd.cut(work['score'], bins=edges, include_lowest=True)
-        grp = work.groupby('bucket', observed=False)
+    hi = float(work['score'].max())
+    kmax = int(math.ceil(hi / 5.0)) if hi > 0 else 0
+    # Feste, lueckenlose Kategorienreihe -> leere Buckets bleiben als Balken.
+    cats = ['0'] + [f'{(k - 1) * 5 + 1}–{k * 5}' for k in range(1, kmax + 1)]
+
+    work['bucket'] = pd.Categorical(
+        work['score'].map(_label), categories=cats, ordered=True)
+    grp = work.groupby('bucket', observed=False)
 
     out = grp.agg(
         n=('ret', 'size'),
@@ -106,20 +97,8 @@ def score_bucket_returns(df: pd.DataFrame, score_col: str, ret_col: str,
         median_return=('ret', 'median'),
         score_min=('score', 'min'),
         score_max=('score', 'max'),
-    ).reset_index(drop=True)
-
-    if edges.size < 2:
-        out['bucket'] = f'{lo}'
-    else:
-        # Disjunkte, lueckenlose Integer-Labels aus den Bin-Grenzen. Bucket i
-        # umfasst die Integer (edges[i]+1 .. edges[i+1]]; das erste Intervall
-        # ist wegen include_lowest unten geschlossen (edges[0] .. edges[1]).
-        labels = []
-        for i in range(edges.size - 1):
-            left = int(edges[i]) if i == 0 else int(edges[i]) + 1
-            right = int(edges[i + 1])
-            labels.append(f'{left}' if left == right else f'{left}–{right}')
-        out['bucket'] = labels
+    ).reset_index()
+    out['bucket'] = out['bucket'].astype(str)
     return out[cols]
 
 

@@ -668,10 +668,9 @@ RECENT_PRICE_MAX_AGE_BUSINESS_DAYS = 1
 # Daten) und nutzen die Horizonte aus POST_TRADE_HORIZONS_DAYS.
 # Default-Horizont X (Tage); muss in POST_TRADE_HORIZONS_DAYS enthalten sein.
 SCORE_CORR_DEFAULT_HORIZON_DAYS = 180
-# Im "Score-Analyse"-Tab waehlbare Bucket-Anzahl: Anzahl gleich breiter
-# Score-Intervalle (pd.cut ueber die trade_score-Spanne), NICHT Quantile.
-SCORE_CORR_BUCKET_OPTIONS = [3, 4, 5, 10]
-SCORE_CORR_BUCKET_DEFAULT = 5
+# Score-Buckets im "Score-Analyse"-Tab: fixes Schema — Score 0 (Hard-Gate: kein
+# Primaersignal) als eigenes Bucket, alle Scores > 0 in festen 5er-Schritten
+# (1–5, 6–10, ...). Keine konfigurierbare Bucket-Anzahl mehr.
 # Scatter-Performance: Hoechstzahl gezeichneter Punkte (Sample-Cap, da der
 # Master ~90k auswertbare Trades hat) und Punkt-Opazitaet. Die Kennzahlen
 # (Spearman/Pearson/n) werden IMMER ueber die volle Stichprobe gerechnet —
