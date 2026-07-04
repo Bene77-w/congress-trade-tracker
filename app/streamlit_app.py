@@ -2081,7 +2081,7 @@ with tab_analysis:
         if 'chamber' in corr_base.columns else []
     parties = sorted(p for p in corr_base['Member_Party'].dropna().unique()) \
         if 'Member_Party' in corr_base.columns else []
-    cc1, cc2, cc3, cc4 = st.columns(4)
+    cc1, cc3, cc4 = st.columns(3)
     with cc1:
         an_horizon = st.selectbox(
             _scope_label('Horizont X (Tage)', 'tab'), _HORIZON_OPTS,
@@ -2090,16 +2090,6 @@ with tab_analysis:
             key='an_horizon',
             help=_scope_help('tab', 'Unabhaengig vom globalen '
                              'Primaer-Horizont der Sidebar.'),
-        )
-    with cc2:
-        n_buckets = st.selectbox(
-            'Score-Buckets (gleich breit)',
-            list(settings.SCORE_CORR_BUCKET_OPTIONS),
-            index=list(settings.SCORE_CORR_BUCKET_OPTIONS).index(
-                settings.SCORE_CORR_BUCKET_DEFAULT)
-            if settings.SCORE_CORR_BUCKET_DEFAULT
-            in settings.SCORE_CORR_BUCKET_OPTIONS else 0,
-            key='corr_an_buckets',
         )
     with cc3:
         sel_chambers = st.multiselect('Kammer', chambers, default=chambers,
@@ -2172,8 +2162,7 @@ with tab_analysis:
     if mat.empty:
         st.info('Keine auswertbaren Trades fuer die aktuelle Auswahl.')
     else:
-        bk = score_corr.score_bucket_returns(mat, 'trade_score', rc,
-                                             int(n_buckets))
+        bk = score_corr.score_bucket_returns(mat, 'trade_score', rc)
         if bk.empty:
             st.info('Keine Buckets bildbar.')
         else:
@@ -2188,7 +2177,7 @@ with tab_analysis:
                 marker_color='#1f77b4',
             ))
             fig_b.update_layout(
-                xaxis_title='trade_score-Bucket (gleich breit)',
+                xaxis_title='trade_score-Bucket (0 separat, dann 5er-Schritte)',
                 yaxis_title=f'Ø post_return_{an_horizon}d (%)',
                 height=400, margin=dict(l=10, r=10, t=10, b=10),
             )

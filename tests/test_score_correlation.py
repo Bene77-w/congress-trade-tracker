@@ -65,54 +65,55 @@ def test_correlation_stats_too_few_points_is_nan():
 
 # --- score_bucket_returns -------------------------------------------------
 
-def test_score_bucket_returns_equal_width_exact_count_and_sums():
-    # Gleich breite Intervalle: Spanne [0, 30], 5 Buckets -> Grenzen
-    # 0/6/12/18/24/30. Bucket 13–18 bleibt leer (kein Score dort), muss aber
-    # als Balken erhalten bleiben -> exakt 5 Buckets, n summiert auf 10.
+def test_score_bucket_returns_zero_is_own_bucket_then_5steps():
+    # Score 0 muss ein EIGENES Bucket sein (nicht mit 1–5 vermischt). Danach
+    # feste 5er-Schritte bis zum Maximum; leere Zwischen-Buckets bleiben als
+    # Balken erhalten. Max=13 -> kmax=3 -> Buckets 0 / 1–5 / 6–10 / 11–15.
     df = pd.DataFrame({
-        'trade_score': [0, 0, 0, 0, 10, 10, 20, 20, 30, 30],
-        'post_return_180d': [1, -2, 3, 0, 5, 4, 8, 6, 12, 10],
+        'trade_score': [0, 0, 0, 5, 3, 10, 13],
+        'post_return_180d': [1, -2, 3, 5, 4, 8, 12],
     })
-    out = score_bucket_returns(df, 'trade_score', 'post_return_180d', 5)
-    assert len(out) == 5
-    assert out['n'].sum() == 10
-    # Disjunkte, lueckenlose Integer-Labels aus den Bin-Grenzen.
-    assert list(out['bucket']) == ['0–6', '7–12', '13–18', '19–24', '25–30']
-    # Der mittlere Bucket ist leer (n=0, Return NaN), bleibt aber als Balken.
-    empty = out.iloc[2]
-    assert empty['n'] == 0
-    assert math.isnan(empty['mean_return'])
+    out = score_bucket_returns(df, 'trade_score', 'post_return_180d')
+    assert list(out['bucket']) == ['0', '1–5', '6–10', '11–15']
+    assert out['n'].sum() == 7
+    # Bucket 0: nur die drei Nuller-Trades.
+    z = out.iloc[0]
+    assert z['n'] == 3
+    assert math.isclose(z['mean_return'], (1 - 2 + 3) / 3)
+    # Bucket 1–5 enthaelt Score 5 und 3, aber NICHT die Nuller.
+    b15 = out.iloc[1]
+    assert b15['n'] == 2
+    assert b15['score_min'] == 3 and b15['score_max'] == 5
     assert set(['bucket', 'n', 'mean_return', 'median_return',
                 'score_min', 'score_max']).issubset(out.columns)
 
 
-def test_score_bucket_returns_equal_width_buckets_are_equal_span():
-    # Reine Wert-Spanne ohne Bindung: 0..9, 3 Buckets -> gleich breite Grenzen
-    # 0/3/6/9, Labels 0–3 / 4–6 / 7–9; Datenanteil pro Bucket irrelevant.
+def test_score_bucket_returns_step_boundaries():
+    # 5 gehoert zu 1–5, 6 zu 6–10 (Intervall ((k-1)*5, k*5]).
     df = pd.DataFrame({
-        'trade_score': list(range(10)),
-        'post_return_180d': list(range(10)),
+        'trade_score': [5, 6],
+        'post_return_180d': [1, 2],
     })
-    out = score_bucket_returns(df, 'trade_score', 'post_return_180d', 3)
-    assert len(out) == 3
-    assert list(out['bucket']) == ['0–3', '4–6', '7–9']
-    assert out['n'].sum() == 10
+    out = score_bucket_returns(df, 'trade_score', 'post_return_180d')
+    by = dict(zip(out['bucket'], out['n']))
+    assert by['1–5'] == 1
+    assert by['6–10'] == 1
 
 
-def test_score_bucket_returns_single_value_collapses():
+def test_score_bucket_returns_all_zero():
     df = pd.DataFrame({
-        'trade_score': [5, 5, 5, 5],
+        'trade_score': [0, 0, 0, 0],
         'post_return_180d': [1, 2, 3, 4],
     })
-    out = score_bucket_returns(df, 'trade_score', 'post_return_180d', 5)
-    assert len(out) == 1
+    out = score_bucket_returns(df, 'trade_score', 'post_return_180d')
+    assert list(out['bucket']) == ['0']
     assert out.iloc[0]['n'] == 4
     assert math.isclose(out.iloc[0]['mean_return'], 2.5)
 
 
 def test_score_bucket_returns_empty_input():
     df = pd.DataFrame({'trade_score': [np.nan], 'post_return_180d': [np.nan]})
-    out = score_bucket_returns(df, 'trade_score', 'post_return_180d', 5)
+    out = score_bucket_returns(df, 'trade_score', 'post_return_180d')
     assert out.empty
 
 
