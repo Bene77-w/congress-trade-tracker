@@ -2088,7 +2088,12 @@ with tab_analysis:
             index=(_HORIZON_OPTS.index(_HORIZON_DEFAULT)
                    if _HORIZON_DEFAULT in _HORIZON_OPTS else 0),
             key='an_horizon',
-            help=_scope_help('tab', 'Unabhaengig vom globalen '
+            help=_scope_help('tab', 'Waehlt die Return-Spalte '
+                             'post_return_{X}d — den vorzeichenbehafteten '
+                             'Objective Return X Tage nach dem '
+                             'transaction_date. Bestimmt, gegen welchen Return '
+                             'ALLE Kennzahlen dieses Tabs den trade_score '
+                             'auswerten. Unabhaengig vom globalen '
                              'Primaer-Horizont der Sidebar.'),
         )
     with cc3:

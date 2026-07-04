@@ -53,7 +53,7 @@ Return-Spalten — „positiv" bedeutet immer „gutes Timing".
 
 | Aspekt | `compute_post_trade_returns` (historisch) | `compute_paper_returns` (Mark-to-Market) |
 |---|---|---|
-| **Was** | Baseline + feste Horizonte (30/60/90/120/180d) + Exit-Detection + realisierter Return | Aktueller Papier-Gewinn/-Verlust offener Positionen |
+| **Was** | Baseline + feste Horizonte (30/60/90/120/180/270/365d) + Exit-Detection + realisierter Return | Aktueller Papier-Gewinn/-Verlust offener Positionen |
 | **Welche Trades** | alle *post-trade-applicable* Trades des übergebenen Frames | nur Trades mit `transaction_date ≥ heute − 180 Tage` (`RECENT_MONITORING_WINDOW_DAYS`) |
 | **Baseline (Nenner)** | gespeichert: erster Close ≥ `transaction_date` | **live aus aktuellem Cache** neu abgeleitet (erster Close ≥ `transaction_date`) |
 | **Zähler** | Close zum Horizont X bzw. am Exit-Datum | jüngster verfügbarer Close |
@@ -88,14 +88,16 @@ zum NetworkCanary-gestützten Marker-Schema: `organisation/Briefing_stage_post_t
 > Normal-Lauf alle applicable Ticker, im `--delta`-Lauf die Ticker aus *History ∪ Delta* (Historie
 > nötig fürs Exit-Detection-Fenster) bzw. fürs Mark-to-Market die Recent-Ticker.
 >
-> **Tägliches Refetch-Fenster (`POST_TRADE_REFRESH_WINDOW_DAYS = 199`):** Der tägliche TTL-1-Refresh
+> **Tägliches Refetch-Fenster (`POST_TRADE_REFRESH_WINDOW_DAYS = 384`):** Der tägliche TTL-1-Refresh
 > innerhalb von `compute_post_trade_returns` ist auf Ticker begrenzt, bei denen mindestens eine
-> Position mit `transaction_date ≥ heute − 199` existiert (199 = max(POST_TRADE_HORIZONS_DAYS)=180
-> + 19 Tage Puffer). Ältere Positionen haben finale Horizont-Metriken; ihre bereits gecachten
+> Position mit `transaction_date ≥ heute − 384` existiert (384 = max(POST_TRADE_HORIZONS_DAYS)=365
+> + 19 Tage Puffer; das Fenster muss ≥ größtem Horizont sein, sonst fiele eine Position genau
+> dann aus dem Refetch, wenn ihr Close am größten Horizont erstmals verfügbar wird → `post_return_365d`
+> bliebe NaN). Ältere Positionen haben finale Horizont-Metriken; ihre bereits gecachten
 > Preise werden nicht neu geladen. **Nicht-gecachte Ticker werden weiterhin immer geladen**
 > (Full-Rebuild-Erstbefüllung bleibt vollständig). `None` = altes Verhalten (alle fälligen
 > Ticker refetchen). Das Fenster ist bewusst von der Horizont-Liste entkoppelt — die
-> Horizont-Spalten (30/60/90/120/180d) bleiben unverändert.
+> Horizont-Spalten (30/60/90/120/180/270/365d) bleiben unverändert.
 >
 > **Abgrenzung Mark-to-Market:** `paper_return_pct` (`compute_paper_returns`,
 > `cutoff_date=last_bday`) bleibt tagesaktuell und ist **nicht** vom Refetch-Fenster

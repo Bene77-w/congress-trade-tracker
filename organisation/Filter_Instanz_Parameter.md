@@ -101,7 +101,7 @@ Dies ist eine reine Daten-Anreicherung (Pipeline Stage 9) — fliesst NICHT in d
 
 | Konstante | Default | Bedeutung |
 |---|---|---|
-| `POST_TRADE_HORIZONS_DAYS` | `[30, 60, 90, 120, 180]` | Tage nach `transaction_date`, fuer die Preis-Snapshots erfasst werden. Anpassbar — Spalten `post_price_{X}d` / `post_return_{X}d` werden dynamisch erzeugt. **Neu (2026-06-04):** 180-Tage-Horizont hinzugefügt. |
+| `POST_TRADE_HORIZONS_DAYS` | `[30, 60, 90, 120, 180, 270, 365]` | Tage nach `transaction_date`, fuer die Preis-Snapshots erfasst werden. Anpassbar — Spalten `post_price_{X}d` / `post_return_{X}d` werden dynamisch erzeugt. **Neu (2026-07-04):** 270- und 365-Tage-Horizont hinzugefügt (Refetch-Fenster 199→384). |
 | `EXIT_DETECTION_WINDOW_DAYS` | `None` | **Neu (2026-06-04):** Exit-Fenster für Gegengeschäft-Suche. `None` = unbegrenzt (durchsucht alle nachfolgenden Trades). Integer = Cap in Tagen (z.B. 365 = sucht nur bis zu 1 Jahr nach dem Eröffnungs-Trade). **WICHTIG:** Entkoppelt vom Return-Horizont — Return-Snapshots bleiben an die `POST_TRADE_HORIZONS_DAYS` gebunden. Das Exit-Fenster bestimmt NUR, wie weit die Exit-Detection nach gegensätzlichen Trades sucht. |
 | `POST_TRADE_PRICE_CACHE` | `'data/cache/price_history.parquet'` | Pfad zum yfinance-Preis-Cache |
 | `POST_TRADE_PRICE_FETCH_YEARS` | `5` | yfinance `period` beim Erstabruf pro Ticker |
@@ -321,7 +321,7 @@ trade_score  = round(swarm_part + other_part + volume_part + bonus)
 
 | Konstante | Default | Bedeutung |
 |---|---|---|
-| `POST_TRADE_HORIZONS_DAYS` | `[30, 60, 90, 120]` | Zeithorizonte in Tagen fuer Preis-Lookups nach `transaction_date` |
+| `POST_TRADE_HORIZONS_DAYS` | `[30, 60, 90, 120, 180, 270, 365]` | Zeithorizonte in Tagen fuer Preis-Lookups nach `transaction_date` |
 | `POST_TRADE_EXIT_AMOUNT_TOLERANCE` | `0.0` | Toleranz in USD fuer Exit-Schwellwert (Summe gegensaetzlicher Trades) |
 | `POST_TRADE_PRICE_CACHE` | `data/cache/price_history.parquet` | Pfad zum yfinance-Preis-Cache (Parquet, MultiIndex) |
 | `POST_TRADE_PRICE_FETCH_YEARS` | `5` | Anzahl Jahre Daily-Close-Daten, die pro Ticker von yfinance geholt werden |
