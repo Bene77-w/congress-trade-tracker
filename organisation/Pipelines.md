@@ -440,15 +440,16 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
     **Sub-Phase A: Post-Trade Returns (historische Performance geschlossener Positionen)**
     → scoring/post_trade_returns.compute_post_trade_returns(df, horizons_days, exit_window_days, cache_path)
     → Spalten (19 = 16 bisher + 3 neu: post_price_180d, post_return_180d, first_close_offset_days):
-      post_trade_baseline_price, post_price_30d/60d/90d/120d/180d,
-      post_return_30d/60d/90d/120d/180d, first_close_offset_days, exit_status, exit_date, exit_price,
+      post_trade_baseline_price, post_price_30d/60d/90d/120d/180d/270d/365d,
+      post_return_30d/60d/90d/120d/180d/270d/365d, first_close_offset_days, exit_status, exit_date, exit_price,
       exit_amount_max_usd, effective_return_pct, effective_return_horizon_days,
       opposing_trade_ids
     → **Exit-Fenster-Entkopplung (2026-06-04):**
         - Settings.EXIT_DETECTION_WINDOW_DAYS (Default None=unbegrenzt) entkoppelt vom Return-Horizont
         - Exit-Suche nutzt exit_window_days (kann >120 Tage sein oder unbegrenzt)
         - Return-Snapshots bleiben an POST_TRADE_HORIZONS_DAYS gebunden
-        - 180-Tage-Horizont hinzugefuegt (dynamisch mit POST_TRADE_HORIZONS_DAYS)
+        - Horizonte 270d + 365d hinzugefuegt (2026-07-04, dynamisch mit POST_TRADE_HORIZONS_DAYS;
+          Refetch-Fenster POST_TRADE_REFRESH_WINDOW_DAYS 199→384 = 365+19 Puffer)
         - Neue Spalte first_close_offset_days: Tage bis ERSTEM Gegen-Trade (Hilfe für Sichtbarkeitsfilter)
     → **Semantik held→NaN (2026-06-04):**
         - effective_return_pct: Nur bei closed_* gesetzt; held/delisted/unknown/not_applicable → NaN

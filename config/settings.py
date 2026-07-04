@@ -532,7 +532,7 @@ ARCHIVE_BACKUP_PATH = 'archive/trades_master_backup'
 # Post-Trade Returns (Modul 9.x — Historische Insider-Detection)
 # ---------------------------------------------------------------------------
 # Horizont-Tage nach dem Trade, an denen Close-Preise gezogen werden.
-POST_TRADE_HORIZONS_DAYS = [30, 60, 90, 120, 180]
+POST_TRADE_HORIZONS_DAYS = [30, 60, 90, 120, 180, 270, 365]
 # Exit-Detection-Fenster — ENTKOPPELT vom Return-Horizont (war faelschlich an
 # max(POST_TRADE_HORIZONS_DAYS) gekoppelt). None = unbegrenzt (gesamter
 # Datensatz), int = Cap in Tagen. Findet den ECHTEN Close -> realisierter
@@ -553,11 +553,12 @@ POST_TRADE_PRICE_CACHE_TTL_DAYS = 1
 # bereits gecachten Preise werden NICHT mehr neu geladen. Ticker, die noch GAR
 # NICHT im Cache sind, werden weiterhin IMMER geladen (Full-Rebuild-Erstbefuellung
 # bleibt vollstaendig). None = altes Verhalten (alle faelligen Ticker refetchen).
-# 199 = max(POST_TRADE_HORIZONS_DAYS) (180) + 19 Tage Puffer: robust gegen einen
-# verpassten Lauf am Horizont-Grenztag (sonst koennte post_return_180d NaN
-# bleiben, bis ein Full-Rebuild heilt). Bewusst ENTKOPPELT vom Horizont — die
-# Horizont-Spalten (30/60/90/120/180) bleiben davon unberuehrt.
-POST_TRADE_REFRESH_WINDOW_DAYS = 199
+# 384 = max(POST_TRADE_HORIZONS_DAYS) (365) + 19 Tage Puffer: robust gegen einen
+# verpassten Lauf am Horizont-Grenztag (sonst koennte post_return_365d NaN
+# bleiben, bis ein Full-Rebuild heilt). Das Fenster MUSS >= groesster Horizont
+# sein, sonst faellt eine Position genau dann aus dem Refetch, wenn ihr Close am
+# groessten Horizont erstmals verfuegbar wird.
+POST_TRADE_REFRESH_WINDOW_DAYS = 384
 # Toleranz fuer Exit-Schwelle (0.0 = strikt; 0.1 = 10% Unterdeckung erlaubt).
 POST_TRADE_EXIT_AMOUNT_TOLERANCE = 0.0
 # Inkrementelles Cache-Flushing: alle N erfolgreich gefetchte Ticker zwischenspeichern.

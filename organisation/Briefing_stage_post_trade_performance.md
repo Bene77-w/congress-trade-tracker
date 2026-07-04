@@ -17,17 +17,18 @@ Der orchestrierte `--delta`-Lauf rechnet `compute_post_trade_returns` über den 
 kombinierten Master (History ∪ Delta). Mit TTL=1 erzwingt jeder tägliche Lauf
 tagesaktuelle Preise für Horizont-Backfill-Ticker — statt bisher nur ca. wöchentlich.
 
-### Neues Setting `POST_TRADE_REFRESH_WINDOW_DAYS = 199`
+### Setting `POST_TRADE_REFRESH_WINDOW_DAYS = 384`
 Begrenzt den täglichen TTL-1-Refresh in `compute_post_trade_returns` auf Ticker mit
-mindestens einer Position, deren `transaction_date ≥ heute − 199` liegt
-(199 = max(POST_TRADE_HORIZONS_DAYS)=180 + 19 Tage Puffer gegen einen verpassten
-Horizont-Grenztag). Ältere Positionen haben finale Horizont-Metriken — ihre bereits
-gecachten Preise werden nicht neu geladen.
+mindestens einer Position, deren `transaction_date ≥ heute − 384` liegt
+(384 = max(POST_TRADE_HORIZONS_DAYS)=365 + 19 Tage Puffer gegen einen verpassten
+Horizont-Grenztag; ursprünglich 199 bei max. Horizont 180, mit den Horizonten
+270/365 am 2026-07-04 auf 384 angehoben). Ältere Positionen haben finale
+Horizont-Metriken — ihre bereits gecachten Preise werden nicht neu geladen.
 
 **Drei Kategorien im Refresh:**
 - Ticker **noch nicht im Cache** → werden **immer** geladen (Erstbefüllung bleibt vollständig).
-- Ticker **stale und mit Position ≥ heute−199** → werden refetcht.
-- Ticker **stale, aber alle Positionen älter als 199d** → werden **nicht** refetcht.
+- Ticker **stale und mit Position ≥ heute−384** → werden refetcht.
+- Ticker **stale, aber alle Positionen älter als 384d** → werden **nicht** refetcht.
 
 **Abgrenzung:** `compute_paper_returns` (Mark-to-Market `paper_return_pct`,
 `cutoff_date=last_bday`) ist **nicht** vom Fenster gegated — es bleibt für alle
@@ -401,7 +402,7 @@ exaktem String-Vergleich. Damit werden transaction_type-Varianten korrekt erkann
 **TTL**: `POST_TRADE_PRICE_CACHE_TTL_DAYS = 1` (seit 2026-06-16; vorher 7). Refresh,
 wenn `max(date) pro Ticker < today - 1d` (= tagesaktuell bei jedem Lauf).
 Täglicher Refresh in `compute_post_trade_returns` ist auf das Refetch-Fenster
-(`POST_TRADE_REFRESH_WINDOW_DAYS = 199`) begrenzt; Details → `Preis_Aktualisierung.md` §3.
+(`POST_TRADE_REFRESH_WINDOW_DAYS = 384`) begrenzt; Details → `Preis_Aktualisierung.md` §3.
 
 **Inkrementelles Flushing**: alle `POST_TRADE_CACHE_FLUSH_EVERY = 50`
 erfolgreichen Fetches wird der Cache atomar geschrieben
@@ -441,11 +442,11 @@ Spam pro Ticker. Fortschritts-Output läuft über eigenen `print`/`logger`.
 
 | Konstante | Wert | Zweck |
 |---|---|---|
-| `POST_TRADE_HORIZONS_DAYS` | `[30, 60, 90, 120, 180]` | Welche Horizonte ausgewertet werden |
+| `POST_TRADE_HORIZONS_DAYS` | `[30, 60, 90, 120, 180, 270, 365]` | Welche Horizonte ausgewertet werden (270/365 neu 2026-07-04) |
 | `POST_TRADE_PRICE_CACHE` | `'data/cache/price_history.parquet'` | Pfad zum Preis-Cache |
 | `POST_TRADE_PRICE_FETCH_YEARS` | `5` | yfinance Fetch-Tiefe |
 | `POST_TRADE_PRICE_CACHE_TTL_DAYS` | `1` | Cache-Refresh-Schwelle (seit 2026-06-16; vorher 7) |
-| `POST_TRADE_REFRESH_WINDOW_DAYS` | `199` | Tägliches Refetch nur für Ticker mit Position ≥ heute−199d; `None` = alle fälligen (NEU 2026-06-16) |
+| `POST_TRADE_REFRESH_WINDOW_DAYS` | `384` | Tägliches Refetch nur für Ticker mit Position ≥ heute−384d (= max. Horizont 365 + 19 Puffer; 199→384 am 2026-07-04); `None` = alle fälligen |
 | `POST_TRADE_EXIT_AMOUNT_TOLERANCE` | `0.0` | Schwelle für `closed_full` vs. `closed_partial` |
 | `POST_TRADE_CACHE_FLUSH_EVERY` | `50` | Flush-Frequenz |
 | `POST_TRADE_DELISTED_RECHECK_DAYS` | `30` | last_checked-TTL für delistete Ticker (NEU 2026-06-14) |

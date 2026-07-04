@@ -454,7 +454,7 @@ CREATE TABLE ticker_types (
 ### `data/cache/price_history.parquet`
 **Quelle**: Automatisch von `scoring/post_trade_returns.py` (`compute_post_trade_returns`) via yfinance.
 **Format**: Parquet (Pandas MultiIndex)
-**Update**: Bei jedem Import; Cache-TTL = 1 Tag (`POST_TRADE_PRICE_CACHE_TTL_DAYS = 1`, seit 2026-06-16). Nie gecachte Ticker werden immer geladen; bei stale-Tickern greift das Refetch-Fenster `POST_TRADE_REFRESH_WINDOW_DAYS = 199` (nur Positionen ≤ 199d alt). Details: `organisation/Preis_Aktualisierung.md` §3.
+**Update**: Bei jedem Import; Cache-TTL = 1 Tag (`POST_TRADE_PRICE_CACHE_TTL_DAYS = 1`, seit 2026-06-16). Nie gecachte Ticker werden immer geladen; bei stale-Tickern greift das Refetch-Fenster `POST_TRADE_REFRESH_WINDOW_DAYS = 384` (= größter Horizont 365 + 19 Puffer; nur Positionen ≤ 384d alt). Details: `organisation/Preis_Aktualisierung.md` §3.
 **Atomare Speicherung**: tmp + rename verhindert Korruption bei Abbruch.
 
 **Struktur**:
@@ -747,12 +747,16 @@ post_price_60d,            # float: Close-Preis 60 Tage nach Trade
 post_price_90d,            # float: Close-Preis 90 Tage nach Trade
 post_price_120d,           # float: Close-Preis 120 Tage nach Trade
 post_price_180d,           # float: **NEU (2026-06-04):** Close-Preis 180 Tage nach Trade. Dynamisch mit POST_TRADE_HORIZONS_DAYS.
+post_price_270d,           # float: **NEU (2026-07-04):** Close-Preis 270 Tage nach Trade.
+post_price_365d,           # float: **NEU (2026-07-04):** Close-Preis 365 Tage nach Trade.
 post_return_30d,           # float: (post_price_30d/baseline - 1) * 100 in %. RICHTUNGSBEWUSST: Käufe wie üblich,
                            # Verkäufe mit invertiertem Vorzeichen (sell_sign = -1). Positiv = gutes Timing.
 post_return_60d,           # float: dito fuer 60d
 post_return_90d,           # float: dito fuer 90d
 post_return_120d,          # float: dito fuer 120d.
 post_return_180d,          # float: **NEU (2026-06-04):** dito fuer 180d. Für Verkäufe: Vorzeichen invertiert. Details: scoring/post_trade_returns.py.
+post_return_270d,          # float: **NEU (2026-07-04):** dito fuer 270d. Nur für Trades ≥ 270 Tage alt befüllt, sonst NaN.
+post_return_365d,          # float: **NEU (2026-07-04):** dito fuer 365d. Nur für Trades ≥ 365 Tage alt befüllt, sonst NaN.
 first_close_offset_days,   # float: **NEU (2026-06-04):** Kalendertage vom transaction_date bis zum ERSTEN gegensätzlichen Trade
                            # (egal ob closed_full oder closed_partial). Hilfs-Spalte für Horizont-Sichtbarkeitsfilter im Dashboard.
                            # NaN bei not_applicable / delisted / unknown / held. Beispiel: Kauf 2022-09-01, erstes Verkauf 2023-03-22 → 203 Tage.
@@ -935,7 +939,7 @@ Die `app/chart_helpers.py`-Funktion `build_partial_close_rows` zerlegt im Post-T
 **Limitierung (nicht-FIFO Partition):** Derselbe Verkauf kann bei mehreren Käufen als Gegen-Trade auftauchen. Volumen-Partitionierung erfolgt global NICHT sauber → Zerlegungs-Zeilen dürfen niemals in Volumen-Aggregate (Asset-Tab, Member-Tab) eingehen. Nur für Performance-Charts zulässig.
 
 **Horizont-Sichtbarkeitsfilter (2026-06-04, Modul 9):**
-Die vier historischen Tabs (Trades / Assets / Members / Post Trade Performance) filtern global nach `first_close_offset_days`. Sidebar-Toggle „Horizont-Filter aktiv" (Standard an) begrenzt Sichtbarkeit auf Trades mit `first_close_offset_days ≤ PRIMARY_HORIZON_DAYS` (benutzerwählter primärer Horizont aus 30/60/90/120/180). **Design: offene/gehaltene Positionen (held mit NaN) werden AUSGEBLENDET** (Filter-Bedingung `off.notna() & off <= horizon`). Sinn: Real geschlossene Positionen mit Exits >120d später zeigen sich erst wenn der Horizont aufgedreht wird. **Monitoring offener Positionen** erfolgt ausschließlich über den neuem 5. Tab „Recent Trades" (aktiviert über `build_recent_pool()`, überschreibt den Horizont-Filter für Fresh-Position-Überwachung mit aktuellen Papier-Returns). Auch der Tab **„Score-Analyse"** (6, Modul 9.x) umgeht den Horizont-Filter via `apply_prefilter(..., apply_horizon_filter=False)` — er validiert den `trade_score` gegen den signierten Objective Return `post_return_{X}d` **inklusive** gehaltener (held) Positionen (Details: Abschnitt „7d. App-Module").
+Die vier historischen Tabs (Trades / Assets / Members / Post Trade Performance) filtern global nach `first_close_offset_days`. Sidebar-Toggle „Horizont-Filter aktiv" (Standard an) begrenzt Sichtbarkeit auf Trades mit `first_close_offset_days ≤ PRIMARY_HORIZON_DAYS` (benutzerwählter primärer Horizont aus 30/60/90/120/180/270/365). **Design: offene/gehaltene Positionen (held mit NaN) werden AUSGEBLENDET** (Filter-Bedingung `off.notna() & off <= horizon`). Sinn: Real geschlossene Positionen mit Exits >120d später zeigen sich erst wenn der Horizont aufgedreht wird. **Monitoring offener Positionen** erfolgt ausschließlich über den neuem 5. Tab „Recent Trades" (aktiviert über `build_recent_pool()`, überschreibt den Horizont-Filter für Fresh-Position-Überwachung mit aktuellen Papier-Returns). Auch der Tab **„Score-Analyse"** (6, Modul 9.x) umgeht den Horizont-Filter via `apply_prefilter(..., apply_horizon_filter=False)` — er validiert den `trade_score` gegen den signierten Objective Return `post_return_{X}d` **inklusive** gehaltener (held) Positionen (Details: Abschnitt „7d. App-Module").
 
 ---
 
@@ -1384,13 +1388,17 @@ Scoring-Parameter, daher nicht in
 `Filter_Instanz_Parameter.md`). Block in `config/settings.py` unter
 „Score-Korrelation (Modul 9.x)":
 - `SCORE_CORR_DEFAULT_HORIZON_DAYS` — Default `180`; Default-Horizont X des
-  Tabs. Muss in `POST_TRADE_HORIZONS_DAYS` (30/60/90/120/180) enthalten
+  Tabs. Muss in `POST_TRADE_HORIZONS_DAYS` (30/60/90/120/180/270/365) enthalten
   sein.
 - `SCORE_CORR_DEFAULT_METHOD` — `'spearman'`; Leitkennzahl (Pearson zusätzlich).
   Spearman wird **ohne scipy** als Pearson auf Rängen berechnet
   (`a.rank().corr(b.rank())`, identisch inkl. Tie-Korrektur).
-- `SCORE_CORR_BUCKET_OPTIONS` / `SCORE_CORR_BUCKET_DEFAULT` — `[3,4,5,10]` / `5`;
-  wählbare Anzahl gleich breiter Score-Buckets im Score-Analyse-Tab.
+- Score-Buckets: **fixes Schema, nicht mehr konfigurierbar** (Selectbox +
+  `SCORE_CORR_BUCKET_OPTIONS`/`SCORE_CORR_BUCKET_DEFAULT` entfernt, 2026-07-04).
+  Score `0` (Hard-Gate: kein Primärsignal → `trade_score = 0`) bildet ein
+  **eigenes** Bucket, alle Scores `> 0` laufen in **festen 5er-Schritten**
+  (`1–5`, `6–10`, `11–15` …). Grund: das alte erste gleich-breite Bucket (`0–5`)
+  vermischte unverdächtige Nuller-Trades mit `committee_full`-Treffern.
 - `SCORE_CORR_SCATTER_MAX_POINTS` / `SCORE_CORR_SCATTER_OPACITY` — `20000` /
   `0.3`; Sample-Cap + Opazität des Scatters (nur Visualisierung; die Kennzahlen
   Spearman/Pearson/n rechnen immer über die volle Stichprobe).
@@ -1591,10 +1599,11 @@ Reine pandas-Helfer (kein Streamlit/Plotly), testbar
 - `return_col(x)` → Spaltenname `post_return_{x}d`.
 - `correlation_stats(scores, returns)` → `{spearman, pearson, n}` (paarweiser
   NaN-Drop). Spearman = Pearson auf Rängen (kein scipy nötig).
-- `score_bucket_returns(df, score_col, ret_col, n_buckets)` → mittlerer/median
-  Return je **gleich breitem, ganzzahligem** Score-Intervall (`pd.cut` über die
-  Score-Spanne — bewusst keine Quantile; leere Buckets bleiben als Balken
-  erhalten, bei kollabierter Spanne ein Sammel-Bucket).
+- `score_bucket_returns(df, score_col, ret_col)` → mittlerer/median Return je
+  Score-Bucket mit **Sonder-Bucket `0`** (Hard-Gate-Trades) und **festen
+  5er-Schritten** für Scores `> 0` (`1–5`, `6–10`, … Intervall `((k-1)*5, k*5]`);
+  leere Buckets bis zum Maximum bleiben als Balken erhalten. Kein `n_buckets`-
+  Parameter mehr (fixes Schema statt konfigurierbarer gleich-breiter Bins).
 - `per_signal_return_table(df, ret_col)` → pro Signal binärer „gefeuert"-
   Indikator gegen den Return: `[signal, n_fired, mean_fired, mean_not, delta,
   spearman, pearson]`, sortiert nach |spearman|. Signal-Universum
@@ -1609,12 +1618,13 @@ Reine pandas-Helfer (kein Streamlit/Plotly), testbar
 
 ### Tab „Score-Analyse" in `app/streamlit_app.py`
 Aufbau flach untereinander (ein `with tab_analysis`-Block):
-- **Kontrollzeile** (4 Spalten): Horizont-Selectbox (Widget-Key `an_horizon`,
-  Default 180, Scope `[Tab]`, unabhängig vom globalen Primär-Horizont) ·
-  Bucket-Anzahl · **Kammer**- und **Partei**-Multiselect. Die Kammer-/Partei-
-  Filter wirken auf ALLE Auswertungen des Tabs (Kennzahlen, Scatter, Buckets,
-  Pro-Signal-Tabelle); Default = alles ausgewählt. Der Partei-Filter blendet
-  Trades ohne hinterlegte Partei aus.
+- **Kontrollzeile** (3 Spalten): Horizont-Selectbox (Widget-Key `an_horizon`,
+  Default 180, Optionen `POST_TRADE_HORIZONS_DAYS` 30…365, Scope `[Tab]`,
+  unabhängig vom globalen Primär-Horizont; Tooltip erklärt, dass der Horizont
+  ALLE Kennzahlen des Tabs bestimmt) · **Kammer**- und **Partei**-Multiselect.
+  Die Kammer-/Partei-Filter wirken auf ALLE Auswertungen des Tabs (Kennzahlen,
+  Scatter, Buckets, Pro-Signal-Tabelle); Default = alles ausgewählt. Der
+  Partei-Filter blendet Trades ohne hinterlegte Partei aus.
 - **Kennzahlen**: Spearman-ρ / Pearson-r / n / davon held.
 - **Scatter**: `go.Scattergl` `trade_score` × `post_return_{X}d` (Sample-Cap,
   Y-Achse auf 1.–99.-Perzentil geklippt — nur Darstellung). Caption nennt die
@@ -1622,7 +1632,8 @@ Aufbau flach untereinander (ein `with tab_analysis`-Block):
   Return NaN → fällt aus der Stichprobe → Verzerrung nach oben) und
   **Reife-Beschränkung** (Trades < X Tage haben per Konstruktion keinen
   X-Tage-Return; kein Bias).
-- **Score-Buckets**: Balken mit Ø Return je gleich breitem Score-Intervall.
+- **Score-Buckets**: Balken mit Ø Return je Score-Bucket; Score `0` separat,
+  Rest in festen 5er-Schritten (s. `score_bucket_returns` oben).
 - **Pro-Signal-Korrelation**: Tabelle (s. `per_signal_return_table` oben).
 
 Konfiguration: `config/settings.py::SCORE_CORR_*` (s. Abschnitt „7b.
