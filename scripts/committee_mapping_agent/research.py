@@ -59,10 +59,19 @@ def web_search(args: Dict[str, Any]) -> str:
 
 
 def fetch_page(args: Dict[str, Any]) -> str:
-    """Laedt eine URL und liefert den extrahierten Text (gekappt)."""
+    """Laedt eine URL und liefert den extrahierten Text (fensterweise).
+
+    Lange Seiten gehen nicht verloren: geliefert wird das Fenster
+    [start_char, start_char + FETCH_MAX_CHARS); der Kappungs-Marker am Ende
+    nennt den start_char, mit dem das Modell die Fortsetzung abrufen kann.
+    """
     url = str(args.get("url", "")).strip()
     if not url:
         return "FEHLER: leere url."
+    try:
+        start_char = max(0, int(args.get("start_char") or 0))
+    except (TypeError, ValueError):
+        start_char = 0
     try:
         resp = requests.get(url, headers=_HTTP_HEADERS,
                             timeout=config.FETCH_TIMEOUT)
@@ -81,9 +90,18 @@ def fetch_page(args: Dict[str, Any]) -> str:
     else:
         text = resp.text
 
-    if len(text) > config.FETCH_MAX_CHARS:
-        text = text[:config.FETCH_MAX_CHARS] + "\n[... gekappt ...]"
-    return f"URL: {url}\n\n{text}"
+    total = len(text)
+    if start_char and start_char >= total:
+        return (f"URL: {url}\n\nFEHLER: start_char={start_char} liegt hinter "
+                f"dem Textende ({total} Zeichen).")
+    end = min(start_char + config.FETCH_MAX_CHARS, total)
+    window = text[start_char:end]
+    if start_char:
+        window = f"[Fortsetzung ab Zeichen {start_char}]\n" + window
+    if end < total:
+        window += (f"\n[... gekappt bei Zeichen {end} von {total} — Rest via "
+                   f"fetch_page mit start_char={end} abrufbar ...]")
+    return f"URL: {url}\n\n{window}"
 
 
 TOOLS = [
@@ -106,10 +124,22 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "fetch_page",
-            "description": "Laedt eine URL und liefert ihren Textinhalt.",
+            "description": (
+                "Laedt eine URL und liefert ihren Textinhalt. Lange Seiten "
+                "kommen fensterweise: endet die Antwort mit einem Kappungs-"
+                "Marker, den Rest mit start_char (Wert aus dem Marker) abrufen."
+            ),
             "parameters": {
                 "type": "object",
-                "properties": {"url": {"type": "string"}},
+                "properties": {
+                    "url": {"type": "string"},
+                    "start_char": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "description": "Startposition in Zeichen fuer die "
+                                       "Fortsetzung einer gekappten Seite.",
+                    },
+                },
                 "required": ["url"],
             },
         },
