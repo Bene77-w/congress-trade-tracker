@@ -986,7 +986,7 @@ python -m scripts.committee_mapping_agent.run <subcommand> [--chamber House|Sena
 | `enrich-taxonomy` | Einmalig: deutsche Kurzbeschreibungen je Sektor/Industry generieren → `yf_sectors_with_industries_enriched.json` | — |
 | `research` | Jurisdiktionstexte je Committee/Subcommittee sammeln (Web-Suche + Fetch, gegroundet) | `--chamber`, `--committee`, `--force`, `-v` |
 | `map` | Sector/Industry-Klassifikation je Einheit (hierarchisch: Sektoren → Industries je Sektor) | `--chamber`, `--committee`, `--force`, `-v` |
-| `review` | LLM-Zweitmeinung je Committee (review_flag, ggf. neue Konfidenz, advisory `missing`-Paare); bei `config.REVIEW_ENABLED=False` Pass-Through ohne API-Calls | `--chamber`, `--committee`, `--force`, `-v` |
+| `review` | LLM-Zweitmeinung je Committee (review_flag, ggf. neue Konfidenz, advisory `missing`-Paare); bei `config.REVIEW_ENABLED=False` (Default) Pass-Through ohne API-Calls | `--chamber`, `--committee`, `--force`, `-v` |
 | `validate` | Reine Diagnose: Mapping-Caches gegen Taxonomie/Grounding prüfen, kein Cache-Schreiben | `--chamber`, `--committee` |
 | `export-review` | 3 Review-xlsx schreiben (`review_all.xlsx`, `review_low.xlsx`, `review_medium.xlsx`) | `--chamber`, `--committee` |
 | `finalize` | User-Kommentare aus den xlsx einarbeiten → Staging-CSV (`subcommittee_sector_industry_mapping_generated.csv`); kommentarlose Zeilen = Pass-Through; danach Re-Validierung | `--chamber`, `--committee` |

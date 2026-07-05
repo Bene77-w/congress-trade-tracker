@@ -14,7 +14,7 @@ import os
 # ---------------------------------------------------------------------------
 MODELS = {
     "research":  ("deepseek-v4-flash", 'high'),   # geordnete Infos sammeln
-    "mapping":   ("deepseek-v4-pro",   "max"),  # eigentliche Klassifikation
+    "mapping":   ("deepseek-v4-pro",   "high"),  # eigentliche Klassifikation
     "review":    ("deepseek-v4-pro",   "max"),  # Plausibilitaets-Kontrolle
     "finalize":  ("deepseek-v4-pro",   "max"),  # User-Kommentare einarbeiten
 }
@@ -24,13 +24,14 @@ MODELS = {
 # der Pipeline-Rest (export-review/finalize/promote) laeuft identisch weiter.
 # Sinnvoll, wenn Mapping + Review dasselbe Modell mit gleichem Effort nutzen —
 # dann bringt die Zweitmeinung wenig ausser Kosten.
-REVIEW_ENABLED = True
+REVIEW_ENABLED = False
 
 # max_tokens (Output-Limit) je Rolle. DeepSeek akzeptiert NUR max_tokens.
 # ACHTUNG: Reasoning-Tokens (Thinking-Mode) zaehlen GEGEN dieses Budget —
 # bei effort="max" muss es gross genug sein, sonst kommt leerer Content zurueck.
 MAX_TOKENS = {
-    "research":  8192,
+    "research":  16384,  # finales JSON grosser Committees (bis ~13 Einheiten
+                         # mit Text+Zitat+URL) + Reasoning muss hineinpassen
     "mapping":   16384,
     "review":    16384,
     "finalize":  16384,
@@ -39,7 +40,13 @@ MAX_TOKENS = {
 # ---------------------------------------------------------------------------
 # Budgets
 # ---------------------------------------------------------------------------
-MAX_SEARCH_TURNS = 8       # harte Obergrenze Tool-Turns je Research-Committee
+# Harte Obergrenze Tool-Turns je Research-Committee — reiner Runaway-/Kosten-
+# Schutz (verhindert Endlos-Suchschleifen + Website-Hammering), KEIN Sparziel:
+# der Prompt verlangt ohnehin minimale Tool-Nutzung. 16 gibt grossen Committees
+# (z. B. 12 Subcommittees auf eigenen Unterseiten) genug Luft; nach Erschoepfung
+# erzwingt llm_client einen Abschluss mit dem bereits Gesammelten (fehlende
+# Einheiten -> grounding_quality='none', sichtbar im Review-xlsx).
+MAX_SEARCH_TURNS = 16
 MAX_REPAIR_RETRIES = 2     # Repair-Reprompts bei JSON/Schema-Fehler je Call
 REQUEST_TIMEOUT = 120      # Sekunden je LLM-HTTP-Call
 
@@ -53,7 +60,9 @@ MAP_EMPTY_RETRIES = 5                  # Re-Versuche bei leerem Mapping
 MAP_EMPTY_BACKOFF = (2, 4, 8, 16, 32)  # Sek. vor Retry 1..5 (exponentiell)
 MAP_RETRY_ONLY_GROUNDED = True         # nur retryen, wenn grounding == "direct"
 FETCH_TIMEOUT = 20         # Sekunden je fetch_page-HTTP-Call
-FETCH_MAX_CHARS = 12000    # Text-Kappung je gefetchter Seite (Token-Schutz)
+FETCH_MAX_CHARS = 20000    # Fenstergroesse je fetch_page-Antwort (Token-Schutz);
+                           # lange Seiten gehen NICHT verloren: der Kappungs-
+                           # Marker nennt start_char fuer die Fortsetzung
 
 # Parallelisierung (Threads — die Calls sind I/O-bound, der OpenAI-Client ist
 # thread-safe). DeepSeek drosselt unter Last serverseitig dynamisch: werden

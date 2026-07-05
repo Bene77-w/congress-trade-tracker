@@ -1063,7 +1063,7 @@ enrich-taxonomy (einmalig)
   → research   (LLM sammelt Jurisdiktionstexte, gegroundet)
   → map        (LLM klassifiziert Sector/Industry je Subcommittee)
   → validate   (reine Diagnose, kein Cache-Schreiben)
-  → review     (LLM-Zweitmeinung; bei config.REVIEW_ENABLED=False Pass-Through ohne API-Calls)
+  → review     (LLM-Zweitmeinung; bei config.REVIEW_ENABLED=False (Default) Pass-Through ohne API-Calls)
   → export-review            (3 Review-xlsx schreiben)
   [User editiert comment-Spalte in den xlsx]
   → finalize   (Kommentare einarbeiten → Staging-CSV)
