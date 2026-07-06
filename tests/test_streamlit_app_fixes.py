@@ -1,5 +1,5 @@
 """Tests fuer die Streamlit-App-Fixes O1 (Recompute-Ableitung), Z1b (Schwelle)
-und W1 (datenrelativer Zeitfenster-Anker pro Datumsbasis).
+und W1 (Zeitfenster-Anker = gemeinsamer Datenstand).
 
 O1: Der Trades-/Assets-/Members-Basis-Frame ``prefilt`` wird nicht mehr separat
 rekomputet, sondern aus der horizont-filter-freien ``corr_base`` per
@@ -185,70 +185,94 @@ def test_z1b_respects_monkeypatched_threshold():
 
 
 # ---------------------------------------------------------------------------
-# W1 — Zeitfenster-Anker: datenrelativ pro gewaehlter Datumsbasis
+# W1 — Zeitfenster-Anker: gemeinsamer Datenstand (max disclosure_date)
 # ---------------------------------------------------------------------------
 def _load_apply_prefilter():
-    """Extrahiert die ECHTE ``apply_prefilter``-Quelle aus streamlit_app.py und
-    liefert eine Factory, die die Sidebar-Globals (date_basis, window_days, …)
-    kontrolliert injiziert — gleiches Muster wie ``_load_related_return_style``.
+    """Extrahiert die ECHTEN Quellen von ``_window_anchor`` + ``apply_prefilter``
+    aus streamlit_app.py und liefert eine Factory, die die Sidebar-Globals
+    (date_basis, window_days, …) kontrolliert injiziert — gleiches Muster wie
+    ``_load_related_return_style``.
     """
     src = APP_PATH.read_text(encoding='utf-8')
     tree = ast.parse(src)
-    node = next(
-        n for n in tree.body
-        if isinstance(n, ast.FunctionDef) and n.name == 'apply_prefilter'
-    )
-    func_src = ast.get_source_segment(src, node)
+    wanted = ('_window_anchor', 'apply_prefilter')
+    sources = {n.name: ast.get_source_segment(src, n) for n in tree.body
+               if isinstance(n, ast.FunctionDef) and n.name in wanted}
+    assert set(sources) == set(wanted)
 
     def _make(date_basis: str, window_days):
         ns: dict = {'pd': pd, 'date_basis': date_basis,
                     'window_days': window_days, 'search_query': '',
                     'horizon_filter_active': False, 'primary_horizon': 90}
-        exec(func_src, ns)  # noqa: S102 - kontrollierter Namespace, Testcode
+        for name in wanted:  # _window_anchor zuerst (Abhaengigkeit)
+            exec(sources[name], ns)  # noqa: S102 - kontrollierter Namespace
         return ns['apply_prefilter']
 
     return _make
 
 
-def test_w1_anchor_follows_selected_basis():
-    """Der Fenster-Anker ist das juengste Datum der GEWAEHLTEN Basis-Spalte
-    (datenrelativ): "7 Tage" = letzte 7 Tage verfuegbarer Daten der Dimension.
+def test_w1_common_anchor_is_data_stand():
+    """Der Fenster-Anker ist fuer BEIDE Datumsbasen max(disclosure_date)
+    (= Datenstand; User-Entscheid 2026-07-07).
 
-    Kernanforderung: kurze Fenster auf transaction-Basis duerfen trotz
-    45-Tage-Meldeverzug NICHT strukturell leer sein (verworfener Ansatz
-    "gemeinsamer Anker max(disclosure_date)", 2026-07-06).
+    Kurzfenster auf transaction-Basis duerfen dadurch leer sein (Meldeverzug
+    bis 45 Tage) — die Trefferzahlen der Basen bleiben dafuer vergleichbar.
     """
     make = _load_apply_prefilter()
     # Juengste Meldung 2026-07-01, juengste Transaktion 2026-06-16
-    # (Meldeverzug 15 Tage — realistisches Muster).
+    # (Meldeverzug 15 Tage — realistisches Muster). 7d-Cutoff = 06-24.
     df = pd.DataFrame({
         'transaction_date': ['2026-06-10', '2026-06-14', '2026-06-16',
                              '2026-05-01'],
         'disclosure_date':  ['2026-06-17', '2026-07-01', '2026-06-20',
                              '2026-06-30'],
     })
-    # Transaction-Basis: Anker 06-16, Cutoff 06-09 -> die 3 juengsten
-    # Transaktionen sichtbar (NICHT leer trotz Meldeverzug).
-    assert list(make('transaction_date', 7)(df).index) == [0, 1, 2]
-    # Disclosure-Basis: Anker 07-01, Cutoff 06-24 -> die 2 juengsten
-    # Meldungen sichtbar (auch die alte Mai-Transaktion, frisch gemeldet).
+    # Transaction-Basis 7d: keine Transaktion nach dem 06-24 bekannt -> leer
+    # (bewusst; NICHT erneut auf Basis-Spalten-Anker "fixen").
+    assert make('transaction_date', 7)(df).empty
+    # Disclosure-Basis 7d: die 2 juengsten Meldungen (auch die alte
+    # Mai-Transaktion, frisch gemeldet).
     assert list(make('disclosure_date', 7)(df).index) == [1, 3]
-    # Getrennte Rahmen: die Trefferzahlen sind bewusst NICHT ineinander
-    # enthalten (3 vs. 2) — kein Bug, sondern Folge des datenrelativen Ankers.
+    # 30d (Cutoff 06-01): Transaction sieht die 3 Juni-Transaktionen,
+    # Disclosure alle 4 Meldungen.
+    assert list(make('transaction_date', 30)(df).index) == [0, 1, 2]
+    assert len(make('disclosure_date', 30)(df)) == 4
     # window_days=None ('Alles'): kein Cutoff.
     assert len(make('transaction_date', None)(df)) == len(df)
 
 
-def test_w1_window_robust_to_nat_and_missing_dates():
-    """NaT-Zeilen fallen aus dem Fenster (kein Crash); ist die Basis-Spalte
-    komplett NaT, bleibt der DataFrame ungefiltert (kein Anker bestimmbar)."""
+def test_w1_transaction_window_is_subset_of_disclosure_window():
+    """Invariante des gemeinsamen Ankers: da disclosure_date >=
+    transaction_date, ist die Transaction-Treffermenge stets Teilmenge der
+    Disclosure-Treffermenge (nie MEHR Trades auf transaction-Basis)."""
     make = _load_apply_prefilter()
     df = pd.DataFrame({
-        'transaction_date': ['2026-06-10', None, '2026-06-16', 'kaputt'],
+        'transaction_date': ['2026-05-01', '2026-06-05', '2026-06-27',
+                             '2026-06-30', '2026-04-10'],
+        'disclosure_date':  ['2026-06-10', '2026-06-26', '2026-06-29',
+                             '2026-07-01', '2026-05-20'],
+    })
+    for window in (7, 30, 365):
+        txn_idx = set(make('transaction_date', window)(df).index)
+        disc_idx = set(make('disclosure_date', window)(df).index)
+        assert txn_idx <= disc_idx, (window, txn_idx, disc_idx)
+
+
+def test_w1_fallback_anchor_and_nat_robustness():
+    """Fehlt disclosure_date (oder ist komplett NaT), faellt der Anker auf das
+    Max der Basis-Spalte zurueck; NaT-/kaputte Datumszeilen fallen aus dem
+    Fenster; komplett datumslose Frames bleiben ungefiltert (kein Crash)."""
+    make = _load_apply_prefilter()
+    df = pd.DataFrame({
+        'transaction_date': ['2026-06-10', None, '2026-06-16', 'kaputt',
+                             '2026-05-01'],
     })
     out = make('transaction_date', 7)(df)
-    # Anker 06-16, Cutoff 06-09 -> nur die 2 gueltigen Daten im Fenster.
+    # Fallback-Anker = max(transaction_date) = 06-16, Cutoff 06-09.
     assert list(out.index) == [0, 2]
-    # Basis-Spalte komplett NaT -> Anker NaT -> Filter wird uebersprungen.
-    df_nat = pd.DataFrame({'transaction_date': [None, None]})
-    assert len(make('transaction_date', 7)(df_nat)) == 2
+    # disclosure_date vorhanden, aber komplett NaT -> gleicher Fallback.
+    df_nat = df.assign(disclosure_date=pd.NaT)
+    assert list(make('transaction_date', 7)(df_nat).index) == [0, 2]
+    # Gar kein gueltiges Datum -> kein Anker -> Filter uebersprungen.
+    df_empty = pd.DataFrame({'transaction_date': [None, None]})
+    assert len(make('transaction_date', 7)(df_empty)) == 2

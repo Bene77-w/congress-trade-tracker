@@ -576,6 +576,26 @@ def _scope_help(scope: str, extra: str = '') -> str:
     return f'{base} {extra}'.strip() if extra else base
 
 
+def _window_anchor(df: pd.DataFrame, basis: str):
+    """Fenster-Anker des globalen Zeitfensters (User-Entscheid 2026-07-07).
+
+    Fuer BEIDE Datumsbasen das juengste ``disclosure_date`` (= Datenstand).
+    Damit ist die Transaction-Treffermenge stets Teilmenge der
+    Disclosure-Treffermenge (``disclosure_date >= transaction_date``);
+    Kurzfenster auf transaction-Basis duerfen wegen der 45-Tage-Meldefrist
+    bewusst leer sein (verworfene Alternative: Anker am Max der gewaehlten
+    Basis-Spalte — nie leer, aber Trefferzahlen der Basen nicht vergleichbar).
+    Fallback auf das Max der Basis-Spalte, falls ``disclosure_date``
+    fehlt oder komplett NaT ist.
+    """
+    anchor = pd.NaT
+    if 'disclosure_date' in df.columns:
+        anchor = pd.to_datetime(df['disclosure_date'], errors='coerce').max()
+    if pd.isna(anchor) and basis in df.columns:
+        anchor = pd.to_datetime(df[basis], errors='coerce').max()
+    return anchor
+
+
 # --- Sidebar -------------------------------------------------------------
 with st.sidebar:
     st.header('Filter')
@@ -598,30 +618,26 @@ with st.sidebar:
             horizontal=True,
             help=_scope_help('global', 'Datums-Cutoff (auf der gewaehlten '
                              'Datumsbasis) fuer Trades-/Assets-/Members-/'
-                             'Performance-Tab. Anker ist das juengste Datum '
-                             'der gewaehlten Basis (= letzte N Tage '
-                             'verfuegbarer Daten dieser Dimension): '
-                             'transaction-Basis zeigt die zuletzt '
-                             'GEHANDELTEN, disclosure-Basis die zuletzt '
-                             'GEMELDETEN Trades. Da die Anker wegen der '
-                             '45-Tage-Meldefrist auseinanderliegen koennen, '
-                             'sind die Trefferzahlen der beiden Basen nicht '
-                             'direkt vergleichbar (das wirksame Fenster steht '
-                             'unter der Auswahl). Wirkt NICHT im Member-'
-                             'Detail-Popup (dort volle Member-Historie) und '
-                             'nicht im Recent-Trades-Tab (eigenes Fenster).'),
+                             'Performance-Tab. Anker ist fuer BEIDE Basen der '
+                             'Datenstand (juengstes Meldedatum) — die '
+                             'Transaction-Treffermenge ist damit stets '
+                             'Teilmenge der Disclosure-Treffermenge. Kurze '
+                             'Fenster auf transaction-Basis koennen wegen der '
+                             '45-Tage-Meldefrist leer sein (juengste '
+                             'Transaktionen sind noch nicht gemeldet). Wirkt '
+                             'NICHT im Member-Detail-Popup (dort volle '
+                             'Member-Historie) und nicht im Recent-Trades-Tab '
+                             '(eigenes Fenster).'),
         )
         window_days = {'7 Tage': 7, '30 Tage': 30,
                        '365 Tage': 365, 'Alles': None}[window_label]
-        # Wirksames Fenster transparent machen: datenrelativer Anker heisst,
-        # das "7-Tage"-Fenster kann je nach Basis in der Vergangenheit liegen.
-        if window_days is not None and date_basis in trades.columns:
-            _basis_dates = pd.to_datetime(trades[date_basis], errors='coerce')
-            _anchor = _basis_dates.max()
+        if window_days is not None:
+            _anchor = _window_anchor(trades, date_basis)
             if pd.notna(_anchor):
                 _cutoff = _anchor - pd.Timedelta(days=window_days)
                 st.caption(f'Wirksames Fenster ({date_basis}): '
-                           f'{_cutoff:%d.%m.%Y} bis {_anchor:%d.%m.%Y}')
+                           f'{_cutoff:%d.%m.%Y} bis {_anchor:%d.%m.%Y} '
+                           f'(Anker: Datenstand)')
         search_query = st.text_input(
             'Suche (Name / Asset / Ticker / Hash-ID)', value='',
             help='Mehrere Begriffe werden UND-verknuepft und sind '
@@ -989,15 +1005,7 @@ def apply_prefilter(df: pd.DataFrame,
 
     if apply_window and window_days is not None and date_basis in out.columns:
         date_col = pd.to_datetime(out[date_basis], errors='coerce')
-        # Datenrelativer Anker: juengstes Datum der GEWAEHLTEN Basis-Spalte.
-        # "7 Tage" = die letzten 7 Tage verfuegbarer Daten dieser Dimension
-        # (transaction-Basis: zuletzt gehandelte, disclosure-Basis: zuletzt
-        # gemeldete Trades). Ein gemeinsamer Anker (z.B. max disclosure_date)
-        # macht Kurzfenster auf transaction-Basis wegen der 45-Tage-Meldefrist
-        # strukturell leer (verworfener Ansatz, 2026-07-06). Folge der
-        # getrennten Rahmen: Trefferzahlen der beiden Basen sind NICHT
-        # ineinander enthalten; das wirksame Fenster zeigt die Sidebar-Caption.
-        anchor = date_col.max()
+        anchor = _window_anchor(out, date_basis)
         if pd.notna(anchor):
             cutoff = anchor - pd.Timedelta(days=window_days)
             out = out[date_col >= cutoff]
