@@ -598,16 +598,30 @@ with st.sidebar:
             horizontal=True,
             help=_scope_help('global', 'Datums-Cutoff (auf der gewaehlten '
                              'Datumsbasis) fuer Trades-/Assets-/Members-/'
-                             'Performance-Tab. Anker ist fuer beide '
-                             'Datumsbasen das juengste Meldedatum '
-                             '(= Datenstand); auf Transaction-Basis sind '
-                             'kurze Fenster wegen der 45-Tage-Meldefrist '
-                             'oft (fast) leer. Wirkt NICHT im Member-Detail-'
-                             'Popup (dort volle Member-Historie) und nicht im '
-                             'Recent-Trades-Tab (eigenes Fenster).'),
+                             'Performance-Tab. Anker ist das juengste Datum '
+                             'der gewaehlten Basis (= letzte N Tage '
+                             'verfuegbarer Daten dieser Dimension): '
+                             'transaction-Basis zeigt die zuletzt '
+                             'GEHANDELTEN, disclosure-Basis die zuletzt '
+                             'GEMELDETEN Trades. Da die Anker wegen der '
+                             '45-Tage-Meldefrist auseinanderliegen koennen, '
+                             'sind die Trefferzahlen der beiden Basen nicht '
+                             'direkt vergleichbar (das wirksame Fenster steht '
+                             'unter der Auswahl). Wirkt NICHT im Member-'
+                             'Detail-Popup (dort volle Member-Historie) und '
+                             'nicht im Recent-Trades-Tab (eigenes Fenster).'),
         )
         window_days = {'7 Tage': 7, '30 Tage': 30,
                        '365 Tage': 365, 'Alles': None}[window_label]
+        # Wirksames Fenster transparent machen: datenrelativer Anker heisst,
+        # das "7-Tage"-Fenster kann je nach Basis in der Vergangenheit liegen.
+        if window_days is not None and date_basis in trades.columns:
+            _basis_dates = pd.to_datetime(trades[date_basis], errors='coerce')
+            _anchor = _basis_dates.max()
+            if pd.notna(_anchor):
+                _cutoff = _anchor - pd.Timedelta(days=window_days)
+                st.caption(f'Wirksames Fenster ({date_basis}): '
+                           f'{_cutoff:%d.%m.%Y} bis {_anchor:%d.%m.%Y}')
         search_query = st.text_input(
             'Suche (Name / Asset / Ticker / Hash-ID)', value='',
             help='Mehrere Begriffe werden UND-verknuepft und sind '
@@ -975,18 +989,15 @@ def apply_prefilter(df: pd.DataFrame,
 
     if apply_window and window_days is not None and date_basis in out.columns:
         date_col = pd.to_datetime(out[date_basis], errors='coerce')
-        # Gemeinsamer Fenster-Anker fuer BEIDE Datumsbasen: juengstes
-        # disclosure_date (= Datenstand). Ein spaltenabhaengiger Anker
-        # (max der gewaehlten Basis-Spalte) wuerde beim Basis-Wechsel das
-        # Fenster mitverschieben und die Invariante "Transaction-Fenster
-        # ist Teilmenge des Disclosure-Fensters" brechen (disclosure_date
-        # >= transaction_date, Meldung bis 45 Tage spaeter).
-        anchor = pd.NaT
-        if 'disclosure_date' in out.columns:
-            anchor = pd.to_datetime(out['disclosure_date'],
-                                    errors='coerce').max()
-        if pd.isna(anchor):
-            anchor = date_col.max()
+        # Datenrelativer Anker: juengstes Datum der GEWAEHLTEN Basis-Spalte.
+        # "7 Tage" = die letzten 7 Tage verfuegbarer Daten dieser Dimension
+        # (transaction-Basis: zuletzt gehandelte, disclosure-Basis: zuletzt
+        # gemeldete Trades). Ein gemeinsamer Anker (z.B. max disclosure_date)
+        # macht Kurzfenster auf transaction-Basis wegen der 45-Tage-Meldefrist
+        # strukturell leer (verworfener Ansatz, 2026-07-06). Folge der
+        # getrennten Rahmen: Trefferzahlen der beiden Basen sind NICHT
+        # ineinander enthalten; das wirksame Fenster zeigt die Sidebar-Caption.
+        anchor = date_col.max()
         if pd.notna(anchor):
             cutoff = anchor - pd.Timedelta(days=window_days)
             out = out[date_col >= cutoff]
