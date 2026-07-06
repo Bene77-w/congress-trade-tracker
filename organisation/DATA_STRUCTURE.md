@@ -1382,22 +1382,22 @@ abgeleitet (`apply_prefilter(corr_base, apply_window=False, ...)`) — 1 statt 2
 Voll-Recomputes pro Rerun, zeilenidentisches Ergebnis. `min_score`/`primary_horizon` wirken
 auf `corr_base` bewusst nicht.
 
-**Zeitfenster-Anker (`apply_prefilter`, finale Semantik 2026-07-06):** Das
-globale Sidebar-Zeitfenster (7/30/365 Tage) schneidet auf der gewählten
-Datumsbasis (`transaction_date` = Quiver-Spalte *Traded* / `disclosure_date` =
-Quiver-Spalte *Filed*); der **Fenster-Anker ist das jüngste Datum der jeweils
-gewählten Basis-Spalte** (datenrelativ): „7 Tage" = die letzten 7 Tage
-verfügbarer Daten dieser Dimension — Transaction-Basis zeigt die zuletzt
-*gehandelten*, Disclosure-Basis die zuletzt *gemeldeten* Trades. Bewusste
-Konsequenz: Die Rahmen der beiden Basen können wegen der 45-Tage-Meldefrist
-auseinanderliegen, die Trefferzahlen sind daher **nicht ineinander enthalten**
-(Transaction-Basis kann mehr Zeilen zeigen als Disclosure-Basis — kein Bug).
-Ein am selben Tag erprobter gemeinsamer Anker (`max(disclosure_date)` für beide
-Basen) wurde **verworfen**: Er macht Kurzfenster auf Transaction-Basis wegen
-des Meldeverzugs strukturell leer. Zur Transparenz zeigt eine Sidebar-Caption
-unter der Fenster-Auswahl das wirksame Datumsfenster (von–bis) der gewählten
-Basis. Zeilen mit NaT in der Basis-Spalte fallen aus dem Fenster; ist die
-Spalte komplett NaT, wird nicht gefiltert. Tests:
+**Zeitfenster-Anker (`_window_anchor`/`apply_prefilter`, finale Semantik
+2026-07-07, User-Entscheid):** Das globale Sidebar-Zeitfenster (7/30/365 Tage)
+schneidet auf der gewählten Datumsbasis (`transaction_date` = Quiver-Spalte
+*Traded* / `disclosure_date` = Quiver-Spalte *Filed*); der **Fenster-Anker ist
+für BEIDE Basen `max(disclosure_date)`** (= Datenstand; Helper
+`_window_anchor`, Fallback `max(Basis-Spalte)`, falls `disclosure_date` fehlt
+oder komplett NaT ist). Damit gilt die Invariante **Transaction-Treffermenge ⊆
+Disclosure-Treffermenge** (da `disclosure_date >= transaction_date`);
+Kurzfenster auf Transaction-Basis dürfen wegen der 45-Tage-Meldefrist **bewusst
+leer sein** (jüngste Transaktionen sind noch nicht gemeldet — kein Bug, nicht
+erneut „fixen"). Die datenrelative Alternative (Anker = Max der jeweils
+gewählten Basis-Spalte, kurzzeitig aktiv am 2026-07-06) wurde verworfen, weil
+die Trefferzahlen der Basen damit nicht vergleichbar sind. Eine Sidebar-Caption
+unter der Fenster-Auswahl zeigt das wirksame Datumsfenster (von–bis, „Anker:
+Datenstand"). Zeilen mit NaT in der Basis-Spalte fallen aus dem Fenster; ohne
+bestimmbaren Anker wird nicht gefiltert. Tests:
 `tests/test_streamlit_app_fixes.py` (W1-Block).
 
 ### `config/settings.py::SCORE_CORR_*` (Score-Analyse-Tab)
