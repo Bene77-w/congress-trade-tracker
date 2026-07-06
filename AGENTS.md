@@ -5,18 +5,17 @@ Python + Streamlit App die US-Kongress-Mitglieder Stock-Trades trackt, analysier
 
 ## Wichtige Regeln
 1. **Alle Filter-Parameter muessen konfigurierbar sein** (in config/settings.py)
-2. **Immer erst Implementierungsplan zeigen**, dann auf "OK" warten bevor Code geschrieben wird
-3. **transaction_date verwenden**, nicht disclosure_date (45-Tage Meldefrist)
+2. **Bei komplexen Implementierungen Immer erst Implementierungsplan zeigen**, dann auf "OK" warten bevor Code geschrieben wird, Implementierungsplan kann bei kleinen unkomplexen Änderungen übersprungen werden
 4. **Dokumentation** (Single-Source-of-Truth; Routing-Quelle: `organisation/DOKU_INDEX.md`) — **oberste Priorität ist kosteneffiziente, korrekte Dokumentierung**:
    - **Zwei Dokumentationsarten, der Implementierungsagent entscheidet eigenständig, welche zutrifft:**
      - **Große Architekturänderungen / Moduländerungen** (neues Modul, neue Stage, strukturelle Änderung an Pipeline/Datenmodell) → Doku **nicht selbst** schreiben, sondern Skill **`/doku-update`** aufrufen (git-diff-Scope + DOKU_INDEX-Routing + Briefing an den `doku-agent`, Default-Modell **Sonnet**; voller Ablauf + Modell-Overrides: `.claude/skills/doku-update/SKILL.md`).
      - **Kleine Detailanpassungen** (z. B. einzelnes Feld, kleiner Bugfix, kleines CLI-Flag) → der Implementierungsagent pflegt die betroffene(n) Doku-Datei(en) **selbst/manuell** — *welche*, nennt die „Aktualisieren bei"-Spalte in `DOKU_INDEX.md`. Faustregel: neue/geänderte Spalten/Datenstrukturen → `organisation/DATA_STRUCTURE.md`; neue/geänderte Scripts, Stages, Abläufe, Abhängigkeiten → `organisation/Pipelines.md`.
    - **Neue projektrelevante Datei** (Daten/Config/Script) zusätzlich aufnehmen in `DATA_STRUCTURE.md` (Struktur, Spalten, Zweck, Beispiele) **und** `Pipelines.md` (Zweck, Position in der Pipeline).
    - **Plan-Dateien nicht recyceln**: für ein neues, unverwandtes Todo eine **neue** Plan-Datei anlegen statt eine bestehende fremde zu überschreiben (Token-Ersparnis — spart den Read-Roundtrip vor jeder Änderung).
-5. **Systemanweisung**: Du bist ein erfahrener Software-Entwickler. Du erstellst vor jeder Code-Änderung einen Implementierungsplan, bevor du diesen strikt umsetzt. Um einen individuell passenden Plan zu erstellen frägst du den User nach konkreten Anweisungen und lässt wichtige Planungsfragen vom User approven. Du teilst jeden Gedankengang und Entscheidungsweg mit dem User. Falls Rückfragen oder Probleme auftreten, teile sie dem User mit.
+5. **Systemanweisung**: Du bist ein erfahrener python Software-Entwickler. Um einen individuell passenden Plan zu erstellen frägst du den User nach konkreten Anweisungen und lässt wichtige Planungsfragen vom User beantworten. Du teilst jeden Gedankengang und Entscheidungsweg mit dem User. Falls Rückfragen oder Probleme auftreten, teile sie dem User mit.
 6. **Fragen an dich**: Wenn der User nach deiner Einschätzung frägt, dann präsentiere zunächst deinen Gedankengang, verschiedene Lösungswege, Pro-/Kontra-Argumente und Konsequenzen jedes Lösungsweges und zuletzt deine begründete Empfehlung.
 7. **Emojis-Verbot** Verwende keine Emojis für das frontend/streamlit
-8. **Einsatz von subagents** Nutze für tokenintensive und gleichzeitig nicht anspruchsvolle Aufgaben subagents, welche eine Teilaufgabe für dich übernehmen. z.b. den explore subagent zum indentifizieren von dateien oder finden von wichtigen Codestellen unter vielen verschiedenen Dateien.
+8. **Einsatz von subagents** Nutze für tokenintensive Aufgaben subagents, welche Teilaufgaben für dich erledigen. weiter unten eine Orientierung für die Modellwahl: 
 9. **Git-Workflow im Worktree**. Du arbeitest in einem git-Worktree auf deinem eigenen Branch `agent/<name>`.
     - **Adden + Committen sind erlaubt** — committe deine Änderungen frei auf deinem eigenen Branch (`git add ...`, `git commit -m "..."`).
     - **Mergen nach `main` NUR auf ausdrücklichen Befehl des Users** — niemals eigenmächtig. Wenn der User es anweist, läuft es genau so:
@@ -38,8 +37,17 @@ Stand **nicht aus dem Gedächtnis** annehmen — aus git/Doku ableiten:
 - **Was hat MEIN Branch geändert?** → `git diff main...HEAD --stat` + `git status`
 - **Stand/History einer Datei oder eines fertigen Moduls?** → `git log --oneline -- <pfad>` oder `CHANGELOG.md`
 - **Wo liegt Thema X / welche Doku pflegen?** → `organisation/DOKU_INDEX.md`
-
 ---
+
+## Subagent-Modellwahl (nach Anspruchsgrad)
+
+| Anspruchsgrad | Modell | Typische Aufgaben |
+|---|---|---|
+| **Trivial** | `haiku` | Datei-Suche, Grep-artige Exploration, einfache Lookups, simple Umbenennungen, Formatprüfungen |
+| **Standard** | `sonnet` | Einfache klar spezifizierte code implementierung, Dokumentation |
+| **Komplex / kritisch** | `opus` | Komplexe Implementierungen, Architekturentscheidungen, Security-Reviews, Debugging tiefer Bugs, mehrdeutige Bewertungen mit Abwägung |
+---
+
 
 ## Aktueller Stand (WIP)
 
@@ -69,20 +77,6 @@ Detail, das **nicht** im CHANGELOG steht: Post-Trade-Performance (Modul 5) → `
 
 ---
 
-## Import-Workflow (Kurzform)
-
-```bash
-cd congress_tracker && source venv/bin/activate
-python scrapers/house_scraper.py        # data/raw/house_trades.csv
-python scrapers/senate_scraper.py       # data/raw/senate_trades.csv
-python scripts/import_trades.py         # data/processed/trades_master*.csv
-```
-
-CLI-Optionen (Delta-Mode, einzelne Stages, Dry-Run, PDF-Extraction): siehe `organisation/CLI_Bedienungsanleitung.md`.
-
-**Committee-Roster** (`data/mappings/{house,senate}_member&(sub)committees.csv`, F2-Format) werden von eigenen Producern erzeugt — `scrapers/senate_committee_xml/` (Senate, XML) und `scrapers/house_pdf_parsing_tool/` (House, PDF), Details: `organisation/Pipelines.md` Pipeline 3c. Nach einer Roster-Änderung gilt die Re-Run-Sequenz `--stage_committees → --stage_gates_tags → --stage_branch1_signals → --stage_sequence_signals → --stage_swarm_signals → --stage_scoring (+ --regenerate_curated)`.
-
----
 
 ## Nächste Schritte
 
@@ -99,7 +93,4 @@ Historische Plan-Datei (P1–P7, abgeschlossen): `archive/alt/Implementierungspl
 
 Schneller Themen-Einstieg (kanonische Quelle pro Thema):
 - **Spalten** → `DATA_STRUCTURE.md` · **Gate/Tag/Signal + Score** → `Filter_Instanz_Parameter.md` · **Pipeline-Stages** → `Pipelines.md` · **Signal-Schema** → `tool_specific_md/signal_info.md` · **Ticker/Issuer** → `Ticker_Architektur.md` · **CLI** → `CLI_Bedienungsanleitung.md` · **Phasen-Historie** → `CHANGELOG.md` · **Offene Pläne** → `~/.claude/plans/*.md`
-
-hallo
-
 **Voller Doku-Index + „Aktualisieren bei"-Trigger pro Datei:** `organisation/DOKU_INDEX.md` (Single-Source-of-Truth-Konvention + Routing-Quelle für Regel 4 und Skill `/doku-update`).
