@@ -1,0 +1,56 @@
+{
+  "Bene2": {
+    "ex_officio_committee_global": true,
+    "ex_officio_role_bonuses": {
+      "committee_chairman": 15.0,
+      "committee_ex_officio": 10.0,
+      "committee_ranking_member": 10.0,
+      "committee_vice_chairman": 12.0,
+      "subcommittee_chair": 12.0,
+      "subcommittee_ex_officio": 8.0,
+      "subcommittee_ranking_member": 8.0,
+      "subcommittee_vice_chair": 9.0
+    },
+    "paradox_damper": 0.5,
+    "trade_volume_enabled": false,
+    "trade_volume_tiers": [
+      [
+        50000.0,
+        2
+      ],
+      [
+        100000.0,
+        4
+      ],
+      [
+        250000.0,
+        7
+      ],
+      [
+        500000.0,
+        10
+      ],
+      [
+        1000000.0,
+        13
+      ],
+      [
+        null,
+        16
+      ]
+    ],
+    "trade_volume_trigger": 15000.0,
+    "weights": {
+      "accumulative": 10.0,
+      "committee": 0.0,
+      "committee_full": 35.0,
+      "contrarian": 0.0,
+      "extreme_report": 5.0,
+      "floor_action": 15.0,
+      "swarm_buy": 20.0,
+      "swarm_conflict": -10.0,
+      "swarm_sell": 20.0,
+      "trade_volume": 0.0
+    }
+  }
+}

@@ -9,6 +9,14 @@ Tokenintensives, niedrigkomplexes Doku-Schreiben wird an den `doku-agent` (Model
 ausgelagert — das hält die teure Haupt-Session (oft Opus) frei. Dieser Skill bereitet den
 Sub-Agent-Aufruf vor.
 
+**Scope-Grenze:** Dieser Skill ist nur für **große Architekturänderungen oder
+Modulimplementierungen** gedacht. Für **kleine Detailanpassungen** (einzelnes Feld, kleiner
+Bugfix, kleines CLI-Flag) pflegt der Implementierungsagent die betroffene(n) Doku-Datei(en)
+**selbst/manuell** über die Routing-Tabelle in `organisation/DOKU_INDEX.md` — ohne diesen Skill
+aufzurufen (kosteneffizienter als ein Subagent-Aufruf für eine triviale Änderung). Der
+Implementierungsagent entscheidet eigenständig, welche der beiden Dokumentationsarten zutrifft
+(s. `AGENTS.md` Regel 4).
+
 ## Leitregel — drei Quellen, klare Rollen (NICHT invertieren)
 
 | Quelle | Rolle | |
