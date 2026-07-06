@@ -1,4 +1,5 @@
-"""Tests fuer die Streamlit-App-Fixes O1 (Recompute-Ableitung) + Z1b (Schwelle).
+"""Tests fuer die Streamlit-App-Fixes O1 (Recompute-Ableitung), Z1b (Schwelle)
+und W1 (gemeinsamer Zeitfenster-Anker).
 
 O1: Der Trades-/Assets-/Members-Basis-Frame ``prefilt`` wird nicht mehr separat
 rekomputet, sondern aus der horizont-filter-freien ``corr_base`` per
@@ -181,3 +182,89 @@ def test_z1b_respects_monkeypatched_threshold():
     assert style20(15) == ''          # 15 < 20 -> neutral (bei 10 gruen gewesen)
     assert style20(-15) == ''
     assert style20(25) != ''
+
+
+# ---------------------------------------------------------------------------
+# W1 — Gemeinsamer Zeitfenster-Anker (max disclosure_date)
+# ---------------------------------------------------------------------------
+def _load_apply_prefilter():
+    """Extrahiert die ECHTE ``apply_prefilter``-Quelle aus streamlit_app.py und
+    liefert eine Factory, die die Sidebar-Globals (date_basis, window_days, …)
+    kontrolliert injiziert — gleiches Muster wie ``_load_related_return_style``.
+    """
+    src = APP_PATH.read_text(encoding='utf-8')
+    tree = ast.parse(src)
+    node = next(
+        n for n in tree.body
+        if isinstance(n, ast.FunctionDef) and n.name == 'apply_prefilter'
+    )
+    func_src = ast.get_source_segment(src, node)
+
+    def _make(date_basis: str, window_days):
+        ns: dict = {'pd': pd, 'date_basis': date_basis,
+                    'window_days': window_days, 'search_query': '',
+                    'horizon_filter_active': False, 'primary_horizon': 90}
+        exec(func_src, ns)  # noqa: S102 - kontrollierter Namespace, Testcode
+        return ns['apply_prefilter']
+
+    return _make
+
+
+def test_w1_anchor_is_max_disclosure_for_both_bases():
+    """Der Fenster-Anker ist fuer BEIDE Datumsbasen max(disclosure_date).
+
+    Regression zum Bug "mehr Trades auf transaction- als auf disclosure-Basis":
+    die alte Logik ankerte am Max der jeweils gewaehlten Spalte, wodurch das
+    Transaction-Fenster auf eine alte Woche rutschte (Meldeverzug) und Zeilen
+    zeigte, die laengst disclosed waren.
+    """
+    make = _load_apply_prefilter()
+    # Juengste Meldung 2026-07-01, juengste Transaktion nur 2026-06-16
+    # (45-Tage-Meldeverzug). 7d-Cutoff = 2026-06-24 fuer beide Basen.
+    df = pd.DataFrame({
+        'transaction_date': ['2026-06-10', '2026-06-14', '2026-06-16'],
+        'disclosure_date':  ['2026-06-17', '2026-07-01', '2026-06-20'],
+    })
+    # Transaction-Basis: alle Transaktionen liegen vor dem Cutoff -> leer.
+    # (Alte Logik: Anker max(transaction_date)=06-16 -> haette alle 3 gezeigt.)
+    assert make('transaction_date', 7)(df).empty
+    # Disclosure-Basis: nur die Meldung vom 07-01 liegt im Fenster.
+    assert list(make('disclosure_date', 7)(df).index) == [1]
+    # Groesseres Fenster (30d, Cutoff 06-01): beide Basen sehen alle Zeilen.
+    assert len(make('transaction_date', 30)(df)) == 3
+    assert len(make('disclosure_date', 30)(df)) == 3
+
+
+def test_w1_transaction_window_is_subset_of_disclosure_window():
+    """Invariante: da disclosure_date >= transaction_date, ist das
+    Transaction-Fenster bei gemeinsamem Anker stets Teilmenge des
+    Disclosure-Fensters (nie mehr Trades auf Transaction-Basis)."""
+    make = _load_apply_prefilter()
+    df = pd.DataFrame({
+        'transaction_date': ['2026-05-01', '2026-06-05', '2026-06-27',
+                             '2026-06-30', '2026-04-10'],
+        'disclosure_date':  ['2026-06-10', '2026-06-26', '2026-06-29',
+                             '2026-07-01', '2026-05-20'],
+    })
+    for window in (7, 30, 365):
+        txn_idx = set(make('transaction_date', window)(df).index)
+        disc_idx = set(make('disclosure_date', window)(df).index)
+        assert txn_idx <= disc_idx, (window, txn_idx, disc_idx)
+    # window_days=None ('Alles'): kein Cutoff, alles bleibt sichtbar.
+    assert len(make('transaction_date', None)(df)) == len(df)
+
+
+def test_w1_fallback_anchor_without_disclosure_column():
+    """Fehlt disclosure_date (oder ist komplett NaT), faellt der Anker auf das
+    Max der gewaehlten Basis-Spalte zurueck (kein Crash, kein Leerfilter)."""
+    make = _load_apply_prefilter()
+    df = pd.DataFrame({
+        'transaction_date': ['2026-06-10', '2026-06-16', '2026-05-01'],
+    })
+    out = make('transaction_date', 7)(df)
+    # Anker = max(transaction_date) = 06-16, Cutoff 06-09 -> 2 Zeilen.
+    assert list(out.index) == [0, 1]
+    # disclosure_date vorhanden, aber komplett NaT -> gleicher Fallback.
+    df_nat = df.assign(disclosure_date=pd.NaT)
+    out_nat = make('transaction_date', 7)(df_nat)
+    assert list(out_nat.index) == [0, 1]

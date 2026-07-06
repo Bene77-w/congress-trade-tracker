@@ -1382,6 +1382,19 @@ abgeleitet (`apply_prefilter(corr_base, apply_window=False, ...)`) — 1 statt 2
 Voll-Recomputes pro Rerun, zeilenidentisches Ergebnis. `min_score`/`primary_horizon` wirken
 auf `corr_base` bewusst nicht.
 
+**Zeitfenster-Anker (`apply_prefilter`, Bugfix 2026-07-06):** Das globale
+Sidebar-Zeitfenster (7/30/365 Tage) schneidet auf der gewählten Datumsbasis
+(`transaction_date`/`disclosure_date`); der **Fenster-Anker ist für beide Basen
+`max(disclosure_date)`** (= Datenstand; Fallback `max(Basis-Spalte)`, falls
+`disclosure_date` fehlt oder komplett NaT ist). Vorher ankerte der Cutoff am Max
+der jeweils gewählten Spalte — beim Basis-Wechsel verschob sich damit auch das
+Fenster (Meldeverzug bis 45 Tage), sodass die Transaction-Basis paradoxerweise
+MEHR Trades zeigen konnte als die Disclosure-Basis. Mit gemeinsamem Anker gilt
+die Invariante **Transaction-Fenster ⊆ Disclosure-Fenster** (da
+`disclosure_date >= transaction_date`); kurze Fenster sind auf Transaction-Basis
+wegen der Meldefrist erwartbar (fast) leer. Tests:
+`tests/test_streamlit_app_fixes.py` (W1-Block).
+
 ### `config/settings.py::SCORE_CORR_*` (Score-Analyse-Tab)
 Reine **Anzeige-/Analyse-Parameter** für den Tab „Score-Analyse" (kein
 Scoring-Parameter, daher nicht in

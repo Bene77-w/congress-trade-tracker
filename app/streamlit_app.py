@@ -598,7 +598,11 @@ with st.sidebar:
             horizontal=True,
             help=_scope_help('global', 'Datums-Cutoff (auf der gewaehlten '
                              'Datumsbasis) fuer Trades-/Assets-/Members-/'
-                             'Performance-Tab. Wirkt NICHT im Member-Detail-'
+                             'Performance-Tab. Anker ist fuer beide '
+                             'Datumsbasen das juengste Meldedatum '
+                             '(= Datenstand); auf Transaction-Basis sind '
+                             'kurze Fenster wegen der 45-Tage-Meldefrist '
+                             'oft (fast) leer. Wirkt NICHT im Member-Detail-'
                              'Popup (dort volle Member-Historie) und nicht im '
                              'Recent-Trades-Tab (eigenes Fenster).'),
         )
@@ -971,9 +975,20 @@ def apply_prefilter(df: pd.DataFrame,
 
     if apply_window and window_days is not None and date_basis in out.columns:
         date_col = pd.to_datetime(out[date_basis], errors='coerce')
-        max_date = date_col.max()
-        if pd.notna(max_date):
-            cutoff = max_date - pd.Timedelta(days=window_days)
+        # Gemeinsamer Fenster-Anker fuer BEIDE Datumsbasen: juengstes
+        # disclosure_date (= Datenstand). Ein spaltenabhaengiger Anker
+        # (max der gewaehlten Basis-Spalte) wuerde beim Basis-Wechsel das
+        # Fenster mitverschieben und die Invariante "Transaction-Fenster
+        # ist Teilmenge des Disclosure-Fensters" brechen (disclosure_date
+        # >= transaction_date, Meldung bis 45 Tage spaeter).
+        anchor = pd.NaT
+        if 'disclosure_date' in out.columns:
+            anchor = pd.to_datetime(out['disclosure_date'],
+                                    errors='coerce').max()
+        if pd.isna(anchor):
+            anchor = date_col.max()
+        if pd.notna(anchor):
+            cutoff = anchor - pd.Timedelta(days=window_days)
             out = out[date_col >= cutoff]
 
     if search_query:
