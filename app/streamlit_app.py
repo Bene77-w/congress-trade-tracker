@@ -56,7 +56,7 @@ TRADE_DISPLAY_COLS = [
     'effective_return_pct', 'trade_score', 'ticker',
     'transaction_type', 'transaction_date', 'disclosure_date',
     'amount', 'exit_status', 'trade_id', 'name',
-    'asset_name', 'signals_triggered', 'committee_match',
+    'asset_name', 'subholding', 'signals_triggered', 'committee_match',
     'asset_tradingvolume_usd', 'relevant_sectors',
     # Optionale Zusatzspalten (per Multiselect zuschaltbar) -> rechts angehaengt.
     'chamber', 'Member_Party', 'issuer_ticker',
@@ -71,8 +71,8 @@ TRADE_DISPLAY_COLS = [
 # Spalten fuer den Recent-Trades-Monitoring-Tab (Reihenfolge = Anzeige).
 RECENT_DISPLAY_COLS = [
     'effective_return_pct', 'paper_return_pct', 'trade_score', 'ticker',
-    'transaction_type', 'asset_name', 'signals_triggered', 'name',
-    'relevant_sectors', 'committee_match', 'transaction_date',
+    'transaction_type', 'asset_name', 'name', 'signals_triggered',
+    'subholding', 'relevant_sectors', 'committee_match', 'transaction_date',
     'disclosure_date', 'days_since_trade', 'chamber', 'Member_Party',
     'issuer_ticker', 'trade_id',
     'amount', 'trade_amount_max_usd', 'price_as_of', 'exit_status',
@@ -80,7 +80,7 @@ RECENT_DISPLAY_COLS = [
 
 TRADE_DEFAULT_COLS = [
     'effective_return_pct', 'trade_score', 'ticker', 'asset_name', 'name',
-    'signals_triggered', 'committee_match', 'trade_id',
+    'subholding', 'signals_triggered', 'committee_match', 'trade_id',
     'transaction_date', 'disclosure_date', 'transaction_type', 'amount',
     'asset_tradingvolume_usd', 'relevant_sectors', 'exit_status',
 ]
@@ -194,6 +194,7 @@ def load_trades() -> pd.DataFrame:
         dtype={'ticker': 'string', 'issuer_ticker': 'string',
                'name': 'string', 'chamber': 'string',
                'Member_Party': 'string',
+               'subholding': 'string',
                'transaction_type': 'string', 'amount': 'string',
                'signals_triggered': 'string',
                'trade_score_breakdown': 'string',
@@ -1104,6 +1105,7 @@ def _trade_column_config(score_max_val: int, ticker_as_link: bool = False) -> di
             'Disclosure', format='DD.MM.YYYY', width='small',
             help=help_for('disclosure_date')),
         'name': cc.TextColumn('Member', width='medium'),
+        'subholding': cc.TextColumn('Sub Holding', width='medium'),
         'chamber': cc.TextColumn('Chamber', width='small'),
         'Member_Party': cc.TextColumn('Party', width='small'),
         'asset_name': cc.TextColumn('Asset', width='large'),
