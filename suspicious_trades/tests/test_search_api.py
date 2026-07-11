@@ -6,7 +6,9 @@ from typing import Any
 
 import pytest
 
+from suspicious_trades import config
 from suspicious_trades.search_api import (
+    MissingSearchAPIKeyError,
     SearchBudgetExhausted,
     SearchProvider,
     SearchRateLimitError,
@@ -15,6 +17,19 @@ from suspicious_trades.search_api import (
     TavilySearchAPI,
     tool_schemas_for_role,
 )
+
+
+def test_missing_tavily_key_points_to_package_env(monkeypatch, tmp_path):
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+
+    with pytest.raises(MissingSearchAPIKeyError) as exc_info:
+        TavilySearchAPI(
+            run_id="missing-key",
+            role="test",
+            settings=_settings(tmp_path),
+        )
+
+    assert str(config.PACKAGE_ROOT / ".env") in str(exc_info.value)
 
 
 def _settings(tmp_path: Path, **tavily: Any) -> dict[str, Any]:

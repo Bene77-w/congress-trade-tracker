@@ -204,6 +204,7 @@ def _print_results(results: Iterable[SmokeResult]) -> None:
     skipped = [result.check for result in results if result.status == "SKIP"]
     if skipped:
         print("Offene B1-Live-Abnahmepunkte (fehlende Keys): " + ", ".join(skipped))
+        print(f"Keys eintragen in: {config.PACKAGE_ROOT / '.env'}")
 
 
 def smoke_command(args: argparse.Namespace) -> int:
