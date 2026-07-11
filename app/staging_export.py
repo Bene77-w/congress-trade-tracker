@@ -1,23 +1,13 @@
-"""B5: Export markierter Recent-Trades ins variantenuebergreifende Agent-Staging.
+"""Optionaler CSV-Export markierter Recent Trades.
 
-Schreibt eine Auswahl aus dem Recent-Trades-Pool der Streamlit-Haupt-App nach
-``data/agent_staging/trade_selection_<timestamp>.csv`` mit dem festen
-Spaltenschema aus dem Suspicious-Trades-Basisplan (§5b). Das Zwischenlager ist
-bewusst variantenuebergreifend (ausserhalb der modul-eigenen DATA_DIR der
-Agent-Klone): die Haupt-App schreibt hier, die Control-UIs der Varianten lesen.
+Das Modul bildet eine neutrale dateibasierte Integrationsgrenze: Congress
+Tracker schreibt ein stabiles CSV-Schema in seinen eigenen Exportordner.
+Externe Programme koennen die Dateien uebernehmen, sind aber weder importiert
+noch fuer den Betrieb dieses Exports erforderlich.
 
-Dieses Modul ist absichtlich frei von Streamlit-Abhaengigkeiten und daher
-offline testbar. Der Recent-Trades-Tab in ``app/streamlit_app.py`` ruft nur
-``export_selection``.
-
-Kontrakt-Hinweis: Der Staging-Reader der Agent-Varianten
-(``suspicious_trades*/trades_access``) liest exakt dieses Schema und berechnet
-``direction`` bei Fehlen ebenfalls via
-``signals.committee_signal._direction_from_transaction_type`` nach. Deshalb wird
-``direction`` hier mit genau derselben Funktion abgeleitet (Rueckgabe
-'buy'/'sell'/'other') — nur so bleiben Export und Reader konsistent. (Die
-"+1/-1"-Annotation der Plan-Tabelle beschreibt die Semantik der Richtung, nicht
-das tatsaechliche Rueckgabeformat dieser Funktion.)
+Das Modul ist frei von Streamlit- und Signal-Abhaengigkeiten und offline
+testbar. Der Recent-Trades-Tab in ``app/streamlit_app.py`` ruft lediglich
+``export_selection`` auf.
 """
 from __future__ import annotations
 
@@ -29,11 +19,10 @@ from typing import Optional
 import pandas as pd
 
 from config import settings
-from signals.committee_signal import _direction_from_transaction_type
 
 logger = logging.getLogger(__name__)
 
-# Festes §5b-Spaltenschema (Reihenfolge bindend fuer den Staging-Reader-Kontrakt).
+# Festes CSV-Spaltenschema (Reihenfolge bindend fuer den Exportvertrag).
 # Quellspalten stammen aus dem Master (ungefilterter recent_pool traegt sie);
 # 'direction' und 'export_ts' werden beim Export erzeugt.
 STAGING_COLUMNS = [
@@ -48,26 +37,35 @@ STAGING_COLUMNS = [
     'exit_status', 'export_ts',
 ]
 
-# Spalten, die beim Export erzeugt und daher nicht als "fehlende Quellspalte"
-# gewarnt werden.
-_GENERATED_COLUMNS = {'direction', 'export_ts'}
+def _normalize_direction(transaction_type: object) -> str:
+    """Mappt einen Transaktionstyp lokal auf ``buy``, ``sell`` oder ``other``."""
+    if transaction_type is None:
+        return 'other'
+    try:
+        if pd.isna(transaction_type):
+            return 'other'
+    except (TypeError, ValueError):
+        pass
 
-# Dateinamens-Zeitstempel (kompakt, sortierbar).
-_FILENAME_TS_FMT = '%Y%m%d-%H%M%S'
+    value = str(transaction_type).strip().lower()
+    if 'purchase' in value:
+        return 'buy'
+    if 'sale' in value or 'sell' in value:
+        return 'sell'
+    return 'other'
 
 
 def _derive_direction(df: pd.DataFrame) -> pd.Series:
     """Ableiten der Richtung je Zeile.
 
     Vorhandene, nicht-leere ``direction``-Werte bleiben erhalten; fehlende
-    werden via ``_direction_from_transaction_type`` aus ``transaction_type``
-    berechnet (identisch zum Staging-Reader-Kontrakt).
+    werden lokal aus ``transaction_type`` berechnet.
     """
     if 'transaction_type' in df.columns:
-        derived = df['transaction_type'].map(_direction_from_transaction_type)
+        derived = df['transaction_type'].map(_normalize_direction)
     else:
         logger.warning(
-            "Staging-Export: Spalte 'transaction_type' fehlt — direction "
+            "CSV-Export: Spalte 'transaction_type' fehlt — direction "
             "faellt auf 'other' zurueck."
         )
         derived = pd.Series('other', index=df.index)
@@ -104,7 +102,7 @@ def build_staging_frame(
             out[col] = df[col]
         else:
             logger.warning(
-                "Staging-Export: Quellspalte '%s' fehlt im DataFrame — als "
+                "CSV-Export: Quellspalte '%s' fehlt im DataFrame — als "
                 "leere Spalte geschrieben (Schema-Stabilitaet).", col
             )
             out[col] = pd.NA
@@ -116,11 +114,11 @@ def build_staging_frame(
 def export_selection(
     df: pd.DataFrame,
     *,
-    staging_dir: Optional[Path] = None,
+    export_dir: Optional[Path] = None,
     export_ts: Optional[str] = None,
     timestamp: Optional[str] = None,
 ) -> Path:
-    """Schreibt ``df`` als Staging-CSV und gibt den Dateipfad zurueck.
+    """Schreibt ``df`` als CSV und gibt den Dateipfad zurueck.
 
     Parameter
     ---------
@@ -128,30 +126,31 @@ def export_selection(
         Auszuschreibender Ausschnitt des recent_pool (bereits gefiltert/
         selektiert). Beliebige Zusatzspalten werden ignoriert; fehlende
         Schema-Spalten werden leer ergaenzt.
-    staging_dir:
-        Zielverzeichnis (Default: ``settings.AGENT_STAGING_DIR``). Wird bei
+    export_dir:
+        Zielverzeichnis (Default: ``settings.TRADE_EXPORT_DIR``). Wird bei
         Bedarf angelegt.
     export_ts:
         ISO-Zeitpunkt fuer die ``export_ts``-Spalte (Default: jetzt).
     timestamp:
-        Dateinamens-Zeitstempel (Default: jetzt, Format ``%Y%m%d-%H%M%S``).
+        Dateinamens-Zeitstempel (Default: jetzt, Format aus
+        ``settings.TRADE_EXPORT_TIMESTAMP_FORMAT``).
 
     Rueckgabe
     ---------
     Path der geschriebenen CSV-Datei.
     """
-    if staging_dir is None:
-        staging_dir = settings.AGENT_STAGING_DIR
-    staging_dir = Path(staging_dir)
-    staging_dir.mkdir(parents=True, exist_ok=True)
+    if export_dir is None:
+        export_dir = settings.TRADE_EXPORT_DIR
+    export_dir = Path(export_dir)
+    export_dir.mkdir(parents=True, exist_ok=True)
 
     if timestamp is None:
-        timestamp = datetime.now().strftime(_FILENAME_TS_FMT)
+        timestamp = datetime.now().strftime(settings.TRADE_EXPORT_TIMESTAMP_FORMAT)
 
     frame = build_staging_frame(df, export_ts=export_ts)
-    out_path = staging_dir / f'trade_selection_{timestamp}.csv'
+    out_path = export_dir / f'{settings.TRADE_EXPORT_FILENAME_PREFIX}_{timestamp}.csv'
     frame.to_csv(out_path, index=False)
     logger.info(
-        "Staging-Export: %d Zeilen nach %s geschrieben.", len(frame), out_path
+        "CSV-Export: %d Zeilen nach %s geschrieben.", len(frame), out_path
     )
     return out_path

@@ -1797,22 +1797,25 @@ Befund-Report: `organisation/analyse_event_study.md`.
 
 ---
 
-## 7f. Agent-Staging-Export (Suspicious-Trades B5)
+## 7f. Optionaler Trade-CSV-Export
 
-### Datei `data/agent_staging/trade_selection_<timestamp>.csv` (gitignored)
+### Datei `data/agent_exports/trade_selection_<timestamp>.csv` (gitignored)
 
-Zwischenlager-Export des Recent-Trades-Tabs der Streamlit-Haupt-App in das
-**variantenuebergreifende** Verzeichnis `data/agent_staging/` (bewusst ausserhalb
-der modul-eigenen DATA_DIR der Suspicious-Trades-Klone).
+Neutraler dateibasierter Export aus dem Recent-Trades-Tab der Streamlit-App.
+Congress Tracker schreibt ausschließlich in seinen eigenen Exportordner; externe
+Programme können die CSV optional übernehmen, ohne Code-, Pfad- oder
+Laufzeitabhängigkeit zwischen den Projekten.
 
 - **Schreiber:** Haupt-App `app/streamlit_app.py` (Recent-Trades-Tab) via
-  `app/staging_export.py:export_selection`. `<timestamp>` = `%Y%m%d-%H%M%S`.
-- **Leser:** kuenftiger Staging-Reader der Suspicious-Trades-Varianten
-  (`suspicious_trades*/trades_access`, Phase B3); dedupliziert ueber `trade_id`.
-- **Zielverzeichnis-Config:** `config/settings.py: AGENT_STAGING_DIR`
-  (`BASE_DIR / 'data' / 'agent_staging'`), wird beim Export automatisch angelegt.
+  `app/staging_export.py:export_selection`.
+- **Leser:** nicht festgelegt; die Datei ist ein generischer Exportvertrag für
+  optionale externe Verbraucher.
+- **Konfiguration:** `config/settings.py` definiert `TRADE_EXPORT_DIR`
+  (`BASE_DIR / 'data' / 'agent_exports'`), `TRADE_EXPORT_FILENAME_PREFIX`
+  (`'trade_selection'`) und `TRADE_EXPORT_TIMESTAMP_FORMAT`
+  (`'%Y%m%d-%H%M%S'`). Das Zielverzeichnis wird beim Export angelegt.
 
-**Festes §5b-Spaltenschema** (22 Spalten, Reihenfolge bindend =
+**Festes CSV-Spaltenschema** (22 Spalten, Reihenfolge bindend =
 `app/staging_export.py:STAGING_COLUMNS`):
 
 ```
@@ -1829,22 +1832,11 @@ exit_status, export_ts
 - Alle Spalten ausser `direction` und `export_ts` stammen aus dem Master
   (ungefilterter `recent_pool`). Fehlt eine Quellspalte, wird sie schema-stabil
   leer geschrieben (Warnung im Log).
-- `direction`: falls in der Zeile leer/fehlend abgeleitet via
-  `signals.committee_signal._direction_from_transaction_type` →
-  `'buy'/'sell'/'other'` (identisch zur Reader-Nachberechnung; die "+1/-1"-Notiz
-  der Plan-Tabelle meint die Semantik, nicht das Rueckgabeformat).
+- `direction`: falls in der Zeile leer/fehlend, lokal in
+  `app/staging_export.py` aus `transaction_type` als `'buy'`, `'sell'` oder
+  `'other'` abgeleitet; das Exportmodul importiert kein Signal- oder externes
+  Workflow-Package.
 - `export_ts`: ISO-Zeitpunkt des Exports.
-
-### Suspicious-Trades B3-Datenartefakte (`data/<package>/`, gitignored)
-
-Alle unter der klon-eigenen `DATA_DIR = data/suspicious_trades*/`; Details/Schemata: `organisation/SUSPICIOUS_TRADES_WORKFLOW.md` (Abschnitt B3) und Plan §5e.
-
-- **`recommendations.csv`** — Empfehlungs-Ledger mit Mark-to-Market-Tracking. Feste Spalten (`suspicious_trades/recommendations/recommender.py:RECOMMENDATION_COLUMNS`): `rec_id, ticker, direction, issued_date, rationale, dossier_path, rank, eval_until, ref_price_at_issue, hypothetical_return_pct, price_as_of, eval_status (tracking|final|price_missing), user_status`. Kein numerischer Score; `rank` = User-Entscheid. Preisquelle read-only aus `data/cache/price_history.parquet` (kein eigener Fetch).
-- **`runs/<run_id>.status.json`** — Live-Status je Lauf (`status.py`, atomar): `run_id, variant, pipeline, pid, started_at, finished_at, state, stop_requested, cost_usd_total, steps[]` (je Step `state, started_at, finished_at, error, artifacts, cost_usd, tokens, counts`).
-- **`runs/<run_id>.stop`** — Stop-Signaldatei (kooperativer Abbruch; identisch zum B1-`RunContext.check_stop`-Pfad).
-- **`user_hints/hints.jsonl`** — append-only User-Hinweise: `hint_id, created_at, text, ticker, topic, consumed_by_run, consumed_at, archived`.
-- **`staged_trades/*.csv`** — die für einen Lauf übernommenen Staging-Exporte (Schema = `STAGING_COLUMNS` oben); Leser = `trades_access.read_staging_trades`.
-- **`outputs/<run_id>/empfehlung.md` + `bericht.md`** — die zwei Lauf-Enddokumente (Kontrakt `reporting/contract.py`; `empfehlung.md` gegen `SUMMARY_MAX_TOKENS` geprüft).
 
 ---
 

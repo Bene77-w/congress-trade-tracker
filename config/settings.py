@@ -659,15 +659,16 @@ RECENT_PRICE_MAX_AGE_BUSINESS_DAYS = 1
 
 
 # ---------------------------------------------------------------------------
-# Agent-Staging (Suspicious-Trades B5 — Zwischenlager-Export)
+# Trade-Export (optionale dateibasierte Integrationsgrenze)
 # ---------------------------------------------------------------------------
-# Zielverzeichnis fuer den Recent-Trades-Export der Haupt-App in das
-# variantenuebergreifende Zwischenlager. Bewusst AUSSERHALB der modul-eigenen
-# DATA_DIR der Agent-Klone: die Streamlit-Haupt-App schreibt hier
-# ``trade_selection_<timestamp>.csv`` (Schema app/staging_export.py), die
-# Control-UIs der Suspicious-Trades-Varianten lesen von hier. Wird beim Export
-# automatisch angelegt.
-AGENT_STAGING_DIR = BASE_DIR / 'data' / 'agent_staging'
+# Congress-eigenes Zielverzeichnis fuer manuell exportierte Recent Trades.
+# Externe Workflows koennen diese CSV-Dateien optional uebernehmen, ohne dass
+# Congress Tracker deren Projektstruktur, Code oder Laufzeitumgebung kennt.
+# Das Verzeichnis wird beim Export automatisch angelegt.
+TRADE_EXPORT_DIR = BASE_DIR / 'data' / 'agent_exports'
+# Dateiname: <Praefix>_<Zeitstempel>.csv
+TRADE_EXPORT_FILENAME_PREFIX = 'trade_selection'
+TRADE_EXPORT_TIMESTAMP_FORMAT = '%Y%m%d-%H%M%S'
 
 
 # ---------------------------------------------------------------------------

@@ -1030,36 +1030,12 @@ python -m pytest scripts/committee_mapping_agent/tests/
 
 ---
 
-## 16. Suspicious-Trades B1: Offline-Abnahme und Live-Smoke
+## 16. Ausgelagerter Analyse-Workflow
 
-Die Standard-Abnahme ist offline und mockbasiert; sie erzeugt keine LLM- oder Tavily-Kosten:
-
-```bash
-venv/bin/python -m pytest -q suspicious_trades/tests
-```
-
-Live-Smokes dürfen nur auf ausdrücklichen Userauftrag ausgeführt werden. Das Pflichtflag verhindert versehentliche Provideraufrufe:
-
-```bash
-# Alle konfigurierten B1-Modelle und Tavily; kostenpflichtig
-venv/bin/python -m suspicious_trades.run smoke --confirm-live-costs
-
-# Zusätzlich Anthropic-Cache und dreiturnigen Tool-Loop prüfen; kostenpflichtig
-venv/bin/python -m suspicious_trades.run smoke --cache-check --confirm-live-costs
-```
-
-Ohne `--confirm-live-costs` wird kein Provider angesprochen und das Kommando endet mit Exit-Code 2. Credentials werden aus der CWD-unabhängig geladenen `suspicious_trades/.env` gelesen; bereits gesetzte Prozessvariablen haben Vorrang. Die Diagnose nennt nur Quelle und Status, niemals den Key-Wert. Tavily wird ohne vorhandenen `TAVILY_API_KEY` nicht angesprochen.
-
-| Status | Bedeutung | Gesamtlauf fehlgeschlagen |
-|---|---|---|
-| `PASS` | Live-Check erfolgreich | nein |
-| `SKIP` | Key fehlt, kein Provideraufruf | nein |
-| `AUTH_FAIL` | Platzhalter oder ungültiger Key | ja, Exit 1 |
-| `MODEL_CONFIG_FAIL` | Modellstring nicht unterstützt/falsch | ja, Exit 1 |
-| `ACCESS_BLOCKED` | externe Quote-, Billing-, Regions- oder Budgetblockade | nein |
-| `FAIL` | Netzwerk-, Timeout- oder sonstiger Providerfehler | ja, Exit 1 |
-
-Technische Details, Artefakte, Cachecheck und verbindliche Kostenregel: `organisation/SUSPICIOUS_TRADES_WORKFLOW.md` und `AGENTS.md` Regel 11.
+Der ehemalige Suspicious-Trades-Workflow ist kein Script oder internes Modul des
+Congress Trackers mehr. Betrieb, Abnahme, Provider-Konfiguration und Artefakte
+sind ausschließlich im eigenständigen Schwesterprojekt dokumentiert. Der
+Congress Tracker stellt optional den neutralen CSV-Export aus Pipeline 10 bereit.
 
 ---
 
@@ -1081,7 +1057,6 @@ Technische Details, Artefakte, Cachecheck und verbindliche Kostenregel: `organis
 | Congress Data Fetcher (Erstlauf/Resume) | `python scrapers/fetch_congress_data.py` | Erstlauf bzw. Checkpoint-Fortsetzung (~7-8h, nicht-destruktiv) |
 | Congress Data Fetcher (Force-Rebuild) | `python scrapers/fetch_congress_data.py --force` | **DESTRUKTIV** (mit `JA`-Confirmation): JSONs archivieren + von 0 neu fetchen (~7-8h) |
 | Committee-Mapping-Agent | `python -m scripts.committee_mapping_agent.run <subcommand>` | Master-Committee-Mapping neu erzeugen (s. Abschnitt 15) |
-| Suspicious-Trades Offline-Tests | `venv/bin/python -m pytest -q suspicious_trades/tests` | Kostenfreie B1-Standard-Abnahme (s. Abschnitt 16) |
 | Tests | `pytest tests/ -v` | Alle Unit-Tests |
 | Pipeline Reset | `python scripts/reset_pipeline.py --all --dry-run` | Logs/Caches/Stage/Processed reversibel zurücksetzen |
 | Streamlit Dashboard | `venv/bin/streamlit run app/streamlit_app.py` | Web-UI (Trades / Assets / Members) auf Port 8501 |

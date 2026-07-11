@@ -915,9 +915,19 @@ venv/bin/streamlit run app/streamlit_app.py --server.headless true
 **Inputs (read-only):**
 - `data/processed/trades_master.csv` — Haupt-Trades-Tabelle (gecached via `@st.cache_data`)
 
-**Outputs:** grundsaetzlich Lese-UI; einziger Schreibpfad ist der Recent-Trades-Export (B5) ins Agent-Staging (s. unten), on-demand per Button.
+**Outputs:** grundsätzlich Lese-UI; als manueller Schreibpfad steht der optionale
+Recent-Trades-CSV-Export zur Verfügung.
 
-**Recent-Trades-Export → Agent-Staging (Suspicious-Trades B5):** Der Recent-Trades-Tab kann die Auswahl ins variantenuebergreifende Zwischenlager schreiben (Schreiber = Haupt-App; Leser = kuenftiger Staging-Reader der Suspicious-Trades-Varianten, B3). Modul `app/staging_export.py` (`export_selection`) schreibt `data/agent_staging/trade_selection_<timestamp>.csv` mit festem §5b-Schema (22 Spalten, Details `organisation/DATA_STRUCTURE.md`). Zwei Wege: Button „Alle gefilterten Zeilen exportieren" (kompletter gefilterter `recent_pool`) und „Auswahl exportieren" (per `st.dataframe`-multi-row markierte Zeilen). Zielverzeichnis `config/settings.py: AGENT_STAGING_DIR` (relativ zu `BASE_DIR`, gitignoriert), wird bei Bedarf angelegt.
+**Optionaler Recent-Trades-CSV-Export:** Der Recent-Trades-Tab kann entweder den
+kompletten gefilterten `recent_pool` oder die per `st.dataframe` markierten Zeilen
+exportieren. `app/staging_export.py:export_selection` schreibt das feste
+22-Spalten-Schema nach
+`data/agent_exports/trade_selection_<timestamp>.csv` (Details:
+`organisation/DATA_STRUCTURE.md`, Abschnitt 7f). Zielverzeichnis, Präfix und
+Zeitstempelformat sind über `config/settings.py` konfigurierbar. Der Producer
+normalisiert `direction` lokal und besitzt keine Imports, Pfade oder
+Laufzeitabhängigkeiten zu externen Workflows; externe Programme können die CSV
+optional übernehmen.
 
 **Datenfluss pro Render:**
 ```
