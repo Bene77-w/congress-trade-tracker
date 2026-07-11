@@ -45,6 +45,10 @@ class MissingSearchAPIKeyError(SearchAPIError):
     """The selected search provider's API key is absent."""
 
 
+class InvalidSearchAPIKeyError(SearchAPIError):
+    """The selected search provider's API key is an obvious placeholder."""
+
+
 class SearchToolLimitError(SearchAPIError):
     """A role exceeded its combined map/crawl call allowance."""
 

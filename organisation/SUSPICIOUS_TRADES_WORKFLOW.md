@@ -39,7 +39,7 @@ Alle Varianten erzeugen pro Lauf `empfehlung.md` (kompaktes Ranking ohne numeris
 
 ### Package und Konfiguration
 
-`suspicious_trades/config.py` lädt ausschließlich die package-eigene `suspicious_trades/.env` und enthält sämtliche gemeinsamen, kommentierten Defaults: Pfade, Provider-/Modellparameter, autoritative `PRICING`-Werte, LLM- und Search-Caps, Ingestion-/Eval-Parameter sowie künftige UI-Werte. `AGENT_SPECS` ist in der neutralen Basis bewusst leer; spätere Phasen definieren dort vollständige Rollen-Specs mit `model`, `effort`, `max_turns`, `cache`, `search`, `extract`, optional `crawl`, `max_output_tokens` und `prompt_template`.
+`suspicious_trades/config.py` lädt CWD-unabhängig ausschließlich die package-eigene `suspicious_trades/.env` und enthält sämtliche gemeinsamen, kommentierten Defaults: Pfade, Provider-/Modellparameter, autoritative `PRICING`-Werte, LLM- und Search-Caps, Ingestion-/Eval-Parameter sowie künftige UI-Werte. Bereits gesetzte Prozessvariablen haben bewusst Vorrang. Der Loader akzeptiert nur dotenv-Zuweisungen und ignoriert ungültige Zeilen mit einer Warnung aus Pfad und Zeilennummer, ohne deren Inhalt oder Secrets auszugeben. Credential-Diagnosen unterscheiden redigiert `process-env`, `package-env`, `runtime-env` und `missing`; leere Werte und bekannte Platzhalter werden vor einem Live-Aufruf erkannt. `AGENT_SPECS` ist in der neutralen Basis bewusst leer; spätere Phasen definieren dort vollständige Rollen-Specs mit `model`, `effort`, `max_turns`, `cache`, `search`, `extract`, optional `crawl`, `max_output_tokens` und `prompt_template`.
 
 `effective(reload=False)` introspektiert alle UPPERCASE-Konstanten und merged `data/<package>/config_overrides.json`:
 
@@ -59,13 +59,13 @@ Spätere Pipeline-Schritte müssen ausschließlich `effective()` lesen. Prompt-O
 - `call_with_tools(..., max_turns, run_ctx) -> ToolLoopResult`
 - `UsageLog`, `RunContext` sowie typisierte Fehler für Key-, Validierungs-, Stop- und Kosten-Cap-Fälle.
 
-`client.py` verwendet ausschließlich `litellm.completion()` (`litellm==1.85.1`), volle Providerpräfixe und die Env-Zuordnung `KEY_ENV_BY_PREFIX`. Es gibt keine Provider-Registry und keine direkten OpenAI-/Anthropic-SDK-Imports. `reasoning_effort="none"` wird weggelassen; andere Werte gehen mit `drop_params=True` an LiteLLM. Transiente Fehler können bei aktiviertem Schalter genau einmal auf ein gemapptes OpenRouter-Modell fallen; Request-/Authfehler nicht.
+`client.py` verwendet ausschließlich `litellm.completion()` (`litellm==1.85.1`), volle Providerpräfixe und die Env-Zuordnung `KEY_ENV_BY_PREFIX`. Es gibt keine Provider-Registry und keine direkten OpenAI-/Anthropic-SDK-Imports. `reasoning_effort="none"` wird weggelassen; andere Werte gehen mit `drop_params=True` an LiteLLM. Jeder Provideraufruf hat die konfigurierbare harte Obergrenze `LLM_TIMEOUT_SECONDS` (Default 60 Sekunden). Transiente Fehler können bei aktiviertem Schalter genau einmal auf ein gemapptes OpenRouter-Modell fallen; Request-/Authfehler nicht. Der Live-Smoke setzt LiteLLM-Retries explizit auf 0, damit Providerfehler ohne kostensteigernde Wiederholungen klassifiziert werden.
 
 Prompt-Caching setzt providerneutral `cache_control={"type":"ephemeral"}` auf den letzten System-Block und einen wandernden letzten Verlaufsblock. Vor jedem Aufruf werden alte Verlaufspunkte entfernt; Eingaben werden nicht mutiert. Dynamische Run-Daten gehören daher in User-Messages, nie in statische System-Prompts.
 
-`tool_loop.py` normalisiert OpenAI-Tool-Calls, prüft `run_ctx.check_stop()` vor jedem LLM-Call, reicht Toolfehler als Tool-Message zurück und erzwingt nach ausgeschöpften Tool-Turns einen Abschluss ohne Tools. Der minimale B1-`RunContext` kann bereits Stop-Datei, `UsageLog` und temporäre `spec_override`-Profile tragen; B3 ersetzt/erweitert ihn um die vollständige Statusschicht.
+`tool_loop.py` normalisiert OpenAI-Tool-Calls, prüft `run_ctx.check_stop()` vor jedem LLM-Call, reicht Toolfehler als Tool-Message zurück und erzwingt nach ausgeschöpften Tool-Turns einen Abschluss ohne Tools. Für deterministische Integrationsprüfungen können die ersten Tool-Turns mit `tool_choice="required"` erzwungen werden. Der minimale B1-`RunContext` kann bereits Stop-Datei, `UsageLog` und temporäre `spec_override`-Profile tragen; B3 ersetzt/erweitert ihn um die vollständige Statusschicht.
 
-`usage.py` normalisiert Anthropic- und OpenAI-Cachefelder, berechnet deterministische Kosten aus `PRICING` und schreibt je Call `runs/<run_id>.usage.jsonl` sowie eine Aggregation in `runs/<run_id>.json`. Bei freien Modellen dient `litellm.completion_cost()` nur als gewarnte Schätzung. Vor jedem Call prüft der aktive `UsageLog` die laufweite Kostenobergrenze anhand der letzten Rollenkosten.
+`usage.py` normalisiert Anthropic- und OpenAI-Cachefelder, berechnet deterministische Kosten aus `PRICING` und schreibt je Call `runs/<run_id>.usage.jsonl` sowie eine Aggregation in `runs/<run_id>.json`. Zeitlich begrenzte Tarife werden über `PRICING_PERIODS` gewählt (Sonnet-5-Einführungspreis bis einschließlich 2026-08-31), kontextabhängige Tarife über `PRICING_TOKEN_TIERS` (GPT-5.5 oberhalb 272.000 Input-Tokens). Die DeepSeek- und GPT-5.5-Cachepreise entsprechen den offiziellen Providerpreisen. Bei freien Modellen dient `litellm.completion_cost()` nur als gewarnte Schätzung. Vor jedem Call prüft der aktive `UsageLog` die laufweite Kostenobergrenze anhand der letzten Rollenkosten.
 
 ### Search-Schicht
 
@@ -81,11 +81,24 @@ Jeder Aufruf schreibt `runs/<run_id>.search_usage.jsonl` mit Rolle, Endpunkt, Ti
 
 ### CLI, Abhängigkeiten und Tests
 
-`python -m suspicious_trades.run smoke` prüft jedes eindeutige Modell aus `SMOKE_MODELS` und künftigen `AGENT_SPECS` sowie Tavily. Fehlende Keys sind `SKIP`; die Zusammenfassung verweist dafür ausdrücklich auf `suspicious_trades/.env`. Providerfehler sind `FAIL`. `--cache-check` ergänzt zwei identische große Anthropic-Calls und einen dreiturnigen Mini-Tool-Loop; beide Pfade müssen Cache-Reads melden. Smoke-Artefakte landen unter `data/suspicious_trades/runs/`, das wie spätere Klonverzeichnisse gitignoriert ist.
+Der kostenpflichtige Live-Smoke startet nur mit dem Pflichtflag `--confirm-live-costs`; ohne dieses Flag endet er vor jedem Provideraufruf mit Exit-Code 2. Er prüft jedes eindeutige Modell aus `SMOKE_MODELS` und künftigen `AGENT_SPECS` sowie Tavily. Seine Statussemantik ist:
+
+| Status | Bedeutung | Exit-Code 1 |
+|---|---|---|
+| `PASS` | Providercheck erfolgreich | nein |
+| `SKIP` | Credential fehlt; Provider wird nicht aufgerufen | nein |
+| `AUTH_FAIL` | Platzhalter oder ungültiges Credential | ja |
+| `MODEL_CONFIG_FAIL` | nicht unterstützter/falscher Modellstring | ja |
+| `ACCESS_BLOCKED` | externe Quote-, Billing-, Regions- oder Budgetblockade | nein |
+| `FAIL` | Netzwerk-, Timeout- oder sonstiger Providerfehler | ja |
+
+`--cache-check` ergänzt zwei identische Anthropic-Calls und verlangt beim zweiten Call einen Cache-Read. Darauf folgen zwei erzwungene serielle Tool-Calls (Schritte 1 und 2) und der toolfreie Finalcall `CACHE_OK`, zusammen genau drei Loop-Turns; auch der Loop muss einen Cache-Read melden. Der Systemprompt wird lokal tokengezählt und über `CACHE_CHECK_PROVIDER_TO_LOCAL_TOKEN_RATIO` (Default 2,0) knapp über die Provider-Mindestgröße gebracht; Tool-Calls haben ein separates Limit von 128 Output-Tokens. Smoke-Artefakte landen unter `data/suspicious_trades/runs/`, das wie spätere Klonverzeichnisse gitignoriert ist.
+
+Kostenpflichtige LLM-/Search-Smokes dürfen nach normalen Implementierungen niemals automatisch ausgeführt werden. Sie erfordern einen ausdrücklichen Userauftrag plus das Pflichtflag; Standard-Abnahme ist ausschließlich die Offline-/Mock-Suite. Die verbindliche Agentenregel steht in `AGENTS.md` Regel 11.
 
 Das Subprojekt verwaltet seine Installation und Credentials unabhängig von der Hauptanwendung: `pip install -r suspicious_trades/requirements.txt` installiert die exakt gepinnten Pakete `litellm==1.85.1` und `tavily-python==0.7.26`. `suspicious_trades/.env` (gitignored) enthält Platzhalter für `ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`, `TAVILY_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `XAI_API_KEY` und `OPENROUTER_API_KEY`. Die projektweite Root-`.env` wird von diesem Package nicht geladen. B2 ergänzt seine benötigten Ingestion-Keys später in derselben Subprojekt-Datei.
 
-Offline-Abnahme: `venv/bin/python -m pytest -q suspicious_trades/tests` – aktuell 46 Tests ohne Netzwerk. Sie decken Config-Merge, Cachemarker, Effort, Usage/Kosten, Cap, JSON-Repair, Fallback, Tool-Loop/Stop, alle Search-Endpunkte, Attribution, Credit-Log, Retry/Budget, Tool-Gating/Caps und CLI ab.
+Offline-Abnahme: `venv/bin/python -m pytest -q suspicious_trades/tests` – aktuell 64 Tests ohne Netzwerk. Sie decken zusätzlich Credential-Provenienz/Platzhalter, Dotenv-Robustheit und -Priorität, Timeout, zeit-/tokenabhängige Preise, Smoke-Klassifikation/Exitcodes, Pflichtflag und den deterministischen Cache-Tool-Loop ab. Gesamtabnahme am 2026-07-11: 1104 Projekt-Tests bestanden. Der einmalig ausdrücklich autorisierte Live-Smoke bestand für OpenAI, Anthropic Opus/Sonnet/Fable, xAI Grok (via VPN), Tavily und den Anthropic-Cachecheck; Gemini war wegen Free-Tier-Quote 0 `ACCESS_BLOCKED`, DeepSeek wegen des aktuell ungültigen externen Package-Keys `AUTH_FAIL`.
 
 ## Anschlussvertrag für B2
 

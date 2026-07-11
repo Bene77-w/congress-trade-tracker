@@ -97,6 +97,45 @@ def calculate_cost(tokens: UsageRecord, prices: Mapping[str, float]) -> float:
     return total / 1_000_000
 
 
+def resolve_pricing(
+    settings: Mapping[str, Any],
+    model: str,
+    *,
+    at: datetime | None = None,
+    prompt_tokens: int = 0,
+) -> Mapping[str, float] | None:
+    """Resolve temporary dated prices before the stable model tariff."""
+
+    instant = at or datetime.now(timezone.utc)
+    current_date = instant.astimezone(timezone.utc).date().isoformat()
+    periods = settings.get("PRICING_PERIODS", {}).get(model, [])
+    if isinstance(periods, list):
+        for period in periods:
+            if not isinstance(period, Mapping):
+                continue
+            through = period.get("through")
+            prices = period.get("prices")
+            if (
+                isinstance(through, str)
+                and current_date <= through
+                and isinstance(prices, Mapping)
+            ):
+                return prices
+    prices = settings.get("PRICING", {}).get(model)
+    resolved = prices if isinstance(prices, Mapping) else None
+    tiers = settings.get("PRICING_TOKEN_TIERS", {}).get(model, [])
+    if isinstance(tiers, list):
+        for tier in sorted(
+            (item for item in tiers if isinstance(item, Mapping)),
+            key=lambda item: int(item.get("above_prompt_tokens", 0)),
+        ):
+            threshold = int(tier.get("above_prompt_tokens", 0))
+            tier_prices = tier.get("prices")
+            if prompt_tokens > threshold and isinstance(tier_prices, Mapping):
+                resolved = tier_prices
+    return resolved
+
+
 class UsageLog:
     """Append-only usage ledger and cost-cap state for one run."""
 
@@ -142,7 +181,13 @@ class UsageLog:
         """Price and persist one normalized response usage object."""
 
         tokens = extract_usage(response)
-        prices = self.settings["PRICING"].get(model)
+        recorded_at = datetime.now(timezone.utc)
+        prices = resolve_pricing(
+            self.settings,
+            model,
+            at=recorded_at,
+            prompt_tokens=tokens.prompt,
+        )
         estimated = prices is None
         if prices is None:
             try:
@@ -170,7 +215,7 @@ class UsageLog:
             usd = calculate_cost(tokens, prices)
 
         entry = {
-            "ts": datetime.now(timezone.utc).isoformat(),
+            "ts": recorded_at.isoformat(),
             "run_id": self.run_id,
             "role": role,
             "model": model,

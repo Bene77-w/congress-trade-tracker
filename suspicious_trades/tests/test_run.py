@@ -6,6 +6,8 @@ import argparse
 from contextlib import nullcontext
 from types import SimpleNamespace
 
+import pytest
+
 from suspicious_trades import run
 
 
@@ -15,9 +17,11 @@ def _settings(tmp_path):
         "AGENT_SPECS": {},
         "SMOKE_MAX_OUTPUT_TOKENS": 16,
         "CACHE_CHECK_MAX_OUTPUT_TOKENS": 16,
+        "CACHE_CHECK_TOOL_MAX_OUTPUT_TOKENS": 128,
         "CACHE_CHECK_MODEL": "anthropic/test",
         "CACHE_CHECK_SYSTEM_TOKENS": 5000,
-        "CACHE_CHECK_TOOL_TURNS": 3,
+        "CACHE_CHECK_PROVIDER_TO_LOCAL_TOKEN_RATIO": 2.0,
+        "CACHE_CHECK_REQUIRED_TOOL_TURNS": 2,
         "SMOKE_SEARCH_QUERY": "Congress",
         "SMOKE_SEARCH_MAX_RESULTS": 1,
         "SMOKE_SEARCH_LOOKBACK_DAYS": 1,
@@ -43,9 +47,12 @@ def _settings(tmp_path):
 
 
 def test_parser_registers_only_b1_smoke():
-    args = run.build_parser().parse_args(["smoke", "--cache-check"])
+    args = run.build_parser().parse_args(
+        ["smoke", "--cache-check", "--confirm-live-costs"]
+    )
     assert args.command == "smoke"
     assert args.cache_check is True
+    assert args.confirm_live_costs is True
     assert args.handler is run.smoke_command
 
 
@@ -54,7 +61,9 @@ def test_smoke_missing_keys_are_skips_not_failures(monkeypatch, tmp_path, capsys
     monkeypatch.setattr(run.config, "effective", lambda: settings)
     for key in ("DEEPSEEK_API_KEY", "OPENAI_API_KEY", "TAVILY_API_KEY"):
         monkeypatch.delenv(key, raising=False)
-    exit_code = run.smoke_command(argparse.Namespace(cache_check=False))
+    exit_code = run.smoke_command(
+        argparse.Namespace(cache_check=False, confirm_live_costs=True)
+    )
     output = capsys.readouterr().out
     assert exit_code == 0
     assert "[SKIP] deepseek/test" in output
@@ -126,7 +135,77 @@ def test_any_live_failure_makes_cli_nonzero(monkeypatch, tmp_path):
         "_smoke_tavily",
         lambda settings, run_id: run.SmokeResult("tavily", "SKIP", "key"),
     )
-    assert run.smoke_command(argparse.Namespace(cache_check=False)) == 1
+    assert run.smoke_command(
+        argparse.Namespace(cache_check=False, confirm_live_costs=True)
+    ) == 1
+
+
+def test_live_smoke_requires_explicit_cost_confirmation(monkeypatch, capsys):
+    monkeypatch.setattr(
+        run.config,
+        "effective",
+        lambda: pytest.fail("config/provider path must not start"),
+    )
+    assert run.smoke_command(argparse.Namespace(cache_check=True)) == 2
+    assert "--confirm-live-costs" in capsys.readouterr().out
+
+
+def test_access_blocked_is_visible_but_not_a_code_failure(monkeypatch, tmp_path):
+    settings = _settings(tmp_path)
+    monkeypatch.setattr(run.config, "effective", lambda: settings)
+    monkeypatch.setattr(
+        run,
+        "_smoke_models",
+        lambda settings, ledger: [
+            run.SmokeResult("gemini/test", "ACCESS_BLOCKED", "quota")
+        ],
+    )
+    monkeypatch.setattr(
+        run,
+        "_smoke_tavily",
+        lambda settings, run_id: run.SmokeResult("tavily", "PASS", "ok"),
+    )
+    assert run.smoke_command(
+        argparse.Namespace(cache_check=False, confirm_live_costs=True)
+    ) == 0
+
+
+@pytest.mark.parametrize(
+    ("exc", "expected"),
+    [
+        (type("AuthenticationError", (Exception,), {})("bad"), "AUTH_FAIL"),
+        (type("NotFoundError", (Exception,), {})("model not found"), "MODEL_CONFIG_FAIL"),
+        (
+            type("RateLimitError", (Exception,), {})
+            ("RESOURCE_EXHAUSTED: quota exceeded; limit: 0"),
+            "ACCESS_BLOCKED",
+        ),
+        (type("RateLimitError", (Exception,), {})("retry in 10 seconds"), "FAIL"),
+        (
+            type("PermissionDeniedError", (Exception,), {})
+            ("model is not available in your region"),
+            "ACCESS_BLOCKED",
+        ),
+        (type("Timeout", (Exception,), {})("timed out"), "FAIL"),
+    ],
+)
+def test_provider_exception_classification(exc, expected):
+    assert run._classify_exception(exc) == expected
+
+
+def test_placeholder_key_is_auth_failure_without_provider_call(monkeypatch, tmp_path):
+    settings = _settings(tmp_path)
+    settings["SMOKE_MODELS"] = ["deepseek/test"]
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "<your-key>")
+    monkeypatch.setattr(
+        run,
+        "complete",
+        lambda *args, **kwargs: pytest.fail("provider must not be called"),
+    )
+    ledger = run.UsageLog("placeholder", runs_dir=tmp_path, settings=settings)
+    result = run._smoke_models(settings, ledger)[0]
+    assert result.status == "AUTH_FAIL"
+    assert "<your-key>" not in result.detail
 
 
 def test_cache_check_requires_hits_in_identical_call_and_tool_loop(
@@ -136,6 +215,11 @@ def test_cache_check_requires_hits_in_identical_call_and_tool_loop(
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
     ledger = SimpleNamespace(records=[], activate=lambda: nullcontext())
     monkeypatch.setattr(run, "UsageLog", lambda *args, **kwargs: ledger)
+    monkeypatch.setattr(
+        run,
+        "_cache_system_prompt",
+        lambda model, target, ratio: "stable",
+    )
     calls = []
 
     def fake_complete(role, messages, spec_override):
@@ -152,9 +236,14 @@ def test_cache_check_requires_hits_in_identical_call_and_tool_loop(
         )
 
     def fake_tool_loop(role, messages, tools, executor, **kwargs):
+        assert executor("cache_probe", {"step": 1}).startswith("ACK")
+        assert executor("cache_probe", {"step": 2}).startswith("ACK")
         ledger.records.append({"cache_read": 5000})
         assert kwargs["run_ctx"].spec_override["model"] == "anthropic/test"
-        return SimpleNamespace(turns=3)
+        assert kwargs["run_ctx"].spec_override["max_output_tokens"] == 128
+        assert kwargs["max_turns"] == 2
+        assert kwargs["required_tool_turns"] == 2
+        return SimpleNamespace(turns=3, final_text="CACHE_OK")
 
     monkeypatch.setattr(run, "complete", fake_complete)
     monkeypatch.setattr(run, "call_with_tools", fake_tool_loop)

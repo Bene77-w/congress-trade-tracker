@@ -10,12 +10,15 @@ mit den vom Control-UI geschriebenen Overrides.
 from __future__ import annotations
 
 import copy
+from io import StringIO
 import json
 import logging
+import os
 from pathlib import Path
+import re
 from typing import Any
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values
 
 
 _logger = logging.getLogger(__name__)
@@ -26,8 +29,84 @@ PACKAGE_ROOT = Path(__file__).resolve().parent
 # Repository-Root; alle gemeinsamen Projektpfade werden hiervon abgeleitet.
 PROJECT_ROOT = PACKAGE_ROOT.parent
 
+def _load_package_env(path: Path) -> tuple[frozenset[str], dict[str, str]]:
+    """Load simple dotenv assignments without logging values or parser payloads."""
+
+    preexisting = frozenset(os.environ)
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        return preexisting, {}
+
+    valid_lines: list[str] = []
+    assignment = re.compile(
+        r"^[ \t]*(?:export[ \t]+)?[A-Za-z_][A-Za-z0-9_]*[ \t]*="
+    )
+    for line_number, line in enumerate(lines, 1):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or assignment.match(line):
+            valid_lines.append(line)
+            continue
+        _logger.warning(
+            "Ignoring invalid dotenv statement in %s at line %d.",
+            path,
+            line_number,
+        )
+
+    parsed = dotenv_values(stream=StringIO("\n".join(valid_lines)))
+    package_values = {
+        str(name): str(value)
+        for name, value in parsed.items()
+        if value is not None
+    }
+    for name, value in package_values.items():
+        os.environ.setdefault(name, value)
+    return preexisting, package_values
+
+
 # Das Subprojekt verwaltet seine Provider-Keys unabhaengig von der Root-.env.
-load_dotenv(PACKAGE_ROOT / ".env")
+# Bereits gesetzte Prozessvariablen haben bewusst Vorrang (dotenv override=False).
+_env_preexisting, _package_env_values = _load_package_env(PACKAGE_ROOT / ".env")
+
+
+def credential_value_status(value: str | None) -> str:
+    """Classify a credential value without exposing it."""
+
+    if value is None or not value.strip():
+        return "missing"
+    normalized = value.strip().strip("'\"").lower()
+    placeholders = {
+        "your_api_key",
+        "your-api-key",
+        "replace-me",
+        "replace_me",
+        "changeme",
+        "placeholder",
+    }
+    if normalized in placeholders or (
+        normalized.startswith("<") and normalized.endswith(">")
+    ):
+        return "placeholder"
+    return "set"
+
+
+def credential_status(name: str) -> str:
+    """Return missing, placeholder or set for an environment credential."""
+
+    return credential_value_status(os.getenv(name))
+
+
+def credential_source(name: str) -> str:
+    """Return redacted credential provenance for smoke diagnostics."""
+
+    if name in _env_preexisting:
+        return "process-env"
+    value = os.getenv(name)
+    if value is None or not value.strip():
+        return "missing"
+    if _package_env_values.get(name) == value:
+        return "package-env"
+    return "runtime-env"
 
 # Eigene Datenablage; beim Package-Klon wechselt der Ordner automatisch mit.
 DATA_DIR = PROJECT_ROOT / "data" / __package__.split(".")[0]
@@ -44,6 +123,9 @@ PRICE_CACHE_PATH = PROJECT_ROOT / "data" / "cache" / "price_history.parquet"
 # LiteLLM-interne Retries je Call fuer Timeouts, 429 und temporaere 5xx-Fehler.
 LLM_NUM_RETRIES = 2
 
+# Harte Request-Obergrenze fuer einen einzelnen LiteLLM-Provideraufruf in Sekunden.
+LLM_TIMEOUT_SECONDS = 60.0
+
 # OpenRouter-Notfallpfad; standardmaessig aus, weil Cache-Fidelity verloren geht.
 LLM_FALLBACK_ENABLED = False
 
@@ -58,19 +140,19 @@ PRICING = {
     "deepseek/deepseek-v4-flash": {
         "in": 0.14,
         "out": 0.28,
-        "cache_read": 0.014,
+        "cache_read": 0.0028,
         "cache_write": 0.14,
     },
     "deepseek/deepseek-v4-pro": {
-        "in": 1.74,
-        "out": 3.48,
-        "cache_read": 0.174,
-        "cache_write": 1.74,
+        "in": 0.435,
+        "out": 0.87,
+        "cache_read": 0.003625,
+        "cache_write": 0.435,
     },
     "openai/gpt-5.5": {
         "in": 5.0,
         "out": 30.0,
-        "cache_read": 2.5,
+        "cache_read": 0.5,
         "cache_write": 5.0,
     },
     "gemini/gemini-3.1-pro-preview": {
@@ -106,6 +188,36 @@ PRICING = {
     },
 }
 
+# Zeitlich begrenzte Sonnet-5-Einfuehrungspreise, jeweils inklusive Enddatum.
+PRICING_PERIODS = {
+    "anthropic/claude-sonnet-5": [
+        {
+            "through": "2026-08-31",
+            "prices": {
+                "in": 2.0,
+                "out": 10.0,
+                "cache_read": 0.2,
+                "cache_write": 2.5,
+            },
+        }
+    ]
+}
+
+# Ganze-Session-Tarife oberhalb providerspezifischer Input-Kontextschwellen.
+PRICING_TOKEN_TIERS = {
+    "openai/gpt-5.5": [
+        {
+            "above_prompt_tokens": 272_000,
+            "prices": {
+                "in": 10.0,
+                "out": 45.0,
+                "cache_read": 1.0,
+                "cache_write": 10.0,
+            },
+        }
+    ]
+}
+
 # Modelle fuer den B1-Live-Smoke; fehlende Provider-Keys fuehren zu SKIP.
 SMOKE_MODELS = [
     "deepseek/deepseek-v4-flash",
@@ -136,11 +248,17 @@ CACHE_CHECK_MODEL = "anthropic/claude-opus-4-8"
 # Antwortlimit je Call des Cache-Fidelity-Checks.
 CACHE_CHECK_MAX_OUTPUT_TOKENS = 16
 
+# Antwortlimit fuer vollstaendige Tool-Calls im Cache-Fidelity-Check.
+CACHE_CHECK_TOOL_MAX_OUTPUT_TOKENS = 128
+
 # Zielgroesse des stabilen System-Prompts, oberhalb des Anthropic-Minimums.
 CACHE_CHECK_SYSTEM_TOKENS = 5000
 
-# Anzahl Turns des Mini-Tool-Loops im Cache-Fidelity-Check.
-CACHE_CHECK_TOOL_TURNS = 3
+# Live-kalibriertes Verhaeltnis Anthropic-Usage zu LiteLLM-Lokaltokenzaehler.
+CACHE_CHECK_PROVIDER_TO_LOCAL_TOKEN_RATIO = 2.0
+
+# Anzahl zwingend auszufuehrender Tool-Turns vor dem separaten Final-Call.
+CACHE_CHECK_REQUIRED_TOOL_TURNS = 2
 
 # Aktiviert die laufweite Kosten-Notbremse der LLM-Schicht.
 COST_CAP_ENABLED = True

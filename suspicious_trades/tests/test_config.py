@@ -191,3 +191,50 @@ def test_grok_pricing_is_authoritative_not_estimated() -> None:
         "cache_read": 0.5,
         "cache_write": 2.0,
     }
+
+
+def test_corrected_provider_pricing() -> None:
+    assert config.PRICING["deepseek/deepseek-v4-flash"] == {
+        "in": 0.14,
+        "out": 0.28,
+        "cache_read": 0.0028,
+        "cache_write": 0.14,
+    }
+    assert config.PRICING["deepseek/deepseek-v4-pro"] == {
+        "in": 0.435,
+        "out": 0.87,
+        "cache_read": 0.003625,
+        "cache_write": 0.435,
+    }
+    assert config.PRICING["openai/gpt-5.5"]["cache_read"] == 0.5
+
+
+def test_credential_status_rejects_empty_and_placeholder(monkeypatch) -> None:
+    monkeypatch.setenv("AUDIT_API_KEY", "   ")
+    assert config.credential_status("AUDIT_API_KEY") == "missing"
+    monkeypatch.setenv("AUDIT_API_KEY", "<your-key>")
+    assert config.credential_status("AUDIT_API_KEY") == "placeholder"
+    monkeypatch.setenv("AUDIT_API_KEY", "opaque-nonempty-value")
+    assert config.credential_status("AUDIT_API_KEY") == "set"
+
+
+def test_package_env_loader_ignores_invalid_lines_and_preserves_process_env(
+    tmp_path, monkeypatch, caplog
+) -> None:
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "AUDIT_EXISTING=file-value\nAUDIT_NEW=new-value\ninvalid shell command\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("AUDIT_EXISTING", "process-value")
+    monkeypatch.delenv("AUDIT_NEW", raising=False)
+
+    with caplog.at_level(logging.WARNING, logger=config.__name__):
+        preexisting, package_values = config._load_package_env(env_path)
+
+    assert "AUDIT_EXISTING" in preexisting
+    assert package_values["AUDIT_EXISTING"] == "file-value"
+    assert config.os.environ["AUDIT_EXISTING"] == "process-value"
+    assert config.os.environ["AUDIT_NEW"] == "new-value"
+    assert "line 3" in caplog.text
+    assert "invalid shell command" not in caplog.text
