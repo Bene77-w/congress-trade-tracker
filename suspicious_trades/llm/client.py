@@ -34,6 +34,10 @@ class MissingAPIKeyError(RuntimeError):
     """A model's expected provider key is absent."""
 
 
+class InvalidAPIKeyError(RuntimeError):
+    """A configured provider key is an obvious local placeholder."""
+
+
 class LLMValidationError(RuntimeError):
     """A JSON response remained invalid after all repair attempts."""
 
@@ -49,10 +53,15 @@ def ensure_api_key(model: str) -> None:
     """Fail before LiteLLM with a provider-specific, actionable message."""
 
     key_env = key_env_for_model(model)
-    if key_env and not os.getenv(key_env):
+    status = config.credential_status(key_env) if key_env else "set"
+    if key_env and status == "missing":
         raise MissingAPIKeyError(
             f"{key_env} ist fuer Modell {model!r} nicht gesetzt. "
             f"Trage den Key in {config.PACKAGE_ROOT / '.env'} ein."
+        )
+    if key_env and status == "placeholder":
+        raise InvalidAPIKeyError(
+            f"{key_env} enthaelt fuer Modell {model!r} nur einen Platzhalter."
         )
 
 
@@ -172,6 +181,8 @@ def _completion(
     messages: list[dict[str, Any]],
     *,
     tools: list[dict[str, Any]] | None = None,
+    tool_choice: str | dict[str, Any] | None = None,
+    parallel_tool_calls: bool | None = None,
     spec_override: dict[str, Any] | None = None,
     extra_kwargs: Mapping[str, Any] | None = None,
 ) -> Any:
@@ -190,14 +201,17 @@ def _completion(
         "model": model,
         "messages": prepared,
         "max_tokens": int(spec["max_output_tokens"]),
-        "num_retries": int(settings["LLM_NUM_RETRIES"]),
+        "num_retries": int(spec.get("num_retries", settings["LLM_NUM_RETRIES"])),
+        "timeout": float(settings["LLM_TIMEOUT_SECONDS"]),
     }
     effort = spec.get("effort", "none")
     if effort not in (None, "none"):
         kwargs["reasoning_effort"] = effort
     if tools is not None:
         kwargs["tools"] = tools
-        kwargs["tool_choice"] = "auto"
+        kwargs["tool_choice"] = tool_choice or "auto"
+        if parallel_tool_calls is not None:
+            kwargs["parallel_tool_calls"] = parallel_tool_calls
     if extra_kwargs:
         kwargs.update(extra_kwargs)
 
@@ -237,6 +251,8 @@ def complete(
     messages: list[dict[str, Any]],
     *,
     tools: list[dict[str, Any]] | None = None,
+    tool_choice: str | dict[str, Any] | None = None,
+    parallel_tool_calls: bool | None = None,
     spec_override: dict[str, Any] | None = None,
 ) -> Any:
     """Make one normalized LLM call for a configured agent role."""
@@ -245,6 +261,8 @@ def complete(
         role,
         messages,
         tools=tools,
+        tool_choice=tool_choice,
+        parallel_tool_calls=parallel_tool_calls,
         spec_override=spec_override,
     )
 

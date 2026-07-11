@@ -23,6 +23,7 @@ from suspicious_trades.llm.usage import (
     UsageRecord,
     calculate_cost,
     extract_usage,
+    resolve_pricing,
 )
 from suspicious_trades.tests.conftest import make_response, make_tool_call, make_usage
 
@@ -55,6 +56,7 @@ def test_complete_maps_effort_and_cache_without_mutating_messages(
     assert calls[0]["reasoning_effort"] == "high"
     assert calls[0]["num_retries"] == 2
     assert calls[0]["max_tokens"] == 128
+    assert calls[0]["timeout"] == 60.0
     marked = [
         block
         for message in calls[0]["messages"]
@@ -296,6 +298,116 @@ def test_tool_loop_turn_cap_forces_no_tools_completion(monkeypatch):
     assert result.final_text == "forced final"
     assert result.turns == 3
     assert len(calls) == 3
+
+
+def test_required_tool_turns_force_serial_tools_then_final(monkeypatch):
+    calls = []
+
+    def provider(*args, **kwargs):
+        calls.append(kwargs)
+        if len(calls) <= 2:
+            return make_response(
+                tool_calls=[make_tool_call(f"c{len(calls)}", "noop", {})],
+                finish_reason="tool_calls",
+            )
+        return make_response("final")
+
+    monkeypatch.setattr(tool_loop, "complete", provider)
+    context = SimpleNamespace(run_id="required", usage_log=None, check_stop=lambda: False)
+    result = call_with_tools(
+        "worker",
+        [{"role": "user", "content": "go"}],
+        [{"type": "function", "function": {"name": "noop"}}],
+        lambda name, args: "ok",
+        max_turns=2,
+        run_ctx=context,
+        required_tool_turns=2,
+    )
+    assert result.turns == 3
+    assert [call.get("tool_choice") for call in calls] == ["required", "required", None]
+    assert [call.get("parallel_tool_calls") for call in calls[:2]] == [False, False]
+    assert calls[2].get("tools") is None
+
+
+@pytest.mark.parametrize(
+    ("instant", "expected_input"),
+    [
+        ("2026-08-31T23:59:59+00:00", 2.0),
+        ("2026-09-01T00:00:00+00:00", 3.0),
+    ],
+)
+def test_pricing_period_resolves_sonnet_intro_cutoff(instant, expected_input):
+    from datetime import datetime
+
+    settings = {
+        "PRICING": {
+            "anthropic/claude-sonnet-5": {
+                "in": 3.0,
+                "out": 15.0,
+                "cache_read": 0.3,
+                "cache_write": 3.75,
+            }
+        },
+        "PRICING_PERIODS": {
+            "anthropic/claude-sonnet-5": [
+                {
+                    "through": "2026-08-31",
+                    "prices": {
+                        "in": 2.0,
+                        "out": 10.0,
+                        "cache_read": 0.2,
+                        "cache_write": 2.5,
+                    },
+                }
+            ]
+        },
+        "PRICING_TOKEN_TIERS": {},
+    }
+    prices = resolve_pricing(
+        settings,
+        "anthropic/claude-sonnet-5",
+        at=datetime.fromisoformat(instant),
+    )
+    assert prices is not None
+    assert prices["in"] == expected_input
+
+
+@pytest.mark.parametrize(
+    ("prompt_tokens", "expected_input"),
+    [(272_000, 5.0), (272_001, 10.0)],
+)
+def test_gpt55_long_context_pricing_threshold(prompt_tokens, expected_input):
+    settings = {
+        "PRICING": {
+            "openai/gpt-5.5": {
+                "in": 5.0,
+                "out": 30.0,
+                "cache_read": 0.5,
+                "cache_write": 5.0,
+            }
+        },
+        "PRICING_PERIODS": {},
+        "PRICING_TOKEN_TIERS": {
+            "openai/gpt-5.5": [
+                {
+                    "above_prompt_tokens": 272_000,
+                    "prices": {
+                        "in": 10.0,
+                        "out": 45.0,
+                        "cache_read": 1.0,
+                        "cache_write": 10.0,
+                    },
+                }
+            ]
+        },
+    }
+    prices = resolve_pricing(
+        settings,
+        "openai/gpt-5.5",
+        prompt_tokens=prompt_tokens,
+    )
+    assert prices is not None
+    assert prices["in"] == expected_input
 
 
 def test_tool_loop_checks_stop_before_every_call(monkeypatch):

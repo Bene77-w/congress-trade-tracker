@@ -105,6 +105,7 @@ def call_with_tools(
     *,
     max_turns: int,
     run_ctx: RunContextProtocol,
+    required_tool_turns: int = 0,
 ) -> ToolLoopResult:
     """Run tools until the model finishes, then force a final answer at the cap."""
 
@@ -119,6 +120,8 @@ def call_with_tools(
                     role,
                     conversation,
                     tools=tools,
+                    tool_choice="required" if turn <= required_tool_turns else "auto",
+                    parallel_tool_calls=False if required_tool_turns else None,
                     spec_override=spec_override,
                 )
             choice = response.choices[0]

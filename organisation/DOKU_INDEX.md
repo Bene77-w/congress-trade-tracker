@@ -26,6 +26,7 @@ Dieser Index ist die **Routing-Quelle** für den Skill `/doku-update` und den `d
 | `DATA_STRUCTURE.md` | Vollständige Spalten-Definition **aller** CSV/JSON/XLSX. | Neue/geänderte Spalte (CSV, Cache, JSON), neue Datendatei, Suffix-Konvention geändert. |
 | `Pipelines.md` | Ausführungsreihenfolge aller 9 Pipelines + Import-Stages (aktuell **17**). | Neue/entfernte Stage, Stage-Abhängigkeiten geändert, neue Problem-Output-Datei, Dedup-Logik. |
 | `CLI_Bedienungsanleitung.md` | Vollständige CLI-Referenz aller Scripts inkl. Flag-Matrix. | Neues CLI-Flag, neues Script, geänderter Default-Workflow. |
+| `SUSPICIOUS_TRADES_WORKFLOW.md` | Kanonische technische Architektur- und Vertragsdoku des Suspicious-Trades-Workflows (Phasen B1–B5). | Suspicious-Trades-Phase/Vertrag, Config/Provider, LLM-/Search-Schicht, Live-Smoke oder Klonstrategie geändert. |
 | `Filter_Instanz_Parameter.md` | Konkrete Gate/Tag/Signal-Instanzen + Parameter + Scoring-Formel. | Neuer Filter/Signal, Schwelle/Gewicht geändert, neue Scoring-Komponente. |
 | `Ticker_Architektur.md` | Design-Doku der Ticker-/Issuer-Spalten (3 Ebenen, Fallback-Ketten). | Neuer Ticker-Spalten-Typ, Fallback-Kette geändert, neue Cross-Class-Logik. |
 | `Briefing_stage_post_trade_performance.md` | Tiefendoku der Pipeline-Stage `post_trade_performance` (Return-Semantik, Exit-Detection, Preis-Cache). | Return-/Exit-Logik geändert, neue Post-Trade-Spalte, yfinance-Robustheit. |

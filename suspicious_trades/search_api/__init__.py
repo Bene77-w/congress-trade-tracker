@@ -1,6 +1,7 @@
 """Provider-neutral web-search layer."""
 
 from .base import (
+    InvalidSearchAPIKeyError,
     MissingSearchAPIKeyError,
     SearchAPIError,
     SearchBudgetExhausted,
@@ -16,6 +17,7 @@ from .base import (
 from .tavily import TavilyProvider, TavilySearchAPI, TavilySearchClient
 
 __all__ = [
+    "InvalidSearchAPIKeyError",
     "MissingSearchAPIKeyError",
     "SearchAPIError",
     "SearchBudgetExhausted",

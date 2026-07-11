@@ -11,6 +11,33 @@ Historie abgeschlossener Module/Phasen. **Aktiver WIP-Modul-Stand** steht im „
 
 ---
 
+## 2026-07-11 — Suspicious-Trades B1: Live-API-Schicht gehärtet
+
+Die bereits implementierte B1-Basisschicht wurde für reproduzierbare und kostenkontrollierte
+Live-Abnahmen gehärtet; dies ist kein Abschluss der Folgephase B2.
+
+- Package-`.env` wird CWD-unabhängig und payload-redigiert gelesen; Prozessvariablen behalten
+  bewusst Vorrang. Credential-Quelle, fehlende Werte und Platzhalter werden vor Live-Calls
+  sicher diagnostiziert.
+- Smoke-Ergebnisse unterscheiden `PASS`, `SKIP`, `AUTH_FAIL`, `MODEL_CONFIG_FAIL`,
+  `ACCESS_BLOCKED` (externe Quote/Region/Budget, nicht fatal) und `FAIL` mit eindeutiger
+  Exit-Semantik. Live-Aufrufe erfordern mechanisch `--confirm-live-costs`; Agenten dürfen sie
+  nach normalen Implementierungen nicht automatisch starten.
+- LLM-Requests haben einen konfigurierbaren 60-Sekunden-Timeout; Smokes nutzen keine Retries.
+  Der Anthropic-Cachecheck validiert deterministisch zwei identische Calls, zwei erzwungene
+  Tool-Schritte und den Finalcall sowie Cache-Reads in beiden Pfaden.
+- DeepSeek-/GPT-5.5-Cachepreise wurden korrigiert; Sonnet-5-Einführungspreis und der
+  GPT-5.5-Langkontexttarif werden zeit- bzw. tokenabhängig ausgewählt.
+
+Abnahme: **64 Suspicious-Trades-Offlinetests** und **1104 Tests der gesamten Projektsuite**
+bestanden. Ein einmalig autorisierter Live-Smoke bestand für OpenAI, Anthropic
+Opus/Sonnet/Fable, xAI Grok via VPN, Tavily und den Anthropic-Cachecheck (zweiter identischer
+Call: 11.998 Cache-Read-Tokens; Tool-Loop: 3 Turns mit Cache-Read). Gemini blieb wegen
+Free-Tier-Quote 0 `ACCESS_BLOCKED`; DeepSeek blieb wegen eines aktuell ungültigen externen
+Package-Keys `AUTH_FAIL` und ist damit ein externer Restblocker, kein B2-Fortschritt.
+
+---
+
 ## 2026-07-03 — Codebase-weites Debugging: Intervall 4 (Utils & Cross-Cutting)
 
 **Abschluss des Debugging-Zyklus** (Commits `da88ed4`…`ace7e6c`, unabhängige Fable-Verifikation:

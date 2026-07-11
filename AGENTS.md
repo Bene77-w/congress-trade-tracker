@@ -29,6 +29,7 @@ Python + Streamlit App die US-Kongress-Mitglieder Stock-Trades trackt, analysier
       ```
     - NIEMALS `git push` und NIEMALS `git stash` ohne ausdrücklichen Befehl (Stash ist im Worktree-Setup zwischen allen Worktrees geteilt → gefährlich).
 10. **Beginne jede antwort mit 'Bene, '(...)**
+11. **Kostenpflichtige Live-API-Tests nur auf ausdruecklichen Userauftrag**. LLM-/Search-Smokes wie `python -m suspicious_trades.run smoke` oder `smoke --cache-check` duerfen nach normalen Implementierungen **niemals automatisch** ausgefuehrt werden. Standard-Abnahme ist ausschliesslich die offline/mock-basierte Testsuite. Ein Live-Smoke erfordert sowohl den ausdruecklichen Auftrag des Users als auch das CLI-Flag `--confirm-live-costs`.
 ---
 
 ## Orientierungs-Workflow

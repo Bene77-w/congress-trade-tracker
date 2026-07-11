@@ -1,6 +1,7 @@
 """Public API of the shared LiteLLM layer."""
 
 from .client import (
+    InvalidAPIKeyError,
     LLMValidationError,
     MissingAPIKeyError,
     call_json,
@@ -17,6 +18,7 @@ from .usage import CostCapExceeded, UsageLog, UsageRecord
 
 __all__ = [
     "CostCapExceeded",
+    "InvalidAPIKeyError",
     "LLMValidationError",
     "MissingAPIKeyError",
     "RunContext",

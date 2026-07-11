@@ -74,6 +74,7 @@ def llm_settings(tmp_path):
             },
         },
         "LLM_NUM_RETRIES": 2,
+        "LLM_TIMEOUT_SECONDS": 60.0,
         "LLM_FALLBACK_ENABLED": False,
         "OPENROUTER_MODEL_MAP": {
             "anthropic/test-model": "openrouter/anthropic/test-model"
@@ -98,6 +99,8 @@ def llm_settings(tmp_path):
                 "cache_write": 6.25,
             },
         },
+        "PRICING_PERIODS": {},
+        "PRICING_TOKEN_TIERS": {},
         "COST_CAP_ENABLED": True,
         "COST_CAP_USD_PER_RUN": 20.0,
         "DATA_DIR": tmp_path,

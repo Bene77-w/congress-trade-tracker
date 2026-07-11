@@ -20,6 +20,7 @@ import httpx
 
 from .. import config
 from .base import (
+    InvalidSearchAPIKeyError,
     MissingSearchAPIKeyError,
     SearchAPIError,
     SearchBudgetExhausted,
@@ -51,10 +52,15 @@ class TavilySearchAPI(SearchProvider):
         self.run_id = str(run_id)
         self.role = str(role)
         self.api_key = api_key or os.getenv("TAVILY_API_KEY")
-        if not self.api_key:
+        key_status = config.credential_value_status(self.api_key)
+        if key_status == "missing":
             raise MissingSearchAPIKeyError(
                 "TAVILY_API_KEY ist nicht gesetzt. Trage den Key in "
                 f"{config.PACKAGE_ROOT / '.env'} ein."
+            )
+        if key_status == "placeholder":
+            raise InvalidSearchAPIKeyError(
+                "TAVILY_API_KEY enthaelt nur einen Platzhalter."
             )
 
         package_name = __package__.split(".")[0]
