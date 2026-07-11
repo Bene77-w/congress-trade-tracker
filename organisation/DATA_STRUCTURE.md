@@ -1797,6 +1797,46 @@ Befund-Report: `organisation/analyse_event_study.md`.
 
 ---
 
+## 7f. Agent-Staging-Export (Suspicious-Trades B5)
+
+### Datei `data/agent_staging/trade_selection_<timestamp>.csv` (gitignored)
+
+Zwischenlager-Export des Recent-Trades-Tabs der Streamlit-Haupt-App in das
+**variantenuebergreifende** Verzeichnis `data/agent_staging/` (bewusst ausserhalb
+der modul-eigenen DATA_DIR der Suspicious-Trades-Klone).
+
+- **Schreiber:** Haupt-App `app/streamlit_app.py` (Recent-Trades-Tab) via
+  `app/staging_export.py:export_selection`. `<timestamp>` = `%Y%m%d-%H%M%S`.
+- **Leser:** kuenftiger Staging-Reader der Suspicious-Trades-Varianten
+  (`suspicious_trades*/trades_access`, Phase B3); dedupliziert ueber `trade_id`.
+- **Zielverzeichnis-Config:** `config/settings.py: AGENT_STAGING_DIR`
+  (`BASE_DIR / 'data' / 'agent_staging'`), wird beim Export automatisch angelegt.
+
+**Festes §5b-Spaltenschema** (22 Spalten, Reihenfolge bindend =
+`app/staging_export.py:STAGING_COLUMNS`):
+
+```
+trade_id, name, chamber, Member_Party,
+ticker, issuer_ticker, asset_name,
+transaction_type, direction,
+transaction_date, disclosure_date, days_since_trade,
+amount, trade_volume_usd, trade_amount_max_usd,
+sector_yf, industry_yf, relevant_sectors,
+committee_match, Member_Committees_Full,
+exit_status, export_ts
+```
+
+- Alle Spalten ausser `direction` und `export_ts` stammen aus dem Master
+  (ungefilterter `recent_pool`). Fehlt eine Quellspalte, wird sie schema-stabil
+  leer geschrieben (Warnung im Log).
+- `direction`: falls in der Zeile leer/fehlend abgeleitet via
+  `signals.committee_signal._direction_from_transaction_type` →
+  `'buy'/'sell'/'other'` (identisch zur Reader-Nachberechnung; die "+1/-1"-Notiz
+  der Plan-Tabelle meint die Semantik, nicht das Rueckgabeformat).
+- `export_ts`: ISO-Zeitpunkt des Exports.
+
+---
+
 ## Committee-Relevanz (Modul 4)
 
 `_apply_committee_relevance` schreibt `Insider_Sectors` und `Relevant_Sectors` in den Master.

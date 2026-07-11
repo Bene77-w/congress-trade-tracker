@@ -30,7 +30,7 @@ Die gemeinsame Implementierung bleibt bis B5 im Package `suspicious_trades/`. Da
 | B2, fertig | vier Ingestion-Adapter, Event-Registry mit Lebenszyklus/Outcome-Erkennung, CLI `ingest` |
 | B3 | Trades-Zugriff, Empfehlungen/Tracking, Reporting-Verträge, Status/Stop und User-Hints |
 | B4 | Taipy-Control-UI mit Run-Steuerung, Status, Konfiguration, Prompts, Kosten und Browsern |
-| B5 | Export markierter Recent Trades aus der bestehenden Streamlit-App ins gemeinsame Staging |
+| B5, fertig (Rest-Abnahme Control-UI-Sichtbarkeit offen bis B4) | Export markierter Recent Trades aus der bestehenden Streamlit-App ins gemeinsame Staging |
 | danach | C-Divergenz; anschließend A/B-Zwischenstamm und A-/B-Divergenz |
 
 Alle Varianten erzeugen pro Lauf `empfehlung.md` (kompaktes Ranking ohne numerischen Verdachtsscore) und `bericht.md` (Kausalitätsketten, Evidenz, Gegenargumente). Empfehlungen werden nach Rang, nicht nach Score, gespeichert und später gegen den bestehenden Preis-Cache hypothetisch verfolgt.
@@ -137,6 +137,21 @@ Abschluss aller Klassen: `outcome_known → closed`, sobald `actual_outcome_date
 ### Tests
 
 Offline-Abnahme: `venv/bin/python -m pytest -q suspicious_trades/tests` – 93 Tests ohne Netzwerk (66 B1 + 27 B2). Eingefrorene Rohantworten je Quelle unter `suspicious_trades/tests/fixtures/{congress_gov,federal_register,war_gov,sam_gov}/`. Abgedeckt: Feld-Mapping und Lookback-/Typ-/Volumen-Filter je Adapter, `is_award_notice`, Re-Ingest-Update statt Duplikat, alle vier Outcome-Regeln inkl. RULE-nicht-effektiv und Floor-ohne-Roll-Call, expired- und closed-Sweep, Konfigurierbarkeit der Schwellen, Quellen-Schalter (skip), fehlertoleranter Quellen-Fehler, CLI-Ende-zu-Ende (inkl. Award schließt Solicitation im Folgelauf). Live-Smokes je Quelle bleiben separat und keyabhängig. Nach jedem Agent-Step künftiger Phasen muss der Aufrufer `TavilySearchAPI.check_budget()` ausführen; vor LLM-Calls übernimmt der gemeinsame Tool-Loop Stop- und Kostenprüfung.
+
+## B5: implementierter Export
+
+B5 erweitert ausschliesslich die bestehende Streamlit-Haupt-App (Recent-Trades-Tab in `app/streamlit_app.py`) um einen Export in das variantenuebergreifende Zwischenlager; die Agent-Packages (`suspicious_trades*/`) werden nicht beruehrt.
+
+Die Export-Logik liegt streamlit-frei und offline testbar in `app/staging_export.py`. `export_selection(df, staging_dir=..., timestamp=..., export_ts=...)` schreibt `data/agent_staging/trade_selection_<timestamp>.csv` mit exakt dem festen §5b-Spaltenschema (`STAGING_COLUMNS`, 22 Spalten in bindender Reihenfolge; Details/Herkunft je Spalte: Plan §5b und `organisation/DATA_STRUCTURE.md`). `direction` wird — falls in der Zeile leer/fehlend — via `signals.committee_signal._direction_from_transaction_type` abgeleitet (Rueckgabe 'buy'/'sell'/'other', identisch zur Nachberechnung des kuenftigen Staging-Readers; die "+1/-1"-Annotation der Plan-Tabelle meint die Semantik, nicht das Rueckgabeformat). `export_ts` traegt den ISO-Export-Zeitpunkt. Fehlt eine Quellspalte im DataFrame, wird sie schema-stabil als leere Spalte geschrieben und eine Warnung geloggt. Das Zielverzeichnis (`config/settings.py: AGENT_STAGING_DIR`, relativ zu `BASE_DIR`, bewusst ausserhalb der Klon-DATA_DIR) wird beim Export automatisch angelegt und ist gitignoriert.
+
+UI-Bedienung im Recent-Trades-Tab (beide §5b-Wege, keine Emojis):
+
+- Normalweg „Alle gefilterten Zeilen exportieren" — exportiert den kompletten gefilterten `recent_pool` (nicht nur die per „mehr anzeigen" sichtbare Teilmenge).
+- Feintuning „Auswahl exportieren" — Mehrfachauswahl ueber die Checkbox-Spalte (`st.dataframe`, `selection_mode='multi-row'`, Shift-Klick-Bereichsauswahl) der sichtbaren Tabelle. Der Recent-Trades-Tab hatte bisher keine Zeilen-Selektion/kein Detail-Popup (anders als Trades-/Members-Tab), daher kollidiert multi-row mit keinem bestehenden Klick-Verhalten.
+
+Nach dem Export erscheint eine Erfolgsmeldung mit Dateipfad und Zeilenzahl. Die Control-UI-Sichtbarkeit (Uebernahme der Export-Datei in einen Lauf) folgt erst mit B4.
+
+Offline-Abnahme: `venv/bin/python -m pytest -q tests/test_staging_export.py` (10 Tests: exaktes Schema/Reihenfolge, direction-Ableitung + Erhalt vorhandener Werte, fehlende-Spalten-Pfad, `export_ts`, Dateinamens-Timestamp, Verzeichnis-Anlage, Settings-Default-Dir, CSV-Round-Trip). Die Tests liegen bei den uebrigen Haupt-App-Tests unter `tests/`.
 
 ## Relevante spätere Erweiterungspunkte
 
