@@ -1,3 +1,9 @@
 # Eigenstaendige Abhaengigkeiten des Suspicious-Trades-Subprojekts.
 litellm==1.85.1
 tavily-python==0.7.26
+# Control-UI (B4). Achtung: taipy deklariert pandas<3 / python-dotenv<=1.0.1 /
+# openpyxl==3.1.2 — das Projekt pinnt in der Root-requirements.txt neuere
+# Versionen (pandas 3.0.0 etc.); diese bleiben installiert und funktionieren
+# in der Praxis. Nach `pip install taipy` daher die Root-Pins wiederherstellen:
+#   pip install pandas==3.0.0 python-dotenv==1.2.1 openpyxl==3.1.5
+taipy==4.1.1

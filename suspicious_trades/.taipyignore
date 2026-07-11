@@ -1,0 +1,7 @@
+# Taipy serviert standardmaessig ALLE Dateien neben app.py per HTTP.
+# Diese Datei sperrt das Package-Verzeichnis komplett (insb. .env!) und gibt
+# ausschliesslich das UI-Stylesheet frei.
+/*
+!/ui/
+/ui/*
+!/ui/theme.css
