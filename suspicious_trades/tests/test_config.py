@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+import subprocess
+import sys
 
 from suspicious_trades import config
 
@@ -15,6 +17,22 @@ def _write_overrides(tmp_path, monkeypatch, payload) -> None:
         json.dumps(payload),
         encoding="utf-8",
     )
+
+
+def test_package_import_loads_config_before_litellm() -> None:
+    # Invariante gegen litellms Root-.env-Autoload: Der blosse Package-Import
+    # muss config (und damit die Package-.env) initialisieren, bevor irgendein
+    # Submodul litellm importieren kann.
+    probe = (
+        "import suspicious_trades, sys; "
+        "raise SystemExit(0 if 'suspicious_trades.config' in sys.modules else 1)"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", probe],
+        cwd=config.PROJECT_ROOT,
+        check=False,
+    )
+    assert result.returncode == 0
 
 
 def test_data_dir_is_derived_from_top_level_package() -> None:

@@ -203,8 +203,13 @@ def _smoke_models(
                     )
                 )
             except Exception as exc:
+                source = config.credential_source(key_env) if key_env else "unknown"
                 results.append(
-                    SmokeResult(model, _classify_exception(exc), _safe_error_detail(exc))
+                    SmokeResult(
+                        model,
+                        _classify_exception(exc),
+                        f"{_safe_error_detail(exc)}; key_source={source}",
+                    )
                 )
     return results
 

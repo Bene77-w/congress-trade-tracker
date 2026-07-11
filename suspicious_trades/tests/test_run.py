@@ -96,6 +96,21 @@ def test_model_smoke_calls_each_unique_available_model(monkeypatch, tmp_path):
     ]
 
 
+def test_failed_model_smoke_reports_key_source(monkeypatch, tmp_path):
+    settings = _settings(tmp_path)
+    settings["SMOKE_MODELS"] = ["deepseek/test"]
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test")
+
+    def _raise(role, messages, spec_override):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(run, "complete", _raise)
+    ledger = run.UsageLog("models", runs_dir=tmp_path, settings=settings)
+    results = run._smoke_models(settings, ledger)
+    assert results[0].status == "FAIL"
+    assert "key_source=" in results[0].detail
+
+
 def test_tavily_smoke_calls_search_and_usage(monkeypatch, tmp_path):
     settings = _settings(tmp_path)
     monkeypatch.setenv("TAVILY_API_KEY", "test")
