@@ -63,3 +63,7 @@ curl_cffi==0.15.0          # scrapers/senate_committee_xml (Senate-Roster-Produc
 openai==2.41.1             # scripts/committee_mapping_agent (DeepSeek via OpenAI-SDK)
 ddgs==9.14.4               # scripts/committee_mapping_agent (Grounding-Suche)
 jsonschema==4.26.0         # scripts/committee_mapping_agent (Schema-Validierung)
+
+# Suspicious-Trades Basis B1 (providerneutrale LLM- und Web-Search-Schicht)
+litellm==1.85.1            # exakt gepinnt; kompromittierte Releases 1.82.7/1.82.8 ausschliessen
+tavily-python==0.7.26      # offizielles Tavily-SDK; 5 funktionale Search-Endpunkte

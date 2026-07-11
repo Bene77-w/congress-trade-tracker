@@ -1,4 +1,5 @@
 .env
+/data/suspicious_trades*/
 venv
 __pycache__/
 *.pyc
