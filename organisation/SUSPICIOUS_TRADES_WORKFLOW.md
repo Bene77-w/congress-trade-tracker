@@ -27,7 +27,7 @@ Die gemeinsame Implementierung bleibt bis B5 im Package `suspicious_trades/`. Da
 | Phase | Inhalt |
 |---|---|
 | B1, fertig | Package-Gerüst, Config/Overrides, LiteLLM, Tavily/Search, Smoke-CLI |
-| B2 | vier Ingestion-Adapter und Event-Registry einschließlich Outcome-Erkennung |
+| B2, fertig | vier Ingestion-Adapter, Event-Registry mit Lebenszyklus/Outcome-Erkennung, CLI `ingest` |
 | B3 | Trades-Zugriff, Empfehlungen/Tracking, Reporting-Verträge, Status/Stop und User-Hints |
 | B4 | Taipy-Control-UI mit Run-Steuerung, Status, Konfiguration, Prompts, Kosten und Browsern |
 | B5 | Export markierter Recent Trades aus der bestehenden Streamlit-App ins gemeinsame Staging |
@@ -100,15 +100,43 @@ Das Subprojekt verwaltet seine Installation und Credentials unabhängig von der 
 
 Offline-Abnahme: `venv/bin/python -m pytest -q suspicious_trades/tests` – aktuell 66 Tests ohne Netzwerk. Sie decken zusätzlich Credential-Provenienz/Platzhalter, Dotenv-Robustheit und -Priorität, die config-vor-litellm-Importinvariante, Timeout, zeit-/tokenabhängige Preise, Smoke-Klassifikation/Exitcodes (inkl. `key_source` im Fehlerdetail), Pflichtflag und den deterministischen Cache-Tool-Loop ab. Gesamtabnahme am 2026-07-11: 1104 Projekt-Tests bestanden. Der einmalig ausdrücklich autorisierte Live-Smoke bestand für OpenAI, Anthropic Opus/Sonnet/Fable, xAI Grok (via VPN), Tavily und den Anthropic-Cachecheck; Gemini war wegen Free-Tier-Quote 0 `ACCESS_BLOCKED`. Der anfängliche DeepSeek-`AUTH_FAIL` war kein ungültiger Package-Key, sondern litellms Root-`.env`-Autoload (s. „Package und Konfiguration"); nach dem Fix bestand ein erneut autorisierter Live-Smoke für DeepSeek Flash/Pro mit `key_source=package-env`.
 
-## Anschlussvertrag für B2
+## B2: Ingestion und Event-Registry (implementiert)
 
-B2 ergänzt ausschließlich `ingestion/`, `registry/` und den CLI-Subcommand `ingest`; B1-Schichten werden wiederverwendet, nicht dupliziert. Gemeinsames Eingabeschema:
+B2 ergänzt ausschließlich `suspicious_trades/ingestion/`, `suspicious_trades/registry/` und den CLI-Subcommand `ingest`; B1-Schichten werden wiederverwendet, nicht dupliziert. Alle Importe sind relativ, Pfade paketabgeleitet, sämtliche Schwellen/Lookbacks/Quellenschalter/Timeouts liegen in `config.py` und werden über `config.effective()` gelesen.
 
-`EventCandidate(source, source_id, event_class, title, event_date, update_date, expected_outcome_date, url, raw_payload)`, mit `event_id = "<source>:<source_id>"`. `event_date` ist das fachliche Ereignisdatum, `update_date` das Delta-/Änderungsdatum. Re-Ingest merged denselben Schlüssel statt zu duplizieren.
+### Gemeinsamer Vertrag
 
-Adapter: Congress.gov liest ausschließlich den bestehenden Cache; Federal Register nutzt RULE/PRORULE; war.gov-RSS erzeugt je Contract-Absatz oberhalb des konfigurierten Mindestvolumens sofort `outcome_known`; SAM.gov verknüpft Award Notices über `solicitationNumber`. Die Registry implementiert `open -> outcome_known -> closed` sowie `expired`. Outcome-Regeln: Congress Floor-Roll-Call/Public Law, PRORULE→RULE bzw. RULE-effective date, war.gov sofort, SAM Award bzw. Timeout. Deaktivierte `INGEST_SOURCES_ENABLED`-Quellen werden übersprungen, vorhandene Registry-Ereignisse aber nie gelöscht.
+`EventCandidate(source, source_id, event_class, title, event_date, update_date, expected_outcome_date, url, raw_payload)` in `ingestion/base.py`, mit `event_id = "<source>:<source_id>"`. `event_date` ist das fachliche Ereignisdatum, `update_date` das Delta-/Änderungsdatum — beide werden nie vermischt. `to_iso_date`/`parse_iso_date` normalisieren beliebige API-Datumsformate defensiv auf `YYYY-MM-DD`. Jeder Adapter erbt `IngestionAdapter` und trennt `fetch()` (quellenspezifischer Roh-Abruf, ggf. Netz) von `parse(raw, *, today)` (reine, offline testbare Normalisierung). `run_ingestion(settings, *, today, adapters=None)` führt alle über `INGEST_SOURCES_ENABLED` aktivierten Quellen aus; deaktivierte werden protokolliert übersprungen, eine fehlschlagende Quelle bricht den Gesamtlauf nicht ab (redigierter Fehler-Log, übrige Quellen laufen weiter).
 
-B2-Tests bleiben offline und frieren kleine Rohantworten je Quelle unter `suspicious_trades/tests/fixtures/` ein. Live-Smokes je Quelle sind separat und keyabhängig. Nach jedem Agent-Step künftiger Phasen muss der Aufrufer `TavilySearchAPI.check_budget()` ausführen; vor LLM-Calls übernimmt der gemeinsame Tool-Loop Stop- und Kostenprüfung.
+### Adapter (`ingestion/`)
+
+- **`congress_gov.py`** — liest ausschließlich den bestehenden Cache `data/congress_api/` (`CONGRESS_CACHE_DIR`, kein eigener Download). Ein Event je Bill; Filter über `updateDate` gegen `INGEST_LOOKBACK_DAYS`. `event_date = introduced_date`, `update_date = updateDate`, `source_id = bill_id`; Payload trägt policy_area, sponsors, committees, legislative_subjects, latest_action und die Actions-Liste (Basis der Floor-/Public-Law-Outcome-Erkennung). URL wird aus congress/typ/nummer konstruiert.
+- **`federal_register.py`** — öffentliche Dokument-API (kein Key), mappt API-Typ „Rule"/„Proposed Rule" auf die kanonischen Codes `RULE`/`PRORULE` und filtert gegen `FEDREG_DOC_TYPES` (Notices raus). Payload: type, abstract, agencies, rin (`regulation_id_numbers`), docket_ids, effective_on, comments_close_on. `expected_outcome_date = effective_on || comments_close_on`.
+- **`war_gov_rss.py`** — defense.gov-Contracts-RSS (stdlib `ElementTree` + Regex, keine Zusatz-Abhängigkeit). Je Tagesartikel Teilstreitkraft-Header + Contract-Absätze; ein Event je Absatz ≥ `WAR_GOV_MIN_CONTRACT_USD` (Betrags-Parser deckt „$X", „$X million/billion" ab). `source_id = <guid>#<laufende Contract-Nr über alle Absätze>` (stabil auch bei geänderter Schwelle). Veröffentlichung IST das Outcome (Registry setzt sofort `outcome_known`).
+- **`sam_gov.py`** — Get-Opportunities-API v2 (`SAM_GOV_API_KEY`). Solicitation/Presolicitation = offenes Event; Award-Notices erkennt `is_award_notice()`. Payload: type, solicitationNumber, naicsCode, classificationCode, agency, award{date,amount,awardee}, responseDeadLine.
+
+### Registry (`registry/event_registry.py`)
+
+`EventRegistry(path, settings)` persistiert `events.jsonl` (atomar via tmp+rename) unter `DATA_DIR`. `update(candidates, *, today)` läuft in vier Schritten: (1) Upsert (Re-Ingest desselben `event_id` = Update, `first_seen` bleibt erhalten, `raw_payload` wird gemergt), (2) Award-Zuordnung (Award-Notices erzeugen KEIN eigenes Event, sondern schließen die offene Solicitation gleicher `solicitationNumber`), (3) Outcome-Detektor, (4) Close-/Expire-Sweep. Rückgabe `RegistryStats(new_events, updated, outcomes_detected, closed, expired)` (counts-Schema §5e).
+
+Lebenszyklus `open → outcome_known → closed` plus `expired`. Vier bindende Outcome-Regeln:
+
+| event_class | Outcome |
+|---|---|
+| `legislation` | Floor-Action mit `roll_call` ODER `latest_action` „Became Public Law" (Datum = Action-/Law-Datum) |
+| `regulation` | RULE: `effective_on ≤ today`; PRORULE: späteres RULE gleicher RIN/Docket ingested (Datum = RULE-`publication_date`) |
+| `defense_contract` | sofort bei Ingest (`actual_outcome_date = event_date`) |
+| `procurement` | Award-Notice gleicher `solicitationNumber`; ersatzweise `responseDeadLine + PROCUREMENT_AWARD_TIMEOUT_DAYS` überschritten → `expired` |
+
+Abschluss aller Klassen: `outcome_known → closed`, sobald `actual_outcome_date` älter als `EVENT_CLOSE_AFTER_DAYS`. Deaktivierte Quellen werden übersprungen, bestehende Registry-Ereignisse nie gelöscht.
+
+### CLI und Config
+
+`python -m suspicious_trades.run ingest [--today YYYY-MM-DD]` ruft `run_ingestion` + `EventRegistry.update` und druckt Kandidaten je Quelle, übersprungene/fehlgeschlagene Quellen und die Registry-Kennzahlen. `--today` ankert Lookback-/Outcome-Fenster deterministisch (Default heute). Neue Config-Keys: `CONGRESS_CACHE_DIR`, `EVENTS_FILENAME`, `INGEST_TIMEOUT_SECONDS`, `FEDERAL_REGISTER_API_URL`/`_PER_PAGE`, `WAR_GOV_RSS_URL`, `SAM_GOV_API_URL`/`SAM_GOV_LIMIT` (bestehende `INGEST_*`/`FEDREG_*`/`WAR_GOV_*`/`EVENT_CLOSE_AFTER_DAYS`/`PROCUREMENT_AWARD_TIMEOUT_DAYS` wiederverwendet). `.env` ergänzt Platzhalter `SAM_GOV_API_KEY` und optional `CONGRESS_API_KEY`.
+
+### Tests
+
+Offline-Abnahme: `venv/bin/python -m pytest -q suspicious_trades/tests` – 93 Tests ohne Netzwerk (66 B1 + 27 B2). Eingefrorene Rohantworten je Quelle unter `suspicious_trades/tests/fixtures/{congress_gov,federal_register,war_gov,sam_gov}/`. Abgedeckt: Feld-Mapping und Lookback-/Typ-/Volumen-Filter je Adapter, `is_award_notice`, Re-Ingest-Update statt Duplikat, alle vier Outcome-Regeln inkl. RULE-nicht-effektiv und Floor-ohne-Roll-Call, expired- und closed-Sweep, Konfigurierbarkeit der Schwellen, Quellen-Schalter (skip), fehlertoleranter Quellen-Fehler, CLI-Ende-zu-Ende (inkl. Award schließt Solicitation im Folgelauf). Live-Smokes je Quelle bleiben separat und keyabhängig. Nach jedem Agent-Step künftiger Phasen muss der Aufrufer `TavilySearchAPI.check_budget()` ausführen; vor LLM-Calls übernimmt der gemeinsame Tool-Loop Stop- und Kostenprüfung.
 
 ## Relevante spätere Erweiterungspunkte
 

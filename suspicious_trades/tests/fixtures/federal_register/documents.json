@@ -1,0 +1,44 @@
+{
+  "count": 3,
+  "results": [
+    {
+      "document_number": "2026-14001",
+      "type": "Rule",
+      "title": "Emissions Standards for Heavy-Duty Vehicles",
+      "publication_date": "2026-07-01",
+      "effective_on": "2026-07-05",
+      "comments_close_on": null,
+      "html_url": "https://www.federalregister.gov/d/2026-14001",
+      "abstract": "The EPA finalizes emissions standards for heavy-duty vehicles.",
+      "agencies": [{"name": "Environmental Protection Agency"}],
+      "regulation_id_numbers": ["2060-AV12"],
+      "docket_ids": ["EPA-HQ-OAR-2025-0123"]
+    },
+    {
+      "document_number": "2026-09000",
+      "type": "Proposed Rule",
+      "title": "Proposed Emissions Standards for Heavy-Duty Vehicles",
+      "publication_date": "2026-05-20",
+      "effective_on": null,
+      "comments_close_on": "2026-07-20",
+      "html_url": "https://www.federalregister.gov/d/2026-09000",
+      "abstract": "The EPA proposes emissions standards for heavy-duty vehicles.",
+      "agencies": [{"name": "Environmental Protection Agency"}],
+      "regulation_id_numbers": ["2060-AV12"],
+      "docket_ids": ["EPA-HQ-OAR-2025-0123"]
+    },
+    {
+      "document_number": "2026-14100",
+      "type": "Notice",
+      "title": "Notice of Public Meeting",
+      "publication_date": "2026-07-02",
+      "effective_on": null,
+      "comments_close_on": null,
+      "html_url": "https://www.federalregister.gov/d/2026-14100",
+      "abstract": "",
+      "agencies": [{"name": "Department of Commerce"}],
+      "regulation_id_numbers": [],
+      "docket_ids": []
+    }
+  ]
+}

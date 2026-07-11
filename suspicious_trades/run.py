@@ -6,15 +6,18 @@ import argparse
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 import os
+from pathlib import Path
 import re
 from typing import Any, Iterable, Mapping, Sequence
 
 import litellm
 
 from . import config
+from .ingestion import run_ingestion
 from .llm import RunContext, UsageLog, call_with_tools, complete
 from .llm.client import InvalidAPIKeyError, MissingAPIKeyError, key_env_for_model
 from .llm.usage import extract_usage
+from .registry import EventRegistry
 from .search_api import (
     InvalidSearchAPIKeyError,
     MissingSearchAPIKeyError,
@@ -420,9 +423,54 @@ def smoke_command(args: argparse.Namespace) -> int:
     return 1 if any(result.status in FAILING_SMOKE_STATUSES for result in results) else 0
 
 
+def _resolve_today(value: str | None) -> date:
+    if not value:
+        return date.today()
+    return date.fromisoformat(value)
+
+
+def ingest_command(args: argparse.Namespace) -> int:
+    settings = config.effective()
+    today = _resolve_today(getattr(args, "today", None))
+
+    result = run_ingestion(settings, today=today)
+    registry_path = Path(settings["DATA_DIR"]) / settings.get(
+        "EVENTS_FILENAME", "events.jsonl"
+    )
+    registry = EventRegistry(registry_path, settings)
+    stats = registry.update(result.candidates, today=today)
+
+    for source, count in result.per_source.items():
+        print(f"[ingest] {source}: {count} Kandidaten")
+    for source in result.skipped:
+        print(f"[skip] {source}: Quelle deaktiviert")
+    for source, error in result.errors.items():
+        print(f"[error] {source}: {error}")
+    print(
+        "[registry] "
+        f"neu={stats.new_events} aktualisiert={stats.updated} "
+        f"outcomes={stats.outcomes_detected} closed={stats.closed} "
+        f"expired={stats.expired}"
+    )
+    print(f"[registry] events.jsonl: {registry_path}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog=f"python -m {__package__}.run")
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    ingest = subparsers.add_parser(
+        "ingest",
+        help="Roh-Ereignisse holen und in die Ereignis-Registry mergen",
+    )
+    ingest.add_argument(
+        "--today",
+        default=None,
+        help="Bezugsdatum ISO (Standard: heute) fuer Lookback/Outcome-Fenster",
+    )
+    ingest.set_defaults(handler=ingest_command)
+
     smoke = subparsers.add_parser("smoke", help="kleine Live-Pings aller B1-Provider")
     smoke.add_argument(
         "--cache-check",

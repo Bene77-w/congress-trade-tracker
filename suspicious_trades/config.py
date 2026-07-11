@@ -358,6 +358,33 @@ WAR_GOV_MIN_CONTRACT_USD = 50_000_000
 # Erlaubte Federal-Register-Dokumenttypen; Notices bleiben ausgeschlossen.
 FEDREG_DOC_TYPES = ["RULE", "PRORULE"]
 
+# Read-only Congress-Cache der Hauptpipeline; Quelle des congress_gov-Adapters.
+CONGRESS_CACHE_DIR = PROJECT_ROOT / "data" / "congress_api"
+
+# Dateiname der Ereignis-Registry innerhalb der package-eigenen DATA_DIR.
+EVENTS_FILENAME = "events.jsonl"
+
+# Harte Obergrenze je Ingestion-Netzwerkabruf in Sekunden.
+INGEST_TIMEOUT_SECONDS = 30.0
+
+# Federal-Register-Dokument-API (v1, kein Key noetig).
+FEDERAL_REGISTER_API_URL = "https://www.federalregister.gov/api/v1/documents.json"
+
+# Maximale Federal-Register-Treffer je Abruf.
+FEDERAL_REGISTER_PER_PAGE = 200
+
+# defense.gov-Contracts-RSS-Feed fuer den war_gov_rss-Adapter.
+WAR_GOV_RSS_URL = (
+    "https://www.defense.gov/DesktopModules/ArticleCS/RSS.ashx"
+    "?ContentType=800&Site=945&max=10"
+)
+
+# SAM.gov Get-Opportunities-API (v2); Key via SAM_GOV_API_KEY.
+SAM_GOV_API_URL = "https://api.sam.gov/opportunities/v2/search"
+
+# Maximale SAM.gov-Treffer je Abruf.
+SAM_GOV_LIMIT = 100
+
 # Poll-Intervall der Control-UI fuer den Live-Run-Status in Sekunden.
 STATUS_POLL_SECONDS = 2
 

@@ -115,3 +115,62 @@ def response_factory():
 @pytest.fixture
 def tool_call_factory():
     return make_tool_call
+
+
+FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
+
+
+def load_fixture(*parts: str) -> Any:
+    """Liest eine eingefrorene JSON-Rohantwort aus ``tests/fixtures``."""
+
+    with (FIXTURES_DIR / Path(*parts)).open(encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def load_fixture_text(*parts: str) -> str:
+    """Liest eine eingefrorene Textrohantwort (z.B. RSS/XML) aus den Fixtures."""
+
+    return (FIXTURES_DIR / Path(*parts)).read_text(encoding="utf-8")
+
+
+@pytest.fixture
+def fixtures_dir() -> Path:
+    return FIXTURES_DIR
+
+
+@pytest.fixture
+def read_fixture():
+    return load_fixture
+
+
+@pytest.fixture
+def read_fixture_text():
+    return load_fixture_text
+
+
+@pytest.fixture
+def ingest_settings(tmp_path) -> dict[str, Any]:
+    """Vollstaendige, netzfreie Ingestion-/Registry-Konfiguration fuer B2."""
+
+    return {
+        "INGEST_LOOKBACK_DAYS": 14,
+        "INGEST_SOURCES_ENABLED": {
+            "congress_gov": True,
+            "federal_register": True,
+            "war_gov_rss": True,
+            "sam_gov": True,
+        },
+        "FEDREG_DOC_TYPES": ["RULE", "PRORULE"],
+        "WAR_GOV_MIN_CONTRACT_USD": 50_000_000,
+        "EVENT_CLOSE_AFTER_DAYS": 120,
+        "PROCUREMENT_AWARD_TIMEOUT_DAYS": 180,
+        "CONGRESS_CACHE_DIR": FIXTURES_DIR / "congress_gov",
+        "DATA_DIR": tmp_path,
+        "EVENTS_FILENAME": "events.jsonl",
+        "INGEST_TIMEOUT_SECONDS": 30.0,
+        "FEDERAL_REGISTER_API_URL": "https://example.invalid/fr",
+        "FEDERAL_REGISTER_PER_PAGE": 200,
+        "WAR_GOV_RSS_URL": "https://example.invalid/rss",
+        "SAM_GOV_API_URL": "https://example.invalid/sam",
+        "SAM_GOV_LIMIT": 100,
+    }
