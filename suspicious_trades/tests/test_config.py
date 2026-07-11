@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from pathlib import Path
 
 from suspicious_trades import config
 
@@ -17,6 +18,8 @@ def _write_overrides(tmp_path, monkeypatch, payload) -> None:
 
 
 def test_data_dir_is_derived_from_top_level_package() -> None:
+    assert config.PACKAGE_ROOT == Path(config.__file__).resolve().parent
+    assert config.PROJECT_ROOT == config.PACKAGE_ROOT.parent
     assert config.DATA_DIR == config.PROJECT_ROOT / "data" / "suspicious_trades"
 
 

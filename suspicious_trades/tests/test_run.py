@@ -61,6 +61,7 @@ def test_smoke_missing_keys_are_skips_not_failures(monkeypatch, tmp_path, capsys
     assert "[SKIP] openai/test" in output
     assert "[SKIP] tavily" in output
     assert "Offene B1-Live-Abnahmepunkte" in output
+    assert f"Keys eintragen in: {run.config.PACKAGE_ROOT / '.env'}" in output
 
 
 def test_model_smoke_calls_each_unique_available_model(monkeypatch, tmp_path):

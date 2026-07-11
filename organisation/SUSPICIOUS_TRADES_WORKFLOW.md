@@ -81,7 +81,7 @@ Jeder Aufruf schreibt `runs/<run_id>.search_usage.jsonl` mit Rolle, Endpunkt, Ti
 
 ### CLI, Abhängigkeiten und Tests
 
-`python -m suspicious_trades.run smoke` prüft jedes eindeutige Modell aus `SMOKE_MODELS` und künftigen `AGENT_SPECS` sowie Tavily. Fehlende Keys sind `SKIP`, Providerfehler `FAIL`. `--cache-check` ergänzt zwei identische große Anthropic-Calls und einen dreiturnigen Mini-Tool-Loop; beide Pfade müssen Cache-Reads melden. Smoke-Artefakte landen unter `data/suspicious_trades/runs/`, das wie spätere Klonverzeichnisse gitignoriert ist.
+`python -m suspicious_trades.run smoke` prüft jedes eindeutige Modell aus `SMOKE_MODELS` und künftigen `AGENT_SPECS` sowie Tavily. Fehlende Keys sind `SKIP`; die Zusammenfassung verweist dafür ausdrücklich auf `suspicious_trades/.env`. Providerfehler sind `FAIL`. `--cache-check` ergänzt zwei identische große Anthropic-Calls und einen dreiturnigen Mini-Tool-Loop; beide Pfade müssen Cache-Reads melden. Smoke-Artefakte landen unter `data/suspicious_trades/runs/`, das wie spätere Klonverzeichnisse gitignoriert ist.
 
 Das Subprojekt verwaltet seine Installation und Credentials unabhängig von der Hauptanwendung: `pip install -r suspicious_trades/requirements.txt` installiert die exakt gepinnten Pakete `litellm==1.85.1` und `tavily-python==0.7.26`. `suspicious_trades/.env` (gitignored) enthält Platzhalter für `ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`, `TAVILY_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `XAI_API_KEY` und `OPENROUTER_API_KEY`. Die projektweite Root-`.env` wird von diesem Package nicht geladen. B2 ergänzt seine benötigten Ingestion-Keys später in derselben Subprojekt-Datei.
 

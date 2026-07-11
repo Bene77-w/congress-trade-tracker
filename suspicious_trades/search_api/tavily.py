@@ -53,7 +53,8 @@ class TavilySearchAPI(SearchProvider):
         self.api_key = api_key or os.getenv("TAVILY_API_KEY")
         if not self.api_key:
             raise MissingSearchAPIKeyError(
-                "TAVILY_API_KEY ist nicht gesetzt. Trage den Key in der .env ein."
+                "TAVILY_API_KEY ist nicht gesetzt. Trage den Key in "
+                f"{config.PACKAGE_ROOT / '.env'} ein."
             )
 
         package_name = __package__.split(".")[0]
