@@ -2078,7 +2078,7 @@ with tab_recent:
                         st.session_state['recent_show_n'] = len(recent_pool)
                         st.rerun()
 
-            # --- Export ins Agent-Staging (Suspicious-Trades B5) -----------
+            # --- Optionaler CSV-Export ------------------------------------
             # Normalweg: kompletter gefilterter recent_pool (NICHT nur die per
             # „mehr anzeigen" sichtbare Teilmenge). Feintuning: die per
             # multi-row markierten Zeilen der sichtbaren Tabelle.
@@ -2087,13 +2087,11 @@ with tab_recent:
                 _recent_sel_rows = recent_sel_state.selection.get('rows', [])
             _n_sel = len(_recent_sel_rows)
 
-            st.markdown('**Export ins Agent-Staging (Suspicious-Trades-'
-                        'Workflow)**')
+            st.markdown('**Recent Trades als CSV exportieren**')
             st.caption(
-                'Schreibt die Auswahl nach data/agent_staging/ '
-                '(trade_selection_<timestamp>.csv, festes §5b-Schema). Von dort '
-                'uebernehmen die Agent-Varianten die Trades in den naechsten '
-                'Lauf.'
+                'Schreibt die Auswahl in den konfigurierten Congress-Exportordner '
+                '(trade_selection_<timestamp>.csv). Externe Workflows koennen '
+                'diese Datei optional uebernehmen.'
             )
             ex1, ex2 = st.columns(2)
             with ex1:

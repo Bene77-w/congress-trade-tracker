@@ -29,7 +29,6 @@ Python + Streamlit App die US-Kongress-Mitglieder Stock-Trades trackt, analysier
       ```
     - NIEMALS `git push` und NIEMALS `git stash` ohne ausdrücklichen Befehl (Stash ist im Worktree-Setup zwischen allen Worktrees geteilt → gefährlich).
 10. **Beginne jede antwort mit 'Bene, '(...)**
-11. **Kostenpflichtige Live-API-Tests nur auf ausdruecklichen Userauftrag**. LLM-/Search-Smokes wie `python -m suspicious_trades.run smoke` oder `smoke --cache-check` duerfen nach normalen Implementierungen **niemals automatisch** ausgefuehrt werden. Standard-Abnahme ist ausschliesslich die offline/mock-basierte Testsuite. Ein Live-Smoke erfordert sowohl den ausdruecklichen Auftrag des Users als auch das CLI-Flag `--confirm-live-costs`.
 ---
 
 ## Orientierungs-Workflow
@@ -55,6 +54,13 @@ Stand **nicht aus dem Gedächtnis** annehmen — aus git/Doku ableiten:
 **Fertige Module + Phasen-Historie:** `CHANGELOG.md` bzw. `git log --oneline -- <pfad>`.
 Detail, das **nicht** im CHANGELOG steht: Post-Trade-Performance (Modul 5) → `organisation/Briefing_stage_post_trade_performance.md` + `DATA_STRUCTURE.md`; Scheduler/Quiver-Auto-Download (Modul 11) → `deploy/systemd/README.md`.
 **Offene Module** (10, Rebuild T4, genereller Scheduler): s. „Nächste Schritte" unten.
+
+**Ausgelagert — Suspicious-Trades-Workflow:** Der eigenständige Analyse-Workflow
+liegt im Schwesterprojekt
+`/home/bene/Nextcloud/backup_l9520/Projekte/bmb_trdprg/suspicious-trades-workflow`
+mit eigener Konfiguration, Datenablage und virtueller Umgebung. Der Congress
+Tracker enthält davon keinen Code und keine Laufzeitabhängigkeit; verbleibende
+Schnittstelle ist nur der optionale neutrale CSV-Export in `data/agent_exports/`.
 
 **In Arbeit — Modul 9 (Streamlit-Dashboard):** `app/streamlit_app.py`, `score_recompute.py`, `scoring_presets.py`, `chart_helpers.py`, `member_metrics.py`, `member_detail.py`, `score_correlation.py`. **6 Tabs**: Trades / Assets / Members / Post Trade Performance / Recent Trades / Score-Analyse. Kernfeatures: unified Token-Suche (`_search_mask` über Name/Asset/Ticker/Hash-ID); globaler **Horizont-Sichtbarkeitsfilter** (`first_close_offset_days` ≤ Primary-Horizont, offene Positionen ausgeblendet); **Recent-Trades-Tab** für Monitoring offener Positionen (Mark-to-Market `paper_return_pct`, umgeht Horizont-Filter); **Score-Analyse-Tab** (Modul 9.x, `app/score_correlation.py`; bis 2026-07-03 zwei Tabs Score-Korrelation + Score-Analyse) zur `trade_score`-Validierung gegen den signierten Objective Return `post_return_{X}d` (Spearman als Rang-Pearson ohne scipy; umgeht den Horizont-Filter inkl. held; Kennzahlen + Scatter + Score-Buckets [Score 0 separat, Rest in festen 5er-Schritten] + Pro-Signal-Korrelation, alles filterbar nach Kammer/Partei, eigener Tab-Horizont mit Optionen 30…365d); Voll-Recompute bei Signal-Ausschluss; Sidebar-Form **„Score-Gewichte"** (alle `SCORING_WEIGHTS` + Tier-Editor, Preset-Persistenz `data/config/scoring_presets.json`); **Member-Detail-Popup** (Klick auf Members-Tab-Zeile → `@st.dialog`, live pro Member berechnet — keine neuen Master-Spalten/Pipeline-Lauf — Übersicht/Performance/Verläufe/Timing inkl. Spaghetti-Charts, Red-Flag-Ampel, Google-Namens-/Ticker-Links); Trades-Tab-Ticker-Spalte als Google-`LinkColumn`; alle Zeit-/Horizont-Widgets tragen Scope-Präfixe **[Global]/[Tab]/[Detail]** (Sidebar global, Tab-eigene Fenster tab, Popup-Controls detail); Member-Detail-Popup nutzt die **volle Member-Historie** (Sidebar-Zeitfenster wirkt nicht, Quartal-Slider = einziges Zeitfilter). Start: `streamlit run app/streamlit_app.py`. Datenspalten + Modul-Details: `DATA_STRUCTURE.md` (App-Konfiguration/Scope: Abschnitt „7b"; Member-Detail: „7c"; Score-Analyse: „7d"; Abnormal-Return-Anzeige: „7e"); Scoring: `Filter_Instanz_Parameter.md`.
 

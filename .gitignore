@@ -1,6 +1,5 @@
 .env
-/data/suspicious_trades*/
-/data/agent_staging/
+/data/agent_exports/
 venv
 __pycache__/
 *.pyc
