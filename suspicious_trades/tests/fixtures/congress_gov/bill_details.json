@@ -1,0 +1,46 @@
+[
+  {
+    "bill_id": "hr-119-1",
+    "bill_type": "hr",
+    "number": 1,
+    "title": "National Defense Authorization Act for Fiscal Year 2027",
+    "short_title": "NDAA 2027",
+    "policy_area": "Armed Forces and National Security",
+    "introduced_date": "2026-06-20",
+    "latest_action": {"actionDate": "2026-07-05", "text": "Passed/agreed to in House"},
+    "sponsors": [{"name": "Rep. Example", "party": "R", "state": "TX"}]
+  },
+  {
+    "bill_id": "s-119-50",
+    "bill_type": "s",
+    "number": 50,
+    "title": "Clean Water Infrastructure Act",
+    "short_title": "",
+    "policy_area": "Environmental Protection",
+    "introduced_date": "2026-06-28",
+    "latest_action": {"actionDate": "2026-06-28", "text": "Read twice and referred to the Committee on Environment and Public Works."},
+    "sponsors": []
+  },
+  {
+    "bill_id": "hjres-119-7",
+    "bill_type": "hjres",
+    "number": 7,
+    "title": "Providing for congressional disapproval of an SEC rule",
+    "short_title": "",
+    "policy_area": "Finance and Financial Sector",
+    "introduced_date": "2026-06-15",
+    "latest_action": {"actionDate": "2026-07-08", "text": "Became Public Law No: 119-45."},
+    "sponsors": []
+  },
+  {
+    "bill_id": "hr-119-999",
+    "bill_type": "hr",
+    "number": 999,
+    "title": "Old Post Office Building Renaming Act",
+    "short_title": "",
+    "policy_area": "Government Operations and Politics",
+    "introduced_date": "2026-04-20",
+    "latest_action": {},
+    "sponsors": []
+  }
+]
