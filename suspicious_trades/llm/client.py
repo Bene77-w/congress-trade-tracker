@@ -52,7 +52,7 @@ def ensure_api_key(model: str) -> None:
     if key_env and not os.getenv(key_env):
         raise MissingAPIKeyError(
             f"{key_env} ist fuer Modell {model!r} nicht gesetzt. "
-            f"Trage den Key in {config.PROJECT_ROOT / '.env'} ein."
+            f"Trage den Key in {config.PACKAGE_ROOT / '.env'} ein."
         )
 
 

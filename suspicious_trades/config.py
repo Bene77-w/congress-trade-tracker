@@ -20,11 +20,14 @@ from dotenv import load_dotenv
 
 _logger = logging.getLogger(__name__)
 
-# Repository-Root; alle gemeinsamen Projektpfade werden hiervon abgeleitet.
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+# Package-Verzeichnis mit eigener Umgebung und eigenen Abhaengigkeiten.
+PACKAGE_ROOT = Path(__file__).resolve().parent
 
-# Die Root-.env stellt Provider-Keys bereit; LiteLLM liest sie aus der Umgebung.
-load_dotenv(PROJECT_ROOT / ".env")
+# Repository-Root; alle gemeinsamen Projektpfade werden hiervon abgeleitet.
+PROJECT_ROOT = PACKAGE_ROOT.parent
+
+# Das Subprojekt verwaltet seine Provider-Keys unabhaengig von der Root-.env.
+load_dotenv(PACKAGE_ROOT / ".env")
 
 # Eigene Datenablage; beim Package-Klon wechselt der Ordner automatisch mit.
 DATA_DIR = PROJECT_ROOT / "data" / __package__.split(".")[0]
