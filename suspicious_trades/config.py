@@ -405,6 +405,32 @@ UI_PORTS = {
 # schaltet spaeter ausschliesslich fuer diese Rolle web_map/web_crawl frei.
 AGENT_SPECS: dict[str, dict[str, Any]] = {}
 
+# --- B3: Trades-Zugriff, Empfehlungen, Status/Stop, User-Hints (Plan §4/§5e) ---
+
+# DATA_DIR-Unterordner mit den fuer den Lauf uebernommenen Staging-Exporten.
+STAGED_TRADES_DIRNAME = "staged_trades"
+
+# DATA_DIR-Unterordner fuer Run-Metadaten, Usage-, Status- und Stop-Dateien.
+RUNS_DIRNAME = "runs"
+
+# DATA_DIR-Unterordner je Lauf: outputs/<run_id>/empfehlung.md + bericht.md.
+OUTPUTS_DIRNAME = "outputs"
+
+# DATA_DIR-Unterordner des variantenspezifischen User-Hinweis-Speichers.
+USER_HINTS_DIRNAME = "user_hints"
+
+# Dateiname des append-only User-Hinweis-Speichers (eine JSONL-Zeile je Hinweis).
+HINTS_FILENAME = "hints.jsonl"
+
+# DATA_DIR-Ledger der Empfehlungen inklusive Mark-to-Market-Tracking.
+RECOMMENDATIONS_FILENAME = "recommendations.csv"
+
+# Kompaktes Ranking-Dokument je Lauf (Laengenbudget SUMMARY_MAX_TOKENS).
+RECOMMENDATION_DOC_FILENAME = "empfehlung.md"
+
+# Ausfuehrlicher Bericht je Lauf mit Kausalitaetsketten und Evidenz.
+REPORT_DOC_FILENAME = "bericht.md"
+
 
 _effective_cache: dict[str, Any] | None = None
 

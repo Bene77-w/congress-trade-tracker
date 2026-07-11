@@ -28,7 +28,7 @@ Die gemeinsame Implementierung bleibt bis B5 im Package `suspicious_trades/`. Da
 |---|---|
 | B1, fertig | Package-Gerüst, Config/Overrides, LiteLLM, Tavily/Search, Smoke-CLI |
 | B2, fertig | vier Ingestion-Adapter, Event-Registry mit Lebenszyklus/Outcome-Erkennung, CLI `ingest` |
-| B3 | Trades-Zugriff, Empfehlungen/Tracking, Reporting-Verträge, Status/Stop und User-Hints |
+| B3, fertig | Trades-Zugriff, Empfehlungen/Tracking, Reporting-Verträge, Status/Stop und User-Hints |
 | B4 | Taipy-Control-UI mit Run-Steuerung, Status, Konfiguration, Prompts, Kosten und Browsern |
 | B5, fertig (Rest-Abnahme Control-UI-Sichtbarkeit offen bis B4) | Export markierter Recent Trades aus der bestehenden Streamlit-App ins gemeinsame Staging |
 | danach | C-Divergenz; anschließend A/B-Zwischenstamm und A-/B-Divergenz |
@@ -137,6 +137,42 @@ Abschluss aller Klassen: `outcome_known → closed`, sobald `actual_outcome_date
 ### Tests
 
 Offline-Abnahme: `venv/bin/python -m pytest -q suspicious_trades/tests` – 93 Tests ohne Netzwerk (66 B1 + 27 B2). Eingefrorene Rohantworten je Quelle unter `suspicious_trades/tests/fixtures/{congress_gov,federal_register,war_gov,sam_gov}/`. Abgedeckt: Feld-Mapping und Lookback-/Typ-/Volumen-Filter je Adapter, `is_award_notice`, Re-Ingest-Update statt Duplikat, alle vier Outcome-Regeln inkl. RULE-nicht-effektiv und Floor-ohne-Roll-Call, expired- und closed-Sweep, Konfigurierbarkeit der Schwellen, Quellen-Schalter (skip), fehlertoleranter Quellen-Fehler, CLI-Ende-zu-Ende (inkl. Award schließt Solicitation im Folgelauf). Live-Smokes je Quelle bleiben separat und keyabhängig. Nach jedem Agent-Step künftiger Phasen muss der Aufrufer `TavilySearchAPI.check_budget()` ausführen; vor LLM-Calls übernimmt der gemeinsame Tool-Loop Stop- und Kostenprüfung.
+
+## B3: Trades-Zugriff, Empfehlungen, Status/Stop, User-Hints (implementiert)
+
+B3 ergänzt `trades_access.py`, `recommendations/`, `reporting/contract.py`, `status.py`, `hints.py` und die CLI-Subcommands `recommend`/`ledger-update`. Alle Importe sind relativ, Pfade paketabgeleitet; sämtliche Schwellen/Dateinamen liegen in `config.py` und werden über `config.effective()` gelesen. Die beiden dokumentierten read-only Fremd-Zugriffe (`scoring.post_trade_returns`-Preis-Helfer, `signals.committee_signal._direction_from_transaction_type`) werden bewusst verzögert importiert, damit reine Offline-/Fensterläufe die Haupt-App nicht laden.
+
+### Trades-Zugriff (`trades_access.py`)
+
+Read-only. `load_trades(settings, *, today)` schaltet über `TRADE_SOURCE`: `staging` liest alle CSVs aus `DATA_DIR/staged_trades/`, `window` wählt ein mechanisches Fenster (`TRADE_DATE_FIELD` in `[today − TRADE_WINDOW_DAYS, today]`) direkt aus dem Master. **Staging-Reader-Kontrakt (§5b):** Pflichtspalten `trade_id, name, ticker, transaction_type, transaction_date, disclosure_date, amount` — fehlt eine, bricht `read_staging_trades` mit `StagingSchemaError` (Datei- und Spaltennennung) ab; Zusatzspalten bleiben erhalten; `direction` (`'buy'/'sell'/'other'`) wird nachberechnet, falls leer/fehlend; Duplikate über mehrere Export-Dateien werden per `trade_id` dedupliziert (jüngster `export_ts` gewinnt). Dazu `taxonomy_vocabulary` (Sektor-/Industry-Vokabular aus dem Master) und `member_aggregates` (Trade-/Kauf-/Verkaufs-/Ticker-Aggregate je Member).
+
+### Empfehlungen + Mark-to-Market (`recommendations/recommender.py`)
+
+`RECOMMENDATION_COLUMNS` (bindend, feste Reihenfolge): `rec_id, ticker, direction, issued_date, rationale, dossier_path, rank, eval_until, ref_price_at_issue, hypothetical_return_pct, price_as_of, eval_status, user_status` — **kein numerischer Score, `rank` ist User-Entscheid.** `add_recommendations` übernimmt gerankte Kandidaten (JSON-Dicts), berechnet `eval_until` (`compute_eval_until`: `horizon` = `issued_date + EVAL_HORIZON_DAYS`; `outcome` = Outcome + `EVAL_OUTCOME_BUFFER_DAYS`, ersatzweise `EVAL_MAX_DAYS`; stets hart auf `issued_date + EVAL_MAX_DAYS` gedeckelt) und die erste Bewertung; `update_tracking` (CLI `ledger-update`) rechnet ausschließlich `eval_status='tracking'`-Zeilen neu. **Mark-to-Market ohne eigenen Fetch:** `PriceSource` ist ein dünner read-only Wrapper um das `_build_price_lookup`-Kurs-Dict der Haupt-Pipeline (Ladeweg `_load_price_lookup` → `scoring.post_trade_returns._load_price_cache`+`_build_price_lookup`, einziger Monkeypatch-Punkt der Tests). `ref_price_at_issue` = Close am/nach `issued_date`; `hypothetical_return_pct` = richtungsadjustiert (`sell` = −1, sonst +1) gegen den jüngsten Close ≤ `min(today, eval_until)`; `eval_status` wird nach `eval_until` als `final` eingefroren. Fehlender Ticker → `ref_price=NaN`, `hypothetical_return_pct=NaN`, `eval_status='price_missing'`, WARN, **kein yfinance-Fetch**.
+
+### Output-Kontrakt (`reporting/contract.py`)
+
+`persist_outputs(settings, run_id, *, recommendation_md, report_md)` schreibt `outputs/<run_id>/empfehlung.md` + `bericht.md` atomar und prüft `empfehlung.md` gegen `SUMMARY_MAX_TOKENS` (`BudgetCheck`, WARN bei Überschreitung). NUR der Kontrakt — der gestylte `renderer.py` folgt in B4.
+
+### Status + Stop (`status.py`)
+
+`RunStatus(run_id, pipeline, step_names, settings=...)` schreibt `runs/<run_id>.status.json` (§5e-Schema, bei jedem Update atomar komplett neu; Step-Liste beim Start mit `pending` vorbefüllt) mit `run_id, variant (=DATA_DIR-Name), pipeline, pid, started_at, finished_at, state (running|done|failed|aborted), stop_requested, cost_usd_total, steps[]` (je Step `state (pending|running|done|failed|aborted|skipped), started_at, finished_at, error, artifacts, cost_usd, tokens, counts`). **Stop-Mechanik:** `runs/<run_id>.stop` ist dieselbe Datei, die der B1-`RunContext.check_stop` liest; `make_run_context()` reicht den Pfad an den Tool-Loop weiter (keine Doppel-Implementierung). Der Treiber `run_pipeline(status, steps)` prüft vor jedem Step kooperativ die Stop-Datei; bei Stop oder `StopRequested` enden Lauf und Reststeps als `aborted`, eine Exception setzt Step + Lauf `failed`.
+
+### User-Hints (`hints.py`)
+
+`user_hints/hints.jsonl` (§5e Punkt 2), append-only; Konsum-/Archiv-Markierung schreibt die Datei komplett neu. Schema je Zeile: `hint_id, created_at, text, ticker, topic, consumed_by_run, consumed_at, archived`. `open_hints`/`select_for_injection` liefern die Injektionsauswahl (`consumed_by_run is None && !archived`); `consume_hints(run_id, ...)` markiert, `archive_hint` blendet dauerhaft aus.
+
+### CLI
+
+`python -m suspicious_trades.run recommend --input <json> [--today] [--run-id]` übernimmt gerankte Kandidaten ins Ledger; `ledger-update [--today] [--run-id]` aktualisiert alle `tracking`-Zeilen. Beide melden jeden Step (Beginn/Ende/Artefakte/Counts) an den Status-Writer (`recommendations_new` bzw. `tracking_updated`). Neue Config-Keys (alle kommentiert): `STAGED_TRADES_DIRNAME`, `RUNS_DIRNAME`, `OUTPUTS_DIRNAME`, `USER_HINTS_DIRNAME`, `HINTS_FILENAME`, `RECOMMENDATIONS_FILENAME`, `RECOMMENDATION_DOC_FILENAME`, `REPORT_DOC_FILENAME`.
+
+### Anschlussvertrag B4 (Control-UI)
+
+Das Taipy-UI liest `runs/<run_id>.status.json` (Live-Board + Kosten), `recommendations.csv` (Empfehlungs-/Tracking-Tabelle) und `outputs/<run_id>/*.md` (Ergebnis-Ansicht via kommendem `renderer.py`); es schreibt `runs/<run_id>.stop` (Stop-Button) und hängt über `hints.append_hint` an `hints.jsonl` an. Die Formatter-Erzeugung der beiden md-Dokumente ist variantenspezifisch (Delta) und speist `persist_outputs`.
+
+### Tests
+
+Offline-Abnahme: `venv/bin/python -m pytest -q suspicious_trades/tests` – 130 Tests (93 B1/B2 + 37 B3). Gemeinsame B3-Fixtures in `tests/conftest.py`: `synthetic_master_df`, `b3_settings`, `staging_writer`, `price_lookup`/`price_source` (3 Ticker × 400 Tage, `DDD` fehlt bewusst; lineare Closes für Handrechnungs-Goldwerte). Abgedeckt: Staging-Reader (Fehlerpfade/Dedup/Direction-Ableitung), Fensterauswahl, Recommender-Goldwerte/price_missing/Einfrieren/EVAL_MODE-Zweige, `update_tracking` nur auf tracking-Zeilen, Status-Übergänge/atomares Schreiben/counts/Vorbefüllung, Stop-Datei bricht Dummy-Lauf zwischen Steps ab (Status `aborted`), Hints (Anhängen/Konsum/archived), Output-Kontrakt (Persistenz/Budget) und die CLI-Subcommands `recommend`/`ledger-update`.
 
 ## B5: implementierter Export
 
