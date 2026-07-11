@@ -16,7 +16,7 @@ import logging
 import os
 from pathlib import Path
 import re
-from typing import Any
+from typing import Any, Mapping
 
 from dotenv import dotenv_values
 
@@ -399,6 +399,40 @@ UI_PORTS = {
     "suspicious_trades_c": 5013,
 }
 
+# Bind-Adresse des Control-UI-Webservers (lokaler Einzelnutzer-Betrieb).
+UI_HOST = "127.0.0.1"
+
+# Dark-Theme des Control-UI (Taipy dark_mode); Farbpalette in ui/theme.css.
+UI_DARK_MODE = True
+
+# Maximal angezeigte Laeufe in den Historien-/Auswahllisten des Control-UI.
+UI_RUN_HISTORY_LIMIT = 50
+
+# Anzahl der Log-Endzeilen, die das Control-UI je Lauf anzeigt.
+UI_LOG_TAIL_LINES = 200
+
+# Maximale Vorschauzeilen je CSV-/Staging-Datei im Control-UI.
+UI_PREVIEW_ROWS = 200
+
+# Im Control-UI startbare run.py-Subcommands (Reihenfolge = Dropdown-Reihenfolge).
+UI_START_COMMANDS = ["ingest", "ledger-update", "_dummy-run"]
+
+# Schrittfolge des kuenstlichen Testlaufs `_dummy-run` (nur Sleeps, keine externen Calls).
+DUMMY_RUN_STEPS = [
+    "ingest",
+    "registry-update",
+    "research",
+    "dossier",
+    "outputs",
+    "recommend",
+]
+
+# Kuenstliche Dauer je Dummy-Step in Sekunden (Start-/Stop-/Statusboard-Tests).
+DUMMY_RUN_SECONDS_PER_STEP = 2.0
+
+# DATA_DIR-Unterordner der vollstaendigen Prompt-Override-Dateien (§5d; Reset = Datei loeschen).
+PROMPT_OVERRIDES_DIRNAME = "prompt_overrides"
+
 # In der neutralen Basis gibt es noch keine Agent-Rollen; Varianten fuellen sie.
 # Konvention je Rolle: model (voller LiteLLM-String), effort, max_turns, cache,
 # search/extract/crawl, max_output_tokens und prompt_template. Ein crawl-Block
@@ -536,6 +570,36 @@ def _warn_unpriced_models(config: dict[str, Any]) -> None:
                 role,
                 model,
             )
+
+
+def overrides_path() -> Path:
+    """Pfad der vom Control-UI geschriebenen Override-Datei."""
+
+    return DATA_DIR / "config_overrides.json"
+
+
+def read_overrides() -> dict[str, Any]:
+    """Aktueller Roh-Inhalt der Override-Datei (fehlertolerant, ohne Merge)."""
+
+    return _load_overrides(overrides_path())
+
+
+def write_overrides(overrides: Mapping[str, Any]) -> Path:
+    """Schreibt die Override-Datei atomar (tmp + rename; UI-Schreibregel §5d).
+
+    Es werden ausschliesslich die uebergebenen Abweichungen persistiert; ein
+    leeres Mapping leert die Datei (alle Werte zurueck auf Default).
+    """
+
+    path = overrides_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(
+        json.dumps(dict(overrides), indent=2, ensure_ascii=False, sort_keys=True),
+        encoding="utf-8",
+    )
+    tmp.replace(path)
+    return path
 
 
 def effective(*, reload: bool = False) -> dict[str, Any]:

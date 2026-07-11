@@ -1,4 +1,4 @@
-"""Output-Kontrakt der beiden Lauf-Enddokumente (Renderer folgt in B4)."""
+"""Output-Kontrakt der Lauf-Enddokumente + gestylter Markdown-Renderer (B4)."""
 
 from __future__ import annotations
 
@@ -11,6 +11,14 @@ from .contract import (
     recommendation_doc_path,
     report_doc_path,
 )
+from .renderer import (
+    markdown_to_html,
+    render_artifact,
+    render_csv,
+    render_document,
+    render_json,
+    render_text,
+)
 
 __all__ = [
     "BudgetCheck",
@@ -20,4 +28,10 @@ __all__ = [
     "persist_outputs",
     "recommendation_doc_path",
     "report_doc_path",
+    "markdown_to_html",
+    "render_artifact",
+    "render_csv",
+    "render_document",
+    "render_json",
+    "render_text",
 ]

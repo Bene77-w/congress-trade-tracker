@@ -9,13 +9,15 @@ import json
 import os
 from pathlib import Path
 import re
+import time
 from typing import Any, Iterable, Mapping, Sequence
 
 import litellm
 
 from . import config
 from .ingestion import run_ingestion
-from .llm import RunContext, UsageLog, call_with_tools, complete
+from .llm import RunContext, StopRequested, UsageLog, call_with_tools, complete
+from .reporting import persist_outputs
 from .llm.client import InvalidAPIKeyError, MissingAPIKeyError, key_env_for_model
 from .llm.usage import extract_usage
 from .recommendations import (
@@ -439,28 +441,65 @@ def _resolve_today(value: str | None) -> date:
 def ingest_command(args: argparse.Namespace) -> int:
     settings = config.effective()
     today = _resolve_today(getattr(args, "today", None))
+    run_id = getattr(args, "run_id", None) or (
+        "ingest-" + datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    )
 
-    result = run_ingestion(settings, today=today)
     registry_path = Path(settings["DATA_DIR"]) / settings.get(
         "EVENTS_FILENAME", "events.jsonl"
     )
     registry = EventRegistry(registry_path, settings)
-    stats = registry.update(result.candidates, today=today)
+    status = RunStatus(run_id, "ingest", ["ingest", "registry-update"], settings=settings)
+    holder: dict[str, Any] = {}
 
-    for source, count in result.per_source.items():
-        print(f"[ingest] {source}: {count} Kandidaten")
-    for source in result.skipped:
-        print(f"[skip] {source}: Quelle deaktiviert")
-    for source, error in result.errors.items():
-        print(f"[error] {source}: {error}")
-    print(
-        "[registry] "
-        f"neu={stats.new_events} aktualisiert={stats.updated} "
-        f"outcomes={stats.outcomes_detected} closed={stats.closed} "
-        f"expired={stats.expired}"
+    def _ingest_step() -> StepOutcome:
+        result = run_ingestion(settings, today=today)
+        holder["result"] = result
+        return StepOutcome(
+            counts={
+                "candidates_total": int(len(result.candidates)),
+                "per_source": {k: int(v) for k, v in result.per_source.items()},
+                "skipped": sorted(result.skipped),
+                "errors": sorted(result.errors),
+            }
+        )
+
+    def _registry_step() -> StepOutcome:
+        stats = registry.update(holder["result"].candidates, today=today)
+        holder["stats"] = stats
+        return StepOutcome(
+            artifacts=[_artifact_rel(settings, registry_path)],
+            counts={
+                "new_events": int(stats.new_events),
+                "updated": int(stats.updated),
+                "outcomes_detected": int(stats.outcomes_detected),
+                "closed": int(stats.closed),
+                "expired": int(stats.expired),
+            },
+        )
+
+    final_state = run_pipeline(
+        status, [("ingest", _ingest_step), ("registry-update", _registry_step)]
     )
+    result = holder.get("result")
+    stats = holder.get("stats")
+    if result is not None:
+        for source, count in result.per_source.items():
+            print(f"[ingest] {source}: {count} Kandidaten")
+        for source in result.skipped:
+            print(f"[skip] {source}: Quelle deaktiviert")
+        for source, error in result.errors.items():
+            print(f"[error] {source}: {error}")
+    if stats is not None:
+        print(
+            "[registry] "
+            f"neu={stats.new_events} aktualisiert={stats.updated} "
+            f"outcomes={stats.outcomes_detected} closed={stats.closed} "
+            f"expired={stats.expired}"
+        )
     print(f"[registry] events.jsonl: {registry_path}")
-    return 0
+    print(f"[ingest] run_id={run_id} state={final_state}")
+    return 0 if final_state == "done" else 1
 
 
 def _artifact_rel(settings: Mapping[str, Any], path: Path) -> str:
@@ -548,6 +587,70 @@ def ledger_update_command(args: argparse.Namespace) -> int:
     return 0 if final_state == "done" else 1
 
 
+def dummy_run_command(args: argparse.Namespace) -> int:
+    """Kuenstlicher Testlauf fuer das Control-UI (KEINE externen API-Calls).
+
+    Durchlaeuft die konfigurierten ``DUMMY_RUN_STEPS`` mit reinen Sleeps und
+    schreibt dabei echte Status-Updates (Board-/Stop-/Reconnect-Tests). Der
+    ``outputs``-Step persistiert deutlich markierte Dummy-Enddokumente, damit
+    die Ergebnis-Ansicht ohne Live-Lauf pruefbar ist. Nicht fuer Produktion.
+    """
+
+    settings = config.effective()
+    run_id = getattr(args, "run_id", None) or (
+        "dummy-" + datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    )
+    seconds = getattr(args, "seconds_per_step", None)
+    if seconds is None:
+        seconds = float(settings.get("DUMMY_RUN_SECONDS_PER_STEP", 2.0))
+    step_names = [str(s) for s in settings.get("DUMMY_RUN_STEPS", ["ingest"])]
+
+    status = RunStatus(run_id, "_dummy-run", step_names, settings=settings)
+
+    def _sleep_step() -> StepOutcome:
+        waited = 0.0
+        while waited < float(seconds):
+            if status.check_stop():
+                raise StopRequested(f"Stop-Datei fuer {run_id} erkannt.")
+            time.sleep(min(0.2, float(seconds) - waited))
+            waited += 0.2
+        return StepOutcome(counts={"slept_seconds": round(waited, 1)})
+
+    def _outputs_step() -> StepOutcome:
+        _sleep_step()
+        contract = persist_outputs(
+            settings,
+            run_id,
+            recommendation_md=(
+                "# Dummy-Empfehlung\n\n"
+                "> Synthetisches Testdokument des `_dummy-run`-Subcommands - "
+                "kein echter Lauf.\n\n"
+                "| Platz | Ticker | Richtung | Horizont |\n|---|---|---|---|\n"
+                "| 1 | TST | buy | 90d |\n"
+            ),
+            report_md=(
+                "# Dummy-Bericht\n\n"
+                "Synthetisches Testdokument des `_dummy-run`-Subcommands.\n\n"
+                "## Kausalitaetskette\n\nEreignis -> Mechanismus -> Marktwirkung.\n"
+            ),
+        )
+        return StepOutcome(
+            artifacts=[
+                _artifact_rel(settings, contract.recommendation_path),
+                _artifact_rel(settings, contract.report_path),
+            ],
+            counts={"documents": 2},
+        )
+
+    steps: list[tuple[str, Any]] = []
+    for name in step_names:
+        steps.append((name, _outputs_step if name == "outputs" else _sleep_step))
+
+    final_state = run_pipeline(status, steps)
+    print(f"[_dummy-run] run_id={run_id} state={final_state}")
+    return 0 if final_state == "done" else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog=f"python -m {__package__}.run")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -561,7 +664,24 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Bezugsdatum ISO (Standard: heute) fuer Lookback/Outcome-Fenster",
     )
+    ingest.add_argument(
+        "--run-id", dest="run_id", default=None, help="Run-ID (Standard: ingest-<ts>)"
+    )
     ingest.set_defaults(handler=ingest_command)
+
+    # Versteckter UI-Testlauf: reine Sleeps, echte Status-Updates, keine API-Calls.
+    dummy = subparsers.add_parser("_dummy-run", help=argparse.SUPPRESS)
+    dummy.add_argument(
+        "--run-id", dest="run_id", default=None, help="Run-ID (Standard: dummy-<ts>)"
+    )
+    dummy.add_argument(
+        "--seconds-per-step",
+        dest="seconds_per_step",
+        type=float,
+        default=None,
+        help="Kuenstliche Dauer je Step (Default: DUMMY_RUN_SECONDS_PER_STEP)",
+    )
+    dummy.set_defaults(handler=dummy_run_command)
 
     recommend = subparsers.add_parser(
         "recommend",
