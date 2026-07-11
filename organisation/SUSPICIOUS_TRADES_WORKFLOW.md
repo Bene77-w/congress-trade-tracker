@@ -39,7 +39,7 @@ Alle Varianten erzeugen pro Lauf `empfehlung.md` (kompaktes Ranking ohne numeris
 
 ### Package und Konfiguration
 
-`suspicious_trades/config.py` lädt die Root-`.env` und enthält sämtliche gemeinsamen, kommentierten Defaults: Pfade, Provider-/Modellparameter, autoritative `PRICING`-Werte, LLM- und Search-Caps, Ingestion-/Eval-Parameter sowie künftige UI-Werte. `AGENT_SPECS` ist in der neutralen Basis bewusst leer; spätere Phasen definieren dort vollständige Rollen-Specs mit `model`, `effort`, `max_turns`, `cache`, `search`, `extract`, optional `crawl`, `max_output_tokens` und `prompt_template`.
+`suspicious_trades/config.py` lädt ausschließlich die package-eigene `suspicious_trades/.env` und enthält sämtliche gemeinsamen, kommentierten Defaults: Pfade, Provider-/Modellparameter, autoritative `PRICING`-Werte, LLM- und Search-Caps, Ingestion-/Eval-Parameter sowie künftige UI-Werte. `AGENT_SPECS` ist in der neutralen Basis bewusst leer; spätere Phasen definieren dort vollständige Rollen-Specs mit `model`, `effort`, `max_turns`, `cache`, `search`, `extract`, optional `crawl`, `max_output_tokens` und `prompt_template`.
 
 `effective(reload=False)` introspektiert alle UPPERCASE-Konstanten und merged `data/<package>/config_overrides.json`:
 
@@ -83,7 +83,7 @@ Jeder Aufruf schreibt `runs/<run_id>.search_usage.jsonl` mit Rolle, Endpunkt, Ti
 
 `python -m suspicious_trades.run smoke` prüft jedes eindeutige Modell aus `SMOKE_MODELS` und künftigen `AGENT_SPECS` sowie Tavily. Fehlende Keys sind `SKIP`, Providerfehler `FAIL`. `--cache-check` ergänzt zwei identische große Anthropic-Calls und einen dreiturnigen Mini-Tool-Loop; beide Pfade müssen Cache-Reads melden. Smoke-Artefakte landen unter `data/suspicious_trades/runs/`, das wie spätere Klonverzeichnisse gitignoriert ist.
 
-Root-`.env` (`<repository>/.env`) verwendet `DEEPSEEK_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `XAI_API_KEY`, optional `OPENROUTER_API_KEY` und `TAVILY_API_KEY`; B2 benötigt zusätzlich `CONGRESS_API_KEY` und `SAM_GOV_API_KEY`. `.env.example` enthält alle Namen ohne Secrets.
+Das Subprojekt verwaltet seine Installation und Credentials unabhängig von der Hauptanwendung: `pip install -r suspicious_trades/requirements.txt` installiert die exakt gepinnten Pakete `litellm==1.85.1` und `tavily-python==0.7.26`. `suspicious_trades/.env` (gitignored) enthält Platzhalter für `ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`, `TAVILY_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `XAI_API_KEY` und `OPENROUTER_API_KEY`. Die projektweite Root-`.env` wird von diesem Package nicht geladen. B2 ergänzt seine benötigten Ingestion-Keys später in derselben Subprojekt-Datei.
 
 Offline-Abnahme: `venv/bin/python -m pytest -q suspicious_trades/tests` – aktuell 46 Tests ohne Netzwerk. Sie decken Config-Merge, Cachemarker, Effort, Usage/Kosten, Cap, JSON-Repair, Fallback, Tool-Loop/Stop, alle Search-Endpunkte, Attribution, Credit-Log, Retry/Budget, Tool-Gating/Caps und CLI ab.
 
