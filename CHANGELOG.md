@@ -33,8 +33,15 @@ Abnahme: **64 Suspicious-Trades-Offlinetests** und **1104 Tests der gesamten Pro
 bestanden. Ein einmalig autorisierter Live-Smoke bestand für OpenAI, Anthropic
 Opus/Sonnet/Fable, xAI Grok via VPN, Tavily und den Anthropic-Cachecheck (zweiter identischer
 Call: 11.998 Cache-Read-Tokens; Tool-Loop: 3 Turns mit Cache-Read). Gemini blieb wegen
-Free-Tier-Quote 0 `ACCESS_BLOCKED`; DeepSeek blieb wegen eines aktuell ungültigen externen
-Package-Keys `AUTH_FAIL` und ist damit ein externer Restblocker, kein B2-Fortschritt.
+Free-Tier-Quote 0 `ACCESS_BLOCKED`; DeepSeek meldete `AUTH_FAIL` (Root-Cause s. Nachtrag).
+
+**Nachtrag (gleicher Tag) — DeepSeek-`AUTH_FAIL` behoben:** Ursache war nicht der Package-Key,
+sondern litellms Root-`.env`-Autoload beim Import (DEV-Modus, CWD): Die Root-Keys landeten vor
+dem Package-`.env`-Load in `os.environ`, galten als „process-env" und der dort abweichende,
+ungültige `DEEPSEEK_API_KEY` gewann. Fix: `suspicious_trades/__init__.py` importiert `config`
+als Erstes, damit die Package-`.env` vor jedem litellm-Import geladen ist; Fehlerdetails der
+Modell-Smokes nennen jetzt zusätzlich `key_source`. Verifikation: Live-Smoke mit DeepSeek
+Flash/Pro `PASS`, alle Provider `key_source=package-env`; **66 Offlinetests** bestanden.
 
 ---
 
