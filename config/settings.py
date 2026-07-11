@@ -659,6 +659,18 @@ RECENT_PRICE_MAX_AGE_BUSINESS_DAYS = 1
 
 
 # ---------------------------------------------------------------------------
+# Agent-Staging (Suspicious-Trades B5 — Zwischenlager-Export)
+# ---------------------------------------------------------------------------
+# Zielverzeichnis fuer den Recent-Trades-Export der Haupt-App in das
+# variantenuebergreifende Zwischenlager. Bewusst AUSSERHALB der modul-eigenen
+# DATA_DIR der Agent-Klone: die Streamlit-Haupt-App schreibt hier
+# ``trade_selection_<timestamp>.csv`` (Schema app/staging_export.py), die
+# Control-UIs der Suspicious-Trades-Varianten lesen von hier. Wird beim Export
+# automatisch angelegt.
+AGENT_STAGING_DIR = BASE_DIR / 'data' / 'agent_staging'
+
+
+# ---------------------------------------------------------------------------
 # Score-Korrelation (Modul 9.x — Score-Validierung)
 # ---------------------------------------------------------------------------
 # Dashboard-Tabs "Score-Korrelation" / "Score-Analyse": messen, wie gut der

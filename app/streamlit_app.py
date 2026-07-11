@@ -41,6 +41,7 @@ from app.scoring_presets import (  # noqa: E402
     load_presets,
     save_preset,
 )
+from app.staging_export import export_selection  # noqa: E402
 from config import settings  # noqa: E402
 from scoring.trade_score import split_primary_hint  # noqa: E402
 from signals.committee_signal import (  # noqa: E402
@@ -2045,12 +2046,21 @@ with tab_recent:
             if 'signals_triggered' in display_cols:
                 recent_display['signals_triggered'] = \
                     recent_display['signals_triggered'].map(_primary_only)
-            st.dataframe(
+            st.caption(
+                'Tipp: Zeilen ueber die Checkbox-Spalte markieren (Klick, '
+                'Shift-Klick fuer Bereichsauswahl) und unten „Auswahl '
+                'exportieren", oder mit einem Klick den kompletten gefilterten '
+                'Pool exportieren.'
+            )
+            recent_sel_state = st.dataframe(
                 recent_display,
                 width='stretch',
                 hide_index=True,
                 height=_dyn_height(len(top_pool)),
                 column_config=_trade_column_config(_max_score),
+                key='recent_grid',
+                on_select='rerun',
+                selection_mode='multi-row',
             )
 
             remaining = len(recent_pool) - n_show
@@ -2067,6 +2077,53 @@ with tab_recent:
                     if st.button('Alle anzeigen', key='recent_show_all'):
                         st.session_state['recent_show_n'] = len(recent_pool)
                         st.rerun()
+
+            # --- Export ins Agent-Staging (Suspicious-Trades B5) -----------
+            # Normalweg: kompletter gefilterter recent_pool (NICHT nur die per
+            # „mehr anzeigen" sichtbare Teilmenge). Feintuning: die per
+            # multi-row markierten Zeilen der sichtbaren Tabelle.
+            _recent_sel_rows = []
+            if recent_sel_state and getattr(recent_sel_state, 'selection', None):
+                _recent_sel_rows = recent_sel_state.selection.get('rows', [])
+            _n_sel = len(_recent_sel_rows)
+
+            st.markdown('**Export ins Agent-Staging (Suspicious-Trades-'
+                        'Workflow)**')
+            st.caption(
+                'Schreibt die Auswahl nach data/agent_staging/ '
+                '(trade_selection_<timestamp>.csv, festes §5b-Schema). Von dort '
+                'uebernehmen die Agent-Varianten die Trades in den naechsten '
+                'Lauf.'
+            )
+            ex1, ex2 = st.columns(2)
+            with ex1:
+                if st.button(
+                    f'Alle gefilterten Zeilen exportieren '
+                    f'({len(recent_pool):,})',
+                    key='recent_export_all',
+                    width='stretch',
+                ):
+                    try:
+                        _path = export_selection(recent_pool)
+                        st.success(f'{len(recent_pool):,} Zeilen exportiert '
+                                   f'nach {_path}')
+                    except Exception as _exc:  # noqa: BLE001
+                        st.error(f'Export fehlgeschlagen: {_exc}')
+            with ex2:
+                if st.button(
+                    f'Auswahl exportieren ({_n_sel})',
+                    key='recent_export_sel',
+                    width='stretch',
+                    disabled=(_n_sel == 0),
+                ):
+                    _sel_idx = top_pool.index[_recent_sel_rows]
+                    _sel_df = recent_pool.loc[_sel_idx]
+                    try:
+                        _path = export_selection(_sel_df)
+                        st.success(f'{len(_sel_df):,} Zeilen exportiert nach '
+                                   f'{_path}')
+                    except Exception as _exc:  # noqa: BLE001
+                        st.error(f'Export fehlgeschlagen: {_exc}')
 
 
 # --- Score-Analyse: Helfer -------------------------------------------------

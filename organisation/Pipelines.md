@@ -915,7 +915,9 @@ venv/bin/streamlit run app/streamlit_app.py --server.headless true
 **Inputs (read-only):**
 - `data/processed/trades_master.csv` — Haupt-Trades-Tabelle (gecached via `@st.cache_data`)
 
-**Outputs:** keine — reine Lese-UI, kein Schreiben auf Disk
+**Outputs:** grundsaetzlich Lese-UI; einziger Schreibpfad ist der Recent-Trades-Export (B5) ins Agent-Staging (s. unten), on-demand per Button.
+
+**Recent-Trades-Export → Agent-Staging (Suspicious-Trades B5):** Der Recent-Trades-Tab kann die Auswahl ins variantenuebergreifende Zwischenlager schreiben (Schreiber = Haupt-App; Leser = kuenftiger Staging-Reader der Suspicious-Trades-Varianten, B3). Modul `app/staging_export.py` (`export_selection`) schreibt `data/agent_staging/trade_selection_<timestamp>.csv` mit festem §5b-Schema (22 Spalten, Details `organisation/DATA_STRUCTURE.md`). Zwei Wege: Button „Alle gefilterten Zeilen exportieren" (kompletter gefilterter `recent_pool`) und „Auswahl exportieren" (per `st.dataframe`-multi-row markierte Zeilen). Zielverzeichnis `config/settings.py: AGENT_STAGING_DIR` (relativ zu `BASE_DIR`, gitignoriert), wird bei Bedarf angelegt.
 
 **Datenfluss pro Render:**
 ```
