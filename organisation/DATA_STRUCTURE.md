@@ -1835,6 +1835,17 @@ exit_status, export_ts
   der Plan-Tabelle meint die Semantik, nicht das Rueckgabeformat).
 - `export_ts`: ISO-Zeitpunkt des Exports.
 
+### Suspicious-Trades B3-Datenartefakte (`data/<package>/`, gitignored)
+
+Alle unter der klon-eigenen `DATA_DIR = data/suspicious_trades*/`; Details/Schemata: `organisation/SUSPICIOUS_TRADES_WORKFLOW.md` (Abschnitt B3) und Plan §5e.
+
+- **`recommendations.csv`** — Empfehlungs-Ledger mit Mark-to-Market-Tracking. Feste Spalten (`suspicious_trades/recommendations/recommender.py:RECOMMENDATION_COLUMNS`): `rec_id, ticker, direction, issued_date, rationale, dossier_path, rank, eval_until, ref_price_at_issue, hypothetical_return_pct, price_as_of, eval_status (tracking|final|price_missing), user_status`. Kein numerischer Score; `rank` = User-Entscheid. Preisquelle read-only aus `data/cache/price_history.parquet` (kein eigener Fetch).
+- **`runs/<run_id>.status.json`** — Live-Status je Lauf (`status.py`, atomar): `run_id, variant, pipeline, pid, started_at, finished_at, state, stop_requested, cost_usd_total, steps[]` (je Step `state, started_at, finished_at, error, artifacts, cost_usd, tokens, counts`).
+- **`runs/<run_id>.stop`** — Stop-Signaldatei (kooperativer Abbruch; identisch zum B1-`RunContext.check_stop`-Pfad).
+- **`user_hints/hints.jsonl`** — append-only User-Hinweise: `hint_id, created_at, text, ticker, topic, consumed_by_run, consumed_at, archived`.
+- **`staged_trades/*.csv`** — die für einen Lauf übernommenen Staging-Exporte (Schema = `STAGING_COLUMNS` oben); Leser = `trades_access.read_staging_trades`.
+- **`outputs/<run_id>/empfehlung.md` + `bericht.md`** — die zwei Lauf-Enddokumente (Kontrakt `reporting/contract.py`; `empfehlung.md` gegen `SUMMARY_MAX_TOKENS` geprüft).
+
 ---
 
 ## Committee-Relevanz (Modul 4)

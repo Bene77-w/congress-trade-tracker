@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
+import json
 import os
 from pathlib import Path
 import re
@@ -17,7 +18,13 @@ from .ingestion import run_ingestion
 from .llm import RunContext, UsageLog, call_with_tools, complete
 from .llm.client import InvalidAPIKeyError, MissingAPIKeyError, key_env_for_model
 from .llm.usage import extract_usage
+from .recommendations import (
+    add_recommendations,
+    recommendations_path,
+    update_tracking,
+)
 from .registry import EventRegistry
+from .status import RunStatus, StepOutcome, run_pipeline
 from .search_api import (
     InvalidSearchAPIKeyError,
     MissingSearchAPIKeyError,
@@ -456,6 +463,91 @@ def ingest_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def _artifact_rel(settings: Mapping[str, Any], path: Path) -> str:
+    """Pfad relativ zur DATA_DIR (Quelle des Uebergabe-Browsers, §5a Punkt 3)."""
+
+    data_dir = Path(settings["DATA_DIR"])
+    try:
+        return str(Path(path).relative_to(data_dir))
+    except ValueError:
+        return str(path)
+
+
+def _load_candidates(path: Path) -> list[dict[str, Any]]:
+    with path.open(encoding="utf-8") as handle:
+        payload = json.load(handle)
+    if isinstance(payload, Mapping):
+        payload = payload.get("recommendations", [])
+    if not isinstance(payload, list):
+        raise ValueError(
+            "Empfehlungs-Input muss eine JSON-Liste (oder {'recommendations': [...]}) sein."
+        )
+    return [dict(item) for item in payload if isinstance(item, Mapping)]
+
+
+def recommend_command(args: argparse.Namespace) -> int:
+    settings = config.effective()
+    today = _resolve_today(getattr(args, "today", None))
+    run_id = getattr(args, "run_id", None) or (
+        "recommend-" + datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    )
+
+    input_path = Path(args.input)
+    if not input_path.is_file():
+        print(f"[error] Empfehlungs-Input nicht gefunden: {input_path}")
+        return 1
+    candidates = _load_candidates(input_path)
+
+    status = RunStatus(run_id, "recommend", ["recommend"], settings=settings)
+
+    def _step() -> StepOutcome:
+        new_rows = add_recommendations(
+            settings, candidates, today=today, run_id=run_id
+        )
+        ledger = recommendations_path(settings)
+        return StepOutcome(
+            artifacts=[_artifact_rel(settings, ledger)],
+            counts={"recommendations_new": int(len(new_rows))},
+        )
+
+    final_state = run_pipeline(status, [("recommend", _step)])
+    snapshot = status.state
+    counts = snapshot["steps"][0].get("counts", {})
+    print(
+        f"[recommend] run_id={run_id} state={final_state} "
+        f"neu={counts.get('recommendations_new', 0)}"
+    )
+    print(f"[recommend] ledger: {recommendations_path(settings)}")
+    return 0 if final_state == "done" else 1
+
+
+def ledger_update_command(args: argparse.Namespace) -> int:
+    settings = config.effective()
+    today = _resolve_today(getattr(args, "today", None))
+    run_id = getattr(args, "run_id", None) or (
+        "ledger-" + datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    )
+
+    status = RunStatus(run_id, "ledger-update", ["ledger-update"], settings=settings)
+
+    def _step() -> StepOutcome:
+        updated = update_tracking(settings, today=today)
+        ledger = recommendations_path(settings)
+        return StepOutcome(
+            artifacts=[_artifact_rel(settings, ledger)],
+            counts={"tracking_updated": int(updated)},
+        )
+
+    final_state = run_pipeline(status, [("ledger-update", _step)])
+    snapshot = status.state
+    counts = snapshot["steps"][0].get("counts", {})
+    print(
+        f"[ledger-update] run_id={run_id} state={final_state} "
+        f"aktualisiert={counts.get('tracking_updated', 0)}"
+    )
+    return 0 if final_state == "done" else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog=f"python -m {__package__}.run")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -470,6 +562,39 @@ def build_parser() -> argparse.ArgumentParser:
         help="Bezugsdatum ISO (Standard: heute) fuer Lookback/Outcome-Fenster",
     )
     ingest.set_defaults(handler=ingest_command)
+
+    recommend = subparsers.add_parser(
+        "recommend",
+        help="gerankte Empfehlungskandidaten (JSON) ins Ledger uebernehmen + tracken",
+    )
+    recommend.add_argument(
+        "--input",
+        required=True,
+        help="JSON-Datei: Liste von {ticker, direction, rationale, dossier_path, rank, ...}",
+    )
+    recommend.add_argument(
+        "--today",
+        default=None,
+        help="Bezugsdatum ISO (Standard: heute) fuer eval_until/Mark-to-Market",
+    )
+    recommend.add_argument(
+        "--run-id", dest="run_id", default=None, help="Run-ID (Standard: recommend-<ts>)"
+    )
+    recommend.set_defaults(handler=recommend_command)
+
+    ledger_update = subparsers.add_parser(
+        "ledger-update",
+        help="alle eval_status=tracking-Zeilen der recommendations.csv neu bewerten",
+    )
+    ledger_update.add_argument(
+        "--today",
+        default=None,
+        help="Bezugsdatum ISO (Standard: heute) fuer das Mark-to-Market",
+    )
+    ledger_update.add_argument(
+        "--run-id", dest="run_id", default=None, help="Run-ID (Standard: ledger-<ts>)"
+    )
+    ledger_update.set_defaults(handler=ledger_update_command)
 
     smoke = subparsers.add_parser("smoke", help="kleine Live-Pings aller B1-Provider")
     smoke.add_argument(
