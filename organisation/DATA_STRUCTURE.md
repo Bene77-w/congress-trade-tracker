@@ -1797,6 +1797,50 @@ Befund-Report: `organisation/analyse_event_study.md`.
 
 ---
 
+## 7f. Optionaler Trade-CSV-Export
+
+### Datei `data/agent_exports/trade_selection_<timestamp>.csv` (gitignored)
+
+Neutraler dateibasierter Export aus dem Recent-Trades-Tab der Streamlit-App.
+Congress Tracker schreibt ausschließlich in seinen eigenen Exportordner; externe
+Programme können die CSV optional übernehmen, ohne Code-, Pfad- oder
+Laufzeitabhängigkeit zwischen den Projekten.
+
+- **Schreiber:** Haupt-App `app/streamlit_app.py` (Recent-Trades-Tab) via
+  `app/staging_export.py:export_selection`.
+- **Leser:** nicht festgelegt; die Datei ist ein generischer Exportvertrag für
+  optionale externe Verbraucher.
+- **Konfiguration:** `config/settings.py` definiert `TRADE_EXPORT_DIR`
+  (`BASE_DIR / 'data' / 'agent_exports'`), `TRADE_EXPORT_FILENAME_PREFIX`
+  (`'trade_selection'`) und `TRADE_EXPORT_TIMESTAMP_FORMAT`
+  (`'%Y%m%d-%H%M%S'`). Das Zielverzeichnis wird beim Export angelegt.
+
+**Festes CSV-Spaltenschema** (22 Spalten, Reihenfolge bindend =
+`app/staging_export.py:STAGING_COLUMNS`):
+
+```
+trade_id, name, chamber, Member_Party,
+ticker, issuer_ticker, asset_name,
+transaction_type, direction,
+transaction_date, disclosure_date, days_since_trade,
+amount, trade_volume_usd, trade_amount_max_usd,
+sector_yf, industry_yf, relevant_sectors,
+committee_match, Member_Committees_Full,
+exit_status, export_ts
+```
+
+- Die meisten Quellspalten stammen aus dem Master. `days_since_trade` wird beim
+  Aufbau des `recent_pool` berechnet; `relevant_sectors` und `committee_match`
+  werden beim App-Load aus den Masterdaten abgeleitet. Fehlt eine Quellspalte,
+  wird sie schema-stabil leer geschrieben (Warnung im Log).
+- `direction`: falls in der Zeile leer/fehlend, lokal in
+  `app/staging_export.py` aus `transaction_type` als `'buy'`, `'sell'` oder
+  `'other'` abgeleitet; das Exportmodul importiert kein Signal- oder externes
+  Workflow-Package.
+- `export_ts`: ISO-Zeitpunkt des Exports.
+
+---
+
 ## Committee-Relevanz (Modul 4)
 
 `_apply_committee_relevance` schreibt `Insider_Sectors` und `Relevant_Sectors` in den Master.

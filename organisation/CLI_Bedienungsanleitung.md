@@ -1030,6 +1030,15 @@ python -m pytest scripts/committee_mapping_agent/tests/
 
 ---
 
+## 16. Ausgelagerter Analyse-Workflow
+
+Der ehemalige Suspicious-Trades-Workflow ist kein Script oder internes Modul des
+Congress Trackers mehr. Betrieb, Abnahme, Provider-Konfiguration und Artefakte
+sind ausschließlich im eigenständigen Schwesterprojekt dokumentiert. Der
+Congress Tracker stellt optional den neutralen CSV-Export aus Pipeline 10 bereit.
+
+---
+
 ## Schnellreferenz
 
 | Script | Befehl | Zweck |

@@ -659,6 +659,19 @@ RECENT_PRICE_MAX_AGE_BUSINESS_DAYS = 1
 
 
 # ---------------------------------------------------------------------------
+# Trade-Export (optionale dateibasierte Integrationsgrenze)
+# ---------------------------------------------------------------------------
+# Congress-eigenes Zielverzeichnis fuer manuell exportierte Recent Trades.
+# Externe Workflows koennen diese CSV-Dateien optional uebernehmen, ohne dass
+# Congress Tracker deren Projektstruktur, Code oder Laufzeitumgebung kennt.
+# Das Verzeichnis wird beim Export automatisch angelegt.
+TRADE_EXPORT_DIR = BASE_DIR / 'data' / 'agent_exports'
+# Dateiname: <Praefix>_<Zeitstempel>.csv
+TRADE_EXPORT_FILENAME_PREFIX = 'trade_selection'
+TRADE_EXPORT_TIMESTAMP_FORMAT = '%Y%m%d-%H%M%S'
+
+
+# ---------------------------------------------------------------------------
 # Score-Korrelation (Modul 9.x — Score-Validierung)
 # ---------------------------------------------------------------------------
 # Dashboard-Tabs "Score-Korrelation" / "Score-Analyse": messen, wie gut der

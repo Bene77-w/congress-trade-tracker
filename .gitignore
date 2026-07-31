@@ -1,4 +1,5 @@
 .env
+/data/agent_exports/
 venv
 __pycache__/
 *.pyc

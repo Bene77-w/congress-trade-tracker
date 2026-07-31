@@ -915,7 +915,19 @@ venv/bin/streamlit run app/streamlit_app.py --server.headless true
 **Inputs (read-only):**
 - `data/processed/trades_master.csv` — Haupt-Trades-Tabelle (gecached via `@st.cache_data`)
 
-**Outputs:** keine — reine Lese-UI, kein Schreiben auf Disk
+**Outputs:** grundsätzlich Lese-UI; als manueller Schreibpfad steht der optionale
+Recent-Trades-CSV-Export zur Verfügung.
+
+**Optionaler Recent-Trades-CSV-Export:** Der Recent-Trades-Tab kann entweder den
+kompletten gefilterten `recent_pool` oder die per `st.dataframe` markierten Zeilen
+exportieren. `app/staging_export.py:export_selection` schreibt das feste
+22-Spalten-Schema nach
+`data/agent_exports/trade_selection_<timestamp>.csv` (Details:
+`organisation/DATA_STRUCTURE.md`, Abschnitt 7f). Zielverzeichnis, Präfix und
+Zeitstempelformat sind über `config/settings.py` konfigurierbar. Der Producer
+normalisiert `direction` lokal und besitzt keine Imports, Pfade oder
+Laufzeitabhängigkeiten zu externen Workflows; externe Programme können die CSV
+optional übernehmen.
 
 **Datenfluss pro Render:**
 ```
