@@ -29,37 +29,14 @@ liegt nur noch im isolierten venv des Schwesterprojekts.
 
 ---
 
-## 2026-07-11 — Suspicious-Trades B1: Live-API-Schicht gehärtet
+## 2026-07-11 — Suspicious-Trades B1 (historisch)
 
-Die bereits implementierte B1-Basisschicht wurde für reproduzierbare und kostenkontrollierte
-Live-Abnahmen gehärtet; dies ist kein Abschluss der Folgephase B2.
-
-- Package-`.env` wird CWD-unabhängig und payload-redigiert gelesen; Prozessvariablen behalten
-  bewusst Vorrang. Credential-Quelle, fehlende Werte und Platzhalter werden vor Live-Calls
-  sicher diagnostiziert.
-- Smoke-Ergebnisse unterscheiden `PASS`, `SKIP`, `AUTH_FAIL`, `MODEL_CONFIG_FAIL`,
-  `ACCESS_BLOCKED` (externe Quote/Region/Budget, nicht fatal) und `FAIL` mit eindeutiger
-  Exit-Semantik. Live-Aufrufe erfordern mechanisch `--confirm-live-costs`; Agenten dürfen sie
-  nach normalen Implementierungen nicht automatisch starten.
-- LLM-Requests haben einen konfigurierbaren 60-Sekunden-Timeout; Smokes nutzen keine Retries.
-  Der Anthropic-Cachecheck validiert deterministisch zwei identische Calls, zwei erzwungene
-  Tool-Schritte und den Finalcall sowie Cache-Reads in beiden Pfaden.
-- DeepSeek-/GPT-5.5-Cachepreise wurden korrigiert; Sonnet-5-Einführungspreis und der
-  GPT-5.5-Langkontexttarif werden zeit- bzw. tokenabhängig ausgewählt.
-
-Abnahme: **64 Suspicious-Trades-Offlinetests** und **1104 Tests der gesamten Projektsuite**
-bestanden. Ein einmalig autorisierter Live-Smoke bestand für OpenAI, Anthropic
-Opus/Sonnet/Fable, xAI Grok via VPN, Tavily und den Anthropic-Cachecheck (zweiter identischer
-Call: 11.998 Cache-Read-Tokens; Tool-Loop: 3 Turns mit Cache-Read). Gemini blieb wegen
-Free-Tier-Quote 0 `ACCESS_BLOCKED`; DeepSeek meldete `AUTH_FAIL` (Root-Cause s. Nachtrag).
-
-**Nachtrag (gleicher Tag) — DeepSeek-`AUTH_FAIL` behoben:** Ursache war nicht der Package-Key,
-sondern litellms Root-`.env`-Autoload beim Import (DEV-Modus, CWD): Die Root-Keys landeten vor
-dem Package-`.env`-Load in `os.environ`, galten als „process-env" und der dort abweichende,
-ungültige `DEEPSEEK_API_KEY` gewann. Fix: `suspicious_trades/__init__.py` importiert `config`
-als Erstes, damit die Package-`.env` vor jedem litellm-Import geladen ist; Fehlerdetails der
-Modell-Smokes nennen jetzt zusätzlich `key_source`. Verifikation: Live-Smoke mit DeepSeek
-Flash/Pro `PASS`, alle Provider `key_source=package-env`; **66 Offlinetests** bestanden.
+Vor der Auslagerung wurde die B1-Live-API-Schicht für reproduzierbare,
+kostenkontrollierte Provider-Smokes gehärtet. Dazu gehörten sichere
+Credential-Diagnosen, eindeutige Smoke-Status und Timeouts sowie korrigierte
+Cachepreise. Die Implementierung und ihre weitere Entwicklung gehören seit der
+anschließenden Migration vollständig zum eigenständigen Schwesterprojekt; im
+Congress Tracker verbleibt davon kein Code.
 
 ---
 

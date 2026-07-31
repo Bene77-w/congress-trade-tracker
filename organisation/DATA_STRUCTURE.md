@@ -1829,9 +1829,10 @@ committee_match, Member_Committees_Full,
 exit_status, export_ts
 ```
 
-- Alle Spalten ausser `direction` und `export_ts` stammen aus dem Master
-  (ungefilterter `recent_pool`). Fehlt eine Quellspalte, wird sie schema-stabil
-  leer geschrieben (Warnung im Log).
+- Die meisten Quellspalten stammen aus dem Master. `days_since_trade` wird beim
+  Aufbau des `recent_pool` berechnet; `relevant_sectors` und `committee_match`
+  werden beim App-Load aus den Masterdaten abgeleitet. Fehlt eine Quellspalte,
+  wird sie schema-stabil leer geschrieben (Warnung im Log).
 - `direction`: falls in der Zeile leer/fehlend, lokal in
   `app/staging_export.py` aus `transaction_type` als `'buy'`, `'sell'` oder
   `'other'` abgeleitet; das Exportmodul importiert kein Signal- oder externes
