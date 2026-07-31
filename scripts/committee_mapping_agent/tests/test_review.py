@@ -48,6 +48,7 @@ def _mapping_results():
 
 def test_review_attaches_flags_and_sets_confidence(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "CACHE_REVIEW", str(tmp_path / "review"))
+    monkeypatch.setattr(config, "REVIEW_ENABLED", True)
     tax = taxonomy.load_source()
 
     resp = make_response(json.dumps({
@@ -83,6 +84,7 @@ def test_review_attaches_flags_and_sets_confidence(tmp_path, monkeypatch):
 def test_reviewed_confidence_capped_by_grounding(tmp_path, monkeypatch):
     """Reviewer sagt high, aber grounding=fallback -> Deckel auf medium."""
     monkeypatch.setattr(config, "CACHE_REVIEW", str(tmp_path / "review"))
+    monkeypatch.setattr(config, "REVIEW_ENABLED", True)
     tax = taxonomy.load_source()
     jurisdiction = {"Energy": {"text": "x", "source_url": "https://govinfo.gov",
                                "quote": "z", "grounding_quality": "fallback"}}
@@ -188,6 +190,7 @@ def test_review_passthrough_cache_redone_when_enabled(tmp_path, monkeypatch):
 def test_review_llm_cache_kept_when_disabled(tmp_path, monkeypatch):
     """Echter Review-Cache + Schalter aus -> Cache behalten, kein Re-Run."""
     monkeypatch.setattr(config, "CACHE_REVIEW", str(tmp_path / "review"))
+    monkeypatch.setattr(config, "REVIEW_ENABLED", True)
     tax = taxonomy.load_source()
     resp = make_response(json.dumps({"row_reviews": [
         {"index": 0, "review_flag": "ok", "reviewed_confidence": "high",
@@ -208,6 +211,7 @@ def test_review_llm_cache_kept_when_disabled(tmp_path, monkeypatch):
 
 def test_review_uses_cache(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "CACHE_REVIEW", str(tmp_path / "review"))
+    monkeypatch.setattr(config, "REVIEW_ENABLED", True)
     tax = taxonomy.load_source()
     resp = make_response(json.dumps({"row_reviews": [
         {"index": 0, "review_flag": "ok", "reviewed_confidence": "high",

@@ -11,6 +11,35 @@ Historie abgeschlossener Module/Phasen. **Aktiver WIP-Modul-Stand** steht im „
 
 ---
 
+## 2026-07-11 — Suspicious-Trades-Workflow als Schwesterprojekt ausgelagert
+
+Der zuvor im Congress Tracker enthaltene Workflow wurde vollständig nach
+`suspicious-trades-workflow` migriert. Das Schwesterprojekt besitzt eine eigene
+Projektkonfiguration (`pyproject.toml`, `requirements.txt`, Root-`.env`), ein
+eigenes `.venv` sowie eigene Datenbereiche `data/inbox/` und `data/runtime/`.
+Congress Tracker und Analyse-Workflow teilen weder Python-Code noch virtuelle
+Umgebung oder fest gekoppelte Datenpfade.
+
+Im Congress Tracker verbleibt ausschließlich der optionale neutrale
+CSV-Producer `app/staging_export.py`. Er schreibt standardmäßig nach
+`data/agent_exports/`, normalisiert die Transaktionsrichtung lokal und stellt
+keine Imports zum ausgelagerten Projekt her. Taipy und die zugehörigen
+Distributionen wurden aus dem Congress-Tracker-venv entfernt; die UI-Abhängigkeit
+liegt nur noch im isolierten venv des Schwesterprojekts.
+
+---
+
+## 2026-07-11 — Suspicious-Trades B1 (historisch)
+
+Vor der Auslagerung wurde die B1-Live-API-Schicht für reproduzierbare,
+kostenkontrollierte Provider-Smokes gehärtet. Dazu gehörten sichere
+Credential-Diagnosen, eindeutige Smoke-Status und Timeouts sowie korrigierte
+Cachepreise. Die Implementierung und ihre weitere Entwicklung gehören seit der
+anschließenden Migration vollständig zum eigenständigen Schwesterprojekt; im
+Congress Tracker verbleibt davon kein Code.
+
+---
+
 ## 2026-07-03 — Codebase-weites Debugging: Intervall 4 (Utils & Cross-Cutting)
 
 **Abschluss des Debugging-Zyklus** (Commits `da88ed4`…`ace7e6c`, unabhängige Fable-Verifikation:
