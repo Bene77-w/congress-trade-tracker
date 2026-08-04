@@ -212,63 +212,80 @@ Messung per `curl` von der Entwicklungsmaschine aus, alle 38 Committees. Dies
 sind die **einzigen** Messdaten in diesem Dokument; alles in 4.3 bleibt
 Hochrechnung.
 
-### Ergebnis je Kammer
+### Ergebnis (38 Committees)
 
-| Kammer | Committees | per geratenem URL-Muster erreichbar | mit Jurisdiktionstext |
-|---|---|---|---|
-| House | 26 | 22 (HTTP 200) | **21** |
-| Senate | 12 | 0 | **0** |
-| davon Joint/Select (unter House gelistet) | 5 | 1 | 0 |
+| Kriterium | Wert |
+|---|---|
+| per geratenem URL-Muster erreichbar (`<name>.house.gov` / `.senate.gov`) | **35 / 38** |
+| erst per Suche auffindbar | 3 / 38 |
+| gar nicht erreichbar | **0 / 38** |
+| liefert substantiellen Jurisdiktionstext | **36 / 38** |
 
-Textlänge der 21 erfolgreichen Seiten: Median 2.409 Zeichen, min 863, max 27.139
-— durchweg substantiell, keine leeren Treffer. Alle 21 wurden über **geratene**
-Pfadmuster gefunden (`<name>.house.gov` + `/about`, `/about/jurisdiction`);
-keine Suche nötig.
+Die 3 Suchfälle: Joint Committee on Printing und Joint Committee on the Library
+haben keine eigene Domain (hängen an `cha.house.gov`); das Joint Economic
+Committee nutzt einen Legacy-Pfad.
 
-### P1 — senate.gov und congress.gov antworten mit HTTP 403
+Die 2 Committees ohne Jurisdiktionstext sind erklärbar: der CCP-Select-Committee
+hat keine formale Gesetzes-Jurisdiktion (nur ein Mission Statement), und
+`jct.gov` (Joint Committee on Taxation) hängt hinter einer
+Cloudflare-JS-Challenge, die kein einfacher HTTP-Client passiert.
 
-Alle 12 Senatsausschüsse, zusätzlich `senate.gov/committees/index.htm`,
-`congress.gov/committees` und `jct.gov` liefern eine Akamai-typische
-**„Access Denied"**-Seite (~350 Zeichen). Gegengeprüft und ausgeschlossen als
-Ursache: Pfadfehler (auch die Domain-Wurzel `www.finance.senate.gov/` liefert
-403), HEAD-vs-GET, fehlender oder falscher User-Agent (Browser-UA ändert
-nichts). Es handelt sich um einen Edge-/CDN-Blocker auf Domain-Ebene.
+**Die Annahme des Projektinhabers ist damit empirisch gestützt: die Adressen
+sind stabil und weit überwiegend sogar ratbar.**
 
-**Tragweite — dies betrifft den bestehenden Agenten unverändert.**
-`research.fetch_page()` nutzt `requests.get()` mit einem simplen User-Agent und
-erhält dieselben 403. Konsequenzen im Ist-Zustand:
-- 12 Senats-Committees + 70 Senats-Subcommittees = **82 von 185 Einheiten (44 %)**
-  können ihre Primärquelle nicht erreichen.
-- Damit ist für diese Einheiten `grounding_quality = 'direct'` unerreichbar; es
-  bleibt `fallback` (GovInfo) oder `none`.
-- Der Konfidenz-Deckel (`GROUNDING_CONFIDENCE_CAP`) begrenzt sie dadurch
-  systematisch auf `medium` bzw. `low` — unabhängig von der tatsächlichen
-  Zuordnungsqualität.
-- `MAP_RETRY_ONLY_GROUNDED = True` bedeutet zusätzlich, dass der Leer-Retry für
-  Senatseinheiten **nie** auslöst.
+### P1 — Erreichbarkeit hängt am HTTP-Client, nicht an der URL
 
-**Offene Einschränkung:** Ob dieser Block umgebungsspezifisch ist (Datacenter-IP,
-Sandbox-Proxy) oder generell für den Anschluss des Projektinhabers gilt, ist
-**nicht geklärt**. Diese Frage entscheidet die Tragweite und ist vor jeder
-weiteren Planung zu beantworten.
+Bei der Prüfung mit `curl` antworteten **alle 12 Senats-Domains** mit HTTP 403
+(„Access Denied", Akamai-typisch) — auch auf der Domain-Wurzel, auch mit
+Browser-User-Agent, auch mit GET statt HEAD.
 
-### P2 — Subcommittee-Jurisdiktionen liegen auf eigenen Unterseiten
+**Gegenprobe mit dem Produktionscode: `requests.get()` mit exakt dem
+User-Agent aus `research.py` liefert bei denselben URLs HTTP 200 mit
+Jurisdiktionstext** (verifiziert an finance, judiciary, banking, appropriations,
+foreign — 5/5). Ursache ist mit hoher Wahrscheinlichkeit TLS-/Client-
+Fingerprinting (JA3): der Edge-Blocker unterscheidet die TLS-Handshakes
+verschiedener HTTP-Stacks, nicht die User-Agent-Zeichenkette.
 
-Geprüft an House Appropriations: Die Übersichtsseite `/subcommittees` enthält
-keine Zuständigkeitstexte, sondern je Subcommittee einen eigenen
-**„Jurisdiction"-Link** nach dem Muster
-`/subcommittees/<slug>/jurisdiction` (13 Links gefunden).
+**Konsequenz: Der bestehende Fetch-Mechanismus funktioniert.** Es gibt kein
+Zugangsproblem für den Senat. (Eine frühere Fassung dieses Abschnitts behauptete
+das Gegenteil — das war ein Artefakt des Prüfwerkzeugs.)
 
-Die Slugs sind **nicht aus dem Namen ableitbar** — sie tragen CMS-Artefakte
-(`defense-0`, `commerce-justice-science-and-related-agencies-0`). Sie sind aber
-**maschinell aus der Committee-Seite extrahierbar**.
+Der bleibende Befund ist ein **Fragilitätsrisiko**: Die Erreichbarkeit ist eine
+Eigenschaft der Client-Bibliothek, nicht der URL. Eine WAF-Härtung auf
+Senats-Seite kann den Zugang brechen, ohne dass sich eine einzige Adresse
+ändert — und ein Katalog-Ansatz würde das nicht abfedern. Praktische Folge für
+jeden Umbau: **denselben `requests`-Client beibehalten**; ein Wechsel des
+HTTP-Stacks (httpx, aiohttp, curl-Subprozess) ist ein Risiko, das getestet
+werden muss. `congress.gov` bleibt auch für `requests` bei 403, ist aber keine
+Primärquelle des Agenten.
 
-Konsequenz für O1: Ein handgepflegter Katalog mit 38 Einträgen genügt **nicht**.
-Tragfähig ist stattdessen ein zweistufiges Verfahren — 38 Committee-Einstiegs-
-URLs pflegen, daraus die Subcommittee-Jurisdiction-Links automatisch extrahieren
-(→ ~185 URLs, im Katalog eingefroren und versioniert). Das bleibt deterministisch
-und reproduzierbar, verschiebt aber den Aufwand von „Liste tippen" zu „Extraktor
-schreiben und pflegen".
+### P2 — Subcommittee-Jurisdiktionen: eigene Unterseiten, uneinheitliche Muster
+
+Die Zuständigkeitstexte der Subcommittees stehen **nicht** auf der
+Committee-Hauptseite, sondern auf je eigenen Unterseiten. Drei Stichproben
+ergaben **drei verschiedene Pfadmuster**:
+
+| Committee | Muster |
+|---|---|
+| House Appropriations | `/subcommittees/<slug>/jurisdiction` |
+| House Energy and Commerce | `/committees/subcommittee/<slug>` |
+| Senate Appropriations | `/subcommittees/<slug>` |
+
+Die Slugs sind zudem nicht aus dem Namen ableitbar — sie tragen CMS-Artefakte
+(`defense-0`, `commerce-justice-science-and-related-agencies-0`).
+
+**Konsequenz für O1 — deutlich ungünstiger als zunächst angenommen.** Ein
+Katalog auf Subcommittee-Ebene bräuchte bis zu **216 Einträge** (38 Committees +
+178 Subcommittees), und ein generischer Extraktor müsste pro Committee-Website
+ein eigenes Muster kennen. Der Aufwand verschiebt sich damit von „einmal eine
+Liste erzeugen" zu „38 website-individuelle Extraktionsregeln schreiben und
+pflegen" — mit genau der Brüchigkeit gegenüber Relaunches, gegen die der
+agentische Loop ursprünglich gewählt wurde (siehe Design-Begründung unter B1).
+
+O1 bleibt auf **Committee-Ebene** attraktiv (35/38 ratbar, 36/38 mit Text). Auf
+Subcommittee-Ebene ist es das nicht ohne Weiteres. Eine denkbare Mischform: feste
+Einstiegs-URL je Committee + LLM-gestützte Navigation nur innerhalb dieser
+Domain (statt offener Websuche) — Bewertung offen.
 
 ### P3 — `fetch_page` kann keine PDFs (Bug im Ist-Zustand)
 
@@ -445,10 +462,14 @@ den menschlichen Review trägt, ohne Reasoning-Effort zu binden.
 
 ## 7. Offene Fragen an die Einschätzung
 
-0. **Vorgelagert (siehe 4b/P1):** Wenn 44 % der Einheiten ihre Primärquelle
-   nicht erreichen können — ist die Kostenfrage dann überhaupt die vordringliche?
-   Oder muss zuerst der Quellenzugang für den Senat geklärt werden (alternative
-   Quelle, anderer Zugriffsweg), bevor über Effizienz entschieden wird?
+0. **Zu O1 nach den Messdaten (4b/P2):** Auf Committee-Ebene ist der Katalog
+   empirisch gut gestützt (35/38 ratbar, 36/38 mit Text). Auf Subcommittee-Ebene
+   stehen dem bis zu 216 Einträge und pro Website eigene Pfadmuster entgegen.
+   Ist die Mischform tragfähig — feste Einstiegs-URL je Committee plus
+   LLM-Navigation **innerhalb** dieser Domain statt offener Websuche? Sie würde
+   den Löwenanteil der Suchkosten sparen, ohne website-individuelle
+   Extraktionsregeln zu erfordern. Oder überwiegt der Wartungsvorteil des
+   heutigen, vollständig agentischen Loops?
 
 1. **Neubau oder Anpassung?** Falls Neubau: welche der sieben
    Qualitätsbausteine aus 3.2 müssen zwingend übernommen werden?
