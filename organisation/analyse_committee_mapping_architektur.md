@@ -206,6 +206,86 @@ Zahlen in 4.3 sind Hochrechnungen aus Code und Datenmengen, keine Messungen.
 
 ---
 
+## 4b. Empirische Erreichbarkeitsprüfung (2026-08-04)
+
+Messung per `curl` von der Entwicklungsmaschine aus, alle 38 Committees. Dies
+sind die **einzigen** Messdaten in diesem Dokument; alles in 4.3 bleibt
+Hochrechnung.
+
+### Ergebnis je Kammer
+
+| Kammer | Committees | per geratenem URL-Muster erreichbar | mit Jurisdiktionstext |
+|---|---|---|---|
+| House | 26 | 22 (HTTP 200) | **21** |
+| Senate | 12 | 0 | **0** |
+| davon Joint/Select (unter House gelistet) | 5 | 1 | 0 |
+
+Textlänge der 21 erfolgreichen Seiten: Median 2.409 Zeichen, min 863, max 27.139
+— durchweg substantiell, keine leeren Treffer. Alle 21 wurden über **geratene**
+Pfadmuster gefunden (`<name>.house.gov` + `/about`, `/about/jurisdiction`);
+keine Suche nötig.
+
+### P1 — senate.gov und congress.gov antworten mit HTTP 403
+
+Alle 12 Senatsausschüsse, zusätzlich `senate.gov/committees/index.htm`,
+`congress.gov/committees` und `jct.gov` liefern eine Akamai-typische
+**„Access Denied"**-Seite (~350 Zeichen). Gegengeprüft und ausgeschlossen als
+Ursache: Pfadfehler (auch die Domain-Wurzel `www.finance.senate.gov/` liefert
+403), HEAD-vs-GET, fehlender oder falscher User-Agent (Browser-UA ändert
+nichts). Es handelt sich um einen Edge-/CDN-Blocker auf Domain-Ebene.
+
+**Tragweite — dies betrifft den bestehenden Agenten unverändert.**
+`research.fetch_page()` nutzt `requests.get()` mit einem simplen User-Agent und
+erhält dieselben 403. Konsequenzen im Ist-Zustand:
+- 12 Senats-Committees + 70 Senats-Subcommittees = **82 von 185 Einheiten (44 %)**
+  können ihre Primärquelle nicht erreichen.
+- Damit ist für diese Einheiten `grounding_quality = 'direct'` unerreichbar; es
+  bleibt `fallback` (GovInfo) oder `none`.
+- Der Konfidenz-Deckel (`GROUNDING_CONFIDENCE_CAP`) begrenzt sie dadurch
+  systematisch auf `medium` bzw. `low` — unabhängig von der tatsächlichen
+  Zuordnungsqualität.
+- `MAP_RETRY_ONLY_GROUNDED = True` bedeutet zusätzlich, dass der Leer-Retry für
+  Senatseinheiten **nie** auslöst.
+
+**Offene Einschränkung:** Ob dieser Block umgebungsspezifisch ist (Datacenter-IP,
+Sandbox-Proxy) oder generell für den Anschluss des Projektinhabers gilt, ist
+**nicht geklärt**. Diese Frage entscheidet die Tragweite und ist vor jeder
+weiteren Planung zu beantworten.
+
+### P2 — Subcommittee-Jurisdiktionen liegen auf eigenen Unterseiten
+
+Geprüft an House Appropriations: Die Übersichtsseite `/subcommittees` enthält
+keine Zuständigkeitstexte, sondern je Subcommittee einen eigenen
+**„Jurisdiction"-Link** nach dem Muster
+`/subcommittees/<slug>/jurisdiction` (13 Links gefunden).
+
+Die Slugs sind **nicht aus dem Namen ableitbar** — sie tragen CMS-Artefakte
+(`defense-0`, `commerce-justice-science-and-related-agencies-0`). Sie sind aber
+**maschinell aus der Committee-Seite extrahierbar**.
+
+Konsequenz für O1: Ein handgepflegter Katalog mit 38 Einträgen genügt **nicht**.
+Tragfähig ist stattdessen ein zweistufiges Verfahren — 38 Committee-Einstiegs-
+URLs pflegen, daraus die Subcommittee-Jurisdiction-Links automatisch extrahieren
+(→ ~185 URLs, im Katalog eingefroren und versioniert). Das bleibt deterministisch
+und reproduzierbar, verschiebt aber den Aufwand von „Liste tippen" zu „Extraktor
+schreiben und pflegen".
+
+### P3 — `fetch_page` kann keine PDFs (Bug im Ist-Zustand)
+
+`research.fetch_page()` prüft auf `"html" in content_type` und gibt andernfalls
+`resp.text` unverändert zurück. Bei einem PDF ist das die Binärdatei als
+Zeichensalat (`%PDF-1.7 % 23 0 obj > stream x}ywxU…`), von dem
+`FETCH_MAX_CHARS = 20000` Zeichen ins Prompt geschnitten werden — teuer und
+wertlos.
+
+Das ist kein Randfall: House Appropriations verlinkt sein zentrales
+Zuständigkeitsdokument als PDF
+(`119th-hac-jurisdiction-2026-compressed.pdf`, HTTP 200, 13.640 Byte), und der
+Research-System-Prompt nennt „das Committee-Rules-PDF" ausdrücklich als
+Fallback-Quelle. Der vorgesehene Pfad ist also nicht implementiert.
+
+---
+
 ## 5. Beobachtungen
 
 Faktisch notiert, ohne Wertung — die Bewertung ist Aufgabe des externen Agenten.
@@ -364,6 +444,11 @@ den menschlichen Review trägt, ohne Reasoning-Effort zu binden.
 ---
 
 ## 7. Offene Fragen an die Einschätzung
+
+0. **Vorgelagert (siehe 4b/P1):** Wenn 44 % der Einheiten ihre Primärquelle
+   nicht erreichen können — ist die Kostenfrage dann überhaupt die vordringliche?
+   Oder muss zuerst der Quellenzugang für den Senat geklärt werden (alternative
+   Quelle, anderer Zugriffsweg), bevor über Effizienz entschieden wird?
 
 1. **Neubau oder Anpassung?** Falls Neubau: welche der sieben
    Qualitätsbausteine aus 3.2 müssen zwingend übernommen werden?
