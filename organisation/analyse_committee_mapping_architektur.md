@@ -218,6 +218,25 @@ Senate Rule XXV. Diese URLs ändern sich im Wesentlichen einmal pro Kongress
 Folgen: quadratisch wachsender Input (4.3), Nicht-Reproduzierbarkeit (die
 Suchergebnisse ändern sich), keine Auditierbarkeit der verwendeten Quelle.
 
+> **Design-Begründung des Projektinhabers (bewusste Entscheidung, kein Versehen):**
+> Der agentische Loop wurde gewählt, weil sich die Committee-Seiten **inhaltlich**
+> ändern — Zuständigkeitsbeschreibungen werden je nach politischer Agenda
+> angepasst, auch unabhängig von Wahlen —, und weil sich Layout und Formatierung
+> ändern. Ein starrer Parser (CSS-Selektor/Regex) wäre nach der ersten
+> Neugestaltung unbrauchbar; deshalb sollte ein LLM die Seite lesen. Die
+> **Adresse** hingegen wurde als stabil eingeschätzt.
+>
+> Diese Begründung trifft die Extraktion, nicht die Suche: O1 belässt das Lesen
+> und Zitieren beim LLM und ersetzt nur das wiederholte Auffinden der Seite. Ein
+> zusätzliches Argument in dieselbe Richtung: Bei fester Adresse ist eine
+> inhaltliche Änderung des Jurisdiktionstexts als Diff gegen den gecachten
+> Rohtext **erkennbar**; bei jedesmaliger Neusuche sind „Ausschuss hat
+> umformuliert" und „Suchmaschine lieferte eine andere Seite" nicht
+> unterscheidbar. Das reale Restrisiko des Katalogs ist **URL-Rot** bei
+> Seitenumbau — adressierbar über HTTP-Status-/Leerextrakt-Prüfung mit Rückfall
+> auf den bestehenden agentischen Loop, der die neue Adresse in den Katalog
+> zurückschreibt (selbstheilend, Loop wird vom Regelfall zur Ausnahme).
+
 **B2 — Der Research-Prompt fordert immer auch die Committee-Ebene an.**
 `research._expected_keys()` setzt `__committee__` unbedingt auf die Liste. Für
 die 31 Committees **mit** Subcommittees wird dieses Ergebnis aber nie gemappt:
@@ -287,12 +306,15 @@ bereits vorberechnet entgegen, `mapping.py` nutzt diesen Pfad aber nicht.
 Der externe Agent möge diese Optionen prüfen, verwerfen oder ergänzen. Sie sind
 **nicht** vorsortiert und nicht alle miteinander verträglich.
 
-**O1 — Research durch einen versionierten Quellen-Katalog ersetzen.**
+**O1 — Nur die Quellen-*Suche* ersetzen, nicht die Extraktion.**
 Einmalig eine CSV `committee_sources.csv` mit den Jurisdiction-URLs der 38
 Committees (+ Rule X / Rule XXV als Fallback) erzeugen und einchecken. Der
 Research-Schritt wird dann: deterministischer Fetch (Code, keine LLM-Kosten) →
-**ein** Extraktions-Call je Committee auf dem Seitentext. Der agentische Loop
-bleibt als Fallback für Katalog-Misses.
+**ein** Extraktions-Call je Committee auf dem Seitentext. Das Lesen, Verstehen
+und Zitieren bleibt ausdrücklich beim LLM (siehe Design-Begründung unter B1) —
+entfernt wird nur das wiederholte Auffinden bekannter Seiten. Der agentische
+Loop bleibt als selbstheilender Fallback für Katalog-Misses (404, Redirect,
+leerer Extrakt) und schreibt gefundene Adressen in den Katalog zurück.
 
 **O2 — Mapping auf einen Call je Einheit reduzieren.**
 Volle Taxonomie im gecachten Prefix, das Modell gibt direkt `(Sektor, Industry,
