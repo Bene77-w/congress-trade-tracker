@@ -4,8 +4,8 @@
 > `import_trades.py`-Lauf (Normal vs. `--delta`) aktualisiert?*
 >
 > **Stage-Interna** (Exit-Detection-Mechanik, yfinance-Robustheit, Spalten-Definitionen im Detail):
-> `organisation/Briefing_stage_post_trade_performance.md`. **Spalten-Referenz:** `DATA_STRUCTURE.md`
-> Abschnitt 6. **Stage-Reihenfolge / CLI:** `Pipelines.md` + `CLI_Bedienungsanleitung.md`.
+> **Spalten- und Stage-Referenz:** `DATA_STRUCTURE.md` Abschnitt 6.
+> **CLI:** `CLI_Bedienungsanleitung.md`.
 > Dieses Dokument dupliziert das nicht, sondern erklärt nur den **Aktualisierungs-Zeitpunkt** der
 > Preis-Felder je Lauf-Modus.
 
@@ -82,7 +82,7 @@ Der „delta-unabhängig"-Vertrag steht explizit im Docstring von `compute_paper
 
 Echte Kurse folgen weiterhin der Preis-TTL (Zeile 1/2); nur die Re-Check-Frequenz
 **delisteter** Ticker ist von der separaten `last_checked`-TTL gesteuert. Details
-zum NetworkCanary-gestützten Marker-Schema: `organisation/Briefing_stage_post_trade_performance.md`.
+zum NetworkCanary-gestützten Marker-Schema: `organisation/DATA_STRUCTURE.md`.
 
 > **Wichtig:** Refresht werden in einem Lauf nur die **Ticker, die der Lauf gerade berührt** — im
 > Normal-Lauf alle applicable Ticker, im `--delta`-Lauf die Ticker aus *History ∪ Delta* (Historie
@@ -166,9 +166,9 @@ quiver_scraper.py  &&  import_trades.py --delta
 
 ## Querverweise
 
-- **Stage-Interna / Exit-Detection / yfinance-Robustheit:** `organisation/Briefing_stage_post_trade_performance.md`
+- **Stage-Interna / Exit-Detection / yfinance-Robustheit:** `organisation/DATA_STRUCTURE.md`
 - **Spalten-Definitionen:** `organisation/DATA_STRUCTURE.md` (Abschnitt 6 + Cache Abschnitt 3)
-- **Stage-Reihenfolge:** `organisation/Pipelines.md`
+- **Stage-Aufruf:** `organisation/CLI_Bedienungsanleitung.md`
 - **CLI / Delta-Modus:** `organisation/CLI_Bedienungsanleitung.md`
 - **Code:** `scoring/post_trade_returns.py` (`compute_post_trade_returns`, `compute_paper_returns`),
   `scripts/import_trades.py` (`_stage_post_trade_performance`, `_compute_recent_paper_returns`, `run`, `run_delta`)

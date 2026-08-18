@@ -16,7 +16,7 @@ Python + Streamlit Anwendung zur Analyse von US-Kongress-Aktienhandel. Scrapt of
 | 2 | ✅ Fertig | House Scraper (ZIP + XML + PDF) + PDF Extractor v2 (OpenCV Grid + Vision API, Formulartypen A–D) |
 | 3 | ✅ Fertig | Senate Scraper (Playwright + DataTables API) |
 | 4 | ✅ Fertig | Ausschuss-Sektor-Mapping (CommitteeMapper + CommitteeTag, sector/industry-Match × ex-officio-Multiplikator) |
-| 5 | 🟡 Teilweise | Post-Trade-Performance-Tracking fertig (Stage `post_trade_performance`, richtungsbewusste Returns, yfinance-Preis-Cache); kein Live-Quote. Details: [Briefing_stage_post_trade_performance.md](Briefing_stage_post_trade_performance.md) |
+| 5 | 🟡 Teilweise | Post-Trade-Performance-Tracking fertig (Stage `post_trade_performance`, richtungsbewusste Returns, yfinance-Preis-Cache); kein Live-Quote. Details: [DATA_STRUCTURE.md](DATA_STRUCTURE.md) |
 | 6 | ✅ Fertig | Vote-Timing: VoteTimingTag extrahiert Roll-Calls aus `bill_actions.json`, FloorActionSignal triggert bei `Vote_Timing_Hit_Count ≥ 1` |
 | 7 | ✅ Fertig | Signal-Architektur (Gate/Tag/Signal): 11 aktive Signale inkl. Schwarm-Signale (`swarm_buy`/`swarm_sell`/`swarm_conflict`/`swarm_paradox`) + Suspicious-Export; Cross-Class via `issuer_group_key` (SEC EDGAR CIK) |
 | 8 | ✅ Fertig | Scoring-System: Pipeline **17 Stages**, `trade_score` + Tier-Signal `trade_volume`. Formel: [Filter_Instanz_Parameter.md](Filter_Instanz_Parameter.md) |
@@ -40,7 +40,7 @@ house_trades.csv + senate_trades.csv  →  scripts/import_trades.py  →  data/p
                                                                          (36 Spalten, ~9.591 Trades)
 ```
 
-**Import-Pipeline:** 17 Stages — Reihenfolge, Stage-Indizes und Details: siehe [Pipelines.md](Pipelines.md). CLI-Flags: [CLI_Bedienungsanleitung.md](CLI_Bedienungsanleitung.md).
+**Import-Pipeline:** 17 Stages — Aufrufe und Stage-Flags: [CLI_Bedienungsanleitung.md](CLI_Bedienungsanleitung.md); Datenverträge: [DATA_STRUCTURE.md](DATA_STRUCTURE.md).
 
 ---
 
@@ -129,7 +129,7 @@ Vollständige CLI-Referenz: siehe [CLI_Bedienungsanleitung.md](CLI_Bedienungsanl
 3. **Implementierungsplan zuerst** — vor jeder Code-Änderung zeigen und auf OK warten
 4. **Dokumentation mitpflegen** — bei Änderungen immer mindestens eine Datei aktualisieren:
    - Neue Datenstrukturen → `DATA_STRUCTURE.md`
-   - Pipeline-Änderungen → `Pipelines.md`
+   - Script-/Stage-/Ablaufänderungen → `CLI_Bedienungsanleitung.md`
    - Filter/Scoring/Features → `Filter_Instanz_Parameter.md`
 
 ---
@@ -137,4 +137,4 @@ Vollständige CLI-Referenz: siehe [CLI_Bedienungsanleitung.md](CLI_Bedienungsanl
 ## Dokumentations-Index
 
 Kanonische Quelle pro Thema + „Aktualisieren bei"-Trigger: **[DOKU_INDEX.md](DOKU_INDEX.md)**.
-Schnell-Einstieg: Spalten → [DATA_STRUCTURE.md](DATA_STRUCTURE.md) · Pipeline-Stages → [Pipelines.md](Pipelines.md) · Gate/Tag/Signal + Score → [Filter_Instanz_Parameter.md](Filter_Instanz_Parameter.md) · CLI → [CLI_Bedienungsanleitung.md](CLI_Bedienungsanleitung.md) · Scraper-Status → [tool_specific_md/Trade_scraper_status.md](tool_specific_md/Trade_scraper_status.md) · Deployment → [DEPLOYMENT.md](DEPLOYMENT.md).
+Schnell-Einstieg: Spalten → [DATA_STRUCTURE.md](DATA_STRUCTURE.md) · Pipeline-/CLI-Abläufe → [CLI_Bedienungsanleitung.md](CLI_Bedienungsanleitung.md) · Gate/Tag/Signal + Score → [Filter_Instanz_Parameter.md](Filter_Instanz_Parameter.md) · Scraper-Status → [tool_specific_md/Trade_scraper_status.md](tool_specific_md/Trade_scraper_status.md) · Deployment → [DEPLOYMENT.md](DEPLOYMENT.md).

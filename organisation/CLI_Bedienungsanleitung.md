@@ -312,7 +312,7 @@ python scripts/import_trades.py --stage_save              # trades_stage.csv -> 
 python scripts/import_trades.py --delta --stage_rename
 ```
 
-Stage-Reihenfolge + Indizes: siehe [Pipelines.md](Pipelines.md).
+Stage-Reihenfolge und Indizes werden von `scripts/import_trades.py` definiert.
 
 ### Welche Stages bei Scoring-Anpassungen neu laufen lassen?
 
@@ -346,7 +346,7 @@ Ab der betroffenen Signal-Stage neu laufen lassen, dann Scoring + Export + Save:
 
 Ab `--stage_gates_tags` neu, danach alle Signal-Stages + Scoring + Export + Save (= praktisch P2..P5 der Pipeline). Bei sehr breiten Tag-Änderungen ist oft ein voller `python scripts/import_trades.py` einfacher.
 
-**Merksatz:** STAGE_DEPS in `scripts/import_trades.py` und [Pipelines.md](Pipelines.md) zeigen pro Stage genau, welche Spalten produziert/konsumiert werden — daraus lässt sich der minimale Re-Run ableiten.
+**Merksatz:** `STAGE_DEPS` in `scripts/import_trades.py` zeigt pro Stage, welche Spalten produziert oder konsumiert werden — daraus lässt sich der minimale Re-Run ableiten.
 
 > **Re-Run-Sequenz nach Roster-/Committee-Daten-Änderung** (Abschnitt 6/7
 > neu ausgeführt → `data/mappings/{house,senate}_member&(sub)committees.csv`
@@ -359,7 +359,7 @@ Ab `--stage_gates_tags` neu, danach alle Signal-Stages + Scoring + Export + Save
 > durchlaufen lassen. Grund: `--stage_branch1_signals` baut
 > `signals_triggered` von Grund auf neu — ohne die anschließenden
 > sequence-/swarm-Stages verschwinden Sequenz-/Schwarm-Signale aus dem
-> Master. Details: `organisation/Pipelines.md` (Pipeline 3c).
+> Master. Die Datenfelder sind in `organisation/DATA_STRUCTURE.md` dokumentiert.
 
 ### Bonus-Flags (kein Master-Touch ausser Curated, exklusiv)
 
@@ -441,7 +441,8 @@ Schreibt die **Diagnose-CSV** `data/processed/manual_review_tickers.csv` neu —
 
 `scripts/convert_xlsx_to_csv.py` wurde im Debug-Intervall 4 entfernt (Input-xlsx
 existieren nicht mehr; der Mapping-Master `subcommittee_sector_industry_mapping.csv`
-wird heute vom Committee-Mapping-Agent erzeugt, s. Abschnitt 15).
+bleibt als geschützter Produktionsmaster bestehen; eine Neugenerierung ist erst
+mit der geplanten V2-Integration vorgesehen, s. Abschnitt 15).
 
 ---
 
@@ -964,71 +965,13 @@ Default-Port: **8501** → im Browser öffnen: `http://localhost:8501`
 
 ---
 
-## 15. Committee-Mapping-Agent (in Arbeit)
+## 15. Committee Matcher V2 (noch nicht implementiert)
 
-**Datei:** `scripts/committee_mapping_agent/run.py`
-**Zweck:** 3-Rollen-LLM-Agent (DeepSeek V4), der `data/mappings/subcommittee_sector_industry_mapping.csv`
-(Master des Committee-Tags, `config/committee_mapping.py`) reproduzierbar aus den Roh-Committee-Listen
-neu erzeugt — gegroundet (Zitatpflicht) und menschlich reviewbar (xlsx-Round-Trip).
-Architektur, Rollen/Modelle, Caches, Konfidenz-Logik: `DATA_STRUCTURE.md` Abschnitt 3a, Pipeline-Einordnung: `Pipelines.md` Pipeline 11.
-Manueller Review-Prozess (xlsx-Round-Trip): `manual_review_anleitung.md` Prozess 4.
-
-```bash
-# venv aktiv, Projekt-Root
-source venv/bin/activate
-python -m scripts.committee_mapping_agent.run <subcommand> [--chamber House|Senate] [--committee NAME] [--force] [-v]
-```
-
-**Subcommands:**
-
-| Subcommand | Zweck | Flags |
-|---|---|---|
-| `enrich-taxonomy` | Einmalig: deutsche Kurzbeschreibungen je Sektor/Industry generieren → `yf_sectors_with_industries_enriched.json` | — |
-| `research` | Jurisdiktionstexte je Committee/Subcommittee sammeln (Web-Suche + Fetch, gegroundet) | `--chamber`, `--committee`, `--force`, `-v` |
-| `map` | Sector/Industry-Klassifikation je Einheit (hierarchisch: Sektoren → Industries je Sektor) | `--chamber`, `--committee`, `--force`, `-v` |
-| `review` | LLM-Zweitmeinung je Committee (review_flag, ggf. neue Konfidenz, advisory `missing`-Paare); bei `config.REVIEW_ENABLED=False` (Default) Pass-Through ohne API-Calls | `--chamber`, `--committee`, `--force`, `-v` |
-| `validate` | Reine Diagnose: Mapping-Caches gegen Taxonomie/Grounding prüfen, kein Cache-Schreiben | `--chamber`, `--committee` |
-| `export-review` | 3 Review-xlsx schreiben (`review_all.xlsx`, `review_low.xlsx`, `review_medium.xlsx`) | `--chamber`, `--committee` |
-| `finalize` | User-Kommentare aus den xlsx einarbeiten → Staging-CSV (`subcommittee_sector_industry_mapping_generated.csv`); kommentarlose Zeilen = Pass-Through; danach Re-Validierung | `--chamber`, `--committee` |
-| `promote` | Staging-CSV → Master (`subcommittee_sector_industry_mapping.csv`), Timestamp-Backup des alten Masters | — |
-
-**Flags:**
-- `--chamber House|Senate` — nur eine Kammer
-- `--committee NAME` — nur ein Committee; **muss exakt** dem Namen aus `us_house_all_committees.csv` / `us_senate_all_committees.csv` entsprechen (Groß-/Kleinschreibung + Wortlaut)
-- `--force` — Cache ignorieren, Stufe neu erzeugen (nur `research`/`map`/`review`)
-- `-v` / `--verbose` — Debug-Logging
-
-**Exit-Codes:**
-
-| Code | Bedeutung |
-|---|---|
-| 0 | OK |
-| 1 | Teilfehler (einzelne Einheiten/Committees fehlgeschlagen) oder fehlende Caches für die angefragte Stufe |
-| 2 | Kommentar-Konflikte zwischen den Review-xlsx (nur `finalize`) |
-| 3 | `DEEPSEEK_API_KEY` fehlt |
-
-**Voraussetzung:** `DEEPSEEK_API_KEY` in `.env` im Projekt-Root (s. `DEPLOYMENT.md`).
-
-**Typischer E2E-Probelauf (1 Committee, alle Stufen):**
-```bash
-python -m scripts.committee_mapping_agent.run enrich-taxonomy   # einmalig
-python -m scripts.committee_mapping_agent.run research  --chamber House --committee Budget
-python -m scripts.committee_mapping_agent.run map       --chamber House --committee Budget
-python -m scripts.committee_mapping_agent.run review    --chamber House --committee Budget
-python -m scripts.committee_mapping_agent.run validate  --chamber House --committee Budget
-python -m scripts.committee_mapping_agent.run export-review
-# Review-xlsx in scripts/committee_mapping_agent/review_out/ pruefen, comment-Spalte ausfuellen
-python -m scripts.committee_mapping_agent.run finalize
-# Staging-CSV pruefen, dann:
-python -m scripts.committee_mapping_agent.run promote
-```
-
-**Tests:** `scripts/committee_mapping_agent/tests/` (81 pytest-Tests, FakeClient-Mocks, kein API-Key nötig):
-```bash
-python -m pytest scripts/committee_mapping_agent/tests/
-```
-
----
+Der frühere Aufruf `python -m scripts.committee_mapping_agent.run ...` ist nach
+dem vollständigen V1-Rückbau nicht mehr verfügbar. Der bestehende
+Committee-Mapping-Master bleibt unverändert produktiv; V2 wird erst gemäß
+`committee_matcher_v2_implementierungsplan.md` neu implementiert und erhält
+anschließend eine neue CLI-Dokumentation.
 
 ## 16. Ausgelagerter Analyse-Workflow
 
@@ -1056,7 +999,6 @@ Congress Tracker stellt optional den neutralen CSV-Export aus Pipeline 10 bereit
 | Congress Data Fetcher (Delta) | `python scrapers/fetch_congress_data.py --update` | **Empfohlen**: nur geänderte Bills (~5-30 Min, nicht-destruktiv) |
 | Congress Data Fetcher (Erstlauf/Resume) | `python scrapers/fetch_congress_data.py` | Erstlauf bzw. Checkpoint-Fortsetzung (~7-8h, nicht-destruktiv) |
 | Congress Data Fetcher (Force-Rebuild) | `python scrapers/fetch_congress_data.py --force` | **DESTRUKTIV** (mit `JA`-Confirmation): JSONs archivieren + von 0 neu fetchen (~7-8h) |
-| Committee-Mapping-Agent | `python -m scripts.committee_mapping_agent.run <subcommand>` | Master-Committee-Mapping neu erzeugen (s. Abschnitt 15) |
 | Tests | `pytest tests/ -v` | Alle Unit-Tests |
 | Pipeline Reset | `python scripts/reset_pipeline.py --all --dry-run` | Logs/Caches/Stage/Processed reversibel zurücksetzen |
 | Streamlit Dashboard | `venv/bin/streamlit run app/streamlit_app.py` | Web-UI (Trades / Assets / Members) auf Port 8501 |

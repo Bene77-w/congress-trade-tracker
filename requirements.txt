@@ -60,6 +60,3 @@ multitasking==0.0.13
 
 # Nachtraeglich ergaenzt (Debug-Intervall 4): waren im venv, fehlten in requirements
 curl_cffi==0.15.0          # scrapers/senate_committee_xml (Senate-Roster-Producer)
-openai==2.41.1             # scripts/committee_mapping_agent (DeepSeek via OpenAI-SDK)
-ddgs==9.14.4               # scripts/committee_mapping_agent (Grounding-Suche)
-jsonschema==4.26.0         # scripts/committee_mapping_agent (Schema-Validierung)

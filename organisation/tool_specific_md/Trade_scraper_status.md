@@ -2,7 +2,7 @@
 
 Konsolidierte Referenz zu den Roh-Trade-Scrapern (House/Senate) und den PDF-/OCR-Extractoren: Architektur, bekannte Probleme und Paper-PTR-Formate.
 
-**Verwandte Doku:** CLI-Aufrufe → `CLI_Bedienungsanleitung.md` · Pipeline-Position → `Pipelines.md` · Senate-Website-Selektoren → `Senate_website_structure.md` · House-Paper-PDF-Tiefenanalyse → `HAND_DELIVERED_PDF_ANALYSE.md` + `house_all_pdf_info.md`.
+**Verwandte Doku:** CLI-/Pipeline-Aufrufe → `CLI_Bedienungsanleitung.md` · Senate-Website-Selektoren → `Senate_website_structure.md` · House-Paper-PDF-Tiefenanalyse → `HAND_DELIVERED_PDF_ANALYSE.md` + `house_all_pdf_info.md`.
 
 ---
 
@@ -105,4 +105,4 @@ Der einzige Senator mit Paper-PTRs (Richard Blumenthal, via Elias Law Group) han
 
 Aktuelle primäre Datenquelle ist **Quiver** (`congress-trading-all.csv`, vollständiger Snapshot ab 2012), eingelesen von `scripts/import_trades.py`. Der Importer baut die Master bei Full-Rebuild komplett neu (kein Dedup gegen alte Master) und bietet **Checkpoint-Support** (`CHECKPOINT_INTERVAL`, Pickle) sowie einen **`--delta`-Modus** für inkrementelle Läufe.
 
-Die detaillierte chronologische Änderungshistorie (Quiver-Migration, OCR-QS, Dedup-Umbau) steht im `CHANGELOG.md` bzw. `git log -- scripts/import_trades.py`. Spalten-Semantik → `../DATA_STRUCTURE.md`, Stage-Ablauf → `../Pipelines.md`.
+Die detaillierte chronologische Änderungshistorie (Quiver-Migration, OCR-QS, Dedup-Umbau) steht im `CHANGELOG.md` bzw. `git log -- scripts/import_trades.py`. Spalten-Semantik → `../DATA_STRUCTURE.md`, Aufrufe → `../CLI_Bedienungsanleitung.md`.
