@@ -1,0 +1,32 @@
+---
+schema_version: 1
+congress: 119
+chamber: joint
+committee: Joint Committee on Taxation
+committee_type: joint
+source_url: null
+retrieved_at: null
+source_metadata_status: pending
+source_files:
+  - data/committee_matcher_inputs/txt/joint_taxation.txt
+input_basis: committee_direct
+---
+
+# Committee jurisdiction
+
+
+Joint Committee on Taxation
+
+The Joint Committee Staff is closely involved with every aspect of the tax legislative process, including:
+
+- Assisting Congressional tax-writing committees and Members of Congress with development and analysis of legislative proposals;
+- Preparing official revenue estimates of all tax legislation considered by the Congress;
+- Drafting legislative histories for tax-related bills; and
+- Investigating various aspects of the Federal tax system.
+
+The Joint Committee Staff interacts with Members of Congress, Members of the tax-writing committees, and their staff on a confidential basis and enjoys a high-level of trust from both sides of the political aisle and in both houses of Congress. Because the Joint Committee Staff is independent, tax-focused, and involved in all stages of the tax legislative process, the staff is able to ensure consistency as tax bills move through committees to the floor of each chamber, and to a House-Senate conference committee.
+
+
+## Zusätzliche Kommentare
+
+Präambel aus der Quelldatei entfernt: `input text for joint committee on taxation:`.

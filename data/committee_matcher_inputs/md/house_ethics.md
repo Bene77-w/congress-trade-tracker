@@ -1,0 +1,71 @@
+---
+schema_version: 1
+congress: 119
+chamber: house
+committee: Committee on Ethics
+committee_type: standing
+source_url: null
+retrieved_at: null
+source_metadata_status: pending
+source_files:
+  - "data/committee_matcher_inputs/txt/house_ethics.txt"
+  - "data/committee_matcher_inputs/md/house-rule-x-committee-jurisdictions.md"
+---
+
+# Committee jurisdiction
+### Primary Rule X jurisdiction
+
+
+1. The Code of Official Conduct.
+
+### Supplemental committee jurisdiction
+
+The jurisdiction of the Committee on Ethics is derived from authority granted under House Rules and federal statutes. The scope of the Committee’s jurisdiction under the various authorizing rules and statutes is given below.
+
+House Rule 10, clause 1(g)
+
+The Committee on Ethics has jurisdiction over all bills, resolutions and other matters relating to the Code of Official Conduct adopted under House Rule 23.
+
+House Rule 11, clause 3
+
+With respect to Members, officers, and employees of the U.S. House of Representatives, the Committee on Ethics is authorized to undertake the following actions:
+
+A) Recommend administrative actions to establish or enforce standards of official conduct.
+
+B) Investigate alleged violations of the Code of Official Conduct or of any applicable rules, laws, or regulations governing the performance of official duties or the discharge of official responsibilities. Such investigations must be made in accordance with Committee rules.
+
+C) Report to appropriate federal or state authorities substantial evidence of a violation of any law applicable to the performance of official duties that may have been disclosed in a Committee investigation. Such reports must be approved by the House or by an affirmative vote of two-thirds of the Committee.
+
+D) Render advisory opinions regarding the propriety of any current or proposed conduct of a Member, officer, or employee, and issue general guidance on such matters as necessary.
+
+E) Consider requests for written waivers of the gift rule (clause 5 of House Rule 25)
+
+House Rule 25, clause 5(h)
+
+All provisions of the gift rule are to be interpreted and enforced solely by the Committee on Ethics. The Committee is authorized to issue guidance on any matter contained in the rule.
+
+Ethics in Government Act (5 U.S.C. § 13101 et seq.; adopted as House Rule 26)
+
+The Ethics in Government Act (EIGA) designates the Committee on Ethics as the “supervising ethics office” for the House of Representatives and charges the Committee with duties and responsibilities for Financial Disclosure Statements (Title I) and for Outside Employment (Title V) with respect to Members, officers, and employees of the House of Representatives.
+
+The statute also charges the Committee with duties and responsibilities with regard to (1) the Financial Disclosure Statements of candidates for the House, and (2) the Financial Disclosure Statements and outside employment of officers and employees of certain legislative branch agencies, including the Library of Congress, Congressional Budget Office, Government Printing Office, Architect of the Capitol, United States Capitol Police, and United States Botanic Garden. However, the Committee has delegated much of its authority with regard to the officers and employees of those entities to the heads of those entities.
+
+Foreign Gifts and Decorations Act (5 U.S.C. § 7342)
+
+The Foreign Gifts and Decorations Act (FGDA) designates the Committee on Ethics as the “employing agency” for the House of Representatives and charges the Committee with administering the provisions of the FGDA with respect to Members, officers, and employees of the House of Representatives.
+
+Gifts to Superiors (5 U.S.C. § 7351)
+
+The Committee on Ethics is designated the “supervising ethics office” for the House of Representatives for 5 U.S.C. § 7351 which prohibits Members, officers, and employees of the House of Representatives from giving gifts to an official superior or receiving gifts from employees with a lower salary level.
+
+Committee authority with regard to the employees of certain legislative branch entities has been delegated to the heads of those entities (see the section on the Ethics in Government Act above).
+
+Gifts to Federal Employees (5 U.S.C. § 7353)
+
+The Committee on Ethics is designated the “supervising ethics office” for the House of Representatives for 5 U.S.C. § 7353 which prohibits Members, officers, and employees of the House of Representatives from soliciting or receiving gifts.
+
+Committee authority with regard to the employees of certain legislative branch entities has been delegated to the heads of those entities (see the section on the Ethics in Government Act above).
+
+## Zusätzliche Kommentare
+
+Präambel aus der Quelldatei entfernt: `input text: Ethics`. Der Hinweis „You can read the Code of Official Conduct here.“ enthielt kein Ziel und wurde nicht übernommen.

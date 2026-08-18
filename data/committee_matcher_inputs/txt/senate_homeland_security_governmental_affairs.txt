@@ -1,0 +1,14 @@
+Input text senate Homeland Security and Governmental Affairs committee:
+
+
+
+
+
+Permanent Subcommittee on Investigations
+The Permanent Subcommittee on Investigations is the Committee’s chief investigative subcommittee and has the responsibility of studying and investigating the efficiency and economy of operations relating to all branches of the government. The Subcommittee is also tasked with studying and investigating the compliance or noncompliance with rules, regulations and laws, investigating all aspects of crime and lawlessness within the United States which have an impact upon or affect the national health, welfare and safety, including syndicated crime, investment fraud schemes, commodity and security fraud, computer fraud, and the use of offshore banking and corporate facilities to carry out criminal objectives.
+
+
+
+
+
+#userinput: 'restichen 2 subcommittees (SUBCOMMITTEE ON Border Management, Federal Workforce and Regulatory Affairs),(SUBCOMMITTEE ON Disaster Management, District of Columbia, and Census)haben keinen input, muss manuell nach namen gemappt werden'

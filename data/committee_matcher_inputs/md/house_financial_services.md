@@ -1,0 +1,269 @@
+---
+schema_version: 1
+congress: 119
+chamber: house
+committee: Committee on Financial Services
+committee_type: standing
+source_url: null
+retrieved_at: null
+source_metadata_status: pending
+source_files:
+  - "data/committee_matcher_inputs/txt/house_financial_services.txt"
+  - "data/committee_matcher_inputs/md/house-rule-x-committee-jurisdictions.md"
+---
+
+# Committee jurisdiction
+
+1. Banks and banking, including deposit insurance and Federal monetary policy.
+2. Economic stabilization, defense production, renegotiation, and control of the price of commodities, rents, and services.
+3. Financial aid to commerce and industry (other than transportation).
+4. Insurance generally.
+5. International finance.
+6. International financial and monetary organizations.
+7. Money and credit, including currency and the issuance of notes and redemption thereof; gold and silver, including the coinage thereof; valuation and revaluation of the dollar.
+8. Public and private housing.
+9. Securities and exchanges.
+10. Urban development.
+
+## Subcommittee on Capital Markets
+
+The jurisdiction of the Subcommittee on Capital Markets
+
+(i) securities, including retirement savings plans and products, exchanges,
+and finance;
+(ii) capital markets activities, including securitization, business capital
+formation, securities lending, and repurchase agreements;
+(iii) investment companies, investment advisers, and advisers to private
+funds;
+(iv) activities involving accounting and auditing;
+(v) activities involving futures, forwards, options, and other types of
+derivative instruments;
+(vi) the Securities and Exchange Commission;
+(vii) the Financial Accounting Standards Board;
+(viii) the Municipal Securities Rulemaking Board;
+(ix) the Public Company Accounting Oversight Board;
+(x) the Securities Investor Protection Corporation;
+(xi) self-regulatory organizations registered with the Securities and
+Exchange Commission; and
+(xii) initiatives to protect investor interest and to promote investor
+confidence in market integrity and provide greater access to investment
+opportunities.
+
+## Subcommittee on Financial Institutions
+
+The jurisdiction of the Subcommittee on Financial Institutions
+
+(i) all agencies, including the Office of the Comptroller of the Currency, the
+Federal Deposit Insurance Corporation, the Board of Governors of the Federal
+Reserve System and the Federal Reserve System, and the National Credit Union
+Administration, which directly or indirectly exercise supervisory or regulatory
+authority in connection with, or provide deposit insurance for, financial institutions,
+and the establishment of interest rate ceilings on deposits;
+(ii) matters related to the Consumer Financial Protection Bureau;
+(iii) the chartering, branching, merger, acquisition, consolidation, or
+conversion of financial institutions;
+(iv) consumer credit, including the provision of consumer credit by
+insurance companies, and further including those matters in the Consumer Credit
+Protection Act dealing with truth in lending, extortionate credit transactions,
+restrictions on garnishments, fair credit reporting and the use of credit information
+by credit bureaus and credit providers, equal credit opportunity, debt collection
+practices, and electronic funds transfers;
+(v) creditor remedies and debtor defenses, Federal aspects of the Uniform
+Consumer Credit Code, credit and debit cards, and the preemption of State usury
+laws;
+(vi) consumer access to financial services, including the Home Mortgage
+Disclosure Act and the Community Reinvestment Act;
+(vii) the terms and rules of disclosure of financial services, including the
+advertisement, promotion and pricing of financial services, and availability of
+government check cashing services;
+(viii) deposit insurance;
+(ix) consumer access to savings accounts and checking accounts in financial
+institutions, including lifeline banking and other consumer accounts;
+(x) financial stability and systemic risk, including matters relating to the
+Financial Stability Oversight Council and the Office of Financial Research;
+(xi) financial aid to all sectors and elements within the economy; and
+(xii) economic stabilization.
+
+## Subcommittee on Housing and Insurance
+
+The jurisdiction of the Subcommittee on Housing and Insurance
+
+(i) insurance generally, including but not limited to, terrorism risk
+insurance, private mortgage insurance, government sponsored insurance programs,
+including those offering protection against crime, fire, flood (and related land use
+controls), earthquake and other natural hazards, and the Federal Insurance Office;
+(ii) housing (except programs administered by the Department of Veterans
+Affairs), including mortgage and loan insurance pursuant to the National Housing
+Act; rural housing; housing and homeless assistance programs; all activities of the
+Government National Mortgage Association; secondary market organizations for
+home mortgages, including the Federal National Mortgage Association, the Federal
+Home Loan Mortgage Corporation, and the Federal Agricultural Mortgage
+Corporation; the Federal Housing Finance Agency; the Federal Home Loan Banks;
+housing construction and design and safety standards; housing-related energy
+conservation; housing research and demonstration programs; financial and
+technical assistance for nonprofit housing sponsors; housing counseling and
+technical assistance; regulation of the housing industry (including landlord/tenant
+relations); and real estate lending including regulation of settlement procedures;
+(iii) community development and community and neighborhood planning,
+training and research; national urban growth policies; urban/rural research and
+technologies; and regulation of interstate land sales; and
+(iv) the qualifications for and designation of Empowerment Zones and
+Enterprise Communities (other than matters relating to tax benefits).
+
+## Subcommittee on National Security, Illicit Finance, and International Financial Institutions
+
+The jurisdiction of the Subcommittee on National Security, Illicit Finance, and International Financial Institutions
+
+(i) financial support networks of national security threats, including matters
+related to terrorist financing, money laundering, drug sale proceeds, and alternative
+remittance systems;
+(ii) methods to detect and inhibit terrorism and illicit finance, including
+matters related to anti-money laundering and combating the financing of terrorism
+(AML/CFT) standards, asset forfeiture, and financial sanctions; as well as programs
+related to such matters administered by agencies or subunits thereof, including
+activities of the Office of Terrorism and Financial Intelligence and the Financial
+Crimes Enforcement Network;
+(iii) inter-governmental initiatives to detect and inhibit terrorism and illicit
+finance, including the Financial Action Task Force;
+(iv) multilateral development lending institutions, including activities of the
+National Advisory Council on International Monetary and Financial Policies as
+related thereto, and monetary and financial developments as they relate to the
+activities and objectives of such institutions;
+(v) international trade, including but not limited to the activities of the
+Export-Import Bank;
+(vi) the International Monetary Fund, its permanent and temporary
+agencies, and all matters related thereto;
+(vii) international investment policies, both as they relate to United States
+investments for trade purposes by citizens of the United States and investments
+made by all foreign entities in the United States;
+(viii) defense production matters as contained in the Defense Production
+Act of 1950, as amended; and
+(ix) coins, coinage, currency, and medals, including commemorative coins
+and medals, proof and mint sets and other special coins, the Coinage Act of 1965,
+gold and silver, including the coinage thereof (but not the par value of gold), gold
+medals, counterfeiting, currency denominations and design, the distribution of
+coins, and the operations of the Bureau of the Mint and the Bureau of Engraving
+and Printing.
+
+## Subcommittee on Digital Assets, Financial Technology, and Artificial Intelligence
+
+(i)
+digital assets, including but not limited to cryptocurrencies,
+stablecoins, and central bank digital currencies (CBDCs);
+(ii)development of new or alternative forms of currency;
+(iii)activities of digital asset issuers, digital asset trading and lending
+platforms, digital asset custody providers, and other digital asset intermediaries;
+(iv)
+matters related to innovative consumer financial products and
+services, including consumer transactions using mobile devices, and matters related
+to regulatory technology (RegTech);
+(v)
+matters related to the Department of Treasury, the Securities and
+Exchange Commission, Office of the Comptroller of the Currency, the Federal
+Deposit Insurance Corporation, the Board of Governors of the Federal Reserve
+System and the Federal Reserve System, and the National Credit Union
+Administration, to the extent they directly or indirectly exercise supervisory or
+regulatory authority in connection with nonbank financial firms offering innovative
+consumer products and services and financial institutions and firms engaging in
+digital asset-related activity.
+(vi)
+matters related to the Consumer Financial Protection Bureau to the
+extent they directly or indirectly exercise supervisory or regulatory authority over
+nonbank financial technology (FinTech) firms providing innovative consumer
+financial products and services; and
+(vii)
+matters related to technologies of machine learning, artificial
+intelligence, and quantum computing.
+
+## Subcommittee on Oversight and Investigations
+
+The jurisdiction of the Subcommittee on Oversight and Investigations
+
+(i) overseeing all agencies, departments, programs, matters within the
+jurisdiction of the Committee;
+(ii) overseeing agency, department, and operational adherence to statutory
+authority, including promulgating regulations;
+(iii) conducting investigations within agencies, departments, and programs;
+and
+(iv) conducting research and analysis regarding matters within the
+jurisdiction of the Committee, including the impact or probable impact of tax
+policies affecting matters within the jurisdiction of the Committee.
+
+## Zusätzliche Kommentare
+
+Vollständiger nicht zuordenbarer Originaltext:
+
+input text: Financial Services
+
+
+
+
+
+SUBCOMMITTEES
+Establishment and Responsibilities of Subcommittees
+(a)(1) There shall be six subcommittees of the Committee as follows:
+
+
+(2) In addition, each such subcommittee shall have specific responsibility for such other
+measures or matters as the Chair refers to it.
+(3) Each subcommittee of the Committee shall review and study, on a continuing basis, the
+application, administration, execution, and effectiveness of those laws, or parts of laws, the subject
+matter of which is within its general responsibility. This review and study may include but is not
+limited to reviewing waste, fraud and abuse; the impact of regulatory overreach; and adherence
+to the Administrative Procedure Act and congressional intent with respect to such laws.
+(4) Each subcommittee may make recommendations with regard to the necessity or
+desirability of enacting, changing, or repealing any legislation within the jurisdiction of the
+subcommittee.
+Referral of Measures and Matters to Subcommittees
+(b)(1) The Chair may regularly refer to one or more subcommittees such measures and matters as
+the Chair deems appropriate given its jurisdiction and responsibilities. In making such a referral,
+the Chair may designate a subcommittee of primary jurisdiction and subcommittees of additional
+or sequential jurisdiction.
+(2) All measures or matters shall be subject to consideration by the full Committee.
+(3) In referring any measure or matter to a subcommittee, the Chair may specify a date by
+which the subcommittee shall report thereon to the Committee.
+(4) The Chair, in his or her sole discretion, may discharge a subcommittee from
+consideration of any measure or matter referred to a subcommittee of the Committee.
+Composition of Subcommittees
+(c)(1) Members shall be elected to each subcommittee and to the positions of chair and ranking
+minority member thereof, in accordance with the rules of the respective party caucuses. The Chair
+of the Committee shall designate a member of the majority party on each subcommittee as its vice
+chair. The Chair may designate one member of the Committee of the majority party who
+previously has served as the chair of the Committee as the Chair Emeritus.
+(2) The Chair and ranking minority member of the Committee shall be ex officio members
+with voting privileges of each subcommittee of which they are not assigned as members and may
+be counted for purposes of establishing a quorum in such subcommittees. The Chair Emeritus
+shall be an ex officio member without voting privileges of each subcommittee to which he or she
+is not assigned and shall not count for purposes of establishing a quorum in such subcommittees.
+(3) The subcommittees shall be comprised as follows:
+(A) The Subcommittee on Capital Markets, shall be comprised of 25 members, 14
+elected by the majority caucus and 11 elected by the minority caucus.
+(B) The Subcommittee on Financial Institutions shall be comprised of 25 members,
+14 elected by the majority caucus and 11 elected by the minority caucus.
+(C) The Subcommittee on Housing and Insurance shall be comprised of 19
+members, 10 elected by the majority caucus and 9 elected by the minority caucus.
+(D) The Subcommittee on National Security, Illicit Finance, and International
+Financial Institutions shall be comprised of 18 members, 10 elected by the majority caucus
+and 8 elected by the minority caucus.
+(E) The Subcommittee on Digital Assets, Financial Technology, and Artificial
+Intelligence shall be comprised of 21members, 12 elected by the majority caucus and 9
+elected by the minority caucus.
+(F) The Subcommittee on Oversight and Investigations shall be comprised of 12
+members, 7 elected by the majority caucus and 5 elected by the minority caucus.
+Subcommittee Meetings and Hearings
+(d)(1) Each subcommittee of the Committee may be authorized at the sole direction of the Chair
+to meet, hold hearings, receive testimony, mark up legislation, and report to the full Committee on
+any measure or matter referred to it, consistent with subsection (a).
+(2) No subcommittee of the Committee may meet or hold a hearing at the same time as a
+meeting or hearing of the full Committee.
+(3) The chair of each subcommittee shall set hearing and meeting dates only with the
+approval of the Chair with a view toward assuring the availability of meeting rooms and avoiding
+simultaneous scheduling of Committee and subcommittee meetings or hearings.
+Effect of a Vacancy
+(e) Any vacancy in the membership of a subcommittee shall not affect the power of the remaining
+members to execute the functions of the subcommittee as long as the required quorum is present.
+Records
+(f) Each subcommittee of the Committee shall provide the full Committee with copies of such
+records of votes taken in the subcommittee and such other records with respect to the subcommittee
+as the Chair deems necessary for the Committee to comply with all rules and regulations of the
+House.
