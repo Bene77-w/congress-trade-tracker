@@ -526,6 +526,11 @@ CURATED_COALESCE = {
 
 # Backup-Verzeichnis fuer automatische Master-Backups vor destruktiven Aenderungen
 ARCHIVE_BACKUP_PATH = 'archive/trades_master_backup'
+# Anzahl der Master-Backups, die je Praefix aufbewahrt werden. Aeltere werden
+# nach jedem Backup automatisch geloescht. Die Master-Snapshots sind ~600 MB
+# gross, ohne Rotation waechst das Verzeichnis unbegrenzt.
+# 0 oder None = Rotation deaktiviert (unbegrenzte Aufbewahrung).
+ARCHIVE_BACKUP_RETENTION = 3
 
 
 # ---------------------------------------------------------------------------

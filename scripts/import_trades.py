@@ -1891,6 +1891,37 @@ class TradeImporter:
     # Stage-Pipeline: Backup, IO-Helpers, State-Management, Stage-Methoden
     # =========================================================================
 
+    def _prune_backups(self, prefix: str):
+        """Loescht alte Backups eines Praefix, behaelt die neuesten N.
+
+        N kommt aus settings.ARCHIVE_BACKUP_RETENTION (0/None = Rotation aus).
+        Gematcht wird strikt auf '<prefix>_<YYYYMMDD-HHMMSS>.csv', damit
+        'trades_master' nicht die 'trades_master_complete'-Reihe mitloescht und
+        manuell abgelegte Snapshots (z.B. '..._pre_migration_...') unangetastet
+        bleiben. Sortierung erfolgt ueber den Timestamp im Dateinamen, nicht
+        ueber mtime -- Kopier- und Sync-Vorgaenge verschieben mtime.
+        """
+        keep = getattr(settings, 'ARCHIVE_BACKUP_RETENTION', 0)
+        if not keep or keep <= 0:
+            return
+
+        pattern = re.compile(r'^' + re.escape(prefix) + r'_\d{8}-\d{6}\.csv$')
+        try:
+            matches = sorted(f for f in os.listdir(ARCHIVE_BACKUP_DIR)
+                             if pattern.match(f))
+        except OSError as exc:
+            logger.warning(f"Backup-Rotation uebersprungen ({prefix}): {exc}")
+            return
+
+        for name in matches[:-keep]:
+            stale = os.path.join(ARCHIVE_BACKUP_DIR, name)
+            try:
+                os.remove(stale)
+                logger.info(f"Backup-Rotation: {name} geloescht")
+                print(f"      Rotation: {name} geloescht")
+            except OSError as exc:
+                logger.warning(f"Backup-Rotation: {name} nicht loeschbar: {exc}")
+
     def _backup_master(self):
         """Backup beider Master-Dateien (trades_master.csv und complete) vor destruktivem Schreiben."""
         os.makedirs(ARCHIVE_BACKUP_DIR, exist_ok=True)
@@ -1904,6 +1935,7 @@ class TradeImporter:
                 shutil.copy2(src, backup_path)
                 logger.info(f"Master-Backup: {backup_path}")
                 print(f"      Backup: {backup_path}")
+                self._prune_backups(prefix)
 
     def _check_stage_inputs(self, stage: str, df: pd.DataFrame):
         """Prueft ob alle Eingabe-Spalten fuer eine Stage vorhanden sind."""

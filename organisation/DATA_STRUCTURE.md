@@ -1172,7 +1172,14 @@ ticker, ticker_type, company_name, classification_reason, transaction_date
 
 **Verwendung**:
 - Wiederherstellung des letzten Zustands bei fehlgeschlagener Stage
-- Kein automatisches Löschen — manuell aufräumen bei Bedarf
+- Automatische Rotation: nach jedem Backup werden je Präfix
+  (`trades_master` / `trades_master_complete`) nur die neuesten
+  `settings.ARCHIVE_BACKUP_RETENTION` Stände behalten (Default 3), ältere
+  werden gelöscht. `0`/`None` schaltet die Rotation ab.
+  Sortiert wird über den Timestamp im Dateinamen, nicht über mtime.
+- Manuell abgelegte Snapshots ohne `_{YYYYMMDD-HHMMSS}`-Suffix
+  (z. B. `trades_master_pre_migration_*.csv`) sind von der Rotation
+  ausgenommen und bleiben erhalten
 - Pfad konfigurierbar via `settings.ARCHIVE_BACKUP_PATH`
 
 ### `data/processed/trades_stage.csv`
