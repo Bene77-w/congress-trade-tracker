@@ -246,19 +246,16 @@ def _render_controls(member_df: pd.DataFrame, bench_df: pd.DataFrame):
             q_from, q_to = st.select_slider(
                 _scope_label('Quartal-Bereich', 'detail'), options=quarters,
                 value=(quarters[0], quarters[-1]), key='md_quarter',
-                help=_scope_help('detail', 'Einziges Zeitfilter dieses Popups '
-                                 '(volle Member-Historie als Basis, unabhaengig '
-                                 'vom Sidebar-Zeitfenster). Wirkt auf Member '
-                                 'UND Benchmark identisch.'))
+                help=_scope_help('detail', 'Zeitraum aller Auswertungen hier '
+                                 '— Vergleichswerte inklusive.'))
         else:
             q_from = q_to = quarters[0] if quarters else None
             st.caption('Quartal: ' + (q_from or '—'))
     with c2:
         toggle_180 = st.toggle(
             _scope_label('Nur ≤180d', 'detail'), value=False, key='md_180',
-            help=_scope_help('detail', 'Entfernt offene Positionen und Trades, '
-                             'die erst nach 180 Tagen schliessen, aus allen '
-                             'Diagrammen dieses Popups.'))
+            help=_scope_help('detail', 'Zeigt nur Trades, die binnen 180 Tagen '
+                             'abgeschlossen wurden.'))
     with c3:
         threshold = st.slider(
             'Schwellwert x (%)', min_value=0.0, max_value=50.0,
@@ -468,7 +465,7 @@ def _render_spaghetti_section(trajs: list[dict], key: str, caption: str,
     1.37 unterstuetzt; bei aelteren Versionen einfach Dekorator entfernen."""
     st.caption(caption)
     if not trajs:
-        st.info('Keine Trajektorien (keine Preisdaten im Zeitraum).')
+        st.info('Keine Verläufe — für diesen Zeitraum fehlen Kursdaten.')
         return
 
     terminal_map = terminal_map or {}
@@ -508,9 +505,8 @@ def _render_spaghetti_section(trajs: list[dict], key: str, caption: str,
     cap = 0 if draw_all else int(max_traces)
     plot_trajs = mm.select_top_trajectories(trajs, cap)
     st.caption(
-        'Linien laufen vom Transaktionstag bis zum Voll-Close, höchstens aber '
-        'bis zum letzten verfügbaren Kurstag — bei jungen Trades enden deshalb '
-        'alle Linien deutlich vor Tag 180.')
+        'Jede Linie ist ein Trade vom Kauf bis zum Verkauf — junge Trades '
+        'enden früher, weil ihr Verlauf noch nicht weiter reicht.')
     if not draw_all and len(plot_trajs) < len(trajs):
         st.caption(
             f'Zeichne {len(plot_trajs):,} von {len(trajs):,} Verläufen '
@@ -553,9 +549,7 @@ def _render_spaghetti_section(trajs: list[dict], key: str, caption: str,
                                                           width='medium'),
                 'terminal': st.column_config.NumberColumn(
                     'Terminal %', format='%.1f%%', width='small',
-                    help='Terminaler Return (Voll-Close bzw. naechster Horizont); '
-                         'bei offenen jungen Positionen der letzte verfuegbare '
-                         'Kurs (Mark-to-Market, = Linienende).'),
+                    help=help_for('paper_return_terminal')),
             })
     if hl:
         st.caption(f'Hervorgehoben: **{hl}** — Klick Linie/Liste, '
@@ -646,9 +640,8 @@ def _render_abnormal_return(mview: pd.DataFrame,
             _scope_label('Abnormal-Return-Horizont', 'detail'),
             options=ar_present, index=_idx, horizontal=True,
             key='md_ar_horizon',
-            help=_scope_help('detail', 'Waehlt den Horizont fuer Median-AR und '
-                             'Ausreisser-Quote. Wirkt zusaetzlich zum '
-                             'Quartal-Bereich/≤180d-Filter dieses Popups.')))
+            help=_scope_help('detail', 'Ueber wie viele Tage der '
+                             'Marktvergleich laeuft.')))
     else:
         h = int(settings.AR_HEADLINE_HORIZON_DAYS)
     # Ausreisser-Schwellen aufloesen: bei MODE='percentile' aus der vollen im
@@ -663,26 +656,24 @@ def _render_abnormal_return(mview: pd.DataFrame,
     upper, lower, ar_fallback = _resolve_ar_outlier_thresholds(ref_ar)
     summ = mm.abnormal_return_summary(mview, h, upper, lower)
     if summ['n_eval'] == 0:
-        st.caption(f'Abnormal Return ({h}d): keine evaluierbaren Trades '
-                   '(Right-Censoring) oder Spalte fehlt '
-                   '(Stage `--stage_abnormal_returns`).')
+        st.caption(f'Abnormal Return ({h}d): keine Trades alt genug fuer '
+                   'diesen Vergleich.')
         return
     st.markdown(f'**Abnormal Return (marktbereinigt vs. SPY, {h}d)**')
     a1, a2, a3 = st.columns(3)
     med = summ['median']
     a1.metric('Median AR', f'{med * 100:+.2f}%' if pd.notna(med) else '—',
-              help='Median des signierten, marktbereinigten Abnormal Return ueber '
-                   'die evaluierbaren Trades (positiv = schlaegt den Markt im Median).')
+              help='Typische Mehrrendite gegenueber dem Markt — positiv '
+                   'heisst besser als der Gesamtmarkt.')
     a2.metric('Ausreißer +', f"{summ['share_pos'] * 100:.0f}%",
-              help='Anteil Trades mit AR >= Schwelle (aussergewoehnlich gut getimt).')
+              help='Anteil aussergewoehnlich gut getimter Trades.')
     a3.metric('Ausreißer −', f"{summ['share_neg'] * 100:.0f}%",
-              help='Anteil Trades mit AR <= negativer Schwelle.')
-    st.caption(f"n={summ['n_eval']:,} evaluierbar — Vorsicht: Member-Konzentration "
-               'und kleine n verzerren; deskriptiv, kein Insider-Beweis.'
-               .replace(',', '.'))
+              help='Anteil aussergewoehnlich schlecht getimter Trades.')
+    st.caption(f"Basis: {summ['n_eval']:,} Trades — beschreibend, kein Beweis "
+               'fuer Insiderhandel.'.replace(',', '.'))
     if ar_fallback:
-        st.caption('Perzentil-Modus: Schwellen aus der Popup-Verteilung nicht '
-                   'ableitbar (zu wenige Werte) — absolute Schwellen verwendet.')
+        st.caption('Zu wenige Werte fuer relative Schwellen — feste '
+                   'Schwellen verwendet.')
 
 
 # ---------------------------------------------------------------------------
@@ -743,9 +734,9 @@ def render_member_detail(member_df: pd.DataFrame, bench_df: pd.DataFrame,
         _render_abnormal_return(mview, bview)
         st.divider()
         st.markdown('**Sektor-Konzentration** '
-                    '(orange = Committee-Full-Trades-Branchen des Members)')
+                    '(orange = vom Member beaufsichtigte Branchen)')
         st.plotly_chart(_fig_z3(mview, oversight), width='stretch')
-        st.markdown('**Top-Trades** (nach terminalem paper_return)')
+        st.markdown('**Top-Trades** (nach erzielter Rendite)')
         _render_top_trades(mview, terminal)
 
     with tab_perf:
@@ -753,8 +744,8 @@ def render_member_detail(member_df: pd.DataFrame, bench_df: pd.DataFrame,
         agg_choice = st.radio(
             'Aggregat (D2)', options=['Median', 'Mittelwert'], index=0,
             horizontal=True, key='md_d2_agg',
-            help='Median ist robust gegen Ausreisser (z.B. einzelne Trades '
-                 'mit −260 % … +184 %); der Mittelwert wird davon dominiert.')
+            help='Median ignoriert einzelne Extremwerte, der Mittelwert '
+                 'wird von ihnen bestimmt.')
         agg = 'median' if agg_choice == 'Median' else 'mean'
         empty_cap = _empty_horizons_caption(m_stats)
 
@@ -774,9 +765,8 @@ def render_member_detail(member_df: pd.DataFrame, bench_df: pd.DataFrame,
             st.plotly_chart(_fig_d2(mview, bview, cf_view, agg, m_stats),
                             width='stretch')
             st.caption(
-                'post_return_h misst den Kurs h Tage NACH der Transaktion — '
-                'auch wenn die Position früher geschlossen wurde. Verläufe '
-                '(D3b/D4) enden dagegen am Voll-Close.')
+                'Gemessen wird der Kurs eine feste Zahl Tage nach dem Trade — '
+                'auch wenn früher verkauft wurde.')
             if empty_cap:
                 st.caption(empty_cap)
             with st.expander('Datengrundlage D2'):
@@ -793,10 +783,8 @@ def render_member_detail(member_df: pd.DataFrame, bench_df: pd.DataFrame,
                         'Max %': st.column_config.NumberColumn(
                             'Max %', format='%.1f'),
                     })
-                st.caption(
-                    'n = Trades, die für den Horizont qualifizieren '
-                    '(Haltedauer-Gating) und deren Return-Spalte bereits '
-                    'gefüllt ist.')
+                st.caption('n = Trades, die für den jeweiligen Horizont '
+                           'alt genug sind.')
                 if empty_cap:
                     st.caption(empty_cap)
             st.markdown(f'**D7 — Score → Anteil > {threshold:.0f}%**')
@@ -810,7 +798,7 @@ def render_member_detail(member_df: pd.DataFrame, bench_df: pd.DataFrame,
         # terminaler Return je Trade fuer die Listen-Spalte (Terminal %).
         terminal_map = dict(zip(mview['trade_id'], terminal)) \
             if 'trade_id' in mview.columns else {}
-        st.markdown('**D4 — Alle Trade-Verläufe** (Tag 0 → Voll-Close ≤180)')
+        st.markdown('**D4 — Alle Trade-Verläufe** (Kauf bis Verkauf)')
         _render_spaghetti_section(
             traj_all, 'd4',
             'Klick eine Linie oder Listenzeile zum Hervorheben.',
@@ -818,17 +806,17 @@ def render_member_detail(member_df: pd.DataFrame, bench_df: pd.DataFrame,
         st.divider()
         cf_ids = set(cf_view['trade_id']) if not cf_view.empty else set()
         traj_cf = [t for t in traj_all if t['trade_id'] in cf_ids]
-        st.markdown('**D3b — Verläufe nur Committee Full Trades (committee_full)**')
+        st.markdown('**D3b — Nur Trades in beaufsichtigten Branchen**')
         _render_spaghetti_section(
-            traj_cf, 'd3b', 'Nur Trades mit committee_full-Signal.',
+            traj_cf, 'd3b', 'Nur Trades aus Branchen, die der Member über '
+            'einen Ausschuss beaufsichtigt.',
             terminal_map=terminal_map)
 
     with tab_time:
         st.markdown('**Z1+Z2 — Kalender-Timing** '
-                    '(★ = Vote-Timing-Treffer, Farbe = Kauf/Verkauf)')
+                    '(★ = nahe an einer Abstimmung, Farbe = Kauf/Verkauf)')
         fig_tl = _fig_timeline(mview, terminal)
         if fig_tl is None:
-            st.info('Keine terminalen Returns im gewählten Zeitraum '
-                    '(z.B. nur sehr junge offene Positionen).')
+            st.info('Keine auswertbaren Renditen im gewählten Zeitraum.')
         else:
             st.plotly_chart(fig_tl, width='stretch')
