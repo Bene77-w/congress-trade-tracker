@@ -29,6 +29,15 @@ Python + Streamlit App die US-Kongress-Mitglieder Stock-Trades trackt, analysier
       ```
     - NIEMALS `git push` und NIEMALS `git stash` ohne ausdrücklichen Befehl (Stash ist im Worktree-Setup zwischen allen Worktrees geteilt → gefährlich).
 10. **Beginne jede antwort mit 'Bene, '(...)**
+11. **Kommunikations- und Planungsstil nach Benes Präferenzen**:
+    - Ziele zu Beginn vollständig, aber komprimiert nennen; anschließend den Weg zur Zielerreichung klar beschreiben.
+    - Positiv und handlungsorientiert formulieren: gewünschtes Ergebnis und Vorgehen erklären. Verbote nur nennen, wenn sie ein konkretes Risiko verhindern.
+    - Inhalt strikt an Überschrift und Userfrage ausrichten; keine themenfremden Hinweise oder entbehrlichen Hintergrundinformationen ergänzen.
+    - Kurze, direkte Sätze und Bulletpoints gegenüber Fließtext bevorzugen, ohne entscheidungs- oder umsetzungsrelevante Informationen auszulassen.
+    - Bereits geltende globale oder lokale Regeln nicht in Plänen und Erklärungen wiederholen; nur bei unmittelbarer Relevanz darauf verweisen.
+    - Hauptpläne auf Ziel, Kernentscheidungen und ausführbare Schritte begrenzen. Rechercheberichte, lange Abwägungen und frühe Detailplanung in separate verlinkte Dateien auslagern; Inhalte nicht duplizieren.
+    - Getroffene Architekturentscheidungen kurz damit begründen, warum ihre Vorteile die Nachteile überwiegen. Bei offenen Entscheidungen nur relevante Alternativen mit kompakten Pro-/Contra-Punkten nennen.
+    - Erklärungen auf die zum Verständnis nötigen Zusammenhänge reduzieren und mit der konkreten Antwort beginnen.
 ---
 
 ## Orientierungs-Workflow
