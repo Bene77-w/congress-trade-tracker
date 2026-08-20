@@ -654,9 +654,16 @@ AR_BOOTSTRAP_SEED = 0
 # Close), statt sie wie der Horizont-Filter auszublenden.
 # Maximales Fenster (Tage, Bezug transaction_date) fuer das der Papier-Return
 # in der Pipeline ueberhaupt berechnet wird. Aeltere Trades -> NaN.
-RECENT_MONITORING_WINDOW_DAYS = 180
+RECENT_MONITORING_WINDOW_DAYS = 730
 # Im Dashboard waehlbare Fenstergroessen (Selectbox). <= RECENT_MONITORING_WINDOW_DAYS.
-RECENT_MONITORING_WINDOW_OPTIONS = [7, 30, 60, 90, 120, 180]
+RECENT_MONITORING_WINDOW_OPTIONS = [7, 30, 60, 90, 120, 180, 365, 730]
+# Bezugstag des Recent-Fensters: 'data' = juengstes Meldedatum im Master (wie
+# das globale Sidebar-Fenster, macht die Trefferzahlen vergleichbar und ist
+# immun gegen Download-Luecken), 'today' = Kalendertag.
+RECENT_WINDOW_ANCHOR = 'data'
+# Label der Recent-Fenster-Option, die das globale Sidebar-Zeitfenster
+# uebernimmt (steht als erster Eintrag in der Selectbox).
+RECENT_WINDOW_INHERIT_LABEL = 'Global übernehmen'
 # Frische-Anforderung an den Papier-Preis: refetch, wenn der juengste Cache-Close
 # aelter ist als der letzte abgeschlossene Handelstag (BDay). 1 = "nicht aelter
 # als ein Handelstag" (erfuellt "<=24h werktags" beim taeglichen 03:00-Lauf).
@@ -714,9 +721,18 @@ UI_SCOPE_PREFIX = {
     'detail': '[Detail]',
 }
 UI_SCOPE_HELP = {
-    'global': 'Scope Global: wirkt auf Trades-, Assets-, Members- und '
-              'Post-Trade-Performance-Tab.',
-    'tab': 'Scope Tab: wirkt nur in diesem Tab und ist unabhaengig von den '
-           'globalen Horizont-Einstellungen der Sidebar.',
-    'detail': 'Scope Detail: wirkt nur in diesem Detail-Popup.',
+    'global': 'Gilt in allen Tabs ausser Recent Trades und Score-Analyse.',
+    'tab': 'Gilt nur in diesem Tab.',
+    'detail': 'Gilt nur in diesem Popup.',
 }
+
+# Waehlbare Groessen des globalen Sidebar-Zeitfensters (Label -> Tage;
+# None = kein Zeitfilter). Reihenfolge = Anzeige, Default s. GLOBAL_WINDOW_DEFAULT.
+GLOBAL_WINDOW_OPTIONS = {
+    '7 Tage': 7,
+    '30 Tage': 30,
+    '365 Tage': 365,
+    '730 Tage': 730,
+    'Alles': None,
+}
+GLOBAL_WINDOW_DEFAULT = '30 Tage'

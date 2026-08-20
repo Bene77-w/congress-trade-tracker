@@ -19,6 +19,7 @@ if str(ROOT) not in sys.path:
 
 from app.chart_helpers import (  # noqa: E402
     SALE_KIND_MARKERS,
+    add_combined_return,
     build_partial_close_rows,
     build_recent_pool,
     build_sale_kind_traces,
@@ -248,3 +249,51 @@ def test_recent_pool_missing_date_column():
     """Fehlende date_col -> leeres Ergebnis (kein Crash)."""
     pool = build_recent_pool(pd.DataFrame({'x': [1]}), 30)
     assert pool.empty
+
+
+# ---------------------------------------------------------------------------
+# add_combined_return
+# ---------------------------------------------------------------------------
+
+def _combined_df() -> pd.DataFrame:
+    """Ein Trade je relevantem exit_status, beide Quell-Spalten gefuellt."""
+    return pd.DataFrame({
+        'trade_id': ['full', 'partial', 'held', 'delisted', 'na'],
+        'exit_status': ['closed_full', 'closed_partial', 'held',
+                        'delisted', 'not_applicable'],
+        'effective_return_pct': [10.0, 5.0, 99.0, 42.0, 42.0],
+        'paper_return_pct': [-7.0, -7.0, 20.0, 42.0, 42.0],
+    })
+
+
+def test_combined_return_picks_source_per_status():
+    """Geschlossen -> realisiert, offen -> Papier, sonst leer."""
+    out = add_combined_return(_combined_df()).set_index('trade_id')
+    assert out.loc['full', 'combined_return_pct'] == 10.0
+    assert out.loc['partial', 'combined_return_pct'] == 5.0
+    assert out.loc['held', 'combined_return_pct'] == 20.0
+    assert pd.isna(out.loc['delisted', 'combined_return_pct'])
+    assert pd.isna(out.loc['na', 'combined_return_pct'])
+
+
+def test_combined_return_labels_kind():
+    out = add_combined_return(_combined_df()).set_index('trade_id')
+    assert out.loc['full', 'return_kind'] == 'realisiert'
+    assert out.loc['held', 'return_kind'] == 'laufend'
+    assert pd.isna(out.loc['delisted', 'return_kind'])
+
+
+def test_combined_return_kind_empty_when_value_missing():
+    """Kein Wert -> keine Herkunftsangabe (sonst 'laufend' ohne Zahl)."""
+    df = pd.DataFrame({'exit_status': ['held'], 'paper_return_pct': [None],
+                       'effective_return_pct': [None]})
+    out = add_combined_return(df)
+    assert pd.isna(out['combined_return_pct'].iloc[0])
+    assert pd.isna(out['return_kind'].iloc[0])
+
+
+def test_combined_return_tolerates_missing_columns():
+    """Fehlende Quell-/Status-Spalten -> leere Spalten statt Crash."""
+    out = add_combined_return(pd.DataFrame({'x': [1]}))
+    assert out['combined_return_pct'].isna().all()
+    assert 'return_kind' in out.columns

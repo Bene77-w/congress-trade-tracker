@@ -763,6 +763,9 @@ first_close_offset_days,   # float: **NEU (2026-06-04):** Kalendertage vom trans
 paper_return_pct,          # float: **NEU (2026-06-06):** Mark-to-Market Return gegen den AKTUELLEN jüngsten Close.
                            # Formel: `(latest_close / baseline_live − 1) × 100 × sell_sign`.
                            # Nur befüllt für Trades im RECENT_MONITORING_WINDOW_DAYS-Fenster (Bezug `transaction_date`).
+                           # **2026-08-04:** Fenster von 180 auf 730 Tage angehoben (Dashboard bietet jetzt bis 730d
+                           # im Recent-Tab). Ältere Master-Stände haben jenseits 180 Tagen NaN, bis
+                           # `--stage_post_trade_performance` einmal durchgelaufen ist.
                            # Außerdem: nur wenn Post-Trade-Baseline existiert (not_applicable/delisted → NaN).
                            # Richtungsbewusst: positive Werte = Gewinn (Kauf) oder gutes Verkaufs-Timing, negative = Verlust/schlechtes Timing.
                            # UNTERSCHIED zu effective_return_pct: `effective` ist realisiert (bis exit_date),
@@ -935,6 +938,24 @@ Die `app/chart_helpers.py`-Funktion `build_partial_close_rows` zerlegt im Post-T
 - `exit_volume`: Volumen dieses einzelnen Schließungs-Trades
 - `close_offset_days`: Tage zwischen `transaction_date` und dieses `close_date`
 - `effective_return_pct`: Return bis zu diesem Close-Preis (nicht aggregiert über alle Closes)
+
+**Display-Only kombinierte Rendite (2026-08-04, Modul 9.x):**
+`app/chart_helpers.py::add_combined_return` ergänzt im Recent-Trades-Tab zwei
+**nur im UI existierende** Spalten (nicht im Master):
+- `combined_return_pct` — je `exit_status` die inhaltlich richtige Rendite:
+  `closed_full` / `closed_partial` → `effective_return_pct` (realisiert),
+  `held` → `paper_return_pct` (Mark-to-Market). `delisted` /
+  `not_applicable` → NaN.
+- `return_kind` — Herkunft als Klartext (`realisiert` / `laufend`), leer wenn
+  kein Wert vorliegt.
+
+Zweck: Ohne diese Spalte ist „erfolgreichste Trades" nicht sortierbar —
+`effective_return_pct` ist nur bei geschlossenen, `paper_return_pct` sinnvoll
+nur bei offenen Positionen gefüllt. Die Zuordnung steht in
+`COMBINED_RETURN_SOURCES`. Der Recent-Tab sortiert über den **gesamten** Pool
+(Radio „Sortieren nach": Score / Rendite / Handelsdatum), weil die
+Spaltenkopf-Sortierung von `st.dataframe` nur die sichtbaren `head(n_show)`-
+Zeilen erfasst.
 
 **Limitierung (nicht-FIFO Partition):** Derselbe Verkauf kann bei mehreren Käufen als Gegen-Trade auftauchen. Volumen-Partitionierung erfolgt global NICHT sauber → Zerlegungs-Zeilen dürfen niemals in Volumen-Aggregate (Asset-Tab, Member-Tab) eingehen. Nur für Performance-Charts zulässig.
 
@@ -1427,6 +1448,27 @@ Scoring-Parameter, daher nicht in
 - `SCORE_CORR_SCATTER_MAX_POINTS` / `SCORE_CORR_SCATTER_OPACITY` — `20000` /
   `0.3`; Sample-Cap + Opazität des Scatters (nur Visualisierung; die Kennzahlen
   Spearman/Pearson/n rechnen immer über die volle Stichprobe).
+
+### `config/settings.py::GLOBAL_WINDOW_OPTIONS` / `GLOBAL_WINDOW_DEFAULT`
+Waehlbare Groessen des globalen Sidebar-Zeitfensters als Dict `Label -> Tage`
+(`None` = kein Zeitfilter); Reihenfolge = Anzeigereihenfolge des Radios.
+Aktuell `7 / 30 / 365 / 730 Tage / Alles`, Default `30 Tage`. Vorher im
+Dashboard hartcodiert. Anker beider Datumsbasen bleibt der Datenstand
+(`_window_anchor`, jüngstes `disclosure_date`).
+
+### `config/settings.py::RECENT_WINDOW_ANCHOR` / `RECENT_WINDOW_INHERIT_LABEL`
+Steuern das **eigene Zeitfenster des Recent-Trades-Tabs**:
+- `RECENT_WINDOW_ANCHOR` — `'data'` (Default): Bezugstag ist der Datenstand,
+  identisch zum globalen Fenster; `'today'`: Kalendertag (altes Verhalten).
+  Grund für die Umstellung: mit Kalendertag-Anker verschob der Meldeverzug das
+  Fenster um bis zu ~2 Wochen, wodurch dasselbe „30 Tage" im Recent-Tab und im
+  Trades-Tab unterschiedliche Trefferzahlen ergab.
+- `RECENT_WINDOW_INHERIT_LABEL` — Label des ersten Selectbox-Eintrags
+  („Global übernehmen"), der das Sidebar-Zeitfenster übernimmt. Übernommen wird
+  **nur** das Zeitfenster; Horizont-Filter und Min-Score bleiben im Recent-Tab
+  weiterhin unwirksam (sie würden die offenen Positionen entfernen, die der Tab
+  zeigen soll). Bei Sidebar-Auswahl „Alles" greift
+  `RECENT_MONITORING_WINDOW_DAYS` als Obergrenze.
 
 ### `config/settings.py::UI_SCOPE_PREFIX` / `UI_SCOPE_HELP`
 Reine **Anzeige-Config** (kein Scoring-Parameter): Grundtexte für die

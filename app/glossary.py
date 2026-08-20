@@ -59,6 +59,12 @@ GLOSSARY: dict[str, str] = {
         "Buchgewinn/-verlust zum aktuellen Kurs (Mark-to-Market) — noch NICHT "
         "realisiert, die Position ist evtl. noch offen."
     ),
+    "combined_return": (
+        "Rendite eines Trades, egal ob schon verkauft oder noch offen: bei "
+        "geschlossenen Positionen die tatsaechlich erzielte, bei offenen der "
+        "aktuelle Buchgewinn. Die Spalte 'Art' zeigt, welche der beiden es "
+        "ist."
+    ),
     "paper_return_terminal": (
         "Rendite am natuerlichen Endpunkt des Trades: beim Voll-Verkauf dessen "
         "Zeitpunkt, sonst nach 180 Tagen."

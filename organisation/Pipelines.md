@@ -473,7 +473,9 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
     **Sub-Phase B: Paper Returns (Mark-to-Market für offene/frische Positionen, DELTA-UNABHÄNGIG)**
     → scoring/post_trade_returns.compute_paper_returns(df, cache_path, recent_window_days, max_price_age_bdays)
     → Spalten (2 neu): paper_return_pct, price_as_of
-    → Fenster: RECENT_MONITORING_WINDOW_DAYS (Default 180d, konfig. in settings.py)
+    → Fenster: RECENT_MONITORING_WINDOW_DAYS (730d seit 2026-08-04, vorher 180d; konfig. in settings.py)
+      Anhebung, damit der Recent-Tab auch 365/730-Tage-Fenster mit Papier-Return füllen kann.
+      Kosten: mehr Ticker im Frische-Refetch (814 → 1.685), davon ~95 % bereits im Preis-Cache.
       Nur Trades mit transaction_date >= now - recent_window_days befüllt
     → Richtungsbewusst: Vorzeichen-Inversion für Verkäufe (sell_sign = -1)
     → Cache-Frische: RECENT_PRICE_MAX_AGE_BUSINESS_DAYS (Default 1 BDay; relevant für 03:00-Daily-Lauf)

@@ -127,6 +127,63 @@ def build_recent_pool(
     return out
 
 
+# Welche Rendite-Spalte je Exit-Status die ehrliche Zahl ist. Geschlossene
+# Positionen -> realisiert; offene -> Mark-to-Market. Nicht gelistete Status
+# (delisted / not_applicable) bleiben bewusst leer statt eine Zahl zu erfinden.
+COMBINED_RETURN_SOURCES: dict[str, str] = {
+    'closed_full': 'effective_return_pct',
+    'closed_partial': 'effective_return_pct',
+    'held': 'paper_return_pct',
+}
+
+
+def add_combined_return(
+    df: pd.DataFrame,
+    *,
+    value_col: str = 'combined_return_pct',
+    kind_col: str = 'return_kind',
+) -> pd.DataFrame:
+    """Ergaenzt eine ueber offene UND geschlossene Trades sortierbare Rendite.
+
+    Problem ohne diese Spalte: ``effective_return_pct`` ist nur bei
+    geschlossenen Positionen gefuellt, ``paper_return_pct`` sinnvoll nur bei
+    offenen — eine Sortierung nach „erfolgreichste Trades" ueber beide Gruppen
+    hinweg ist deshalb mit keiner der beiden Spalten allein moeglich.
+
+    Je Zeile wird nach ``exit_status`` die passende Quelle gezogen
+    (s. ``COMBINED_RETURN_SOURCES``); ``kind_col`` haelt die Herkunft als
+    Klartext ('realisiert' / 'laufend'), damit in der Tabelle sichtbar bleibt,
+    welche der beiden Bedeutungen der Wert hat. Zeilen ohne passende Quelle
+    (delisted, not_applicable, fehlender Kurs) bleiben NaN.
+
+    Liefert eine Kopie; fehlende Quell-Spalten werden toleriert.
+    """
+    out = df.copy()
+    value = pd.Series(float('nan'), index=out.index, dtype='float64')
+    kind = pd.Series(pd.NA, index=out.index, dtype='string')
+    if 'exit_status' not in out.columns:
+        out[value_col] = value
+        out[kind_col] = kind
+        return out
+
+    status = out['exit_status'].astype('string')
+    for status_name, src in COMBINED_RETURN_SOURCES.items():
+        if src not in out.columns:
+            continue
+        rows = status == status_name
+        if not rows.any():
+            continue
+        vals = pd.to_numeric(out.loc[rows, src], errors='coerce')
+        value.loc[rows] = vals
+        kind.loc[rows & vals.notna().reindex(out.index, fill_value=False)] = (
+            'realisiert' if src == 'effective_return_pct' else 'laufend'
+        )
+
+    out[value_col] = value
+    out[kind_col] = kind
+    return out
+
+
 def build_partial_close_rows(opening: dict, events: list, sell_sign: float) -> list:
     """Zerlegt einen Eroeffnungs-Trade in eine Zeile pro Schliessungs-Event.
 
