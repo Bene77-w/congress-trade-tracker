@@ -19,11 +19,18 @@ from dataclasses import dataclass
 from typing import Sequence
 
 from . import SCAFFOLD_VERSION
-from .errors import ErrorCollector, MatcherError, Stage, print_report
+from . import paths
+from .errors import ErrorCollector, MatcherError, Severity, Stage, print_report
 from .settings_view import MatcherSettings, SettingsBlocked, load_settings
 from .status import ExitCode
 
 PROGRAM = "committee_matcher"
+
+#: Ablage des strukturierten Fehlerberichts je Kommando. Plan 2.7 verlangt die
+#: Persistenz fuer jeden CLI-Lauf; ab P7 tritt die Run-Revision an die Stelle
+#: des Kommandonamens, der Schreibweg bleibt derselbe.
+REPORT_DIR = "reports"
+REPORT_FILENAME = "errors.json"
 
 
 @dataclass(frozen=True)
@@ -161,6 +168,32 @@ def _preflight(command: Command, collector: ErrorCollector) -> MatcherSettings |
     return settings
 
 
+def _slug(name: str) -> str:
+    return name.replace(" ", "_").replace("-", "_")
+
+
+def _persist(collector: ErrorCollector, command_name: str) -> tuple[list[str], object]:
+    """Schreibt den strukturierten Fehlerbericht ueber die Pfadwache.
+
+    Scheitert das Schreiben, bricht der Lauf nicht ab: der Terminalbericht
+    erscheint trotzdem und nennt den Fehlschlag als Warnung.
+    """
+    try:
+        target = paths.artifact_path(REPORT_DIR, _slug(command_name), REPORT_FILENAME)
+        collector.write_json(target)
+        return [paths.relative_to_base(target)], None
+    except (MatcherError, OSError) as exc:
+        finding = ErrorCollector().add(
+            Severity.WARNUNG,
+            "CLI_REPORT_NOT_PERSISTED",
+            Stage.ARTIFACTS,
+            f"{REPORT_DIR}/{_slug(command_name)}/{REPORT_FILENAME}",
+            f"Fehlerbericht konnte nicht persistiert werden: {exc}",
+            "Schreibrecht unter data/committee_matcher_v2/ pruefen.",
+        )
+        return [], finding
+
+
 def run_command(command: Command, namespace: argparse.Namespace) -> int:
     collector = ErrorCollector()
     settings = _preflight(command, collector)
@@ -178,6 +211,10 @@ def run_command(command: Command, namespace: argparse.Namespace) -> int:
             f"Phase {command.phase} implementieren; das Geruest steht bereit.",
         )
 
+    artifacts, persist_finding = _persist(collector, command.name)
+    if persist_finding is not None:
+        collector.extend([persist_finding])
+
     summary = [
         f"Kommando: {command.name}",
         f"Phase:    {command.phase}",
@@ -192,6 +229,7 @@ def run_command(command: Command, namespace: argparse.Namespace) -> int:
         collector,
         headline=f"Committee Matcher V2 - {command.name}",
         summary_lines=summary,
+        artifacts=artifacts,
     )
     return int(collector.exit_code())
 
@@ -200,8 +238,25 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     try:
         namespace = parser.parse_args(argv)
-    except SystemExit as exc:  # --help liefert 0, Bedienfehler 4
-        return int(exc.code or 0)
+    except SystemExit as exc:  # --help und --version liefern 0
+        code = int(exc.code or 0)
+        if code == 0:
+            return 0
+        collector = ErrorCollector()
+        collector.blocker(
+            "CLI_USAGE_ERROR", Stage.CLI, " ".join(argv or sys.argv[1:]) or PROGRAM,
+            "Aufruf entspricht keiner bekannten CLI-Familie.",
+            "python -m committee_matcher --help zeigt alle Familien und Aktionen.",
+        )
+        artifacts, persist_finding = _persist(collector, "usage")
+        if persist_finding is not None:
+            collector.extend([persist_finding])
+        print_report(
+            collector,
+            headline="Committee Matcher V2 - Aufruf ungueltig",
+            artifacts=artifacts,
+        )
+        return int(collector.exit_code())
 
     try:
         command = _lookup(namespace)

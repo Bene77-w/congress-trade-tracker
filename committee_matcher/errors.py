@@ -197,14 +197,18 @@ class ErrorCollector:
         return [f.as_record() for f in self.findings]
 
     def write_json(self, path: Path) -> Path:
-        """Persistiert die Befunde; der Aufrufer prueft den Pfad vorher."""
+        """Persistiert die Befunde geprueft und atomar.
+
+        Der Schreibweg laeuft immer ueber die Pfadwache; ein Aufrufer kann die
+        Grenze damit nicht versehentlich umgehen. Der Import erfolgt lokal,
+        weil ``paths`` seinerseits ``errors`` verwendet.
+        """
+        from .paths import write_text_atomic
+
         payload = {"findings": self.as_records()}
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
+        return write_text_atomic(
+            path, json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
         )
-        return path
 
     def raise_if_blocked(self, message: str | None = None) -> None:
         if self.has_blockers():

@@ -1084,8 +1084,15 @@ Mapping-Units · `4` Input-/Prompt-/Config-Preflight blockiert ·
 
 Jeder Lauf endet mit einem nach Schweregrad und Stage gruppierten Bericht mit
 Fehlercode, Objekt, Handlungshinweis, Kosten und Artefaktpfaden — auch bei null
-Befunden. Noch nicht implementierte Stages melden `CLI_STAGE_NOT_IMPLEMENTED`
-mit der Phase, in der sie entstehen.
+Befunden, bei Benutzerabbruch und bei einem Bedienfehler des Parsers. Noch nicht
+implementierte Stages melden `CLI_STAGE_NOT_IMPLEMENTED` mit der Phase, in der
+sie entstehen.
+
+Zusätzlich persistiert jeder Lauf die Befunde strukturiert nach
+`data/committee_matcher_v2/reports/<kommando>/errors.json` (Bedienfehler unter
+`reports/usage/`). Der Schreibweg läuft über die Pfadwache und ist atomar; ab P7
+tritt die Run-Revision an die Stelle des Kommandonamens. Diese volatilen
+Berichte sind gitignoriert, Run-Revisionen bleiben versioniert.
 
 **Settings** (`config/settings.py`, Block „COMMITTEE MATCHER V2"; Verbraucher
 ist ausschließlich `committee_matcher/settings_view.py`):
@@ -1107,9 +1114,9 @@ ist ausschließlich `committee_matcher/settings_view.py`):
 | `COMMITTEE_MATCHER_MAX_OUTPUT_TOKENS` | int 256–1.000.000 | None | Context-Gate (Gate B) |
 | `COMMITTEE_MATCHER_REASONING_RESERVE_TOKENS` | int 0–1.000.000 | None | Context-Gate (Gate B) |
 | `COMMITTEE_MATCHER_REQUEST_TIMEOUT_S` | float 1–3600 | None | Provider (Gate B) |
-| `COMMITTEE_MATCHER_MAX_RUN_COST_USD` | float > 0 | None | Kostenstop (Gate B) |
-| `COMMITTEE_MATCHER_MAX_EVALUATION_COST_USD` | float > 0 | None | Kostenstop (Gate B) |
-| `COMMITTEE_MATCHER_MAX_QUALIFICATION_COST_USD` | float > 0 | None | Kostenstop (Gate B) |
+| `COMMITTEE_MATCHER_MAX_RUN_COST_USD` | float 0 < x ≤ 10.000 | None | Kostenstop (Gate B) |
+| `COMMITTEE_MATCHER_MAX_EVALUATION_COST_USD` | float 0 < x ≤ 10.000 | None | Kostenstop (Gate B) |
+| `COMMITTEE_MATCHER_MAX_QUALIFICATION_COST_USD` | float 0 < x ≤ 10.000 | None | Kostenstop (Gate B) |
 
 Ungültige Offline-Settings blockieren jeden Lauf mit Exit 4. Nicht gesetzte
 Provider-Settings sind bis Gate B zulässig, blockieren aber jeden Providerpfad
@@ -1124,7 +1131,7 @@ konfigurierbar.
 P0-Schutzbaseline sind gesperrt; fehlt oder bricht die Schutzbaseline,
 blockiert die Wache (fail closed) statt ungeschützt zu schreiben.
 
-Tests: `tests/test_committee_matcher_scaffold.py` (101 Tests, netzwerkfrei).
+Tests: `tests/test_committee_matcher_scaffold.py` (127 Tests, netzwerkfrei).
 
 ## 16. Ausgelagerter Analyse-Workflow
 

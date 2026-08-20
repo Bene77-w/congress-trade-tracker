@@ -50,6 +50,12 @@ MAX_UNITS_PER_BATCH = 3
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 NonEmptyStr = Annotated[str, Field(min_length=1)]
+#: Zahlen- und Wahrheitsfelder des Fachvertrags werden strikt gelesen: ohne
+#: ``strict`` akzeptiert Pydantic ``True`` als ``1`` und ``0`` als ``False``,
+#: womit ein ungueltiges Modellergebnis die formale Pruefung passieren wuerde.
+Confidence = Annotated[int, Field(ge=1, le=4, strict=True)]
+StrictFlag = Annotated[bool, Field(strict=True)]
+ByteCount = Annotated[int, Field(ge=0, strict=True)]
 
 
 class MatcherModel(BaseModel):
@@ -63,7 +69,7 @@ class CorpusFileEntry(MatcherModel):
 
     path: NonEmptyStr
     role: CorpusRole
-    bytes: int = Field(ge=0)
+    bytes: ByteCount
     sha256: NonEmptyStr
 
     @field_validator("sha256")
@@ -226,7 +232,7 @@ class Assignment(MatcherModel):
     """Eine Unit-Industry-Zuordnung (Plan 2.5)."""
 
     industry_id: NonEmptyStr
-    confidence: int = Field(ge=1, le=4)
+    confidence: Confidence
     evidence_excerpt: NonEmptyStr
     rationale_short: NonEmptyStr
 
@@ -250,7 +256,7 @@ class MappingUnitResult(MatcherModel):
     unit_id: NonEmptyStr
     decision: MappingDecision
     no_mapping_reason: str | None = None
-    broad_scope_exception: bool = False
+    broad_scope_exception: StrictFlag = False
     broad_scope_reason: str | None = None
     assignments: tuple[Assignment, ...] = ()
 

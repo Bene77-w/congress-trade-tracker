@@ -18,6 +18,7 @@ Wache (fail closed) statt ungeschuetzt zu schreiben.
 """
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from pathlib import Path
 
@@ -147,28 +148,57 @@ def assert_readable(path: Path) -> Path:
     return target
 
 
+#: Kopffelder, die die P0-Schutzbaseline tragen muss. Eine syntaktisch gueltige,
+#: aber fremde oder leere Datei darf die Schutzmenge nicht stillschweigend
+#: entleeren - sonst waere fail closed nur noch auf dem Papier vorhanden.
+PROTECTED_BASELINE_VERSION = "protected-paths-v1"
+PROTECTED_BASELINE_SCOPE = "committee_matcher_v2"
+_BASELINE_ENTRY_FIELDS = ("path", "bytes", "sha256")
+
+
+def _baseline_malformed(baseline: Path, detail: str) -> PathGuardError:
+    return _blocked(
+        "PATH_BASELINE_MALFORMED",
+        relative_to_base(baseline),
+        f"Schutzbaseline ist unbrauchbar: {detail}",
+        "Baseline mit scripts/committee_matcher_baseline.py protect --write neu erzeugen.",
+    )
+
+
 @lru_cache(maxsize=4)
 def _protected_paths_cached(baseline: Path, fingerprint: tuple[float, int]) -> frozenset[Path]:
     """Cache je Baselinedatei; ``fingerprint`` aus mtime und Groesse invalidiert."""
     del fingerprint  # nur Cacheschluessel
     data = yaml.safe_load(baseline.read_text(encoding="utf-8"))
-    if not isinstance(data, dict) or not isinstance(data.get("paths"), list):
-        raise _blocked(
-            "PATH_BASELINE_MALFORMED",
-            relative_to_base(baseline),
-            "Schutzbaseline ist nicht lesbar oder hat kein 'paths'-Feld.",
-            "Baseline mit scripts/committee_matcher_baseline.py protect --write neu erzeugen.",
+    if not isinstance(data, dict):
+        raise _baseline_malformed(baseline, "kein YAML-Mapping.")
+    if data.get("baseline_version") != PROTECTED_BASELINE_VERSION:
+        raise _baseline_malformed(
+            baseline,
+            f"baseline_version={data.get('baseline_version')!r} statt "
+            f"{PROTECTED_BASELINE_VERSION!r}.",
         )
+    if data.get("scope") != PROTECTED_BASELINE_SCOPE:
+        raise _baseline_malformed(
+            baseline, f"scope={data.get('scope')!r} statt {PROTECTED_BASELINE_SCOPE!r}."
+        )
+    entries = data.get("paths")
+    if not isinstance(entries, list) or not entries:
+        raise _baseline_malformed(baseline, "'paths' fehlt oder ist leer.")
+
     resolved: set[Path] = set()
-    for entry in data["paths"]:
-        if not isinstance(entry, dict) or not entry.get("path"):
-            raise _blocked(
-                "PATH_BASELINE_MALFORMED",
-                relative_to_base(baseline),
-                "Schutzbaseline enthaelt einen Eintrag ohne 'path'.",
-                "Baseline mit scripts/committee_matcher_baseline.py protect --write neu erzeugen.",
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise _baseline_malformed(baseline, "Eintrag ist kein Mapping.")
+        missing = [field for field in _BASELINE_ENTRY_FIELDS if not entry.get(field)]
+        if missing:
+            raise _baseline_malformed(
+                baseline, f"Eintrag ohne {', '.join(missing)}."
             )
-        resolved.add((BASE_DIR / str(entry["path"])).resolve())
+        raw = str(entry["path"])
+        if raw.startswith("/") or ".." in Path(raw).parts:
+            raise _baseline_malformed(baseline, f"unzulaessiger Pfad {raw!r}.")
+        resolved.add((BASE_DIR / raw).resolve())
     return frozenset(resolved)
 
 
@@ -228,6 +258,22 @@ def assert_writable(path: Path) -> Path:
             "Schreibzugriff ausserhalb der Artefaktwurzel.",
             f"Nur unterhalb von {relative_to_base(ARTIFACT_ROOT)} schreiben.",
         )
+
+    raw = Path(path)
+    if raw.is_symlink():
+        raise _blocked(
+            "PATH_SYMLINK_TARGET",
+            relative_to_base(raw),
+            "Schreibziel ist ein Symlink.",
+            "Symlink entfernen; Artefakte werden immer als echte Datei geschrieben.",
+        )
+    if raw.exists() and not raw.is_dir() and raw.stat().st_nlink > 1:
+        raise _blocked(
+            "PATH_HARDLINK_TARGET",
+            relative_to_base(raw),
+            "Schreibziel ist ein Hardlink auf eine weitere Datei.",
+            "Datei entfernen; ein Hardlink wuerde die Schreibgrenze umgehen.",
+        )
     return target
 
 
@@ -236,6 +282,40 @@ def artifact_path(*parts: str | Path, create_parents: bool = False) -> Path:
     target = assert_writable(resolve_within(ARTIFACT_ROOT, *parts))
     if create_parents:
         target.parent.mkdir(parents=True, exist_ok=True)
+    return target
+
+
+def write_text_atomic(path: Path, text: str) -> Path:
+    """Schreibt ``text`` geprueft und atomar.
+
+    Einziger Schreibweg des Pakets: die Pfadwache laeuft unmittelbar vor dem
+    Schreiben, die Temporaerdatei liegt im selben Verzeichnis (gleiches
+    Dateisystem, damit ``os.replace`` atomar bleibt) und ein vorhandenes
+    Symlink- oder Hardlinkziel blockiert. Damit bleibt zwischen Pruefung und
+    Schreiben kein Fenster fuer einen untergeschobenen Pfad.
+    """
+    target = assert_writable(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = target.with_name(f".{target.name}.tmp")
+    if temporary.is_symlink():
+        raise _blocked(
+            "PATH_SYMLINK_TARGET",
+            relative_to_base(temporary),
+            "Temporaeres Schreibziel ist ein Symlink.",
+            "Datei entfernen; der Schreibweg folgt keinen Symlinks.",
+        )
+    descriptor = os.open(
+        temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o644
+    )
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+    os.replace(temporary, target)
     return target
 
 

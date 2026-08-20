@@ -151,7 +151,8 @@ def test_report_shows_cost_and_artifacts_when_given():
     assert "runs/r1/manifest.json" in text
 
 
-def test_findings_persist_as_structured_records(tmp_path):
+def test_findings_persist_as_structured_records(tmp_path, monkeypatch):
+    monkeypatch.setattr(paths, "ARTIFACT_ROOT", tmp_path)
     collector = ErrorCollector()
     collector.blocker("B", Stage.COST, "budget", "m", "h", line=7, exit_code=ExitCode.COST_BLOCKED)
     target = collector.write_json(tmp_path / "errors" / "report.json")
@@ -271,6 +272,71 @@ def test_baseline_without_path_field_fails_closed(tmp_path, monkeypatch):
     assert excinfo.value.findings[0].code == "PATH_BASELINE_MALFORMED"
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "baseline_version: protected-paths-v1\nscope: committee_matcher_v2\npaths: []\n",
+        "baseline_version: andere-version\nscope: committee_matcher_v2\npaths:\n- {path: a, bytes: 1, sha256: b}\n",
+        "baseline_version: protected-paths-v1\nscope: fremd\npaths:\n- {path: a, bytes: 1, sha256: b}\n",
+        "baseline_version: protected-paths-v1\nscope: committee_matcher_v2\npaths:\n- {path: ../fremd, bytes: 1, sha256: b}\n",
+        "baseline_version: protected-paths-v1\nscope: committee_matcher_v2\npaths:\n- {path: a, bytes: 1}\n",
+        "- nur\n- eine\n- liste\n",
+    ],
+    ids=["leer", "version", "scope", "traversal", "feld-fehlt", "kein-mapping"],
+)
+def test_semantically_broken_baseline_fails_closed(tmp_path, monkeypatch, payload):
+    """Eine syntaktisch gueltige, aber fremde Baseline darf den Schutz nicht leeren."""
+    baseline = tmp_path / "baseline.yaml"
+    baseline.write_text(payload, encoding="utf-8")
+    monkeypatch.setattr(paths, "PROTECTED_BASELINE_PATH", baseline)
+    with pytest.raises(paths.PathGuardError) as excinfo:
+        paths.assert_writable(paths.ARTIFACT_ROOT / "runs" / "r1.json")
+    assert excinfo.value.findings[0].code == "PATH_BASELINE_MALFORMED"
+
+
+def test_symlink_inside_the_artifact_root_is_not_written(tmp_path, monkeypatch):
+    monkeypatch.setattr(paths, "ARTIFACT_ROOT", tmp_path)
+    outside = tmp_path.parent / "ziel.json"
+    outside.write_text("alt", encoding="utf-8")
+    link = tmp_path / "bericht.json"
+    link.symlink_to(outside)
+    with pytest.raises(paths.PathGuardError) as excinfo:
+        paths.write_text_atomic(link, "neu")
+    assert excinfo.value.findings[0].code in {"PATH_SYMLINK_TARGET", "PATH_WRITE_DENIED"}
+    assert outside.read_text(encoding="utf-8") == "alt"
+
+
+def test_hardlinked_target_is_not_written(tmp_path, monkeypatch):
+    monkeypatch.setattr(paths, "ARTIFACT_ROOT", tmp_path)
+    original = tmp_path / "original.json"
+    original.write_text("alt", encoding="utf-8")
+    linked = tmp_path / "hardlink.json"
+    linked.hardlink_to(original)
+    with pytest.raises(paths.PathGuardError) as excinfo:
+        paths.write_text_atomic(linked, "neu")
+    assert excinfo.value.findings[0].code == "PATH_HARDLINK_TARGET"
+    assert original.read_text(encoding="utf-8") == "alt"
+
+
+def test_atomic_write_leaves_no_temporary_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(paths, "ARTIFACT_ROOT", tmp_path)
+    target = paths.write_text_atomic(tmp_path / "runs" / "r1" / "manifest.json", "{}\n")
+    assert target.read_text(encoding="utf-8") == "{}\n"
+    assert list(target.parent.glob(".*.tmp")) == []
+
+
+def test_write_outside_the_artifact_root_is_refused_by_the_write_helper(tmp_path):
+    with pytest.raises(paths.PathGuardError):
+        paths.write_text_atomic(tmp_path / "fremd.json", "{}")
+
+
+def test_error_persistence_uses_the_path_guard(tmp_path):
+    collector = ErrorCollector()
+    collector.blocker("B", Stage.INPUT, "obj", "m", "h")
+    with pytest.raises(paths.PathGuardError):
+        collector.write_json(tmp_path / "ausserhalb.json")
+
+
 def test_artifact_path_does_not_create_directories_by_default():
     target = paths.artifact_path("runs", "unused-run", "manifest.json")
     assert not target.parent.exists()
@@ -349,6 +415,36 @@ def test_invalid_offline_settings_block_every_run(override, code):
         load_settings(_offline_module(**override))
     assert excinfo.value.findings[0].code == code
     assert excinfo.value.exit_code is ExitCode.PREFLIGHT_BLOCKED
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"COMMITTEE_MATCHER_BATCH_SIZE": True},
+        {"COMMITTEE_MATCHER_YFINANCE_REQUEST_PAUSE_S": float("nan")},
+        {"COMMITTEE_MATCHER_YFINANCE_REQUEST_PAUSE_S": float("inf")},
+    ],
+    ids=["bool-als-batchgroesse", "nan", "inf"],
+)
+def test_boolean_and_non_finite_offline_values_are_rejected(override):
+    with pytest.raises(SettingsBlocked) as excinfo:
+        load_settings(_offline_module(**override))
+    assert excinfo.value.findings[0].code == "CFG_INVALID"
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"COMMITTEE_MATCHER_MAX_PRICE_USD_PER_MTOK": {"prompt": float("inf"), "completion": 1.0}},
+        {"COMMITTEE_MATCHER_MAX_PRICE_USD_PER_MTOK": {"prompt": 1.0, "completion": 1.0, "extra": 1.0}},
+        {"COMMITTEE_MATCHER_MAX_PRICE_USD_PER_MTOK": {"prompt": True, "completion": 1.0}},
+        {"COMMITTEE_MATCHER_MAX_RUN_COST_USD": float("inf")},
+    ],
+    ids=["preis-inf", "fremder-schluessel", "preis-bool", "budget-inf"],
+)
+def test_invalid_price_and_budget_values_keep_gate_b_closed(override):
+    loaded = load_settings(_provider_module(**override))
+    assert loaded.provider_ready is False or loaded.budgets["run"] is None
 
 
 def test_missing_offline_setting_is_named_explicitly():
@@ -613,6 +709,36 @@ def test_snapshot_rejects_empty_and_duplicated_industries():
     assert snapshot.industry_ids() == {"i"}
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"confidence": True},
+        {"confidence": 2.0},
+        {"confidence": "3"},
+    ],
+    ids=["bool", "float", "string"],
+)
+def test_confidence_is_read_strictly(payload):
+    """Ohne strikte Typen wuerde ``True`` als Confidence 1 durchgehen."""
+    base = {"industry_id": "i", "confidence": 2, "evidence_excerpt": "e", "rationale_short": "r"}
+    base.update(payload)
+    with pytest.raises(pydantic.ValidationError):
+        models.Assignment(**base)
+
+
+def test_broad_scope_flag_is_read_strictly():
+    with pytest.raises(pydantic.ValidationError):
+        models.MappingUnitResult(
+            unit_id="u1", decision=MappingDecision.NO_MAPPING,
+            no_mapping_reason="grund", broad_scope_exception=0,
+        )
+
+
+def test_corpus_byte_count_is_read_strictly():
+    with pytest.raises(pydantic.ValidationError):
+        models.CorpusFileEntry(path="md/x.md", role="mapping_input", bytes=True, sha256="a" * 64)
+
+
 def test_models_are_frozen():
     record = models.IndustryRecord(
         industry_id="i", industry_name="n", sector_id="s", sector_name="sn", description="d")
@@ -699,6 +825,13 @@ def test_corpus_file_entry_rejects_traversal_and_bad_digests():
 # CLI-Skelett (Plan 2.7)
 # ---------------------------------------------------------------------------
 
+@pytest.fixture
+def artifact_sandbox(tmp_path, monkeypatch):
+    """Leitet die Artefaktwurzel um, damit CLI-Laeufe nichts ins Repo schreiben."""
+    monkeypatch.setattr(paths, "ARTIFACT_ROOT", tmp_path)
+    return tmp_path
+
+
 def test_cli_families_match_the_plan():
     families = {command.family for command in cli.COMMANDS}
     assert families == {
@@ -711,7 +844,7 @@ def test_cli_families_match_the_plan():
 
 
 @pytest.mark.parametrize("command", cli.COMMANDS, ids=lambda c: c.name.replace(" ", "-"))
-def test_every_command_is_reachable_and_blocks_with_exit_four(command, capsys):
+def test_every_command_is_reachable_and_blocks_with_exit_four(command, capsys, artifact_sandbox):
     argv = [command.family] + ([command.action] if command.action else [])
     assert cli.main(argv) == int(ExitCode.PREFLIGHT_BLOCKED)
     out = capsys.readouterr().out
@@ -720,7 +853,7 @@ def test_every_command_is_reachable_and_blocks_with_exit_four(command, capsys):
     assert expected in out
 
 
-def test_provider_families_name_the_missing_settings(capsys):
+def test_provider_families_name_the_missing_settings(capsys, artifact_sandbox):
     assert cli.main(["run", "execute"]) == int(ExitCode.PREFLIGHT_BLOCKED)
     out = capsys.readouterr().out
     assert "CFG_PROVIDER_UNSET" in out
@@ -728,21 +861,21 @@ def test_provider_families_name_the_missing_settings(capsys):
     assert "Gate B" in out
 
 
-def test_provider_free_families_do_not_mention_the_provider_gate(capsys):
+def test_provider_free_families_do_not_mention_the_provider_gate(capsys, artifact_sandbox):
     assert cli.main(["input", "validate"]) == int(ExitCode.PREFLIGHT_BLOCKED)
     out = capsys.readouterr().out
     assert "CLI_PROVIDER_GATE_CLOSED" not in out
     assert "Phase P3" in out
 
 
-def test_report_is_printed_for_every_command(capsys):
+def test_report_is_printed_for_every_command(capsys, artifact_sandbox):
     cli.main(["snapshot", "build"])
     out = capsys.readouterr().out
     assert "Kosten: 0.00 USD" in out
     assert "Exit-Code: 4" in out
 
 
-def test_unknown_command_uses_the_contract_exit_code(capsys):
+def test_unknown_command_uses_the_contract_exit_code(capsys, artifact_sandbox):
     assert cli.main(["nichtvorhanden"]) == int(ExitCode.PREFLIGHT_BLOCKED)
 
 
@@ -765,7 +898,34 @@ def test_development_target_flags_only_exist_for_development_runs():
     assert excinfo.value.code == int(ExitCode.PREFLIGHT_BLOCKED)
 
 
-def test_unexpected_error_maps_to_exit_ten(monkeypatch, capsys):
+def test_every_run_persists_its_findings(artifact_sandbox, capsys):
+    """Plan 2.7: jeder CLI-Lauf persistiert die Fehler strukturiert."""
+    assert cli.main(["input", "validate"]) == int(ExitCode.PREFLIGHT_BLOCKED)
+    target = artifact_sandbox / "reports" / "input_validate" / "errors.json"
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    assert [f["code"] for f in payload["findings"]] == ["CLI_STAGE_NOT_IMPLEMENTED"]
+    assert "reports/input_validate/errors.json" in capsys.readouterr().out
+
+
+def test_usage_error_still_produces_a_report(artifact_sandbox, capsys):
+    assert cli.main(["nichtvorhanden"]) == int(ExitCode.PREFLIGHT_BLOCKED)
+    out = capsys.readouterr().out
+    assert "CLI_USAGE_ERROR" in out
+    assert (artifact_sandbox / "reports" / "usage" / "errors.json").exists()
+
+
+def test_failing_persistence_warns_but_does_not_break_the_run(monkeypatch, capsys):
+    def refuse(*_args, **_kwargs):
+        raise OSError("Dateisystem voll")
+
+    monkeypatch.setattr(paths, "artifact_path", refuse)
+    assert cli.main(["input", "validate"]) == int(ExitCode.PREFLIGHT_BLOCKED)
+    out = capsys.readouterr().out
+    assert "CLI_REPORT_NOT_PERSISTED" in out
+    assert "CLI_STAGE_NOT_IMPLEMENTED" in out
+
+
+def test_unexpected_error_maps_to_exit_ten(monkeypatch, capsys, artifact_sandbox):
     def explode(*_args, **_kwargs):
         raise RuntimeError("kaputt")
 
@@ -774,7 +934,7 @@ def test_unexpected_error_maps_to_exit_ten(monkeypatch, capsys):
     assert "CLI_INTERNAL_ERROR" in capsys.readouterr().out
 
 
-def test_user_abort_maps_to_exit_130(monkeypatch, capsys):
+def test_user_abort_maps_to_exit_130(monkeypatch, capsys, artifact_sandbox):
     def abort(*_args, **_kwargs):
         raise KeyboardInterrupt
 
@@ -783,7 +943,7 @@ def test_user_abort_maps_to_exit_130(monkeypatch, capsys):
     assert "CLI_ABORTED" in capsys.readouterr().out
 
 
-def test_broken_settings_block_before_any_stage(monkeypatch, capsys):
+def test_broken_settings_block_before_any_stage(monkeypatch, capsys, artifact_sandbox):
     def blocked():
         raise SettingsBlocked(
             [errors.Finding(

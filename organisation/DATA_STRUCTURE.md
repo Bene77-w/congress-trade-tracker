@@ -310,8 +310,17 @@ in P7/P8 eingefroren.
 
 Der Schreibschutz ist technisch durchgesetzt (`committee_matcher/paths.py`):
 Schreiben außerhalb dieser Wurzel, in die Inputbaseline oder in einen der neun
-Pfade der P0-Schutzbaseline blockiert mit Exit 4; fehlt oder bricht die
-Schutzbaseline, blockiert die Wache ebenfalls (fail closed).
+Pfade der P0-Schutzbaseline blockiert mit Exit 4; ebenso ein Symlink- oder
+Hardlink-Schreibziel. Fehlt die Schutzbaseline, ist sie kaputt oder trägt sie
+falsche Kopffelder (`baseline_version`, `scope`) beziehungsweise eine leere
+Pfadliste, blockiert die Wache ebenfalls (fail closed). Geschrieben wird
+ausschließlich über `write_text_atomic` (Temporärdatei im Zielverzeichnis,
+`O_NOFOLLOW`, `os.replace`).
+
+Einziger bereits erzeugter Inhalt: `reports/<kommando>/errors.json` — der
+strukturierte Fehlerbericht je CLI-Lauf (Plan 2.7). Diese volatilen Berichte
+sind gitignoriert; die ab P4 entstehenden Run-, Snapshot- und Review-Revisionen
+bleiben versioniert.
 
 Das Paket `committee_matcher/` selbst hält seit P2 den providerfreien Kern:
 Zustände und Exit-Codes (`status.py`), Befundsammlung und Terminalbericht

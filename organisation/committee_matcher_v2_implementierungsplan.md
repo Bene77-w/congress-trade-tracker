@@ -324,7 +324,7 @@ Die XLSX trennt unveränderliche `model_*`-Felder von editierbaren
 | P0.1–P0.3 Baselinesicherung | abgeschlossen | Commit `8ff7bc8`; Inputs + Planungsdokumente pfadbezogen committet, kanonische Plankopie versioniert |
 | P1 Vollständiger Rückbau | abgeschlossen | Commit `d5a31fc`; `scripts/committee_mapping_agent/` entfernt, Altdoku und Altdependencies bereinigt; Rollback über Tag `committee-matcher-v1-final` |
 | P0.4–P0.6 Migration + Schutzbaseline | abgeschlossen | Commits `5e683a9` + `235a5c8`; Migration `input-basis-v1` idempotent, `corpus_manifest.yaml` (95 Dateien) + `committee_matcher_protected_baseline.yaml` (9 Pfade) erzeugt und verifiziert; Phasenreview mit Auflagen abgenommen, alle fünf Befunde behoben |
-| P2 Providerfreies Gerüst | abgeschlossen | Paket `committee_matcher/` mit Ownership-Karte für 17 Zielmodule; `status`, `errors`, `paths`, `settings_view`, `models`, `cli` implementiert; `COMMITTEE_MATCHER_*`-Block in `config/settings.py`; 101 netzwerkfreie Tests |
+| P2 Providerfreies Gerüst | abgeschlossen | Paket `committee_matcher/` mit Ownership-Karte für 17 Zielmodule; `status`, `errors`, `paths`, `settings_view`, `models`, `cli` implementiert; `COMMITTEE_MATCHER_*`-Block in `config/settings.py`; 127 netzwerkfreie Tests; Phasenreview mit Auflagen, alle sieben Befunde behoben |
 | P3 → P4 | offen | providerfrei, strikt in dieser Reihenfolge; P3 ist die nächste Phase |
 | Gate B und alles danach | gesperrt | keine Providerinstallation, kein OpenRouter-Call, keine Modellentscheidung |
 

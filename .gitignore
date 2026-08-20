@@ -77,3 +77,6 @@ data/cache/price_history.parquet
 
 # opencode-Config (lokal)
 opencode.json
+
+# Committee Matcher V2 - volatile CLI-Fehlerberichte (Run-Revisionen bleiben versioniert)
+data/committee_matcher_v2/reports/

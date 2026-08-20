@@ -768,6 +768,6 @@ COMMITTEE_MATCHER_REQUEST_TIMEOUT_S = None          # float|None, Sekunden
 # --- provider: Kostengrenzen (Verbraucher: workflow.py) --------------------
 # Konservative Worst-Case-Kosten muessen vor Run UND vor jedem Call in das
 # jeweilige Budget passen. None blockiert den zugehoerigen Lauf.
-COMMITTEE_MATCHER_MAX_RUN_COST_USD = None           # float|None, > 0
-COMMITTEE_MATCHER_MAX_EVALUATION_COST_USD = None    # float|None, > 0
-COMMITTEE_MATCHER_MAX_QUALIFICATION_COST_USD = None  # float|None, > 0
+COMMITTEE_MATCHER_MAX_RUN_COST_USD = None           # float|None, 0 < x <= 10000
+COMMITTEE_MATCHER_MAX_EVALUATION_COST_USD = None    # float|None, 0 < x <= 10000
+COMMITTEE_MATCHER_MAX_QUALIFICATION_COST_USD = None  # float|None, 0 < x <= 10000

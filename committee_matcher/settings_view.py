@@ -20,6 +20,7 @@ Settings: sie duerfen nicht per Konfiguration aufgeweicht werden.
 from __future__ import annotations
 
 import importlib
+import math
 from dataclasses import dataclass
 from types import ModuleType
 from typing import Any, Callable
@@ -140,6 +141,8 @@ def _float_in(minimum: float, maximum: float) -> Callable[[Any], float]:
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise TypeError("keine Zahl")
         number = float(value)
+        if not math.isfinite(number):
+            raise ValueError("NaN und Unendlich sind unzulaessig")
         if not minimum <= number <= maximum:
             raise ValueError(f"ausserhalb {minimum}..{maximum}")
         return number
@@ -148,8 +151,12 @@ def _float_in(minimum: float, maximum: float) -> Callable[[Any], float]:
 
 
 def _choice(options: tuple[Any, ...]) -> Callable[[Any], Any]:
+    """Wertliste; ``True``/``False`` gelten nicht als 1/0."""
+
     def caster(value: Any) -> Any:
-        if value not in options:
+        if isinstance(value, bool):
+            raise TypeError("bool ist kein zulaessiger Wert")
+        if not any(value == option and type(value) is type(option) for option in options):
             raise ValueError(f"nicht in {options}")
         return value
 
@@ -162,19 +169,23 @@ def _non_empty_str(value: Any) -> str:
     return value.strip()
 
 
+#: Preisschluessel des Providervertrags; genau diese und keine weiteren.
+PRICE_KEYS = ("prompt", "completion")
+
+
 def _price_map(value: Any) -> dict[str, float]:
     if not isinstance(value, dict) or not value:
         raise TypeError("kein nicht-leeres Dict")
+    if set(value) != set(PRICE_KEYS):
+        raise ValueError(f"Schluesselmenge muss exakt {set(PRICE_KEYS)} sein")
     result: dict[str, float] = {}
-    for key in ("prompt", "completion"):
-        if key not in value:
-            raise ValueError(f"Schluessel '{key}' fehlt")
     for key, price in value.items():
-        if not isinstance(key, str):
-            raise TypeError("Schluessel muessen Strings sein")
-        if isinstance(price, bool) or not isinstance(price, (int, float)) or price <= 0:
-            raise ValueError(f"Preis fuer '{key}' muss > 0 sein")
-        result[key] = float(price)
+        if isinstance(price, bool) or not isinstance(price, (int, float)):
+            raise TypeError(f"Preis fuer '{key}' ist keine Zahl")
+        number = float(price)
+        if not math.isfinite(number) or number <= 0:
+            raise ValueError(f"Preis fuer '{key}' muss endlich und > 0 sein")
+        result[key] = number
     return result
 
 

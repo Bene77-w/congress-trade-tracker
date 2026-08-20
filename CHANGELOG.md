@@ -44,8 +44,8 @@ folgen bewusst erst in P6, die Artefaktschemata in P7/P8.
 
 Der Paketimport zieht weder `openrouter` noch `yfinance` oder eine
 HTTP-Bibliothek nach — durch Test gesichert. Neu:
-`tests/test_committee_matcher_scaffold.py` (101 netzwerkfreie Tests; Gesamtsuite
-1161). CLI, Familien, Exit-Codes und Settingstabelle:
+`tests/test_committee_matcher_scaffold.py` (127 netzwerkfreie Tests; Gesamtsuite
+1187). CLI, Familien, Exit-Codes und Settingstabelle:
 `organisation/CLI_Bedienungsanleitung.md` Abschnitt 15.
 
 ## 2026-08-20 — Committee Matcher V2, P0: Inputbaseline migriert und eingefroren
