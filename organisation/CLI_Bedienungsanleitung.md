@@ -1037,7 +1037,7 @@ Default-Port: **8501** → im Browser öffnen: `http://localhost:8501`
 
 ---
 
-## 15. Committee Matcher V2 – CLI und Settings (P2-Gerüst)
+## 15. Committee Matcher V2 – CLI und Settings (P2-Gerüst, P3-Kern)
 
 **Paket:** `committee_matcher/` · **Einstieg:** `python -m committee_matcher`
 **Zweck:** Providerfreier Kern des neu implementierten Matchers; kennt alle
@@ -1052,9 +1052,13 @@ unverändert.
 
 ```bash
 python -m committee_matcher --help
-python -m committee_matcher input validate      # P3: blockiert mit Exit 4
+python -m committee_matcher input validate      # Corpus + Units + Sollmenge
+python -m committee_matcher roster validate     # Roster-Coverage gegen die Units
 python -m committee_matcher run execute         # Providerpfad: blockiert mit Exit 4
 ```
+
+`input validate` und `roster validate` sind seit P3 implementiert; alle übrigen
+Familien melden weiterhin `CLI_STAGE_NOT_IMPLEMENTED` mit ihrer Phase.
 
 **Familien** (vollständig, Plan 2.7 — es gibt kein `promote`, `finalize`,
 `research` oder LLM-`review`):
@@ -1101,6 +1105,7 @@ ist ausschließlich `committee_matcher/settings_view.py`):
 |---|---|---|---|
 | `COMMITTEE_MATCHER_MAX_FILE_BYTES` | int 1.000–10.000.000 | 512000 | Inputparser (P3) |
 | `COMMITTEE_MATCHER_MAX_FRONTMATTER_BYTES` | int 200–1.000.000 | 32000 | Inputparser (P3) |
+| `COMMITTEE_MATCHER_MIN_EVIDENCE_CHARS` | int 0–5.000 | 60 | Inputparser (P3) |
 | `COMMITTEE_MATCHER_YFINANCE_REQUEST_PAUSE_S` | float 0–60 | 1.5 | Snapshot (P4) |
 | `COMMITTEE_MATCHER_YFINANCE_MAX_RETRIES` | int 0–10 | 3 | Snapshot (P4) |
 | `COMMITTEE_MATCHER_YFINANCE_CHECKPOINT_EVERY` | int 1–500 | 10 | Snapshot (P4) |
@@ -1126,12 +1131,88 @@ Exit 6. Die Sicherheitsinvarianten `require_parameters=true`,
 und ein gleichzeitiger Call sind Codekonstanten und bewusst nicht
 konfigurierbar.
 
+### 15a. `input validate` — Corpus, Parser, Unit-Sollmenge (P3)
+
+Liest den eingefrorenen Corpus unter `data/committee_matcher_inputs/`, verifiziert
+ihn gegen `corpus_manifest.yaml`, parst jedes Mapping-Markdown strikt nach dem
+Inputvertrag und bildet daraus die Units. Der Lauf schreibt nichts in den Corpus.
+
+Geprüfte Regeln (jede Abweichung nennt Datei und Zeile, es wird nichts geraten):
+
+- Manifestdeckung: jede reguläre Datei genau einmal, Hash und Größe müssen
+  stimmen; unbekannte oder driftende Dateien blockieren
+  (`INP_UNKNOWN_FILE`, `INP_MANIFEST_DRIFT`, `INP_MANIFEST_STALE`).
+- Größengrenzen für Datei und Frontmatter (`INP_FILE_TOO_LARGE`,
+  `INP_FRONTMATTER_TOO_LARGE`).
+- Frontmatter-Pflichtfelder, Kammer-Dateiname-Konsistenz und `unit_input_basis`
+  passend zu den vorhandenen H2-Abschnitten (`INP_FIELD_MISSING`,
+  `INP_CHAMBER_MISMATCH`, `INP_BASIS_KEY_MISMATCH`, `INP_BASIS_VALUE`).
+- `source_files` trägt den Präfix `data/committee_matcher_inputs/` und zeigt nur
+  auf `raw_source` oder `source_only` (`INP_SOURCE_OUTSIDE_ROOT`,
+  `INP_SOURCE_UNKNOWN`, `INP_SOURCE_ROLE`); Traversal blockiert über die Pfadwache.
+- Bodyvertrag: genau eine H1 `# Committee jurisdiction`, eindeutige H2-Abschnitte,
+  alle vor `## Zusätzliche Kommentare` (`INP_H1_CONTRACT`,
+  `INP_DUPLICATE_SECTION`, `INP_SECTION_AFTER_COMMENTS`).
+- Fremdanweisungsgate: `#userinput` außerhalb des Kommentarabschnitts blockiert
+  mit Zeilenangabe (`INP_FOREIGN_INSTRUCTION`); innerhalb ist es zulässig und
+  wird nie Mappinginput.
+- Sollmenge: die gebildeten IDs müssen mengengleich zu
+  `data/config/committee_matcher_unit_ids_v1.yaml` sein
+  (`UNIT_MISSING`, `UNIT_UNEXPECTED`, `UNIT_ID_COLLISION`).
+
+Warnung statt Blocker: ein als `jurisdiction_text` deklarierter Text unterhalb
+`COMMITTEE_MATCHER_MIN_EVIDENCE_CHARS` meldet `INP_EVIDENCE_TOO_SHORT` (Exit 2).
+Aktuell trifft das zwei abgeschnittene Appropriations-Abschnitte
+(House THUD, Senate Homeland Security) — Corpuspflege, kein Codefehler.
+
+Artefakt: `data/committee_matcher_v2/reports/input_validate/units.json` mit allen
+225 Units inklusive `unit_id`, `kind`, `input_basis`, `parent_unit_id`,
+`mapping_input_hash` und `source_bytes_sha256`.
+
+**Kanonisierung `unit-id-v1`** (versioniert, durch Golden-Tests eingefroren):
+Amtspräfix entfernen (`Committee on`, `Subcommittee on`, `Permanent Select` …),
+NFKC, Typografie vereinheitlichen, `&` → `and`, Kleinschreibung, alles außer
+`[a-z0-9]` zu `-`; ID ist `<kammer>--<committee-slug>[--<subcommittee-slug>]`.
+**`mapping-input-v1`** hasht den kanonischen JSON-Datensatz aus Unit-Identität,
+Basis und normalisiertem Evidenztext; kosmetischer Whitespace ändert den Hash
+nicht, jede inhaltliche Änderung schon. Eine Änderung an einer der beiden Regeln
+erfordert eine neue Versionsnummer plus neu eingefrorene Baseline.
+
+### 15b. `roster validate` — Coverage gegen die Rosterdaten (P3)
+
+Vergleicht die Committee-/Subcommittee-Vorkommen der Rosterdateien
+(`HOUSE_COMMITTEES_FILE`, `SENATE_COMMITTEES_FILE`) mit den Units. Zuordnung
+erfolgt ausschließlich über den kanonischen Matchkey oder eine explizite Alias-
+Regel; Fuzzy-Treffer werden nur als Vorschlag ausgewiesen und nie automatisch
+gemappt.
+
+- **Joint-Cross-Chamber-Regel:** findet sich ein Committee nicht unter der
+  Rosterkammer, wird gegen `joint` aufgelöst. Beide Kammern zeigen damit auf
+  dieselbe Joint-Unit; die Rosterkammer bleibt als Herkunft erhalten.
+- **Regeldatei** `data/config/committee_matcher_roster_rules.yaml`
+  (`rules_version: roster-rules-v1`): `aliases` (Rosterschreibweise → `unit_id`)
+  und `exclusions` (Vorkommen ohne Unit), jeweils mit Pflichtfeld `reason`.
+  Fehlende Datei warnt (`ROS_RULES_MISSING`), unvollständige Einträge blockieren
+  (`ROS_RULES_ENTRY`, `ROS_RULES_REASON`, `ROS_ALIAS_UNKNOWN`).
+- **Aktueller Stand:** 230 Vorkommen, 227 `mapped`, 3 `missing` (Select
+  Subcommittee January 6, Commission on Security and Cooperation in Europe,
+  Senate Caucus on International Narcotics Control) und 2 Units ohne
+  Rostervorkommen (`house--ways-and-means--tax-policy`,
+  `house--ways-and-means--trade`). Ob daraus Alias, Ausschluss oder offener Punkt
+  wird, entscheidet Gate C — deshalb Warnungen (Exit 2) statt Blocker.
+
+Artefakt: `data/committee_matcher_v2/reports/roster_validate/roster_coverage.json`
+mit `chamber`, `committee`, `subcommittee`, `unit_id`, `coverage_status`,
+`match_basis`, `members`, `fuzzy_suggestion` und `hint` je Zeile.
+
 **Schreibschutz:** `committee_matcher/paths.py` erlaubt Schreiben nur unter
 `data/committee_matcher_v2/`. Die Inputbaseline und alle neun Pfade der
 P0-Schutzbaseline sind gesperrt; fehlt oder bricht die Schutzbaseline,
 blockiert die Wache (fail closed) statt ungeschützt zu schreiben.
 
-Tests: `tests/test_committee_matcher_scaffold.py` (127 Tests, netzwerkfrei).
+Tests: `tests/test_committee_matcher_scaffold.py` (Gerüst) und
+`tests/test_committee_matcher_input_units.py` (Parser, Kanonisierung, Roster;
+Golden-Tests für `unit-id-v1` und `mapping-input-v1`) — beide netzwerkfrei.
 
 ## 16. Ausgelagerter Analyse-Workflow
 

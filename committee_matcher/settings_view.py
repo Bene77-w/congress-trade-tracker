@@ -195,6 +195,7 @@ class OfflineSettings:
 
     max_file_bytes: int
     max_frontmatter_bytes: int
+    min_evidence_chars: int
     yfinance_request_pause_s: float
     yfinance_max_retries: int
     yfinance_checkpoint_every: int
@@ -296,6 +297,9 @@ def load_settings(module: ModuleType | None = None) -> MatcherSettings:
         max_frontmatter_bytes=reader.required(
             f"{_PREFIX}MAX_FRONTMATTER_BYTES", _int_in(200, 1_000_000),
             "int 200..1000000", 32_000),
+        min_evidence_chars=reader.required(
+            f"{_PREFIX}MIN_EVIDENCE_CHARS", _int_in(0, 5_000),
+            "int 0..5000", 60),
         yfinance_request_pause_s=reader.required(
             f"{_PREFIX}YFINANCE_REQUEST_PAUSE_S", _float_in(0.0, 60.0),
             "float 0..60", 1.5),

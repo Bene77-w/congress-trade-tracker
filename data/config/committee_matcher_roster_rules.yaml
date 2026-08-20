@@ -1,0 +1,23 @@
+# Committee Matcher V2 - manuelle Roster-Regeln (Kontrollinput, handgepflegt).
+#
+# Zweck: Rostervorkommen, die nicht kanonisch auf eine Unit passen, bewusst
+# aufloesen. Beide Listen sind Entscheidungen von Bene und werden vor Gate C
+# festgelegt; Fuzzy Matching liefert nur Vorschlaege und traegt hier nichts ein.
+#
+# aliases:   Rostername -> bestehende Unit-ID (coverage_status=mapped,
+#            match_basis=alias). Pflichtfelder: chamber, committee, unit_id,
+#            reason; subcommittee optional.
+# exclusions: Rostername ohne Unit (coverage_status=excluded,
+#            match_basis=manual_exclusion). Pflichtfelder: chamber, committee,
+#            reason; subcommittee optional.
+#
+# Beispiel:
+# aliases:
+#   - chamber: house
+#     committee: Ways And Means
+#     subcommittee: null
+#     unit_id: house--ways-and-means
+#     reason: Rosterschreibweise weicht vom offiziellen Committeenamen ab.
+rules_version: roster-rules-v1
+aliases: []
+exclusions: []

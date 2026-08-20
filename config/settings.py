@@ -738,6 +738,10 @@ UI_SCOPE_HELP = {
 # Groessengrenzen gegen praeparierte oder versehentlich riesige Inputs.
 COMMITTEE_MATCHER_MAX_FILE_BYTES = 512_000          # int, 1_000..10_000_000
 COMMITTEE_MATCHER_MAX_FRONTMATTER_BYTES = 32_000    # int, 200..1_000_000
+# Mindestlaenge eines Jurisdiktionstexts (normalisiert, in Zeichen). Kuerzere
+# Texte sind faktisch namensgleich und werden als Warnung gemeldet, damit
+# abgeschnittene Quellen sichtbar werden statt still ins Mapping zu laufen.
+COMMITTEE_MATCHER_MIN_EVIDENCE_CHARS = 60           # int, 0..5_000
 
 # --- offline: yfinance-Snapshot (Verbraucher: taxonomy_source.py) ----------
 # Pause zwischen zwei yfinance-Requests in Sekunden und Retrybudget je Request.

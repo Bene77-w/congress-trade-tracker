@@ -1,7 +1,7 @@
 # Implementierungsplan: Committee Matcher V2 – vollständige Neuplanung
 
 Stand: 2026-08-20  
-Status: P0, P1 und P2 abgeschlossen; nächste Phase ist P3, danach P4 providerfrei; OpenRouter-Calls beginnen erst nach Gate B  
+Status: P0, P1, P2 und P3 abgeschlossen; nächste Phase ist P4 (providerfrei, yfinance erlaubt); OpenRouter-Calls beginnen erst nach Gate B  
 Verbindliche Grundlage: `organisation/committee_matcher_planung_entscheidungen_codex.md`  
 Scope: Matching-Phase bis zu manuell reviewten V2-Artefakten
 
@@ -87,8 +87,9 @@ Identitäten und korrigiert nichts durch Raten.
 - `committee_direct` und `committee_parent_core` belegen Zuordnungen mit dem
   eigenen Committee-Namen beziehungsweise Parent-Jurisdiktionstext.
 
-Die genaue Kanonisierungsfunktion wird in P3 vor Implementierung als
-`unit-id-v1`/`mapping-input-v1` festgeschrieben und mit Golden Tests eingefroren.
+Die Kanonisierung ist als `unit-id-v1`/`mapping-input-v1` festgeschrieben, in
+`committee_matcher/units.py` implementiert und per Golden Test eingefroren;
+Regelbeschreibung: `CLI_Bedienungsanleitung.md` 15a.
 
 ### 2.3 Roster-Coverage
 
@@ -325,7 +326,8 @@ Die XLSX trennt unveränderliche `model_*`-Felder von editierbaren
 | P1 Vollständiger Rückbau | abgeschlossen | Commit `d5a31fc`; `scripts/committee_mapping_agent/` entfernt, Altdoku und Altdependencies bereinigt; Rollback über Tag `committee-matcher-v1-final` |
 | P0.4–P0.6 Migration + Schutzbaseline | abgeschlossen | Commits `5e683a9` + `235a5c8`; Migration `input-basis-v1` idempotent, `corpus_manifest.yaml` (95 Dateien) + `committee_matcher_protected_baseline.yaml` (9 Pfade) erzeugt und verifiziert; Phasenreview mit Auflagen abgenommen, alle fünf Befunde behoben |
 | P2 Providerfreies Gerüst | abgeschlossen | Paket `committee_matcher/` mit Ownership-Karte für 17 Zielmodule; `status`, `errors`, `paths`, `settings_view`, `models`, `cli` implementiert; `COMMITTEE_MATCHER_*`-Block in `config/settings.py`; 127 netzwerkfreie Tests; Phasenreview mit Auflagen, alle sieben Befunde behoben |
-| P3 → P4 | offen | providerfrei, strikt in dieser Reihenfolge; P3 ist die nächste Phase |
+| P3 Input, Identität, Roster | abgeschlossen | `input_corpus.py` (strikter Parser + Fremdanweisungsgate), `units.py` (`unit-id-v1`/`mapping-input-v1`, Golden Tests), `roster_coverage.py` (Joint-Cross-Chamber-Regel); `input validate` bestätigt 225 Units mengengleich zur eingefrorenen Baseline, `roster validate` 227/230 gemappt; 75 zusätzliche netzwerkfreie Tests |
+| P4 yfinance-Snapshot | offen | nächste Phase; Netzzugriff nur auf yfinance |
 | Gate B und alles danach | gesperrt | keine Providerinstallation, kein OpenRouter-Call, keine Modellentscheidung |
 
 P1 wurde vor P0.4–P0.6 ausgeführt, da der Rückbau ausschließlich Altcode und
@@ -407,12 +409,22 @@ Pfadwache, typisierte Settingssicht und CLI-Skelett implementieren.
 `PyYAML` wird gepinnt. Providerabhängige Settings dürfen im Offline-Gerüst
 unset sein, müssen aber jeden Providerpfad blockieren.
 
-### P3 – Input, Identität und Roster
+### P3 – Input, Identität und Roster *(abgeschlossen)*
 
-Corpusmanifest, strikten MD-Parser, Fremdanweisungsgate, Unitbildung,
-Kanonisierung/Hashes, exakte 225-ID-Sollmenge sowie Roster-Coverage mit
-Joint-Cross-Chamber-Regel implementieren. Die konkrete Kanonisierung wird vor
-dem ersten persistierten Artefakt versioniert und per Golden Test eingefroren.
+Corpusmanifest, strikter MD-Parser, Fremdanweisungsgate, Unitbildung,
+Kanonisierung/Hashes, exakte 225-ID-Sollmenge und Roster-Coverage mit
+Joint-Cross-Chamber-Regel sind implementiert; die Kanonisierung ist versioniert
+und per Golden Test eingefroren.
+
+Zwei bewusst offene Punkte, beide als Warnung sichtbar statt still korrigiert:
+
+- drei Rostervorkommen ohne Unit (Select Subcommittee January 6, Commission on
+  Security and Cooperation in Europe, Senate Caucus on International Narcotics
+  Control) und zwei Units ohne Rostervorkommen (`house--ways-and-means--tax-policy`,
+  `house--ways-and-means--trade`) — Alias, Ausschluss oder offener Punkt
+  entscheidet Gate C;
+- zwei abgeschnittene Jurisdiktionstexte im Corpus (House THUD, Senate Homeland
+  Security) melden `INP_EVIDENCE_TOO_SHORT`; Corpuspflege, kein Codefehler.
 
 ### P4 – yfinance-Contract-Spike und Snapshot
 

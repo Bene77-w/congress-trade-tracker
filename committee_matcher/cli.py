@@ -14,15 +14,16 @@ Es gibt weiterhin kein ``promote``, ``finalize``, ``research`` oder LLM-``review
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from dataclasses import dataclass
 from typing import Sequence
 
 from . import SCAFFOLD_VERSION
-from . import paths
+from . import input_corpus, paths, roster_coverage, units as unit_module
 from .errors import ErrorCollector, MatcherError, Severity, Stage, print_report
 from .settings_view import MatcherSettings, SettingsBlocked, load_settings
-from .status import ExitCode
+from .status import CoverageStatus, ExitCode, InputBasis
 
 PROGRAM = "committee_matcher"
 
@@ -194,9 +195,125 @@ def _persist(collector: ErrorCollector, command_name: str) -> tuple[list[str], o
         return [], finding
 
 
+def _write_artifact(collector: ErrorCollector, command_name: str, filename: str,
+                    payload: object) -> list[str]:
+    """Schreibt ein Diagnoseartefakt neben den Fehlerbericht."""
+    try:
+        target = paths.artifact_path(REPORT_DIR, _slug(command_name), filename)
+        paths.write_text_atomic(
+            target, json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+        )
+        return [paths.relative_to_base(target)]
+    except (MatcherError, OSError) as exc:
+        collector.warning(
+            "CLI_ARTIFACT_NOT_WRITTEN", Stage.ARTIFACTS, filename,
+            f"Artefakt konnte nicht geschrieben werden: {exc}",
+            "Schreibrecht unter data/committee_matcher_v2/ pruefen.",
+        )
+        return []
+
+
+def handle_input_validate(
+    command: Command, namespace: argparse.Namespace,
+    collector: ErrorCollector, settings: MatcherSettings,
+) -> tuple[list[str], list[str]]:
+    """Corpus laden, Units bilden, Sollmenge pruefen (Plan 2.1/2.2)."""
+    result = input_corpus.load_documents(collector, settings.offline)
+    units = unit_module.build_units(collector, result.documents)
+    matches_baseline = unit_module.check_against_baseline(collector, units)
+
+    counts: dict[str, int] = {}
+    for unit in units:
+        counts[unit.kind.value] = counts.get(unit.kind.value, 0) + 1
+    name_only = sum(
+        1 for unit in units if unit.input_basis is not InputBasis.JURISDICTION_TEXT
+    )
+    artifacts = _write_artifact(
+        collector, command.name, "units.json",
+        {
+            "unit_id_version": unit_module.UNIT_ID_VERSION,
+            "mapping_input_version": unit_module.MAPPING_INPUT_VERSION,
+            "units": [
+                {
+                    "unit_id": unit.unit_id,
+                    "kind": unit.kind.value,
+                    "chamber": unit.chamber,
+                    "committee_name": unit.committee_name,
+                    "unit_name": unit.unit_name,
+                    "input_basis": unit.input_basis.value,
+                    "source_path": unit.source_path,
+                    "parent_unit_id": unit.parent_unit_id,
+                    "mapping_input_hash": unit.mapping_input_hash,
+                    "source_bytes_sha256": unit.source_bytes_sha256,
+                }
+                for unit in units
+            ],
+        },
+    )
+    summary = [
+        f"Manifest: {result.manifest_files} Dateien geprueft, "
+        f"{len(result.documents)} Mapping-Inputs geladen",
+        "Units:    "
+        + " + ".join(f"{count} {kind}" for kind, count in sorted(counts.items()))
+        + f" = {len(units)}",
+        f"Basis:    {name_only} name_only",
+        f"Sollmenge: {'exakt deckungsgleich' if matches_baseline else 'abweichend'} "
+        f"({unit_module.UNIT_ID_VERSION})",
+    ]
+    return summary, artifacts
+
+
+def handle_roster_validate(
+    command: Command, namespace: argparse.Namespace,
+    collector: ErrorCollector, settings: MatcherSettings,
+) -> tuple[list[str], list[str]]:
+    """Roster-Coverage gegen die Unit-Sollmenge pruefen (Plan 2.3)."""
+    result = input_corpus.load_documents(collector, settings.offline)
+    units = unit_module.build_units(collector, result.documents)
+    rows = roster_coverage.run_coverage(collector, units)
+
+    counts: dict[str, int] = {}
+    for row in rows:
+        counts[row.coverage_status.value] = counts.get(row.coverage_status.value, 0) + 1
+    for row in rows:
+        if row.coverage_status is CoverageStatus.MISSING:
+            collector.warning(
+                "ROS_UNIT_MISSING", Stage.ROSTER,
+                f"{row.chamber}: {row.unit_name}",
+                "Rostervorkommen hat keine Unit.",
+                row.hint or "Alias oder Ausschluss festlegen.",
+            )
+    covered = {row.unit_id for row in rows if row.unit_id}
+    without_roster = sorted(unit.unit_id for unit in units if unit.unit_id not in covered)
+    artifacts = _write_artifact(
+        collector, command.name, "roster_coverage.json",
+        {
+            "rows": [row.model_dump(mode="json") for row in rows],
+            "units_without_roster_occurrence": without_roster,
+        },
+    )
+    summary = [
+        f"Roster:   {len(rows)} Vorkommen aus {len(roster_coverage.roster_paths())} Kammern",
+        "Coverage: "
+        + " | ".join(f"{status}={count}" for status, count in sorted(counts.items())),
+        f"Units ohne Rostervorkommen: {len(without_roster)}",
+    ]
+    return summary, artifacts
+
+
+#: Bereits implementierte Aktionen; alles andere meldet die Zielphase.
+HANDLERS = {
+    "input validate": handle_input_validate,
+    "roster validate": handle_roster_validate,
+}
+
+
 def run_command(command: Command, namespace: argparse.Namespace) -> int:
     collector = ErrorCollector()
     settings = _preflight(command, collector)
+    handler = HANDLERS.get(command.name)
+    stage_summary: list[str] = []
+    stage_artifacts: list[str] = []
 
     if command.provider and collector.has_blockers():
         collector.blocker(
@@ -204,16 +321,25 @@ def run_command(command: Command, namespace: argparse.Namespace) -> int:
             "Providerpfad ist gesperrt, solange Gate B nicht abgeschlossen ist.",
             "Providerfreie Familien input, roster, snapshot, review und report nutzen.",
         )
+    elif handler is None or settings is None:
+        if settings is not None:
+            collector.blocker(
+                "CLI_STAGE_NOT_IMPLEMENTED", command.stage, command.name,
+                f"Die Stage '{command.name}' entsteht in Phase {command.phase}.",
+                f"Phase {command.phase} implementieren; das Geruest steht bereit.",
+            )
     else:
-        collector.blocker(
-            "CLI_STAGE_NOT_IMPLEMENTED", command.stage, command.name,
-            f"Die Stage '{command.name}' entsteht in Phase {command.phase}.",
-            f"Phase {command.phase} implementieren; das Geruest steht bereit.",
-        )
+        try:
+            stage_summary, stage_artifacts = handler(
+                command, namespace, collector, settings
+            )
+        except MatcherError as exc:
+            collector.extend(exc.findings)
 
     artifacts, persist_finding = _persist(collector, command.name)
     if persist_finding is not None:
         collector.extend([persist_finding])
+    artifacts = stage_artifacts + artifacts
 
     summary = [
         f"Kommando: {command.name}",
@@ -224,7 +350,7 @@ def run_command(command: Command, namespace: argparse.Namespace) -> int:
             if settings is not None
             else " | Settings ungueltig"
         ),
-    ]
+    ] + stage_summary
     print_report(
         collector,
         headline=f"Committee Matcher V2 - {command.name}",

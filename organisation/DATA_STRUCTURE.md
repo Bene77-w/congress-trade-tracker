@@ -214,7 +214,7 @@ Wird von `CommitteeMapper` geladen.
 
 ---
 
-## 3a. Committee Matcher V2 (geplant)
+## 3a. Committee Matcher V2 (in Arbeit)
 
 Der frühere Committee-Mapping-Agent unter `scripts/committee_mapping_agent/` wurde
 vollständig entfernt. Der bestehende Produktionsmaster
@@ -224,8 +224,8 @@ separat freizugebenden Integration von V2 unverändert in Benutzung.
 Verbindlicher Entscheidungsstand und Implementierungsreihenfolge stehen in
 `committee_matcher_planung_entscheidungen_codex.md` und
 `committee_matcher_v2_implementierungsplan.md`. Der Mappingkern selbst ist noch
-nicht implementiert; die folgenden Inputartefakte stammen aus der abgeschlossenen
-Phase P0 (Inputbaseline) und sind bereits verbindlich.
+nicht implementiert; verbindlich sind bereits die Inputartefakte aus P0
+(Inputbaseline) sowie die in P3 eingefrorenen Unit-IDs.
 
 ### `data/committee_matcher_inputs/md/*.md` (46 Mapping-Inputs + 2 Sammelquellen)
 
@@ -256,7 +256,8 @@ wird nie Mapping-Unit oder Promptkontext.
 
 Abgeleitete Unit-Sollmenge (eingefroren): **179** `subcommittee` + **31**
 `committee_parent_core` + **15** `committee_direct` = **225**; davon 8 Units
-`name_only`. Kanonische Unit-IDs entstehen erst in P3 (`unit-id-v1`).
+`name_only`. Die kanonischen IDs dazu stehen seit P3 in
+`data/config/committee_matcher_unit_ids_v1.yaml`.
 
 ### `data/committee_matcher_inputs/corpus_manifest.yaml`
 
@@ -301,7 +302,42 @@ Die Liste ist matcherbezogen und **nicht** aus der globalen
 Beide YAML-Artefakte enthalten bewusst keine Zeitstempel; `--write` ist damit
 reproduzierbar und die Provenienz laeuft ueber Git.
 
-### `data/committee_matcher_v2/` (reservierte Artefaktwurzel, noch leer)
+### `data/config/committee_matcher_unit_ids_v1.yaml` (P3, eingefroren)
+
+Die 225 kanonischen Unit-IDs als Sollmenge. `input validate` vergleicht die aus
+dem Corpus gebildeten IDs mengengleich dagegen; jede Abweichung blockiert
+(`UNIT_MISSING`, `UNIT_UNEXPECTED`). Erzeugt von
+`scripts/committee_matcher_baseline.py units --write`.
+
+| Feld | Typ | Bedeutung |
+|---|---|---|
+| `canonicalization_version` | str | `unit-id-v1`; Regeländerung erfordert neue Version |
+| `mapping_input_version` | str | `mapping-input-v1` (Hashvertrag des Modellinputs) |
+| `unit_count` | int | 225 |
+| `unit_counts` | map | Aufschlüsselung nach `kind` |
+| `units[].unit_id` | str | `<kammer>--<committee-slug>[--<subcommittee-slug>]` |
+| `units[].kind` | enum | `subcommittee` \| `committee_parent_core` \| `committee_direct` |
+| `units[].chamber` | enum | `house` \| `senate` \| `joint` |
+
+Die Kanonisierungsregeln selbst sind in `CLI_Bedienungsanleitung.md` 15a
+beschrieben und durch Golden-Tests eingefroren.
+
+### `data/config/committee_matcher_roster_rules.yaml` (P3)
+
+Explizite Zuordnungsregeln für `roster validate`; ohne Eintrag wird
+ausschließlich kanonisch gematcht. Inhaltlich noch leer — die drei offenen
+Rostervorkommen entscheidet Gate C.
+
+| Feld | Typ | Bedeutung |
+|---|---|---|
+| `rules_version` | str | `roster-rules-v1` |
+| `aliases[].chamber` / `.committee` / `.subcommittee` | str | Rosterschreibweise |
+| `aliases[].unit_id` | str | Ziel-Unit; muss existieren |
+| `aliases[].reason` | str | Pflicht; ohne Begründung blockiert der Lauf |
+| `exclusions[].chamber` / `.committee` / `.subcommittee` | str | Vorkommen ohne Unit |
+| `exclusions[].reason` | str | Pflicht |
+
+### `data/committee_matcher_v2/` (reservierte Artefaktwurzel)
 
 Einzige Schreibwurzel des Matchers. Ab P4 entstehen darunter unveränderliche
 Run-, Snapshot-, Review-, Evaluations- und Qualifikationsrevisionen; die
@@ -317,17 +353,24 @@ Pfadliste, blockiert die Wache ebenfalls (fail closed). Geschrieben wird
 ausschließlich über `write_text_atomic` (Temporärdatei im Zielverzeichnis,
 `O_NOFOLLOW`, `os.replace`).
 
-Einziger bereits erzeugter Inhalt: `reports/<kommando>/errors.json` — der
-strukturierte Fehlerbericht je CLI-Lauf (Plan 2.7). Diese volatilen Berichte
-sind gitignoriert; die ab P4 entstehenden Run-, Snapshot- und Review-Revisionen
+Bereits erzeugte Inhalte: `reports/<kommando>/errors.json` (strukturierter
+Fehlerbericht je CLI-Lauf, Plan 2.7), `reports/input_validate/units.json` (alle
+225 Units mit `unit_id`, `kind`, `input_basis`, `parent_unit_id`,
+`mapping_input_hash`, `source_bytes_sha256`) und
+`reports/roster_validate/roster_coverage.json` (je Rostervorkommen `chamber`,
+`committee`, `subcommittee`, `unit_id`, `coverage_status`, `match_basis`,
+`members`, `fuzzy_suggestion`, `hint`). Diese volatilen Berichte sind
+gitignoriert; die ab P4 entstehenden Run-, Snapshot- und Review-Revisionen
 bleiben versioniert.
 
 Das Paket `committee_matcher/` selbst hält seit P2 den providerfreien Kern:
 Zustände und Exit-Codes (`status.py`), Befundsammlung und Terminalbericht
 (`errors.py`), Pfadwache (`paths.py`), typisierte Settingssicht mit
 Providergate (`settings_view.py`), Pydantic-Datenverträge (`models.py`) und das
-CLI-Skelett (`cli.py`). Die Ownership-Karte aller 17 Zielmodule steht im
-Docstring von `committee_matcher/__init__.py`. Bedienung, Familien, Exit-Codes
+CLI-Skelett (`cli.py`). Seit P3 kommen der strikte Inputparser
+(`input_corpus.py`), die Unitbildung samt Kanonisierung (`units.py`) und die
+Roster-Coverage (`roster_coverage.py`) hinzu. Die Ownership-Karte aller 17
+Zielmodule steht im Docstring von `committee_matcher/__init__.py`. Bedienung, Familien, Exit-Codes
 und die vollständige Settingstabelle: `CLI_Bedienungsanleitung.md` Abschnitt 15.
 
 ## 4. Yahoo Finance Sektoren

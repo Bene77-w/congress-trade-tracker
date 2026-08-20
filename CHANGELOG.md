@@ -11,6 +11,43 @@ Historie abgeschlossener Module/Phasen. **Aktiver WIP-Modul-Stand** steht im „
 
 ---
 
+## 2026-08-20 — Committee Matcher V2, P3: Input, Identität und Roster
+
+Der providerfreie Kern liest den Corpus jetzt produktiv. `input_corpus.py` parst
+jedes Mapping-Markdown strikt gegen den Inputvertrag: Manifestverifikation gegen
+die Dateibytes, Größengrenzen, Frontmatter-Pflichtfelder, Kammer-Dateiname-
+Konsistenz, `source_files`-Rollenprüfung, Bodyvertrag (eine H1, eindeutige H2 vor
+dem Kommentarabschnitt) und ein Fremdanweisungsgate: `#userinput` blockiert mit
+Datei und Zeile, sofern es nicht im reservierten Kommentarabschnitt steht.
+Nichts wird geraten — jede Abweichung wird gemeldet.
+
+`units.py` bildet daraus die Units und friert zwei Verträge ein: `unit-id-v1`
+(Amtspräfix, NFKC, Typografie, Slug → `<kammer>--<committee>[--<sub>]`) und
+`mapping-input-v1` (SHA-256 über den kanonischen Modellinput). Beide sind durch
+Golden Tests gepinnt; die 225 IDs stehen als Sollmenge in
+`data/config/committee_matcher_unit_ids_v1.yaml` und werden bei jedem Lauf
+mengengleich verglichen. ID-Kollisionen blockieren statt umbenannt zu werden.
+
+`roster_coverage.py` prüft die House-/Senate-Roster read-only gegen die Units.
+Zugeordnet wird nur kanonisch oder per expliziter Aliasregel
+(`data/config/committee_matcher_roster_rules.yaml`, `roster-rules-v1`, Pflichtfeld
+`reason`); Fuzzy-Treffer sind reine Vorschläge. Fehlt ein Committee unter seiner
+Rosterkammer, greift die Joint-Cross-Chamber-Regel. Stand: 227 von 230 Vorkommen
+gemappt, 3 offen, 2 Units ohne Rostervorkommen — Entscheidung darüber liegt bei
+Gate C, deshalb Warnung statt Blocker.
+
+Neuer Parameter `COMMITTEE_MATCHER_MIN_EVIDENCE_CHARS` (Default 60): ein als
+`jurisdiction_text` deklarierter Text darunter wird als `INP_EVIDENCE_TOO_SHORT`
+gemeldet. Damit sind zwei abgeschnittene Appropriations-Abschnitte sichtbar,
+statt still ins Mapping zu laufen.
+
+Bedienung: `python -m committee_matcher input validate` und `roster validate`,
+beide netzwerkfrei und ohne Schreibzugriff außerhalb der Artefaktwurzel.
+
+Test-Stand: 1262 Tests grün, davon 75 neu in
+`tests/test_committee_matcher_input_units.py`; Corpusmanifest und
+P0-Schutzbaseline nach dem Lauf unverändert verifiziert.
+
 ## 2026-08-20 — Committee Matcher V2, P2: providerfreies Gerüst
 
 Das neue Paket `committee_matcher/` hält den providerfreien Kern. Die

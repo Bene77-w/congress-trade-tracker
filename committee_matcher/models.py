@@ -118,6 +118,9 @@ class MatcherUnit(MatcherModel):
     unit_name: NonEmptyStr
     input_basis: InputBasis
     source_path: NonEmptyStr
+    #: Erlaubter Evidenzkontext dieser Unit nach ``normalize_text``. Bei
+    #: ``name_only`` bleibt er leer: dann darf nur der Unitname belegen.
+    evidence_text: str = ""
     parent_unit_id: str | None = None
     mapping_input_hash: str | None = None
     source_bytes_sha256: str | None = None

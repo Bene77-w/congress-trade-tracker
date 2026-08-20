@@ -48,6 +48,8 @@ from typing import Dict, Iterable, List, Sequence, Tuple
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+# Projektwurzel, damit das Paket committee_matcher importierbar ist.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from committee_matcher_migrate_inputs import (  # noqa: E402
     BASE_DIR,
@@ -75,6 +77,10 @@ PROTECTED_BASELINE_VERSION = "protected-paths-v1"
 
 MANIFEST_PATH = DEFAULT_INPUT_ROOT / "corpus_manifest.yaml"
 PROTECTED_BASELINE_PATH = BASE_DIR / "data" / "config" / "committee_matcher_protected_baseline.yaml"
+UNIT_ID_BASELINE_PATH = BASE_DIR / "data" / "config" / "committee_matcher_unit_ids_v1.yaml"
+
+# Kanonisierungsversion aus dem Paket; die Sollmenge traegt sie im Kopf.
+from committee_matcher.units import UNIT_ID_VERSION  # noqa: E402
 
 ROLE_MAPPING_INPUT = "mapping_input"
 ROLE_SOURCE_ONLY = "source_only"
@@ -293,59 +299,45 @@ def check_source_references(input_root: Path, entries: Sequence[dict]) -> List[F
 
 
 def derive_units(input_root: Path) -> Tuple[List[dict], List[Finding]]:
-    """Leitet die strukturelle Unit-Sollmenge ab.
+    """Leitet die Unit-Sollmenge inklusive kanonischer ``unit-id-v1``-IDs ab.
 
-    Bewusst ohne kanonische Unit-IDs: die Kanonisierung ``unit-id-v1`` wird
-    erst in P3 festgeschrieben und per Golden Test eingefroren.
+    Delegiert an ``committee_matcher.input_corpus`` und ``committee_matcher.units``:
+    Parser und Unitbildung existieren seit P3 genau einmal. Diese Funktion
+    uebersetzt deren Befunde nur in das Berichtsformat dieses Werkzeugs und
+    prueft die eingefrorenen Corpus-Sollwerte, solange der kanonische Inputroot
+    verwendet wird.
     """
-    findings: List[Finding] = []
-    units: List[dict] = []
-    md_dir = input_root / "md"
-    for path in sorted(md_dir.glob("*.md")):
-        if path.name in SOURCE_ONLY_MD:
-            continue
-        rel = path.relative_to(input_root).as_posix()
-        text = path.read_text(encoding="utf-8")
-        try:
-            frontmatter, body, _ = split_frontmatter(text, rel)
-            data = parse_frontmatter(frontmatter, rel)
-            sections = heading_sections(body, rel)
-        except MigrationBlocked as blocked:
-            findings.append(blocked.finding)
-            continue
-        basis = (data.get("unit_input_basis") or {}).get("subcommittees") or {}
-        committee = str(data.get("committee", ""))
-        chamber = str(data.get("chamber", ""))
-        if sections:
-            units.append(
-                {
-                    "source": rel,
-                    "chamber": chamber,
-                    "unit_type": UNIT_TYPE_PARENT_CORE,
-                    "name": committee,
-                    "input_basis": "jurisdiction_text",
-                }
-            )
-            for name in sections:
-                units.append(
-                    {
-                        "source": rel,
-                        "chamber": chamber,
-                        "unit_type": UNIT_TYPE_SUBCOMMITTEE,
-                        "name": name,
-                        "input_basis": basis.get(name, "jurisdiction_text"),
-                    }
-                )
-        else:
-            units.append(
-                {
-                    "source": rel,
-                    "chamber": chamber,
-                    "unit_type": UNIT_TYPE_DIRECT,
-                    "name": committee,
-                    "input_basis": "jurisdiction_text",
-                }
-            )
+    from committee_matcher.errors import ErrorCollector
+    from committee_matcher.input_corpus import load_documents
+    from committee_matcher.settings_view import load_settings
+    from committee_matcher.units import build_units
+
+    collector = ErrorCollector()
+    result = load_documents(collector, load_settings().offline, input_root)
+    built = build_units(collector, result.documents)
+
+    findings: List[Finding] = [
+        Finding(
+            f.severity.value,
+            f.code,
+            f.obj,
+            f.message,
+            f.hint,
+            line=f.line,
+        )
+        for f in collector.findings
+    ]
+    units: List[dict] = [
+        {
+            "unit_id": unit.unit_id,
+            "source": unit.source_path,
+            "chamber": unit.chamber,
+            "unit_type": unit.kind.value,
+            "name": unit.unit_name,
+            "input_basis": unit.input_basis.value,
+        }
+        for unit in built
+    ]
 
     counts = Counter(u["unit_type"] for u in units)
     # Eingefrorene Sollwerte gelten nur fuer den kanonischen Inputroot.
@@ -716,14 +708,42 @@ def cmd_units(args: argparse.Namespace) -> int:
         f"{counts[UNIT_TYPE_DIRECT]} {UNIT_TYPE_DIRECT} = {len(units)}",
         "Kammern:  " + " | ".join(f"{k}={v}" for k, v in sorted(chambers.items())),
         f"Basis:    {sum(1 for u in units if u['input_basis'] == BASIS_NAME_ONLY)} name_only",
-        "Hinweis:  ohne kanonische Unit-IDs; unit-id-v1 wird erst in P3 eingefroren.",
+        f"IDs:      kanonisch nach {UNIT_ID_VERSION}",
     ]
+
+    blocked = any(f.severity == "BLOCKER" for f in findings)
+    if getattr(args, "write", False):
+        if blocked:
+            summary.append("Schreiben: uebersprungen, da Blocker vorliegen")
+        else:
+            from committee_matcher.units import build_baseline_payload
+
+            from committee_matcher.errors import ErrorCollector
+            from committee_matcher.input_corpus import load_documents
+            from committee_matcher.settings_view import load_settings
+            from committee_matcher.units import build_units
+
+            collector = ErrorCollector()
+            documents = load_documents(
+                collector, load_settings().offline, args.input_root.resolve()
+            ).documents
+            payload = build_baseline_payload(build_units(collector, documents))
+            dump_yaml(
+                UNIT_ID_BASELINE_PATH,
+                payload,
+                "Committee Matcher V2 - eingefrorene Unit-ID-Sollmenge "
+                f"({UNIT_ID_VERSION}); erzeugt von scripts/committee_matcher_baseline.py.",
+            )
+            summary.append(
+                f"Geschrieben: {relative_to_base(UNIT_ID_BASELINE_PATH)} "
+                f"({payload['unit_count']} IDs)"
+            )
     if args.list:
         print("-" * 78)
         for unit in units:
-            print(f"{unit['unit_type']:<22}{unit['chamber']:<7}{unit['name']}")
-    print_report("Unit-Vorschau", findings, summary)
-    return 4 if any(f.severity == "BLOCKER" for f in findings) else 0
+            print(f"{unit['unit_type']:<22}{unit['chamber']:<7}{unit['unit_id']}")
+    print_report("Unit-Sollmenge", findings, summary)
+    return 4 if blocked else 0
 
 
 def main(argv: List[str] | None = None) -> int:
@@ -743,8 +763,12 @@ def main(argv: List[str] | None = None) -> int:
     protect_mode.add_argument("--verify", action="store_true")
     protect.set_defaults(func=cmd_protect)
 
-    units = sub.add_parser("units", help="Strukturelle Unit-Sollmenge ableiten")
+    units = sub.add_parser("units", help="Unit-Sollmenge ableiten oder einfrieren")
     units.add_argument("--list", action="store_true", help="alle Units einzeln ausgeben")
+    units.add_argument(
+        "--write", action="store_true",
+        help="Sollmenge nach data/config/committee_matcher_unit_ids_v1.yaml einfrieren",
+    )
     units.add_argument("--input-root", type=Path, default=DEFAULT_INPUT_ROOT)
     units.set_defaults(func=cmd_units)
 

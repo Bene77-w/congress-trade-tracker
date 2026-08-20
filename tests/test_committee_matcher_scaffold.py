@@ -351,6 +351,7 @@ def _offline_module(**overrides):
     values = {
         "COMMITTEE_MATCHER_MAX_FILE_BYTES": 512_000,
         "COMMITTEE_MATCHER_MAX_FRONTMATTER_BYTES": 32_000,
+        "COMMITTEE_MATCHER_MIN_EVIDENCE_CHARS": 60,
         "COMMITTEE_MATCHER_YFINANCE_REQUEST_PAUSE_S": 1.5,
         "COMMITTEE_MATCHER_YFINANCE_MAX_RETRIES": 3,
         "COMMITTEE_MATCHER_YFINANCE_CHECKPOINT_EVERY": 10,
@@ -843,14 +844,26 @@ def test_cli_families_match_the_plan():
     assert not any(command.action == "review" and command.family == "run" for command in cli.COMMANDS)
 
 
-@pytest.mark.parametrize("command", cli.COMMANDS, ids=lambda c: c.name.replace(" ", "-"))
-def test_every_command_is_reachable_and_blocks_with_exit_four(command, capsys, artifact_sandbox):
+#: Stufenweise implementiert; noch offene Kommandos bleiben Stubs mit Exit 4.
+STUB_COMMANDS = [c for c in cli.COMMANDS if c.name not in cli.HANDLERS]
+
+
+@pytest.mark.parametrize("command", STUB_COMMANDS, ids=lambda c: c.name.replace(" ", "-"))
+def test_every_open_command_is_reachable_and_blocks_with_exit_four(command, capsys, artifact_sandbox):
     argv = [command.family] + ([command.action] if command.action else [])
     assert cli.main(argv) == int(ExitCode.PREFLIGHT_BLOCKED)
     out = capsys.readouterr().out
     assert command.name in out
     expected = "CLI_PROVIDER_GATE_CLOSED" if command.provider else "CLI_STAGE_NOT_IMPLEMENTED"
     assert expected in out
+
+
+@pytest.mark.parametrize("name", sorted(cli.HANDLERS), ids=lambda n: n.replace(" ", "-"))
+def test_implemented_commands_run_without_the_stub_marker(name, capsys, artifact_sandbox):
+    assert cli.main(name.split()) in (int(ExitCode.SUCCESS), int(ExitCode.SUCCESS_WITH_WARNINGS))
+    out = capsys.readouterr().out
+    assert "CLI_STAGE_NOT_IMPLEMENTED" not in out
+    assert "CLI_PROVIDER_GATE_CLOSED" not in out
 
 
 def test_provider_families_name_the_missing_settings(capsys, artifact_sandbox):
@@ -862,10 +875,10 @@ def test_provider_families_name_the_missing_settings(capsys, artifact_sandbox):
 
 
 def test_provider_free_families_do_not_mention_the_provider_gate(capsys, artifact_sandbox):
-    assert cli.main(["input", "validate"]) == int(ExitCode.PREFLIGHT_BLOCKED)
+    assert cli.main(["snapshot", "resume"]) == int(ExitCode.PREFLIGHT_BLOCKED)
     out = capsys.readouterr().out
     assert "CLI_PROVIDER_GATE_CLOSED" not in out
-    assert "Phase P3" in out
+    assert "Phase:    P4" in out
 
 
 def test_report_is_printed_for_every_command(capsys, artifact_sandbox):
@@ -900,11 +913,11 @@ def test_development_target_flags_only_exist_for_development_runs():
 
 def test_every_run_persists_its_findings(artifact_sandbox, capsys):
     """Plan 2.7: jeder CLI-Lauf persistiert die Fehler strukturiert."""
-    assert cli.main(["input", "validate"]) == int(ExitCode.PREFLIGHT_BLOCKED)
-    target = artifact_sandbox / "reports" / "input_validate" / "errors.json"
+    assert cli.main(["snapshot", "resume"]) == int(ExitCode.PREFLIGHT_BLOCKED)
+    target = artifact_sandbox / "reports" / "snapshot_resume" / "errors.json"
     payload = json.loads(target.read_text(encoding="utf-8"))
     assert [f["code"] for f in payload["findings"]] == ["CLI_STAGE_NOT_IMPLEMENTED"]
-    assert "reports/input_validate/errors.json" in capsys.readouterr().out
+    assert "reports/snapshot_resume/errors.json" in capsys.readouterr().out
 
 
 def test_usage_error_still_produces_a_report(artifact_sandbox, capsys):
@@ -919,7 +932,7 @@ def test_failing_persistence_warns_but_does_not_break_the_run(monkeypatch, capsy
         raise OSError("Dateisystem voll")
 
     monkeypatch.setattr(paths, "artifact_path", refuse)
-    assert cli.main(["input", "validate"]) == int(ExitCode.PREFLIGHT_BLOCKED)
+    assert cli.main(["snapshot", "resume"]) == int(ExitCode.PREFLIGHT_BLOCKED)
     out = capsys.readouterr().out
     assert "CLI_REPORT_NOT_PERSISTED" in out
     assert "CLI_STAGE_NOT_IMPLEMENTED" in out
