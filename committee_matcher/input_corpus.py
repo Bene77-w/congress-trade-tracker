@@ -30,6 +30,7 @@ import hashlib
 import re
 import unicodedata
 from dataclasses import dataclass, field
+from datetime import date, datetime
 from pathlib import Path
 
 import yaml
@@ -55,6 +56,12 @@ SOURCE_ONLY_MD = frozenset(
 
 #: Pflichtfelder des Frontmatters.
 REQUIRED_FIELDS = ("schema_version", "congress", "chamber", "committee", "committee_type")
+
+#: Rollen, die eine Mapping-MD in 'source_files' referenzieren darf.
+REFERENCEABLE_ROLES = (CorpusRole.RAW_SOURCE, CorpusRole.SOURCE_ONLY)
+
+#: Zulaessige Werte von 'source_metadata_status'.
+SOURCE_METADATA_STATUS = ("complete", "pending")
 
 #: Zulaessige Kammern; der Dateiname muss dazu passen.
 CHAMBERS = ("house", "senate", "joint")
@@ -203,6 +210,14 @@ def verify_manifest(
             )
             continue
         raw = target.read_bytes()
+        if entry.get("bytes") != len(raw):
+            collector.blocker(
+                "INP_MANIFEST_SIZE", Stage.INPUT, rel,
+                f"Datei hat {len(raw)} Bytes statt manifestierter "
+                f"{entry.get('bytes')!r}.",
+                "Aenderung pruefen; danach Manifest bewusst neu erzeugen.",
+            )
+            continue
         if sha256_bytes(raw) != str(entry.get("sha256")):
             collector.blocker(
                 "INP_MANIFEST_DRIFT", Stage.INPUT, rel,
@@ -223,6 +238,56 @@ def verify_manifest(
                 "Datei entfernen oder bewusst ins Manifest aufnehmen.",
             )
     return roles
+
+
+def _check_source_metadata(collector: ErrorCollector, rel_path: str, data: dict) -> None:
+    """Prueft den Provenienzteil des Frontmatters (Inputvertrag).
+
+    ``pending`` erlaubt fehlende Provenienz, ``complete`` verlangt URL **und**
+    Abrufzeit. Nichts wird ergaenzt oder geraten - eine erfundene Quelle waere
+    schlimmer als eine fehlende.
+    """
+    status = data.get("source_metadata_status")
+    if status not in SOURCE_METADATA_STATUS:
+        collector.blocker(
+            "INP_SOURCE_STATUS", Stage.INPUT, rel_path,
+            f"'source_metadata_status' ist {status!r}.",
+            f"Zulaessig sind {', '.join(SOURCE_METADATA_STATUS)}.", line=2,
+        )
+        return
+
+    url = data.get("source_url")
+    retrieved = data.get("retrieved_at")
+    if url is not None and (not isinstance(url, str) or not url.startswith(("http://", "https://"))):
+        collector.blocker(
+            "INP_SOURCE_URL", Stage.INPUT, rel_path,
+            f"'source_url' ist keine http(s)-URL: {url!r}.",
+            "Quell-URL korrigieren oder auf null setzen.", line=2,
+        )
+    if retrieved is not None and not _is_iso_timestamp(retrieved):
+        collector.blocker(
+            "INP_RETRIEVED_AT", Stage.INPUT, rel_path,
+            f"'retrieved_at' ist kein ISO-8601-Zeitpunkt: {retrieved!r}.",
+            "Abrufzeit als ISO-8601 schreiben oder auf null setzen.", line=2,
+        )
+    if status == "complete" and (url is None or retrieved is None):
+        collector.blocker(
+            "INP_SOURCE_METADATA_INCOMPLETE", Stage.INPUT, rel_path,
+            "Status 'complete' ohne 'source_url' und 'retrieved_at'.",
+            "Provenienz vervollstaendigen oder Status auf 'pending' setzen.", line=2,
+        )
+
+
+def _is_iso_timestamp(value: object) -> bool:
+    if isinstance(value, (datetime, date)):
+        return True
+    if not isinstance(value, str):
+        return False
+    try:
+        datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return True
 
 
 def _check_source_files(
@@ -269,7 +334,7 @@ def _check_source_files(
                 "Quelldatei ins Manifest aufnehmen.",
             )
             continue
-        if role not in (CorpusRole.RAW_SOURCE, CorpusRole.SOURCE_ONLY):
+        if role not in REFERENCEABLE_ROLES:
             collector.blocker(
                 "INP_SOURCE_ROLE", Stage.INPUT, rel_path,
                 f"Referenz {ref!r} hat die Rolle {role.value}.",
@@ -320,7 +385,8 @@ def _check_evidence_length(
 
 def _split_frontmatter(
     collector: ErrorCollector, rel_path: str, text: str, settings: OfflineSettings
-) -> tuple[str, str] | None:
+) -> tuple[str, str, int] | None:
+    """Liefert Frontmatter, Body und die Zeilenzahl vor dem Body."""
     if not text.startswith("---\n"):
         collector.blocker(
             "INP_NO_FRONTMATTER", Stage.INPUT, rel_path,
@@ -344,7 +410,8 @@ def _split_frontmatter(
             "Frontmatter kuerzen oder Grenze in config/settings.py anheben.", line=1,
         )
         return None
-    return frontmatter, text[end + 5 :]
+    body = text[end + 5 :]
+    return frontmatter, body, text[: end + 5].count("\n")
 
 
 def _parse_basis(
@@ -405,7 +472,8 @@ def _parse_basis(
 
 
 def _foreign_instruction_findings(
-    collector: ErrorCollector, rel_path: str, body: str, comment_start: int | None
+    collector: ErrorCollector, rel_path: str, body: str, comment_start: int | None,
+    line_offset: int = 0,
 ) -> None:
     """Blockiert markierte Fremdanweisungen ausserhalb des Kommentarabschnitts."""
     limit = comment_start if comment_start is not None else len(body)
@@ -417,7 +485,7 @@ def _foreign_instruction_findings(
             found = lowered.find(marker, start)
             if found == -1:
                 break
-            line = scope.count("\n", 0, found) + 1
+            line = line_offset + scope.count("\n", 0, found) + 1
             collector.blocker(
                 "INP_FOREIGN_INSTRUCTION", Stage.INPUT, rel_path,
                 f"Fremdanweisungsmarker {marker!r} ausserhalb "
@@ -429,8 +497,10 @@ def _foreign_instruction_findings(
 
 
 def _parse_body(
-    collector: ErrorCollector, rel_path: str, body: str
+    collector: ErrorCollector, rel_path: str, body: str, line_offset: int = 0
 ) -> tuple[str, tuple[Section, ...]] | None:
+    """Zerlegt den Body; ``line_offset`` ist die Zeilenzahl des Frontmatters,
+    damit jede Fundstelle die Zeile in der Datei nennt, nicht im Body."""
     headings = H1_RE.findall(body)
     if headings != [JURISDICTION_HEADING]:
         collector.blocker(
@@ -448,7 +518,7 @@ def _parse_body(
     seen: set[str] = set()
     for index, match in enumerate(matches):
         name = match.group(1)
-        line = body.count("\n", 0, match.start()) + 1
+        line = line_offset + body.count("\n", 0, match.start()) + 1
         end = matches[index + 1].start() if index + 1 < len(matches) else len(body)
         if name == COMMENT_HEADING:
             comment_start = match.start()
@@ -472,8 +542,35 @@ def _parse_body(
 
     first = matches[0].start() if matches else len(body)
     preamble = body[h1.end() : first]
-    _foreign_instruction_findings(collector, rel_path, body, comment_start)
+    _foreign_instruction_findings(
+        collector, rel_path, body, comment_start, line_offset
+    )
     return preamble, tuple(sections)
+
+
+def _check_orphan_sources(
+    collector: ErrorCollector,
+    roles: dict[str, CorpusRole],
+    documents: "list[CommitteeDocument]",
+) -> None:
+    """Jede referenzierbare Quelle muss von mindestens einer Mapping-MD genutzt werden.
+
+    Eine verwaiste Quelle heisst: entweder fehlt eine Referenz im Frontmatter
+    oder die Datei gehoert nicht in den Corpus. Beides ist eine bewusste
+    Entscheidung und darf nicht still bleiben.
+    """
+    referenced = {ref for document in documents for ref in document.source_files}
+    orphans = sorted(
+        rel for rel, role in roles.items()
+        if role in REFERENCEABLE_ROLES and rel not in referenced
+    )
+    for rel in orphans:
+        collector.blocker(
+            "INP_SOURCE_ORPHAN", Stage.INPUT, rel,
+            "Referenzierbare Quelldatei wird von keiner Mapping-MD referenziert.",
+            "'source_files' der zugehoerigen Mapping-MD ergaenzen oder Datei "
+            "aus dem Corpus nehmen.",
+        )
 
 
 def load_documents(
@@ -499,12 +596,20 @@ def load_documents(
                 "Datei kuerzen oder Grenze in config/settings.py anheben.",
             )
             continue
-        text = raw.decode("utf-8")
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            collector.blocker(
+                "INP_ENCODING", Stage.INPUT, rel,
+                f"Datei ist nicht UTF-8-dekodierbar (Byte {exc.start}).",
+                "Datei als UTF-8 speichern.",
+            )
+            continue
 
         split = _split_frontmatter(collector, rel, text, settings)
         if split is None:
             continue
-        frontmatter, body = split
+        frontmatter, body, body_line_offset = split
         try:
             data = yaml.safe_load(frontmatter)
         except yaml.YAMLError as exc:
@@ -531,6 +636,8 @@ def load_documents(
             )
             continue
 
+        _check_source_metadata(collector, rel, data)
+
         chamber = str(data["chamber"]).strip()
         if chamber not in CHAMBERS:
             collector.blocker(
@@ -548,7 +655,7 @@ def load_documents(
             )
             continue
 
-        parsed = _parse_body(collector, rel, body)
+        parsed = _parse_body(collector, rel, body, body_line_offset)
         if parsed is None:
             continue
         preamble, sections = parsed
@@ -587,6 +694,8 @@ def load_documents(
                 source_bytes_sha256=sha256_bytes(raw),
             )
         )
+
+    _check_orphan_sources(collector, roles, documents)
 
     return CorpusLoadResult(
         documents=tuple(documents),

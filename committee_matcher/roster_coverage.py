@@ -372,6 +372,39 @@ def roster_paths() -> dict[str, Path]:
     return result
 
 
+def report_gaps(
+    collector: ErrorCollector,
+    units: "tuple[MatcherUnit, ...] | list[MatcherUnit]",
+    rows: "tuple[RosterCoverageRow, ...] | list[RosterCoverageRow]",
+) -> tuple[str, ...]:
+    """Meldet beide Luecken-Richtungen und liefert die Units ohne Rostervorkommen.
+
+    Beide Richtungen sind Warnungen, keine Blocker: ob daraus Alias, Ausschluss
+    oder ein offener Punkt wird, entscheidet Gate C. Sie muessen aber Befunde
+    sein, damit der Lauf nicht faelschlich mit Exit 0 endet.
+    """
+    for row in rows:
+        if row.coverage_status is CoverageStatus.MISSING:
+            collector.warning(
+                "ROS_UNIT_MISSING", Stage.ROSTER,
+                f"{row.chamber}: {row.unit_name}",
+                "Rostervorkommen hat keine Unit.",
+                row.hint or "Alias oder Ausschluss festlegen.",
+            )
+    covered = {row.unit_id for row in rows if row.unit_id}
+    without_roster = tuple(
+        sorted(unit.unit_id for unit in units if unit.unit_id not in covered)
+    )
+    for unit_id in without_roster:
+        collector.warning(
+            "ROS_UNIT_WITHOUT_ROSTER", Stage.ROSTER, unit_id,
+            "Unit kommt in keinem Roster vor.",
+            "Rosterschreibweise per Alias verbinden oder die Abwesenheit "
+            "in den Rosterregeln begruenden.",
+        )
+    return without_roster
+
+
 def run_coverage(
     collector: ErrorCollector,
     units: "tuple[MatcherUnit, ...] | list[MatcherUnit]",

@@ -752,7 +752,8 @@ def test_unit_kind_rules():
         unit_id="house-x-sub", kind=UnitKind.SUBCOMMITTEE, chamber="house",
         committee_name="C", unit_name="S", input_basis=InputBasis.NAME_ONLY,
         source_path="data/committee_matcher_inputs/md/house_x.md",
-        parent_unit_id="house-x",
+        parent_unit_id="house-x", parent_committee_name="C",
+        parent_context_text="Jurisdiktion des Parents.",
     )
     assert sub.parent_unit_id == "house-x"
 

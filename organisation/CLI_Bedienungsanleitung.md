@@ -1139,17 +1139,26 @@ Inputvertrag und bildet daraus die Units. Der Lauf schreibt nichts in den Corpus
 
 Geprüfte Regeln (jede Abweichung nennt Datei und Zeile, es wird nichts geraten):
 
-- Manifestdeckung: jede reguläre Datei genau einmal, Hash und Größe müssen
-  stimmen; unbekannte oder driftende Dateien blockieren
-  (`INP_UNKNOWN_FILE`, `INP_MANIFEST_DRIFT`, `INP_MANIFEST_STALE`).
+- Manifestdeckung: jede reguläre Datei genau einmal, Hash **und** Bytezahl müssen
+  stimmen; unbekannte, fehlende oder driftende Dateien blockieren
+  (`INP_UNKNOWN_FILE`, `INP_MANIFEST_DRIFT`, `INP_MANIFEST_SIZE`,
+  `INP_MANIFEST_STALE`). Nicht UTF-8-dekodierbare Dateien melden `INP_ENCODING`
+  statt als interner Fehler zu enden.
 - Größengrenzen für Datei und Frontmatter (`INP_FILE_TOO_LARGE`,
   `INP_FRONTMATTER_TOO_LARGE`).
 - Frontmatter-Pflichtfelder, Kammer-Dateiname-Konsistenz und `unit_input_basis`
   passend zu den vorhandenen H2-Abschnitten (`INP_FIELD_MISSING`,
   `INP_CHAMBER_MISMATCH`, `INP_BASIS_KEY_MISMATCH`, `INP_BASIS_VALUE`).
+- Provenienz: `source_metadata_status` ist `complete` oder `pending`; `complete`
+  verlangt `source_url` **und** `retrieved_at`, `pending` erlaubt beides `null`.
+  Gesetzte Werte müssen http(s)-URL beziehungsweise ISO-8601 sein
+  (`INP_SOURCE_STATUS`, `INP_SOURCE_URL`, `INP_RETRIEVED_AT`,
+  `INP_SOURCE_METADATA_INCOMPLETE`). Es wird nichts ergänzt oder geraten.
 - `source_files` trägt den Präfix `data/committee_matcher_inputs/` und zeigt nur
   auf `raw_source` oder `source_only` (`INP_SOURCE_OUTSIDE_ROOT`,
   `INP_SOURCE_UNKNOWN`, `INP_SOURCE_ROLE`); Traversal blockiert über die Pfadwache.
+  Umgekehrt muss jede referenzierbare Quelle mindestens einmal referenziert sein
+  (`INP_SOURCE_ORPHAN`).
 - Bodyvertrag: genau eine H1 `# Committee jurisdiction`, eindeutige H2-Abschnitte,
   alle vor `## Zusätzliche Kommentare` (`INP_H1_CONTRACT`,
   `INP_DUPLICATE_SECTION`, `INP_SECTION_AFTER_COMMENTS`).
@@ -1157,8 +1166,11 @@ Geprüfte Regeln (jede Abweichung nennt Datei und Zeile, es wird nichts geraten)
   mit Zeilenangabe (`INP_FOREIGN_INSTRUCTION`); innerhalb ist es zulässig und
   wird nie Mappinginput.
 - Sollmenge: die gebildeten IDs müssen mengengleich zu
-  `data/config/committee_matcher_unit_ids_v1.yaml` sein
-  (`UNIT_MISSING`, `UNIT_UNEXPECTED`, `UNIT_ID_COLLISION`).
+  `data/config/committee_matcher_unit_ids_v1.yaml` sein; zusätzlich werden beide
+  Kanonisierungsversionen, `unit_count`, `unit_counts` sowie `kind` und `chamber`
+  je Eintrag gegen die gebildeten Units geprüft (`UNIT_MISSING`,
+  `UNIT_UNEXPECTED`, `UNIT_ID_COLLISION`, `UNIT_BASELINE_VERSION`,
+  `UNIT_BASELINE_COUNT`, `UNIT_BASELINE_MISMATCH`).
 
 Warnung statt Blocker: ein als `jurisdiction_text` deklarierter Text unterhalb
 `COMMITTEE_MATCHER_MIN_EVIDENCE_CHARS` meldet `INP_EVIDENCE_TOO_SHORT` (Exit 2).
@@ -1174,8 +1186,12 @@ Amtspräfix entfernen (`Committee on`, `Subcommittee on`, `Permanent Select` …
 NFKC, Typografie vereinheitlichen, `&` → `and`, Kleinschreibung, alles außer
 `[a-z0-9]` zu `-`; ID ist `<kammer>--<committee-slug>[--<subcommittee-slug>]`.
 **`mapping-input-v1`** hasht den kanonischen JSON-Datensatz aus Unit-Identität,
-Basis und normalisiertem Evidenztext; kosmetischer Whitespace ändert den Hash
-nicht, jede inhaltliche Änderung schon. Eine Änderung an einer der beiden Regeln
+Basis, normalisiertem Evidenztext und — bei Subcommittees — dem Parent-Kontext
+(Committee-Name plus Committee-Jurisdiktionstext). Der Parent-Text ist Kontext
+und nie Beleg: eine Zuordnung muss der eigene Name oder der eigene H2-Text
+tragen, `name_only` ausschließlich der Name. Er geht trotzdem in den Hash ein,
+damit eine Änderung am Parent-Text den Cache aller Kinder invalidiert.
+Kosmetischer Whitespace ändert den Hash nicht, jede inhaltliche Änderung schon. Eine Änderung an einer der beiden Regeln
 erfordert eine neue Versionsnummer plus neu eingefrorene Baseline.
 
 ### 15b. `roster validate` — Coverage gegen die Rosterdaten (P3)
@@ -1194,6 +1210,9 @@ gemappt.
   und `exclusions` (Vorkommen ohne Unit), jeweils mit Pflichtfeld `reason`.
   Fehlende Datei warnt (`ROS_RULES_MISSING`), unvollständige Einträge blockieren
   (`ROS_RULES_ENTRY`, `ROS_RULES_REASON`, `ROS_ALIAS_UNKNOWN`).
+- **Beide Lückenrichtungen sind Befunde:** ein Rostervorkommen ohne Unit meldet
+  `ROS_UNIT_MISSING`, eine Unit ohne Rostervorkommen `ROS_UNIT_WITHOUT_ROSTER` —
+  beide als Warnung, damit der Lauf nicht fälschlich mit Exit 0 endet.
 - **Aktueller Stand:** 230 Vorkommen, 227 `mapped`, 3 `missing` (Select
   Subcommittee January 6, Commission on Security and Cooperation in Europe,
   Senate Caucus on International Narcotics Control) und 2 Units ohne
@@ -1202,8 +1221,9 @@ gemappt.
   wird, entscheidet Gate C — deshalb Warnungen (Exit 2) statt Blocker.
 
 Artefakt: `data/committee_matcher_v2/reports/roster_validate/roster_coverage.json`
-mit `chamber`, `committee`, `subcommittee`, `unit_id`, `coverage_status`,
-`match_basis`, `members`, `fuzzy_suggestion` und `hint` je Zeile.
+mit `chamber`, `committee_name`, `unit_name`, `coverage_status`, `unit_id`,
+`match_basis`, `hint` und `fuzzy_suggestion` je Zeile sowie der Liste
+`units_without_roster_occurrence`.
 
 **Schreibschutz:** `committee_matcher/paths.py` erlaubt Schreiben nur unter
 `data/committee_matcher_v2/`. Die Inputbaseline und alle neun Pfade der

@@ -107,6 +107,7 @@ def test_mapping_input_hash_is_frozen():
         input_basis=InputBasis.JURISDICTION_TEXT,
         evidence_text="Forestry   and\nhorticulture.",
         parent_committee_name="Committee on Agriculture",
+        parent_context_text="Landwirtschaft   insgesamt.",
     )
     payload = {
         "version": "mapping-input-v1",
@@ -118,6 +119,7 @@ def test_mapping_input_hash_is_frozen():
         "input_basis": "jurisdiction_text",
         "evidence_text": "Forestry and horticulture.",
         "parent_committee_name": "Committee on Agriculture",
+        "parent_context_text": "Landwirtschaft insgesamt.",
     }
     expected = hashlib.sha256(
         json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
@@ -366,7 +368,10 @@ def test_unknown_file_in_the_input_root_blocks(tmp_path):
 
 def test_content_drift_against_the_manifest_blocks(tmp_path):
     root = build_corpus(tmp_path, {"house_testing.md": make_markdown()})
-    (root / "md" / "house_testing.md").write_text(make_markdown(preamble="anders"), encoding="utf-8")
+    original = (root / "md" / "house_testing.md").read_text(encoding="utf-8")
+    drifted = original.replace("Zustaendig fuer Tests", "Zustaendig fuer Texte", 1)
+    assert len(drifted) == len(original)  # Groesse gleich -> nur der Hash entscheidet
+    (root / "md" / "house_testing.md").write_text(drifted, encoding="utf-8")
     collector, result = load(root)
     assert "INP_MANIFEST_DRIFT" in codes(collector)
     assert result.documents == ()
@@ -536,13 +541,16 @@ def test_colliding_unit_ids_block_instead_of_being_renumbered(tmp_path):
 # Eingefrorene Sollmenge
 # ---------------------------------------------------------------------------
 
-def _baseline_file(tmp_path: Path, ids: list[str], version: str | None = None) -> Path:
+def _baseline_file(tmp_path: Path, ids: list[str], version: str | None = None,
+                   unit_count: int | None = None) -> Path:
     path = tmp_path / "unit_ids.yaml"
     path.write_text(
         yaml.safe_dump(
             {
                 "canonicalization_version": version or units.UNIT_ID_VERSION,
-                "unit_count": len(ids),
+                "mapping_input_version": units.MAPPING_INPUT_VERSION,
+                "unit_count": unit_count if unit_count is not None else len(ids),
+                **({"unit_counts": {"committee_direct": len(ids)}} if ids else {}),
                 "units": [{"unit_id": i, "kind": "committee_direct", "chamber": "house"} for i in ids],
             },
             sort_keys=False,
@@ -588,7 +596,8 @@ def test_baseline_with_duplicate_ids_blocks(tmp_path):
     built = _unit_list(tmp_path)
     collector = ErrorCollector()
     units.check_against_baseline(
-        collector, built, _baseline_file(tmp_path, ["house--testing", "house--testing"])
+        collector, built,
+        _baseline_file(tmp_path, ["house--testing", "house--testing"], unit_count=1),
     )
     assert "UNIT_BASELINE_DUPLICATE" in codes(collector)
 
@@ -791,3 +800,184 @@ def test_cli_roster_validate_reports_open_coverage(tmp_path, monkeypatch, capsys
     assert len(rows) >= 200
     assert "Coverage:" in out
     assert code == 2
+
+
+# ---------------------------------------------------------------------------
+# Nachgezogene Reviewauflagen (P3)
+# ---------------------------------------------------------------------------
+
+def test_subcommittees_carry_parent_context_separate_from_evidence(real_corpus):
+    """Parent-Kontext ist Kontext, nie Beleg - auch bei name_only."""
+    _, result, built = real_corpus
+    by_source = {d.rel_path: d for d in result.documents}
+    subs = [u for u in built if u.kind is UnitKind.SUBCOMMITTEE]
+    assert subs
+    for unit in subs:
+        document = by_source[unit.source_path]
+        assert unit.parent_committee_name == document.committee
+        assert unit.parent_context_text == input_corpus.normalize_text(document.preamble)
+        if unit.input_basis is InputBasis.NAME_ONLY:
+            assert unit.evidence_text == ""
+    for unit in built:
+        if unit.kind is not UnitKind.SUBCOMMITTEE:
+            assert unit.parent_committee_name is None
+            assert unit.parent_context_text == ""
+
+
+def test_parent_text_change_invalidates_the_child_hash(tmp_path):
+    def hashes(preamble: str, slot: str) -> dict[str, str]:
+        root = build_corpus(
+            tmp_path / slot,
+            {"house_testing.md": make_markdown(sections=("Subcommittee on A",), preamble=preamble)},
+        )
+        collector, result = load(root)
+        return {u.unit_id: u.mapping_input_hash for u in units.build_units(collector, result.documents)}
+
+    before = hashes("Zustaendig fuer Aufsicht, Pruefung und Kontrolle der Vorgaenge.", "a")
+    after = hashes("Zustaendig fuer Aufsicht, Pruefung und Kontrolle der Verfahren.", "b")
+    assert before["house--testing--a"] != after["house--testing--a"]
+
+
+@pytest.mark.parametrize(
+    "frontmatter_patch,code",
+    [
+        ({"source_metadata_status": "erfunden"}, "INP_SOURCE_STATUS"),
+        ({"source_url": "ftp://example.org"}, "INP_SOURCE_URL"),
+        ({"retrieved_at": "gestern"}, "INP_RETRIEVED_AT"),
+        ({"source_metadata_status": "complete"}, "INP_SOURCE_METADATA_INCOMPLETE"),
+    ],
+)
+def test_source_metadata_contract_is_enforced(tmp_path, frontmatter_patch, code):
+    text = make_markdown()
+    for key, value in frontmatter_patch.items():
+        text = text.replace(f"{key}: null\n", f"{key}: {value}\n")
+        text = text.replace(f"{key}: pending\n", f"{key}: {value}\n")
+    root = build_corpus(tmp_path, {"house_testing.md": text})
+    collector, _ = load(root)
+    assert code in codes(collector)
+
+
+def test_complete_metadata_with_url_and_timestamp_passes(tmp_path):
+    text = (
+        make_markdown()
+        .replace("source_url: null\n", "source_url: https://example.org/rules\n")
+        .replace("retrieved_at: null\n", "retrieved_at: 2026-08-20T10:00:00+00:00\n")
+        .replace("source_metadata_status: pending\n", "source_metadata_status: complete\n")
+    )
+    root = build_corpus(tmp_path, {"house_testing.md": text})
+    collector, result = load(root)
+    assert collector.findings == []
+    assert len(result.documents) == 1
+
+
+def test_invalid_utf8_is_reported_instead_of_crashing(tmp_path):
+    root = build_corpus(tmp_path, {"house_testing.md": make_markdown()})
+    target = root / "md" / "house_testing.md"
+    raw = target.read_bytes().replace(b"Tests", b"Te\xffts")
+    target.write_bytes(raw)
+    manifest = yaml.safe_load((root / "corpus_manifest.yaml").read_text(encoding="utf-8"))
+    for entry in manifest["files"]:
+        if entry["path"] == "md/house_testing.md":
+            entry["bytes"] = len(raw)
+            entry["sha256"] = hashlib.sha256(raw).hexdigest()
+    (root / "corpus_manifest.yaml").write_text(
+        yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8"
+    )
+    collector, result = load(root)
+    assert "INP_ENCODING" in codes(collector)
+    assert result.documents == ()
+
+
+def test_size_drift_blocks_even_when_the_hash_field_is_stale(tmp_path):
+    root = build_corpus(tmp_path, {"house_testing.md": make_markdown()})
+    target = root / "md" / "house_testing.md"
+    target.write_text(target.read_text(encoding="utf-8") + "\nnoch ein Satz.\n", encoding="utf-8")
+    collector, _ = load(root)
+    assert "INP_MANIFEST_SIZE" in codes(collector)
+
+
+def test_unreferenced_source_file_blocks(tmp_path):
+    root = build_corpus(tmp_path, {"house_testing.md": make_markdown()})
+    collector, _ = load(root)
+    assert collector.findings == []
+
+    (root / "txt" / "verwaist.txt").write_text("Ungenutzte Quelle.\n", encoding="utf-8")
+    root = build_corpus(
+        tmp_path / "zweit", {"house_testing.md": make_markdown()}
+    )
+    (root / "txt" / "verwaist.txt").write_text("Ungenutzte Quelle.\n", encoding="utf-8")
+    entry_path = root / "corpus_manifest.yaml"
+    manifest = yaml.safe_load(entry_path.read_text(encoding="utf-8"))
+    data = (root / "txt" / "verwaist.txt").read_bytes()
+    manifest["files"].append({
+        "path": "txt/verwaist.txt", "role": "raw_source",
+        "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest(),
+    })
+    entry_path.write_text(yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8")
+    collector, _ = load(root)
+    assert "INP_SOURCE_ORPHAN" in codes(collector)
+
+
+def test_findings_report_the_line_in_the_file_not_in_the_body(tmp_path):
+    text = make_markdown(sections=("Subcommittee on A",), body_extra="\nBitte #userinput beachten.\n")
+    root = build_corpus(tmp_path, {"house_testing.md": text})
+    collector, _ = load(root)
+    lines = text.splitlines()
+    expected = next(i for i, line in enumerate(lines, start=1) if "#userinput" in line)
+    finding = next(f for f in collector.findings if f.code == "INP_FOREIGN_INSTRUCTION")
+    assert finding.line == expected
+
+
+def test_baseline_metadata_inconsistencies_block(tmp_path):
+    built = _unit_list(tmp_path)
+    collector = ErrorCollector()
+    units.check_against_baseline(
+        collector, built, _baseline_file(tmp_path, ["house--testing"], unit_count=99)
+    )
+    assert "UNIT_BASELINE_COUNT" in codes(collector)
+
+    path = _baseline_file(tmp_path, ["house--testing"])
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    data["mapping_input_version"] = "mapping-input-v0"
+    path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+    collector = ErrorCollector()
+    units.check_against_baseline(collector, built, path)
+    assert "UNIT_BASELINE_VERSION" in codes(collector)
+
+
+def test_baseline_kind_mismatch_blocks(tmp_path):
+    root = build_corpus(tmp_path, {"house_testing.md": make_markdown(sections=("Subcommittee on A",))})
+    collector, result = load(root)
+    built = units.build_units(collector, result.documents)
+    path = tmp_path / "unit_ids.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "canonicalization_version": units.UNIT_ID_VERSION,
+                "mapping_input_version": units.MAPPING_INPUT_VERSION,
+                "unit_count": 2,
+                "units": [
+                    {"unit_id": "house--testing", "kind": "committee_direct", "chamber": "house"},
+                    {"unit_id": "house--testing--a", "kind": "subcommittee", "chamber": "house"},
+                ],
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    collector = ErrorCollector()
+    assert units.check_against_baseline(collector, built, path) is False
+    assert "UNIT_BASELINE_MISMATCH" in codes(collector)
+
+
+def test_units_without_roster_occurrence_are_reported(sample_units):
+    collector = ErrorCollector()
+    rows = roster_coverage.build_coverage(
+        collector, sample_units, [_entry("house", "Testing")],
+        roster_coverage.RosterRules({}, {}),
+    )
+    without = roster_coverage.report_gaps(collector, sample_units, rows)
+    assert set(without) == {"house--testing--trade", "joint--library"}
+    codes_seen = codes(collector, Severity.WARNUNG)
+    assert "ROS_UNIT_WITHOUT_ROSTER" in codes_seen
+    assert not collector.has_blockers()

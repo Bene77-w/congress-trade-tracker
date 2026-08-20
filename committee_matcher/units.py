@@ -30,8 +30,10 @@ Test eingefroren:
 ``mapping-input-v1``
     SHA-256 ueber die kanonische JSON-Serialisierung genau der fachlichen
     Daten, die eine Unit in den Mappingcall traegt: Identitaet, Unittyp, Basis
-    und normalisierter Evidenztext. Volatile Provenienz (Run-, Snapshot- und
-    Call-IDs) geht nicht ein. Die exakten Quelldateibytes erhalten mit
+    normalisierter Evidenztext sowie der Parent-Kontext eines Subcommittees.
+    Der Parent-Text ist Kontext und kein Beleg, geht aber in den Hash ein: aendert
+    sich die Jurisdiktion des Parents, aendert sich der Modellinput der Kinder.
+    Volatile Provenienz (Run-, Snapshot- und Call-IDs) geht nicht ein. Die exakten Quelldateibytes erhalten mit
     ``source_bytes_sha256`` einen getrennten Hash.
 
 Kollidierende IDs blockieren; es wird nichts durch Nummerierung entschaerft.
@@ -143,6 +145,7 @@ def mapping_input_hash(
     input_basis: InputBasis,
     evidence_text: str,
     parent_committee_name: str | None,
+    parent_context_text: str = "",
 ) -> str:
     """SHA-256 des fachlichen Mappinginputs gemaess ``mapping-input-v1``."""
     payload = {
@@ -157,6 +160,7 @@ def mapping_input_hash(
         "parent_committee_name": (
             normalize_text(parent_committee_name) if parent_committee_name else None
         ),
+        "parent_context_text": normalize_text(parent_context_text),
     }
     serialized = json.dumps(
         payload, sort_keys=True, ensure_ascii=False, separators=(",", ":")
@@ -174,6 +178,15 @@ def _unit(
     evidence_text: str,
     parent_unit_id: str | None,
 ) -> MatcherUnit:
+    """Baut eine Unit inklusive Parent-Kontext.
+
+    Subcommittees tragen Name und Jurisdiktionstext des Parents als Kontext;
+    belegen muessen sie eine Zuordnung weiterhin mit eigenem Namen oder eigenem
+    H2-Text (Plan 2.2). Deshalb liegt der Parent-Text in einem eigenen Feld und
+    nie in ``evidence_text``.
+    """
+    parent_committee_name = document.committee if parent_unit_id else None
+    parent_context_text = normalize_text(document.preamble) if parent_unit_id else ""
     return MatcherUnit(
         unit_id=unit_id,
         kind=kind,
@@ -184,6 +197,8 @@ def _unit(
         source_path=document.rel_path,
         evidence_text=normalize_text(evidence_text),
         parent_unit_id=parent_unit_id,
+        parent_committee_name=parent_committee_name,
+        parent_context_text=parent_context_text,
         mapping_input_hash=mapping_input_hash(
             unit_id=unit_id,
             kind=kind,
@@ -192,7 +207,8 @@ def _unit(
             unit_name=unit_name,
             input_basis=input_basis,
             evidence_text=evidence_text,
-            parent_committee_name=document.committee if parent_unit_id else None,
+            parent_committee_name=parent_committee_name,
+            parent_context_text=parent_context_text,
         ),
         source_bytes_sha256=document.source_bytes_sha256 or None,
     )
@@ -315,7 +331,20 @@ def build_baseline_payload(units: "tuple[MatcherUnit, ...] | list[MatcherUnit]")
 def load_baseline_ids(
     collector: ErrorCollector, path: Path = UNIT_ID_BASELINE_PATH
 ) -> frozenset[str] | None:
-    """Liest die eingefrorene Unit-ID-Sollmenge."""
+    """Liest die eingefrorene Sollmenge und liefert nur ihre IDs."""
+    entries = load_baseline(collector, path)
+    return None if entries is None else frozenset(entries)
+
+
+def load_baseline(
+    collector: ErrorCollector, path: Path = UNIT_ID_BASELINE_PATH
+) -> dict[str, dict] | None:
+    """Liest die eingefrorene Sollmenge inklusive Kopffeldern je Unit.
+
+    Geprueft werden beide Kanonisierungsversionen, die Zaehlfelder und die
+    Konsistenz der Eintraege untereinander: eine in sich widerspruechliche
+    Baseline darf nicht als Vertrag durchgehen, auch wenn ihre ID-Menge passt.
+    """
     if not path.exists():
         collector.blocker(
             "UNIT_BASELINE_MISSING", Stage.INPUT, paths.relative_to_base(path),
@@ -347,7 +376,16 @@ def load_baseline_ids(
             "Kanonisierung und Sollmenge gemeinsam versionieren.",
         )
         return None
-    ids: list[str] = []
+    if data.get("mapping_input_version") != MAPPING_INPUT_VERSION:
+        collector.blocker(
+            "UNIT_BASELINE_VERSION", Stage.INPUT, paths.relative_to_base(path),
+            f"Sollmenge traegt {data.get('mapping_input_version')!r} statt "
+            f"{MAPPING_INPUT_VERSION!r}.",
+            "Kanonisierung und Sollmenge gemeinsam versionieren.",
+        )
+        return None
+
+    entries: dict[str, dict] = {}
     for entry in data["units"]:
         if not isinstance(entry, dict) or not entry.get("unit_id"):
             collector.blocker(
@@ -356,15 +394,38 @@ def load_baseline_ids(
                 "Datei neu erzeugen.",
             )
             return None
-        ids.append(str(entry["unit_id"]))
-    if len(ids) != len(set(ids)):
+        unit_id = str(entry["unit_id"])
+        if unit_id in entries:
+            collector.blocker(
+                "UNIT_BASELINE_DUPLICATE", Stage.INPUT, paths.relative_to_base(path),
+                "Sollmenge enthaelt doppelte Unit-IDs.",
+                "Datei neu erzeugen.",
+            )
+            return None
+        entries[unit_id] = entry
+
+    declared_count = data.get("unit_count")
+    if declared_count is not None and declared_count != len(entries):
         collector.blocker(
-            "UNIT_BASELINE_DUPLICATE", Stage.INPUT, paths.relative_to_base(path),
-            "Sollmenge enthaelt doppelte Unit-IDs.",
+            "UNIT_BASELINE_COUNT", Stage.INPUT, paths.relative_to_base(path),
+            f"'unit_count' meldet {declared_count!r}, die Liste hat {len(entries)}.",
             "Datei neu erzeugen.",
         )
         return None
-    return frozenset(ids)
+    declared_kinds = data.get("unit_counts")
+    if isinstance(declared_kinds, dict):
+        actual_kinds: dict[str, int] = {}
+        for entry in entries.values():
+            kind = str(entry.get("kind"))
+            actual_kinds[kind] = actual_kinds.get(kind, 0) + 1
+        if dict(sorted(declared_kinds.items())) != dict(sorted(actual_kinds.items())):
+            collector.blocker(
+                "UNIT_BASELINE_COUNT", Stage.INPUT, paths.relative_to_base(path),
+                f"'unit_counts' {declared_kinds} passt nicht zur Liste {actual_kinds}.",
+                "Datei neu erzeugen.",
+            )
+            return None
+    return entries
 
 
 def check_against_baseline(
@@ -372,10 +433,11 @@ def check_against_baseline(
     units: "tuple[MatcherUnit, ...] | list[MatcherUnit]",
     path: Path = UNIT_ID_BASELINE_PATH,
 ) -> bool:
-    """Prueft exakte Setgleichheit gegen die eingefrorene Sollmenge."""
-    expected = load_baseline_ids(collector, path)
-    if expected is None:
+    """Prueft Setgleichheit und Kopffelder gegen die eingefrorene Sollmenge."""
+    baseline = load_baseline(collector, path)
+    if baseline is None:
         return False
+    expected = frozenset(baseline)
     actual = frozenset(unit.unit_id for unit in units)
     missing = sorted(expected - actual)
     unexpected = sorted(actual - expected)
@@ -391,4 +453,18 @@ def check_against_baseline(
             "Unit ist nicht Teil der eingefrorenen Sollmenge.",
             "Corpusaenderung pruefen; Sollmenge nur bewusst neu einfrieren.",
         )
-    return not missing and not unexpected
+    mismatched = False
+    for unit in units:
+        entry = baseline.get(unit.unit_id)
+        if entry is None:
+            continue
+        for field, value in (("kind", unit.kind.value), ("chamber", unit.chamber)):
+            declared = entry.get(field)
+            if declared is not None and str(declared) != value:
+                mismatched = True
+                collector.blocker(
+                    "UNIT_BASELINE_MISMATCH", Stage.INPUT, unit.unit_id,
+                    f"Sollmenge fuehrt {field}={declared!r}, gebildet wurde {value!r}.",
+                    "Corpusaenderung pruefen; Sollmenge nur bewusst neu einfrieren.",
+                )
+    return not missing and not unexpected and not mismatched

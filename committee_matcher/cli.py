@@ -275,21 +275,12 @@ def handle_roster_validate(
     counts: dict[str, int] = {}
     for row in rows:
         counts[row.coverage_status.value] = counts.get(row.coverage_status.value, 0) + 1
-    for row in rows:
-        if row.coverage_status is CoverageStatus.MISSING:
-            collector.warning(
-                "ROS_UNIT_MISSING", Stage.ROSTER,
-                f"{row.chamber}: {row.unit_name}",
-                "Rostervorkommen hat keine Unit.",
-                row.hint or "Alias oder Ausschluss festlegen.",
-            )
-    covered = {row.unit_id for row in rows if row.unit_id}
-    without_roster = sorted(unit.unit_id for unit in units if unit.unit_id not in covered)
+    without_roster = roster_coverage.report_gaps(collector, units, rows)
     artifacts = _write_artifact(
         collector, command.name, "roster_coverage.json",
         {
             "rows": [row.model_dump(mode="json") for row in rows],
-            "units_without_roster_occurrence": without_roster,
+            "units_without_roster_occurrence": list(without_roster),
         },
     )
     summary = [

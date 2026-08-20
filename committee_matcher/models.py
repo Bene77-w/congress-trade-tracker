@@ -122,8 +122,24 @@ class MatcherUnit(MatcherModel):
     #: ``name_only`` bleibt er leer: dann darf nur der Unitname belegen.
     evidence_text: str = ""
     parent_unit_id: str | None = None
+    #: Name des uebergeordneten Committees; nur bei Subcommittees gesetzt.
+    parent_committee_name: str | None = None
+    #: Jurisdiktionstext des Parents als **Kontext**, nie als Beleg: eine
+    #: Zuordnung muss der eigene Name oder der eigene H2-Text tragen
+    #: (Plan 2.2). Geht in den ``mapping_input_hash`` ein, damit eine Aenderung
+    #: am Parent-Text den Cache der Kinder invalidiert.
+    parent_context_text: str = ""
     mapping_input_hash: str | None = None
     source_bytes_sha256: str | None = None
+
+    @model_validator(mode="after")
+    def _parent_fields(self) -> "MatcherUnit":
+        if self.parent_unit_id is None:
+            if self.parent_committee_name or self.parent_context_text:
+                raise ValueError("Parentfelder ohne parent_unit_id")
+        elif not self.parent_committee_name:
+            raise ValueError("parent_unit_id ohne parent_committee_name")
+        return self
 
     @field_validator("unit_id")
     @classmethod

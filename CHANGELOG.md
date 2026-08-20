@@ -44,7 +44,14 @@ statt still ins Mapping zu laufen.
 Bedienung: `python -m committee_matcher input validate` und `roster validate`,
 beide netzwerkfrei und ohne Schreibzugriff außerhalb der Artefaktwurzel.
 
-Test-Stand: 1262 Tests grün, davon 75 neu in
+Aus dem Phasenreview nachgezogen: Subcommittees tragen den Parent-Kontext als
+eigenes Feld (im Inputhash, nie als Beleg), das Frontmatter wird auch auf
+Provenienz geprüft, nicht dekodierbare Dateien und Größendrift melden Befunde
+statt zu crashen, verwaiste Quelldateien blockieren, Units ohne Rostervorkommen
+sind ein eigener Warnbefund und die eingefrorene Sollmenge wird inklusive
+Kopffeldern validiert.
+
+Test-Stand: 1276 Tests grün, davon 89 neu in
 `tests/test_committee_matcher_input_units.py`; Corpusmanifest und
 P0-Schutzbaseline nach dem Lauf unverändert verifiziert.
 

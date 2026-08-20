@@ -358,8 +358,8 @@ Fehlerbericht je CLI-Lauf, Plan 2.7), `reports/input_validate/units.json` (alle
 225 Units mit `unit_id`, `kind`, `input_basis`, `parent_unit_id`,
 `mapping_input_hash`, `source_bytes_sha256`) und
 `reports/roster_validate/roster_coverage.json` (je Rostervorkommen `chamber`,
-`committee`, `subcommittee`, `unit_id`, `coverage_status`, `match_basis`,
-`members`, `fuzzy_suggestion`, `hint`). Diese volatilen Berichte sind
+`committee_name`, `unit_name`, `coverage_status`, `unit_id`, `match_basis`,
+`hint`, `fuzzy_suggestion`, dazu die Liste `units_without_roster_occurrence`). Diese volatilen Berichte sind
 gitignoriert; die ab P4 entstehenden Run-, Snapshot- und Review-Revisionen
 bleiben versioniert.
 
