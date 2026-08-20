@@ -625,8 +625,21 @@ Abschlussbericht aus — auch bei null Befunden. `--apply` ist idempotent: ein
 zweiter Lauf schreibt nichts mehr, weil ein vorhandenes `unit_input_basis` die
 massgebliche Quelle der Basiswerte ist.
 
+`--apply` arbeitet corpusweit **all-or-nothing**: Zuerst berechnet ein Preflight
+den Sollzustand aller Dateien samt Struktur-, Corpus- und Kohaerenzpruefung;
+erst bei null Blockern wird geschrieben. Ein Schreibfehler rollt den gesamten
+Lauf zurueck. Jeder Mischzustand aus migrierten und unmigrierten Dateien
+(`COR_STATE_MIXED`, `COR_STATE_LEGACY_RESIDUE`, `COR_STATE_LEGACY_INCOHERENT`)
+blockiert, statt einen fehlenden `name_only`-Wert zu raten.
+
+`manifest --verify` und `protect --verify` vergleichen die gespeicherte
+Baselinedatei feldweise mit dem neu berechneten Sollpayload — inklusive Rolle,
+Bytezahl, Hash, Kopffeldern, doppelten Eintraegen (`*_DUPLICATE`), verwaisten
+Eintraegen (`*_STALE_ENTRY`) und nicht manifestierten Dateien
+(`MAN_UNMANIFESTED`).
+
 Artefakte + Spalten: `DATA_STRUCTURE.md` Abschnitt 3a.
-Tests: `tests/test_committee_matcher_input_baseline.py` (72 Tests, netzwerkfrei).
+Tests: `tests/test_committee_matcher_input_baseline.py` (90 Tests, netzwerkfrei).
 
 ---
 

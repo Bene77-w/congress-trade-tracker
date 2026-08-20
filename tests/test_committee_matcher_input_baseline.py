@@ -386,3 +386,234 @@ def test_unknown_corpus_file_blocks(synthetic_root: Path):
     (synthetic_root / "unerwartet.bin").write_bytes(b"x")
     _manifest, findings = baseline.build_manifest(synthetic_root)
     assert "MAN_UNKNOWN_FILE" in {f.code for f in findings}
+
+
+# ---------------------------------------------------------------------------
+# Negativpfade: source_files-Referenzen
+# ---------------------------------------------------------------------------
+
+
+def minimal_body() -> str:
+    return f"# Committee jurisdiction\n\nText.\n\n## {migrate.COMMENT_HEADING}\n\nK.\n"
+
+
+def corpus_with_reference(root: Path, reference: str) -> None:
+    """Legt einen synthetischen Corpus mit genau einer Mapping-MD an."""
+    frontmatter = "\n".join(
+        line for line in BASE_FRONTMATTER.splitlines() if not line.strip().startswith("- data/")
+    )
+    write_md(root / "md", "house_example.md", f"{frontmatter}\n  - {reference}", minimal_body())
+    (root / "txt" / "example.txt").write_text("roh", encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    ("reference", "expected_code"),
+    [
+        ("data/committee_matcher_inputs/../../etc/passwd", "MAN_PATH_TRAVERSAL"),
+        ("/etc/passwd", "MAN_PATH_TRAVERSAL"),
+        ("data/mappings/us_house_all_committees.csv", "MAN_REF_OUTSIDE_ROOT"),
+        ("data/committee_matcher_inputs/txt/gibt_es_nicht.txt", "MAN_REF_UNKNOWN"),
+        ("data/committee_matcher_inputs/md/house_example.md", "MAN_REF_ROLE"),
+    ],
+)
+def test_source_file_reference_negatives(synthetic_root: Path, reference: str, expected_code: str):
+    corpus_with_reference(synthetic_root, reference)
+    _manifest, findings = baseline.build_manifest(synthetic_root)
+    assert expected_code in {f.code for f in findings}
+
+
+def test_unreferenced_raw_source_blocks(synthetic_root: Path):
+    corpus_with_reference(synthetic_root, "data/committee_matcher_inputs/txt/example.txt")
+    (synthetic_root / "txt" / "verwaist.txt").write_text("roh", encoding="utf-8")
+    _manifest, findings = baseline.build_manifest(synthetic_root)
+    assert "MAN_REF_MISSING" in {f.code for f in findings}
+
+
+def test_valid_reference_is_clean(synthetic_root: Path):
+    corpus_with_reference(synthetic_root, "data/committee_matcher_inputs/txt/example.txt")
+    _manifest, findings = baseline.build_manifest(synthetic_root)
+    assert [f.code for f in findings] == []
+
+
+# ---------------------------------------------------------------------------
+# Negativpfade: manipuliertes Manifest
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def synthetic_manifest(synthetic_root: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    corpus_with_reference(synthetic_root, "data/committee_matcher_inputs/txt/example.txt")
+    manifest_path = synthetic_root / "corpus_manifest.yaml"
+    monkeypatch.setattr(baseline, "MANIFEST_PATH", manifest_path)
+    assert baseline.main(["manifest", "--write", "--input-root", str(synthetic_root)]) == 0
+    return manifest_path
+
+
+def rewrite_manifest(path: Path, mutate) -> None:
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    mutate(data)
+    path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
+
+
+def verify_codes(root: Path) -> set[str]:
+    manifest, findings = baseline.build_manifest(root)
+    stored = yaml.safe_load(baseline.MANIFEST_PATH.read_text(encoding="utf-8"))
+    findings = list(findings) + baseline.compare_entry_lists(
+        stored.get("files") or [], manifest["files"], "MAN", ("role", "bytes", "sha256")
+    )
+    return {f.code for f in findings}
+
+
+def test_manifest_verify_detects_manipulated_role(synthetic_root: Path, synthetic_manifest: Path):
+    def mutate(data):
+        data["files"][0]["role"] = baseline.ROLE_ADMINISTRATIVE
+
+    rewrite_manifest(synthetic_manifest, mutate)
+    assert "MAN_FIELD" in verify_codes(synthetic_root)
+    assert baseline.main(["manifest", "--verify", "--input-root", str(synthetic_root)]) == 4
+
+
+def test_manifest_verify_detects_duplicate_entry(synthetic_root: Path, synthetic_manifest: Path):
+    def mutate(data):
+        data["files"].append(dict(data["files"][0]))
+
+    rewrite_manifest(synthetic_manifest, mutate)
+    assert "MAN_DUPLICATE" in verify_codes(synthetic_root)
+
+
+def test_manifest_verify_detects_stale_entry(synthetic_root: Path, synthetic_manifest: Path):
+    def mutate(data):
+        entry = dict(data["files"][0])
+        entry["path"] = "txt/nie_vorhanden.txt"
+        data["files"].append(entry)
+
+    rewrite_manifest(synthetic_manifest, mutate)
+    assert "MAN_STALE_ENTRY" in verify_codes(synthetic_root)
+
+
+def test_manifest_verify_detects_unmanifested_file(synthetic_root: Path, synthetic_manifest: Path):
+    def mutate(data):
+        data["files"] = [e for e in data["files"] if e["path"] != "txt/example.txt"]
+
+    rewrite_manifest(synthetic_manifest, mutate)
+    assert "MAN_UNMANIFESTED" in verify_codes(synthetic_root)
+
+
+def test_manifest_verify_detects_header_drift(synthetic_root: Path, synthetic_manifest: Path):
+    def mutate(data):
+        data["manifest_version"] = "corpus-manifest-v0"
+
+    rewrite_manifest(synthetic_manifest, mutate)
+    assert baseline.main(["manifest", "--verify", "--input-root", str(synthetic_root)]) == 4
+
+
+def test_malformed_baseline_yaml_is_preflight_blocker(synthetic_manifest: Path):
+    synthetic_manifest.write_text("files: [ unbalanced", encoding="utf-8")
+    stored, findings = baseline.load_yaml(synthetic_manifest, "manifest")
+    assert stored is None
+    assert [f.code for f in findings] == ["BASE_MALFORMED"]
+
+
+# ---------------------------------------------------------------------------
+# Negativpfade: Teilmigrationszustaende und All-or-nothing
+# ---------------------------------------------------------------------------
+
+
+def test_mixed_migration_state_blocks_and_writes_nothing(synthetic_root: Path):
+    """Ein Teilstand darf nicht geraten und nicht geschrieben werden."""
+    migrated = write_md(
+        synthetic_root / "md",
+        "house_a.md",
+        BASE_FRONTMATTER
+        + '\nunit_input_basis:\n  committee: jurisdiction_text\n  subcommittees: {}',
+        minimal_body(),
+    )
+    unmigrated = write_md(
+        synthetic_root / "md",
+        "house_b.md",
+        BASE_FRONTMATTER + "\ninput_basis: committee_direct",
+        minimal_body(),
+    )
+    before = unmigrated.read_text(encoding="utf-8")
+
+    assert migrate.main(["--apply", "--input-root", str(synthetic_root)]) == 4
+    assert unmigrated.read_text(encoding="utf-8") == before  # nichts geschrieben
+    assert migrated.read_text(encoding="utf-8").count("unit_input_basis") == 1
+
+    reports = [
+        migrate.build_target(p, p.read_text(encoding="utf-8"), synthetic_root)
+        for p in migrate.discover_mapping_files(synthetic_root)
+    ]
+    codes = {f.code for f in migrate.state_coherence_findings(reports, strict_legacy=False)}
+    assert "COR_STATE_MIXED" in codes
+
+
+def test_legacy_residue_next_to_migrated_basis_blocks(synthetic_root: Path):
+    """Marker neben bereits gesetztem unit_input_basis ist ein Teilstand."""
+    write_md(
+        synthetic_root / "md",
+        "house_a.md",
+        BASE_FRONTMATTER
+        + '\nunit_input_basis:\n  committee: jurisdiction_text\n'
+        '  subcommittees:\n    "Subcommittee on Beta": name_only',
+        "# Committee jurisdiction\n\nText.\n\n"
+        "## Subcommittee on Beta\n\n<!-- input_basis: name_only -->\nNur Name.\n\n"
+        f"## {migrate.COMMENT_HEADING}\n\nK.\n",
+    )
+    reports = [
+        migrate.build_target(p, p.read_text(encoding="utf-8"), synthetic_root)
+        for p in migrate.discover_mapping_files(synthetic_root)
+    ]
+    codes = {f.code for f in migrate.state_coherence_findings(reports, strict_legacy=False)}
+    assert "COR_STATE_LEGACY_RESIDUE" in codes
+
+
+def test_structural_error_prevents_any_write(synthetic_root: Path):
+    """Eine kaputte Datei verhindert das Schreiben aller uebrigen Dateien."""
+    healthy = write_md(
+        synthetic_root / "md",
+        "house_a.md",
+        BASE_FRONTMATTER + "\ninput_basis: committee_direct",
+        minimal_body(),
+    )
+    write_md(synthetic_root / "md", "house_b.md", BASE_FRONTMATTER, "Kein H1 vorhanden.\n")
+    before = healthy.read_text(encoding="utf-8")
+
+    assert migrate.main(["--apply", "--input-root", str(synthetic_root)]) == 4
+    assert healthy.read_text(encoding="utf-8") == before
+
+
+def test_check_does_not_modify_the_canonical_corpus():
+    """Der reale Inputroot wird von --check nie veraendert."""
+    before = {p: p.read_bytes() for p in migrate.discover_mapping_files(INPUT_ROOT)}
+    assert migrate.main(["--check"]) == 0
+    assert {p: p.read_bytes() for p in migrate.discover_mapping_files(INPUT_ROOT)} == before
+
+
+def test_reversed_partial_state_blocks_before_writing(synthetic_root: Path):
+    """Marker von Hand entfernt, unit_input_basis fehlt noch - kein Raten.
+
+    Genau dieser Zustand wuerde ein `name_only`-Subcommittee still zu
+    `jurisdiction_text` machen. Am kanonischen Inputroot greift die strenge
+    Legacy-Kohaerenzpruefung vor jedem Schreiben.
+    """
+    write_md(
+        synthetic_root / "md",
+        "house_a.md",
+        BASE_FRONTMATTER + "\ninput_basis: committee_direct",
+        minimal_body(),
+    )
+    write_md(
+        synthetic_root / "md",
+        "house_b.md",
+        BASE_FRONTMATTER,
+        "# Committee jurisdiction\n\nText.\n\n"
+        "## Subcommittee on Beta\n\nNur Name.\n\n"
+        f"## {migrate.COMMENT_HEADING}\n\nK.\n",
+    )
+    reports = [
+        migrate.build_target(p, p.read_text(encoding="utf-8"), synthetic_root)
+        for p in migrate.discover_mapping_files(synthetic_root)
+    ]
+    codes = {f.code for f in migrate.state_coherence_findings(reports, strict_legacy=True)}
+    assert "COR_STATE_LEGACY_INCOHERENT" in codes

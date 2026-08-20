@@ -134,6 +134,7 @@ class FileReport:
     unit_basis: "OrderedDict[str, str]" = field(default_factory=OrderedDict)
     legacy_field: str | None = None
     marker_count: int = 0
+    had_basis: bool = False
     changed: bool = False
     target_text: str = ""
     findings: List[Finding] = field(default_factory=list)
@@ -437,6 +438,7 @@ def build_target(path: Path, text: str, input_root: Path) -> FileReport:
 
     report.chamber = str(fm_data.get("chamber", ""))
     report.committee = str(fm_data.get("committee", ""))
+    report.had_basis = "unit_input_basis" in fm_data
     sections = heading_sections(body, obj)
     report.unit_basis = derive_unit_basis(fm_data.get("unit_input_basis"), sections, obj)
 
@@ -638,6 +640,68 @@ def atomic_write(path: Path, text: str) -> None:
         raise
 
 
+def state_coherence_findings(
+    reports: Sequence[FileReport], strict_legacy: bool
+) -> List[Finding]:
+    """Blockiert jeden Mischzustand aus migrierten und unmigrierten Dateien.
+
+    Ohne diese Pruefung wuerde eine Datei, deren ``name_only``-Marker bereits
+    von Hand entfernt wurde, die aber noch kein ``unit_input_basis`` traegt,
+    still als ``jurisdiction_text`` klassifiziert - also geraten. Ein solcher
+    Teilstand ist immer ein Mischzustand und wird deshalb vor jedem Schreiben
+    abgewiesen.
+
+    Restgrenze: Ein Corpus, dem VOR der Erstmigration saemtliche Marker von Hand
+    entfernt wurden, ist von einem Corpus ohne ``name_only``-Faelle nicht
+    unterscheidbar. Fuer den kanonischen Inputroot faengt das die eingefrorene
+    8er-Sollmenge ab, die dank des Preflights vor dem Schreiben greift.
+    """
+    findings: List[Finding] = []
+    if not reports:
+        return findings
+
+    migrated = [r for r in reports if r.had_basis]
+    unmigrated = [r for r in reports if not r.had_basis]
+    if migrated and unmigrated:
+        findings.append(
+            Finding(
+                "BLOCKER",
+                "COR_STATE_MIXED",
+                "corpus",
+                f"Mischzustand: {len(migrated)} Dateien mit unit_input_basis, "
+                f"{len(unmigrated)} ohne",
+                "Teilstand manuell aufloesen; das Skript raet keine Basiswerte",
+            )
+        )
+        return findings
+
+    legacy_fields = sum(1 for r in reports if r.legacy_field)
+    markers = sum(r.marker_count for r in reports)
+    if migrated and (legacy_fields or markers):
+        findings.append(
+            Finding(
+                "BLOCKER",
+                "COR_STATE_LEGACY_RESIDUE",
+                "corpus",
+                f"Corpus traegt unit_input_basis, aber noch {legacy_fields} Legacyfelder "
+                f"und {markers} HTML-Marker",
+                "Reste manuell pruefen; ein Teilstand wird nicht ueberschrieben",
+            )
+        )
+    if strict_legacy and unmigrated and bool(legacy_fields) != bool(markers):
+        findings.append(
+            Finding(
+                "BLOCKER",
+                "COR_STATE_LEGACY_INCOHERENT",
+                "corpus",
+                f"Unmigrierter Corpus ist in sich widerspruechlich: {legacy_fields} "
+                f"Legacyfelder, {markers} HTML-Marker",
+                "Vormigrationsstand wiederherstellen; name_only darf nicht geraten werden",
+            )
+        )
+    return findings
+
+
 def corpus_findings(reports: Sequence[FileReport]) -> List[Finding]:
     """Prueft die verbindlichen Corpus-Sollwerte aus Plan 2.1/2.2.
 
@@ -698,6 +762,7 @@ def corpus_findings(reports: Sequence[FileReport]) -> List[Finding]:
         "COR_LEGACY_MARKERS",
         "entfernte HTML-Marker",
     )
+    findings.extend(state_coherence_findings(reports, strict_legacy=True))
     check(
         sum(r.name_only_count for r in reports),
         EXPECTED_NAME_ONLY_UNITS,
@@ -812,13 +877,29 @@ def print_file_report(reports: Sequence[FileReport]) -> None:
     print("Kammern: " + ", ".join(f"{k}={v}" for k, v in sorted(chambers.items())))
 
 
+def object_name(path: Path) -> str:
+    try:
+        return str(path.relative_to(BASE_DIR))
+    except ValueError:
+        return str(path)
+
+
 def run(mode: str, input_root: Path) -> int:
+    """Fuehrt Migration bzw. Pruefung corpusweit all-or-nothing aus.
+
+    Phase 1 berechnet fuer jede Datei den Sollzustand und sammelt alle
+    Struktur- und Corpusbefunde. Erst wenn dieser Preflight ohne Blocker
+    durchlaeuft, schreibt Phase 2. Damit hinterlaesst ein Fehler in einer
+    spaeten Datei keinen halbmigrierten Corpus.
+    """
     paths = discover_mapping_files(input_root)
     reports: List[FileReport] = []
     findings: List[Finding] = []
+    canonical = input_root == DEFAULT_INPUT_ROOT
 
+    # --- Phase 1: Sollzustand berechnen, nichts schreiben ---
     for path in paths:
-        obj = str(path.relative_to(BASE_DIR)) if BASE_DIR in path.parents else str(path)
+        obj = object_name(path)
         text = path.read_text(encoding="utf-8")
         try:
             report = build_target(path, text, input_root)
@@ -826,12 +907,8 @@ def run(mode: str, input_root: Path) -> int:
             findings.append(blocked.finding)
             continue
         reports.append(report)
-        if mode == "apply" and report.changed:
-            atomic_write(path, report.target_text)
-        effective = report.target_text if mode == "apply" else text
-        if mode == "apply" or not report.changed:
-            findings.extend(validate_migrated(report, effective, obj))
-        elif mode == "check":
+        findings.extend(validate_migrated(report, report.target_text, obj))
+        if mode == "check" and report.changed:
             findings.append(
                 Finding(
                     "BLOCKER",
@@ -843,16 +920,75 @@ def run(mode: str, input_root: Path) -> int:
             )
 
     # Die eingefrorenen Sollwerte (46 Dateien, 225 Units, 8 name_only) gelten
-    # ausschliesslich fuer den kanonischen Inputroot.
-    if input_root == DEFAULT_INPUT_ROOT:
+    # ausschliesslich fuer den kanonischen Inputroot; die Kohaerenz des
+    # Vormigrationszustands gilt fuer jeden Root.
+    if canonical:
         findings.extend(corpus_findings(reports))
+    else:
+        findings.extend(state_coherence_findings(reports, strict_legacy=False))
+    if len(reports) != len(paths):
+        findings.append(
+            Finding(
+                "BLOCKER",
+                "MIG_INCOMPLETE_PREFLIGHT",
+                "corpus",
+                f"{len(paths) - len(reports)} Dateien konnten nicht geprueft werden",
+                "Strukturfehler oben beheben; es wird nichts geschrieben",
+            )
+        )
 
-    print_terminal_report(mode, reports, findings, applied=(mode == "apply"))
+    blocked_preflight = [f for f in findings if f.severity == "BLOCKER"]
+
+    # --- Phase 2: schreiben, nur bei sauberem Preflight ---
+    applied = False
+    if mode == "apply" and not blocked_preflight:
+        findings.extend(write_all(reports))
+        applied = True
+        blocked_preflight = [f for f in findings if f.severity == "BLOCKER"]
+    elif mode == "apply":
+        findings.append(
+            Finding(
+                "BLOCKER",
+                "MIG_WRITE_SKIPPED",
+                "corpus",
+                "Preflight blockiert - es wurde keine Datei geschrieben",
+                "Blocker oben beheben und --apply wiederholen",
+            )
+        )
+
+    print_terminal_report(mode, reports, findings, applied=applied)
     if mode == "report":
         print_file_report(reports)
 
-    blockers = [f for f in findings if f.severity == "BLOCKER"]
-    return 4 if blockers else 0
+    return 4 if any(f.severity == "BLOCKER" for f in findings) else 0
+
+
+def write_all(reports: Sequence[FileReport]) -> List[Finding]:
+    """Schreibt alle geaenderten Dateien; bei Fehler Rollback des Laufs."""
+    written: List[Tuple[Path, str]] = []
+    for report in reports:
+        if not report.changed:
+            continue
+        original = report.path.read_text(encoding="utf-8")
+        try:
+            atomic_write(report.path, report.target_text)
+        except OSError as exc:
+            for path, previous in reversed(written):
+                try:
+                    atomic_write(path, previous)
+                except OSError:  # pragma: no cover - defensiv
+                    pass
+            return [
+                Finding(
+                    "BLOCKER",
+                    "MIG_WRITE_FAILED",
+                    object_name(report.path),
+                    f"Schreiben fehlgeschlagen ({exc}); {len(written)} Dateien zurueckgerollt",
+                    "Schreibrechte/Speicherplatz pruefen und --apply wiederholen",
+                )
+            ]
+        written.append((report.path, original))
+    return []
 
 
 def main(argv: List[str] | None = None) -> int:

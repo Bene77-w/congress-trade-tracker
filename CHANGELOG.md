@@ -35,9 +35,15 @@ eingefroren; kanonische Unit-IDs folgen erst in P3.
 Mapping-Agenten wurden aus `.gitignore` entfernt; gitignorierte Altartefakte mit
 nicht reproduzierbarer Reviewarbeit existieren nicht mehr.
 
-Test-Stand: `tests/test_committee_matcher_input_baseline.py` 72 Tests
+Nach dem Phasenreview nachgezogen: `--apply` ist corpusweit all-or-nothing
+(Preflight vor jedem Schreiben, Rollback bei Schreibfehler), Mischzustände aus
+migrierten und unmigrierten Dateien blockieren statt zu raten, und
+`manifest`/`protect --verify` vergleichen feldweise gegen den neu berechneten
+Sollpayload statt nur Hashes zu prüfen.
+
+Test-Stand: `tests/test_committee_matcher_input_baseline.py` 90 Tests
 (netzwerkfrei, schreibende Fälle nur auf synthetischem Corpus), Gesamtsuite
-1042 Tests grün.
+1060 Tests grün.
 
 ---
 

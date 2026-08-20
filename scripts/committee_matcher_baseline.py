@@ -423,6 +423,77 @@ def build_protected_baseline() -> Tuple[dict, List[Finding]]:
     return baseline, findings
 
 
+def compare_entry_lists(
+    stored: Sequence[dict],
+    expected: Sequence[dict],
+    code_prefix: str,
+    fields: Sequence[str],
+) -> List[Finding]:
+    """Vergleicht gespeicherte Baselineeintraege feldweise mit dem Sollpayload.
+
+    Prueft ausdruecklich auch Einmaligkeit, ueberzaehlige Eintraege und alle
+    Metadatenfelder - ein Hashvergleich allein wuerde manipulierte Rollen oder
+    doppelte Pfade durchlassen.
+    """
+    findings: List[Finding] = []
+
+    seen: Dict[str, int] = {}
+    for entry in stored:
+        key = str(entry.get("path"))
+        seen[key] = seen.get(key, 0) + 1
+    for key, count in sorted(seen.items()):
+        if count > 1:
+            findings.append(
+                Finding(
+                    "BLOCKER",
+                    f"{code_prefix}_DUPLICATE",
+                    key,
+                    f"Eintrag kommt {count}x in der Baselinedatei vor",
+                    "Baseline mit '--write' neu erzeugen",
+                )
+            )
+
+    expected_by_path = {e["path"]: e for e in expected}
+    stored_by_path = {str(e.get("path")): e for e in stored}
+
+    for path in sorted(set(expected_by_path) - set(stored_by_path)):
+        findings.append(
+            Finding(
+                "BLOCKER",
+                f"{code_prefix}_UNMANIFESTED",
+                path,
+                "Datei ist vorhanden, fehlt aber in der Baselinedatei",
+                "Baseline mit '--write' neu erzeugen oder Datei entfernen",
+            )
+        )
+    for path in sorted(set(stored_by_path) - set(expected_by_path)):
+        findings.append(
+            Finding(
+                "BLOCKER",
+                f"{code_prefix}_STALE_ENTRY",
+                path,
+                "Baselineeintrag hat keine Entsprechung auf der Platte",
+                "Baseline mit '--write' neu erzeugen oder Datei wiederherstellen",
+            )
+        )
+    for path in sorted(set(stored_by_path) & set(expected_by_path)):
+        stored_entry = stored_by_path[path]
+        expected_entry = expected_by_path[path]
+        for field_name in fields:
+            if stored_entry.get(field_name) != expected_entry.get(field_name):
+                findings.append(
+                    Finding(
+                        "BLOCKER",
+                        f"{code_prefix}_FIELD",
+                        path,
+                        f"Feld '{field_name}' weicht ab: baseline="
+                        f"{stored_entry.get(field_name)!r}, ist={expected_entry.get(field_name)!r}",
+                        "Aenderung pruefen; die Baseline gilt als unveraenderlich",
+                    )
+                )
+    return findings
+
+
 def verify_entries(
     entries: Iterable[dict], root: Path, code_prefix: str
 ) -> List[Finding]:
@@ -474,7 +545,18 @@ def load_yaml(path: Path, obj: str) -> Tuple[dict | None, List[Finding]]:
                 "Mit '--write' erzeugen",
             )
         ]
-    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        return None, [
+            Finding(
+                "BLOCKER",
+                "BASE_MALFORMED",
+                obj,
+                f"Baselinedatei ist kein gueltiges YAML: {exc}",
+                "Datei mit '--write' neu erzeugen",
+            )
+        ]
     if not isinstance(data, dict):
         return None, [
             Finding(
@@ -523,7 +605,7 @@ def print_report(title: str, findings: Sequence[Finding], summary: Sequence[str]
 def cmd_manifest(args: argparse.Namespace) -> int:
     input_root = args.input_root.resolve()
     manifest, findings = build_manifest(input_root)
-    rel_manifest = MANIFEST_PATH.relative_to(BASE_DIR).as_posix()
+    rel_manifest = relative_to_base(MANIFEST_PATH)
 
     if args.write:
         if findings:
@@ -544,30 +626,31 @@ def cmd_manifest(args: argparse.Namespace) -> int:
         stored, load_findings = load_yaml(MANIFEST_PATH, rel_manifest)
         findings = list(findings) + load_findings
         if stored is not None:
-            findings.extend(verify_entries(stored.get("files") or [], input_root, "MAN"))
-            stored_paths = {e["path"] for e in stored.get("files") or []}
-            actual_paths = {e["path"] for e in manifest["files"]}
-            for extra in sorted(actual_paths - stored_paths):
-                findings.append(
-                    Finding(
-                        "BLOCKER",
-                        "MAN_UNMANIFESTED",
-                        extra,
-                        "Datei liegt im Inputroot, fehlt aber im Manifest",
-                        "Manifest mit '--write' neu erzeugen oder Datei entfernen",
-                    )
+            findings.extend(
+                compare_entry_lists(
+                    stored.get("files") or [],
+                    manifest["files"],
+                    "MAN",
+                    ("role", "bytes", "sha256"),
                 )
-            if stored.get("manifest_version") != MANIFEST_VERSION:
-                findings.append(
-                    Finding(
-                        "BLOCKER",
-                        "MAN_VERSION",
-                        rel_manifest,
-                        f"manifest_version '{stored.get('manifest_version')}' erwartet "
-                        f"'{MANIFEST_VERSION}'",
-                        "Manifest mit '--write' neu erzeugen",
+            )
+            for key, expected_value in (
+                ("manifest_version", MANIFEST_VERSION),
+                ("migration_version", MIGRATION_VERSION),
+                ("role_counts", manifest["role_counts"]),
+                ("unit_counts", manifest["unit_counts"]),
+            ):
+                if stored.get(key) != expected_value:
+                    findings.append(
+                        Finding(
+                            "BLOCKER",
+                            "MAN_HEADER",
+                            rel_manifest,
+                            f"'{key}' weicht ab: baseline={stored.get(key)!r}, "
+                            f"erwartet={expected_value!r}",
+                            "Manifest mit '--write' neu erzeugen",
+                        )
                     )
-                )
         summary = [f"Geprueft: {rel_manifest}", f"Dateien: {len(manifest['files'])}"]
 
     counts = manifest["role_counts"]
@@ -578,7 +661,7 @@ def cmd_manifest(args: argparse.Namespace) -> int:
 
 def cmd_protect(args: argparse.Namespace) -> int:
     baseline, findings = build_protected_baseline()
-    rel = PROTECTED_BASELINE_PATH.relative_to(BASE_DIR).as_posix()
+    rel = relative_to_base(PROTECTED_BASELINE_PATH)
 
     if args.write:
         if findings:
@@ -599,15 +682,22 @@ def cmd_protect(args: argparse.Namespace) -> int:
         stored, load_findings = load_yaml(PROTECTED_BASELINE_PATH, rel)
         findings = list(findings) + load_findings
         if stored is not None:
-            findings.extend(verify_entries(stored.get("paths") or [], BASE_DIR, "PRT"))
-            stored_paths = {e["path"] for e in stored.get("paths") or []}
-            for missing in sorted(set(PROTECTED_PRODUCTION_PATHS) - stored_paths):
+            findings.extend(
+                compare_entry_lists(
+                    stored.get("paths") or [],
+                    baseline["paths"],
+                    "PRT",
+                    ("bytes", "sha256"),
+                )
+            )
+            if stored.get("baseline_version") != PROTECTED_BASELINE_VERSION:
                 findings.append(
                     Finding(
                         "BLOCKER",
-                        "PRT_UNTRACKED",
-                        missing,
-                        "Geschuetzter Pfad fehlt in der Baselinedatei",
+                        "PRT_HEADER",
+                        rel,
+                        f"baseline_version '{stored.get('baseline_version')}' erwartet "
+                        f"'{PROTECTED_BASELINE_VERSION}'",
                         "Baseline mit '--write' neu erzeugen",
                     )
                 )
