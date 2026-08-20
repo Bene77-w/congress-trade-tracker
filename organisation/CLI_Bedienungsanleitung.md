@@ -1037,13 +1037,94 @@ Default-Port: **8501** → im Browser öffnen: `http://localhost:8501`
 
 ---
 
-## 15. Committee Matcher V2 (noch nicht implementiert)
+## 15. Committee Matcher V2 – CLI und Settings (P2-Gerüst)
+
+**Paket:** `committee_matcher/` · **Einstieg:** `python -m committee_matcher`
+**Zweck:** Providerfreier Kern des neu implementierten Matchers; kennt alle
+CLI-Familien, prüft die Settings und blockiert jeden Providerpfad, solange
+Gate B offen ist.
+**Netzwerk:** kein Aufruf erreicht yfinance oder OpenRouter. Der Paketimport
+zieht weder `openrouter` noch `yfinance` oder eine HTTP-Bibliothek nach.
 
 Der frühere Aufruf `python -m scripts.committee_mapping_agent.run ...` ist nach
-dem vollständigen V1-Rückbau nicht mehr verfügbar. Der bestehende
-Committee-Mapping-Master bleibt unverändert produktiv; V2 wird erst gemäß
-`committee_matcher_v2_implementierungsplan.md` neu implementiert und erhält
-anschließend eine neue CLI-Dokumentation.
+dem V1-Rückbau nicht mehr verfügbar; der produktive Mapping-Master bleibt
+unverändert.
+
+```bash
+python -m committee_matcher --help
+python -m committee_matcher input validate      # P3: blockiert mit Exit 4
+python -m committee_matcher run execute         # Providerpfad: blockiert mit Exit 4
+```
+
+**Familien** (vollständig, Plan 2.7 — es gibt kein `promote`, `finalize`,
+`research` oder LLM-`review`):
+
+| Kommando | Phase | Provider | Zweck |
+|---|---|---|---|
+| `input validate` | P3 | nein | Corpusmanifest, Parser, Unitbildung, 225-ID-Sollmenge |
+| `roster validate` | P3 | nein | Roster-Coverage inkl. Joint-Cross-Chamber-Regel |
+| `snapshot build\|approve\|resume` | P4 | nein | yfinance-Snapshot erzeugen, freigeben, fortsetzen |
+| `run plan\|execute\|reconcile` | P7 | ja | Entwicklungsrun planen, ausführen, `outcome_unknown` klären |
+| `review export\|import` | P8 | nein | Review-XLSX exportieren und validiert zurückimportieren |
+| `evaluate goldset` | P9 | ja | Entwicklungs-Gold-Set auswerten |
+| `qualify holdout` | P10 | ja | unabhängiges Holdout qualifizieren |
+| `full-run` | P11 | ja | qualifizierter, filterloser Full-Run |
+| `report` | P7 | nein | Fehler-, Kosten- und Coverage-Bericht einer Revision |
+
+Die Zielangaben `--chamber`, `--committee` und `--unit-id` existieren nur bei
+`run` und `evaluate`; `full-run` lehnt sie schon beim Parsen ab (Exit 4).
+
+**Exit-Codes** (verbindliche Matrix, Plan 2.7): `0` erfolgreich oder erwartete
+Human-Übergabe · `2` erfolgreich mit Warnungen · `3` finale fehlgeschlagene
+Mapping-Units · `4` Input-/Prompt-/Config-Preflight blockiert ·
+`5` `awaiting_taxonomy_approval` · `6` Kostenlimit oder `cost_unknown` ·
+`7` Review-/Gold-Set-/Holdout-Import abgelehnt · `8` `outcome_unknown` ·
+`9` nicht-retrybarer Providerfehler · `10` interner Fehler · `130` Abbruch.
+`1` bleibt unbelegt; ein Bedienfehler von argparse liefert bewusst `4` statt `2`.
+
+Jeder Lauf endet mit einem nach Schweregrad und Stage gruppierten Bericht mit
+Fehlercode, Objekt, Handlungshinweis, Kosten und Artefaktpfaden — auch bei null
+Befunden. Noch nicht implementierte Stages melden `CLI_STAGE_NOT_IMPLEMENTED`
+mit der Phase, in der sie entstehen.
+
+**Settings** (`config/settings.py`, Block „COMMITTEE MATCHER V2"; Verbraucher
+ist ausschließlich `committee_matcher/settings_view.py`):
+
+| Setting | Typ / Bereich | Default | Verbraucher |
+|---|---|---|---|
+| `COMMITTEE_MATCHER_MAX_FILE_BYTES` | int 1.000–10.000.000 | 512000 | Inputparser (P3) |
+| `COMMITTEE_MATCHER_MAX_FRONTMATTER_BYTES` | int 200–1.000.000 | 32000 | Inputparser (P3) |
+| `COMMITTEE_MATCHER_YFINANCE_REQUEST_PAUSE_S` | float 0–60 | 1.5 | Snapshot (P4) |
+| `COMMITTEE_MATCHER_YFINANCE_MAX_RETRIES` | int 0–10 | 3 | Snapshot (P4) |
+| `COMMITTEE_MATCHER_YFINANCE_CHECKPOINT_EVERY` | int 1–500 | 10 | Snapshot (P4) |
+| `COMMITTEE_MATCHER_BATCH_SIZE` | 1 oder 3 | 3 | Mappingcalls (P6) |
+| `COMMITTEE_MATCHER_WORKFLOW_RETRIES` | int 0–5 | 2 | Workflow (P7) |
+| `COMMITTEE_MATCHER_MODEL` | str oder None | None | Provider (Gate B) |
+| `COMMITTEE_MATCHER_PROVIDER_SLUG` | str oder None | None | Provider (Gate B) |
+| `COMMITTEE_MATCHER_DATA_COLLECTION` | `deny`/`allow`/None | None | Provider (Gate B) |
+| `COMMITTEE_MATCHER_MAX_PRICE_USD_PER_MTOK` | dict mit `prompt`+`completion` > 0 | None | Provider (Gate B) |
+| `COMMITTEE_MATCHER_ENDPOINT_CONTEXT_TOKENS` | int 1.000–10.000.000 | None | Context-Gate (Gate B) |
+| `COMMITTEE_MATCHER_MAX_OUTPUT_TOKENS` | int 256–1.000.000 | None | Context-Gate (Gate B) |
+| `COMMITTEE_MATCHER_REASONING_RESERVE_TOKENS` | int 0–1.000.000 | None | Context-Gate (Gate B) |
+| `COMMITTEE_MATCHER_REQUEST_TIMEOUT_S` | float 1–3600 | None | Provider (Gate B) |
+| `COMMITTEE_MATCHER_MAX_RUN_COST_USD` | float > 0 | None | Kostenstop (Gate B) |
+| `COMMITTEE_MATCHER_MAX_EVALUATION_COST_USD` | float > 0 | None | Kostenstop (Gate B) |
+| `COMMITTEE_MATCHER_MAX_QUALIFICATION_COST_USD` | float > 0 | None | Kostenstop (Gate B) |
+
+Ungültige Offline-Settings blockieren jeden Lauf mit Exit 4. Nicht gesetzte
+Provider-Settings sind bis Gate B zulässig, blockieren aber jeden Providerpfad
+und werden im Bericht einzeln benannt; ein fehlendes Budget blockiert mit
+Exit 6. Die Sicherheitsinvarianten `require_parameters=true`,
+`allow_fallbacks=false`, genau ein `provider.only`-Eintrag, keine SDK-Retries
+und ein gleichzeitiger Call sind Codekonstanten und bewusst nicht
+konfigurierbar.
+
+**Schreibschutz:** `committee_matcher/paths.py` erlaubt Schreiben nur unter
+`data/committee_matcher_v2/`. Die Inputbaseline und alle neun Pfade der
+P0-Schutzbaseline sind gesperrt; fehlt oder bricht die Schutzbaseline,
+blockiert die Wache (fail closed) statt ungeschützt zu schreiben.
+
+Tests: `tests/test_committee_matcher_scaffold.py` (101 Tests, netzwerkfrei).
 
 ## 16. Ausgelagerter Analyse-Workflow
 

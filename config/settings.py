@@ -715,3 +715,59 @@ UI_SCOPE_HELP = {
            'globalen Horizont-Einstellungen der Sidebar.',
     'detail': 'Scope Detail: wirkt nur in diesem Detail-Popup.',
 }
+
+
+# ---------------------------------------------------------------------------
+# COMMITTEE MATCHER V2 (Modul: committee_matcher/)
+# ---------------------------------------------------------------------------
+# Alle veraenderbaren Laufparameter des neu implementierten Committee Matchers.
+# Verbraucher ist ausschliesslich committee_matcher/settings_view.py; dort
+# werden Typ und Wertebereich geprueft, bevor irgendein Pfad laeuft.
+#
+# Zwei Gruppen:
+#   offline    -> muessen immer gueltig sein (Parser, Snapshot, Artefakte)
+#   provider   -> duerfen bis Gate B None sein; jeder Providerpfad blockiert
+#                 dann mit Exit-Code 4 statt zu raten.
+#
+# Feste Invarianten (require_parameters=true, allow_fallbacks=false, genau ein
+# provider.only-Eintrag, keine SDK-Retries, genau ein gleichzeitiger Call)
+# stehen bewusst NICHT hier, sondern als Konstanten im Code: sie sind
+# Sicherheitsvertrag und kein Bedienparameter.
+
+# --- offline: Inputparser (Verbraucher: committee_matcher/input_corpus.py) ---
+# Groessengrenzen gegen praeparierte oder versehentlich riesige Inputs.
+COMMITTEE_MATCHER_MAX_FILE_BYTES = 512_000          # int, 1_000..10_000_000
+COMMITTEE_MATCHER_MAX_FRONTMATTER_BYTES = 32_000    # int, 200..1_000_000
+
+# --- offline: yfinance-Snapshot (Verbraucher: taxonomy_source.py) ----------
+# Pause zwischen zwei yfinance-Requests in Sekunden und Retrybudget je Request.
+COMMITTEE_MATCHER_YFINANCE_REQUEST_PAUSE_S = 1.5    # float, 0.0..60.0
+COMMITTEE_MATCHER_YFINANCE_MAX_RETRIES = 3          # int, 0..10
+# Groesse eines Checkpoint-Schritts: nach so vielen Industries wird der
+# run-lokale Checkpoint geschrieben (Resume ohne Teilfreigabe).
+COMMITTEE_MATCHER_YFINANCE_CHECKPOINT_EVERY = 10    # int, 1..500
+
+# --- offline: Mappinglauf (Verbraucher: mapping_engine.py, workflow.py) ----
+# Units je Mappingcall; zulaessig sind ausschliesslich 1 oder 3. Ein
+# Context-Split darf zur Laufzeit 3->2->1 erzeugen.
+COMMITTEE_MATCHER_BATCH_SIZE = 3                    # int, {1, 3}
+# Workflowseitige Wiederholungen eines fachlich fehlgeschlagenen Calls.
+# SDK-Retries bleiben unabhaengig davon aus (Doppelabrechnungsrisiko).
+COMMITTEE_MATCHER_WORKFLOW_RETRIES = 2              # int, 0..5
+
+# --- provider: erst mit Gate B zu setzen (Verbraucher: provider.py) --------
+COMMITTEE_MATCHER_MODEL = None                      # str|None, Modellslug
+COMMITTEE_MATCHER_PROVIDER_SLUG = None              # str|None, genau ein Endpoint
+COMMITTEE_MATCHER_DATA_COLLECTION = None            # 'deny'|'allow'|None (ZDR)
+COMMITTEE_MATCHER_MAX_PRICE_USD_PER_MTOK = None     # dict|None, {'prompt':..,'completion':..}
+COMMITTEE_MATCHER_ENDPOINT_CONTEXT_TOKENS = None    # int|None, Kontextfenster
+COMMITTEE_MATCHER_MAX_OUTPUT_TOKENS = None          # int|None
+COMMITTEE_MATCHER_REASONING_RESERVE_TOKENS = None   # int|None, Reserve im Context-Gate
+COMMITTEE_MATCHER_REQUEST_TIMEOUT_S = None          # float|None, Sekunden
+
+# --- provider: Kostengrenzen (Verbraucher: workflow.py) --------------------
+# Konservative Worst-Case-Kosten muessen vor Run UND vor jedem Call in das
+# jeweilige Budget passen. None blockiert den zugehoerigen Lauf.
+COMMITTEE_MATCHER_MAX_RUN_COST_USD = None           # float|None, > 0
+COMMITTEE_MATCHER_MAX_EVALUATION_COST_USD = None    # float|None, > 0
+COMMITTEE_MATCHER_MAX_QUALIFICATION_COST_USD = None  # float|None, > 0

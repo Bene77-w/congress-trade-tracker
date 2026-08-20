@@ -1,7 +1,7 @@
 # Implementierungsplan: Committee Matcher V2 – vollständige Neuplanung
 
 Stand: 2026-08-20  
-Status: P0 und P1 abgeschlossen und reviewt; nächste Phase ist P2, danach P3 → P4 providerfrei; OpenRouter-Calls beginnen erst nach Gate B  
+Status: P0, P1 und P2 abgeschlossen; nächste Phase ist P3, danach P4 providerfrei; OpenRouter-Calls beginnen erst nach Gate B  
 Verbindliche Grundlage: `organisation/committee_matcher_planung_entscheidungen_codex.md`  
 Scope: Matching-Phase bis zu manuell reviewten V2-Artefakten
 
@@ -324,7 +324,8 @@ Die XLSX trennt unveränderliche `model_*`-Felder von editierbaren
 | P0.1–P0.3 Baselinesicherung | abgeschlossen | Commit `8ff7bc8`; Inputs + Planungsdokumente pfadbezogen committet, kanonische Plankopie versioniert |
 | P1 Vollständiger Rückbau | abgeschlossen | Commit `d5a31fc`; `scripts/committee_mapping_agent/` entfernt, Altdoku und Altdependencies bereinigt; Rollback über Tag `committee-matcher-v1-final` |
 | P0.4–P0.6 Migration + Schutzbaseline | abgeschlossen | Commits `5e683a9` + `235a5c8`; Migration `input-basis-v1` idempotent, `corpus_manifest.yaml` (95 Dateien) + `committee_matcher_protected_baseline.yaml` (9 Pfade) erzeugt und verifiziert; Phasenreview mit Auflagen abgenommen, alle fünf Befunde behoben |
-| P2 → P3 → P4 | offen | providerfrei, strikt in dieser Reihenfolge; P2 ist die nächste Phase |
+| P2 Providerfreies Gerüst | abgeschlossen | Paket `committee_matcher/` mit Ownership-Karte für 17 Zielmodule; `status`, `errors`, `paths`, `settings_view`, `models`, `cli` implementiert; `COMMITTEE_MATCHER_*`-Block in `config/settings.py`; 101 netzwerkfreie Tests |
+| P3 → P4 | offen | providerfrei, strikt in dieser Reihenfolge; P3 ist die nächste Phase |
 | Gate B und alles danach | gesperrt | keine Providerinstallation, kein OpenRouter-Call, keine Modellentscheidung |
 
 P1 wurde vor P0.4–P0.6 ausgeführt, da der Rückbau ausschließlich Altcode und
@@ -395,7 +396,7 @@ data/mappings/us_house_all_committees.csv
 data/mappings/us_senate_all_committees.csv
 ```
 
-### P2 – Providerfreies Gerüst
+### P2 – Providerfreies Gerüst *(abgeschlossen)*
 
 Neuen Paketbaum mit eindeutiger Ownership für Input/Roster, Taxonomie,
 Provider, Mapping, Workflow/Cache/Kosten, Artefakte/Review und Evaluation

@@ -11,6 +11,43 @@ Historie abgeschlossener Module/Phasen. **Aktiver WIP-Modul-Stand** steht im „
 
 ---
 
+## 2026-08-20 — Committee Matcher V2, P2: providerfreies Gerüst
+
+Das neue Paket `committee_matcher/` hält den providerfreien Kern. Die
+Ownership-Karte über alle 17 Zielmodule steht im Docstring von `__init__.py`;
+implementiert sind sechs davon: `status.py` (Workflow-, Unit- und
+Coverage-Zustände, Exit-Code-Matrix mit bewusst unbelegtem Code 1), `errors.py`
+(Befunde, strukturierte Persistenz, nach Schweregrad und Stage gruppierter
+Terminalbericht), `paths.py` (Pfadwache), `settings_view.py` (typisierte
+Settingssicht), `models.py` (Pydantic-Datenverträge) und `cli.py`
+(`python -m committee_matcher`).
+
+Die Pfadwache erlaubt Schreiben ausschließlich unter
+`data/committee_matcher_v2/` und blockiert Traversal, Symlink-Ausbrüche, die
+Inputbaseline sowie alle neun Pfade der P0-Schutzbaseline; fehlt oder bricht
+die Schutzbaseline, blockiert sie (fail closed) statt ungeschützt zu schreiben.
+
+`config/settings.py` enthält den Block `COMMITTEE_MATCHER_*` mit Typ, Bereich,
+Default und Verbraucher je Setting. Offline-Settings müssen immer gültig sein;
+die Provider-Settings bleiben bis Gate B `None` und blockieren jeden
+Providerpfad mit Exit 4, fehlende Budgets mit Exit 6. Die
+Sicherheitsinvarianten (`require_parameters=true`, `allow_fallbacks=false`,
+genau ein `provider.only`-Eintrag, keine SDK-Retries, ein gleichzeitiger Call)
+sind Codekonstanten und nicht konfigurierbar.
+
+`models.py` pinnt die formalen Mappingregeln aus Plan 2.5 (0 Zuordnungen mit
+Grund, 1–2 als Normalfall, 3–5 nur mit Broad-Scope-Ausnahme samt Confidence ≥ 3
+und eigener Evidence/Rationale je Industry, > 5 immer ungültig) und weist über
+`extra="forbid"` Market-Cap- und Weight-Felder auch am Modellrand zurück.
+Kontextabhängige Regeln (Unittyp-Obergrenze, Snapshot- und Evidenceprüfung)
+folgen bewusst erst in P6, die Artefaktschemata in P7/P8.
+
+Der Paketimport zieht weder `openrouter` noch `yfinance` oder eine
+HTTP-Bibliothek nach — durch Test gesichert. Neu:
+`tests/test_committee_matcher_scaffold.py` (101 netzwerkfreie Tests; Gesamtsuite
+1161). CLI, Familien, Exit-Codes und Settingstabelle:
+`organisation/CLI_Bedienungsanleitung.md` Abschnitt 15.
+
 ## 2026-08-20 — Committee Matcher V2, P0: Inputbaseline migriert und eingefroren
 
 Die 46 kanonischen Committee-Markdowns unter `data/committee_matcher_inputs/md/`

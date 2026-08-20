@@ -301,6 +301,26 @@ Die Liste ist matcherbezogen und **nicht** aus der globalen
 Beide YAML-Artefakte enthalten bewusst keine Zeitstempel; `--write` ist damit
 reproduzierbar und die Provenienz laeuft ueber Git.
 
+### `data/committee_matcher_v2/` (reservierte Artefaktwurzel, noch leer)
+
+Einzige Schreibwurzel des Matchers. Ab P4 entstehen darunter unveränderliche
+Run-, Snapshot-, Review-, Evaluations- und Qualifikationsrevisionen; die
+Feldlisten der Long-CSV und des Review-Workbooks werden erst mit den Artefakten
+in P7/P8 eingefroren.
+
+Der Schreibschutz ist technisch durchgesetzt (`committee_matcher/paths.py`):
+Schreiben außerhalb dieser Wurzel, in die Inputbaseline oder in einen der neun
+Pfade der P0-Schutzbaseline blockiert mit Exit 4; fehlt oder bricht die
+Schutzbaseline, blockiert die Wache ebenfalls (fail closed).
+
+Das Paket `committee_matcher/` selbst hält seit P2 den providerfreien Kern:
+Zustände und Exit-Codes (`status.py`), Befundsammlung und Terminalbericht
+(`errors.py`), Pfadwache (`paths.py`), typisierte Settingssicht mit
+Providergate (`settings_view.py`), Pydantic-Datenverträge (`models.py`) und das
+CLI-Skelett (`cli.py`). Die Ownership-Karte aller 17 Zielmodule steht im
+Docstring von `committee_matcher/__init__.py`. Bedienung, Familien, Exit-Codes
+und die vollständige Settingstabelle: `CLI_Bedienungsanleitung.md` Abschnitt 15.
+
 ## 4. Yahoo Finance Sektoren
 
 ### `data/raw/yf_secotors_with_industries.xlsx`
