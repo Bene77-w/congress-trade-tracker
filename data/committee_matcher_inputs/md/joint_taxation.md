@@ -9,7 +9,9 @@ retrieved_at: null
 source_metadata_status: pending
 source_files:
   - data/committee_matcher_inputs/txt/joint_taxation.txt
-input_basis: committee_direct
+unit_input_basis:
+  committee: jurisdiction_text
+  subcommittees: {}
 ---
 
 # Committee jurisdiction

@@ -10,6 +10,21 @@ source_metadata_status: pending
 source_files:
   - data/committee_matcher_inputs/txt/senate_appropriations.txt
   - data/committee_matcher_inputs/md/senate-rule-xxv-committee-jurisdictions.md
+unit_input_basis:
+  committee: jurisdiction_text
+  subcommittees:
+    "Subcommittee on Agriculture, Rural Development, Food and Drug Administration, and Related Agencies": jurisdiction_text
+    "Subcommittee on Commerce, Justice, Science, and Related Agencies": jurisdiction_text
+    "Subcommittee on Department of Defense": jurisdiction_text
+    "Subcommittee on Energy and Water Development": jurisdiction_text
+    "Subcommittee on Financial Services and General Government": jurisdiction_text
+    "Subcommittee on Department of Homeland Security": jurisdiction_text
+    "Subcommittee on Department of Interior, Environment, and Related Agencies": jurisdiction_text
+    "Subcommittee on Departments of Labor, Health and Human Services, and Education, and Related Agencies": jurisdiction_text
+    "Subcommittee on Legislative Branch": jurisdiction_text
+    "Subcommittee on Military Construction, Veterans Affairs, and Related Agencies": jurisdiction_text
+    "Subcommittee on State, Foreign Operations, and Related Programs": jurisdiction_text
+    "Subcommittee on Transportation, Housing and Urban Development, and Related Agencies": jurisdiction_text
 ---
 
 # Committee jurisdiction

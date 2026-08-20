@@ -10,6 +10,14 @@ source_metadata_status: pending
 source_files:
   - "data/committee_matcher_inputs/txt/house_natural_resources.txt"
   - "data/committee_matcher_inputs/md/house-rule-x-committee-jurisdictions.md"
+unit_input_basis:
+  committee: jurisdiction_text
+  subcommittees:
+    "Subcommittee on Energy and Mineral Resources": jurisdiction_text
+    "Subcommittee on Federal Lands": jurisdiction_text
+    "Subcommittee on Indian and Insular Affairs": jurisdiction_text
+    "Subcommittee on Oversight and Investigations": jurisdiction_text
+    "Subcommittee on Water, Wildlife, and Fisheries": jurisdiction_text
 ---
 
 # Committee jurisdiction

@@ -10,6 +10,13 @@ source_metadata_status: pending
 source_files:
   - "data/committee_matcher_inputs/txt/house_education_workforce.txt"
   - "data/committee_matcher_inputs/md/house-rule-x-committee-jurisdictions.md"
+unit_input_basis:
+  committee: jurisdiction_text
+  subcommittees:
+    "Subcommittee on Early Childhood, Elementary, and Secondary Education": jurisdiction_text
+    "Subcommittee on Higher Education and Workforce Development": jurisdiction_text
+    "Subcommittee on Workforce Protections": jurisdiction_text
+    "Subcommittee on Health, Employment, Labor, and Pensions": jurisdiction_text
 ---
 
 # Committee jurisdiction

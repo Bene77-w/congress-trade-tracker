@@ -9,7 +9,9 @@ retrieved_at: null
 source_metadata_status: pending
 source_files:
   - data/committee_matcher_inputs/txt/joint_economic.txt
-input_basis: summarized_mandate
+unit_input_basis:
+  committee: jurisdiction_text
+  subcommittees: {}
 ---
 
 # Committee jurisdiction

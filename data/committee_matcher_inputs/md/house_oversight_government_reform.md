@@ -10,6 +10,16 @@ source_metadata_status: pending
 source_files:
   - "data/committee_matcher_inputs/txt/house_oversight_government_reform.txt"
   - "data/committee_matcher_inputs/md/house-rule-x-committee-jurisdictions.md"
+unit_input_basis:
+  committee: jurisdiction_text
+  subcommittees:
+    "Subcommittee on Cybersecurity, Information Technology, and Government Innovation": jurisdiction_text
+    "Subcommittee on Economic Growth, Energy Policy, and Regulatory Affairs": jurisdiction_text
+    "Subcommittee on Government Operations": jurisdiction_text
+    "Subcommittee on Health Care and Financial Services": jurisdiction_text
+    "Subcommittee on Military and Foreign Affairs": jurisdiction_text
+    "Subcommittee on Federal Law Enforcement": jurisdiction_text
+    "Subcommittee on Delivering on Government Efficiency": jurisdiction_text
 ---
 
 # Committee jurisdiction

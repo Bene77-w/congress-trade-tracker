@@ -10,6 +10,14 @@ source_metadata_status: pending
 source_files:
   - "data/committee_matcher_inputs/txt/house_veterans_affairs.txt"
   - "data/committee_matcher_inputs/md/house-rule-x-committee-jurisdictions.md"
+unit_input_basis:
+  committee: jurisdiction_text
+  subcommittees:
+    "Subcommittee on Disability Assistance and Memorial Affairs": jurisdiction_text
+    "Subcommittee on Economic Opportunity": jurisdiction_text
+    "Subcommittee on Health": jurisdiction_text
+    "Subcommittee on Oversight and Investigations": jurisdiction_text
+    "Subcommittee on Technology Modernization": jurisdiction_text
 ---
 
 # Committee jurisdiction

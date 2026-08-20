@@ -10,6 +10,12 @@ source_metadata_status: pending
 source_files:
   - data/committee_matcher_inputs/txt/senate_health_education_labor_pensions.txt
   - data/committee_matcher_inputs/md/senate-rule-xxv-committee-jurisdictions.md
+unit_input_basis:
+  committee: jurisdiction_text
+  subcommittees:
+    "Subcommittee on Education and the American Family": jurisdiction_text
+    "Subcommittee on Employment and Workplace Safety": jurisdiction_text
+    "Subcommittee on Primary Health and Retirement Security": jurisdiction_text
 ---
 
 # Committee jurisdiction

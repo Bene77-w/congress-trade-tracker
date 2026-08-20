@@ -10,6 +10,15 @@ source_metadata_status: pending
 source_files:
   - "data/committee_matcher_inputs/txt/house_ways_means.txt"
   - "data/committee_matcher_inputs/md/house-rule-x-committee-jurisdictions.md"
+unit_input_basis:
+  committee: jurisdiction_text
+  subcommittees:
+    "Subcommittee on Tax Policy": jurisdiction_text
+    "Subcommittee on Trade": jurisdiction_text
+    "Subcommittee on Health": jurisdiction_text
+    "Subcommittee on Social Security": jurisdiction_text
+    "Subcommittee on Oversight": jurisdiction_text
+    "Subcommittee on Work and Welfare": jurisdiction_text
 ---
 
 # Committee jurisdiction

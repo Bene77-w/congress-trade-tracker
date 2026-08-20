@@ -10,6 +10,15 @@ source_metadata_status: pending
 source_files:
   - "data/committee_matcher_inputs/txt/house_homeland_security.txt"
   - "data/committee_matcher_inputs/md/house-rule-x-committee-jurisdictions.md"
+unit_input_basis:
+  committee: jurisdiction_text
+  subcommittees:
+    "Subcommittee on Border Security and Enforcement": jurisdiction_text
+    "Subcommittee on Cybersecurity and Infrastructure Protection": jurisdiction_text
+    "Subcommittee on Emergency Management and Technology": jurisdiction_text
+    "Subcommittee on Counterterrorism and Intelligence": jurisdiction_text
+    "Subcommittee on Oversight, Investigations, and Accountability": jurisdiction_text
+    "Subcommittee on Transportation and Maritime Security": jurisdiction_text
 ---
 
 # Committee jurisdiction

@@ -10,6 +10,15 @@ source_metadata_status: pending
 source_files:
   - "data/committee_matcher_inputs/txt/house_judiciary.txt"
   - "data/committee_matcher_inputs/md/house-rule-x-committee-jurisdictions.md"
+unit_input_basis:
+  committee: jurisdiction_text
+  subcommittees:
+    "Subcommittee on the Administrative State, Regulatory Reform, and Antitrust": jurisdiction_text
+    "Subcommittee on Courts, Intellectual Property, Artificial Intelligence, and the Internet": jurisdiction_text
+    "Subcommittee on Crime and Federal Government Surveillance": jurisdiction_text
+    "Subcommittee on Immigration Integrity, Security, and Enforcement": jurisdiction_text
+    "Subcommittee on Oversight": jurisdiction_text
+    "Subcommittee on the Constitution and Limited Government": jurisdiction_text
 ---
 
 # Committee jurisdiction

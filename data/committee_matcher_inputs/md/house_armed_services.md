@@ -10,6 +10,16 @@ source_metadata_status: pending
 source_files:
   - "data/committee_matcher_inputs/txt/house_armed_services.txt"
   - "data/committee_matcher_inputs/md/house-rule-x-committee-jurisdictions.md"
+unit_input_basis:
+  committee: jurisdiction_text
+  subcommittees:
+    "Subcommittee on Cyber, Information Technologies, and Innovation": jurisdiction_text
+    "Subcommittee on Intelligence and Special Operations": jurisdiction_text
+    "Subcommittee on Military Personnel": jurisdiction_text
+    "Subcommittee on Readiness": jurisdiction_text
+    "Subcommittee on Seapower and Projection Forces": jurisdiction_text
+    "Subcommittee on Strategic Forces": jurisdiction_text
+    "Subcommittee on Tactical Air and Land Forces": jurisdiction_text
 ---
 
 # Committee jurisdiction

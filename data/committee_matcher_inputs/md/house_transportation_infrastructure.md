@@ -10,6 +10,15 @@ source_metadata_status: pending
 source_files:
   - "data/committee_matcher_inputs/txt/house_transportation_infrastructure.txt"
   - "data/committee_matcher_inputs/md/house-rule-x-committee-jurisdictions.md"
+unit_input_basis:
+  committee: jurisdiction_text
+  subcommittees:
+    "Subcommittee on Aviation": jurisdiction_text
+    "Subcommittee on Coast Guard and Maritime Transportation": jurisdiction_text
+    "Subcommittee on Economic Development, Public Buildings, and Emergency Management": jurisdiction_text
+    "Subcommittee on Highways and Transit": jurisdiction_text
+    "Subcommittee on Railroads, Pipelines, and Hazardous Materials": jurisdiction_text
+    "Subcommittee on Water Resources and Environment": jurisdiction_text
 ---
 
 # Committee jurisdiction

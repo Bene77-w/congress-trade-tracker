@@ -10,6 +10,12 @@ source_metadata_status: pending
 source_files:
   - data/committee_matcher_inputs/txt/senate_homeland_security_governmental_affairs.txt
   - data/committee_matcher_inputs/md/senate-rule-xxv-committee-jurisdictions.md
+unit_input_basis:
+  committee: jurisdiction_text
+  subcommittees:
+    "Permanent Subcommittee on Investigations": jurisdiction_text
+    "Subcommittee on Border Management, Federal Workforce, and Regulatory Affairs": name_only
+    "Subcommittee on Disaster Management, District of Columbia, and Census": name_only
 ---
 
 # Committee jurisdiction
@@ -43,12 +49,10 @@ The Permanent Subcommittee on Investigations is the Committee’s chief investig
 
 ## Subcommittee on Border Management, Federal Workforce, and Regulatory Affairs
 
-<!-- input_basis: name_only -->
 Kein separater Jurisdiktionstext liegt vor; nur der Subcommittee-Name und die Parent-Jurisdiktion sind Evidenz.
 
 ## Subcommittee on Disaster Management, District of Columbia, and Census
 
-<!-- input_basis: name_only -->
 Kein separater Jurisdiktionstext liegt vor; nur der Subcommittee-Name und die Parent-Jurisdiktion sind Evidenz.
 
 ## Zusätzliche Kommentare

@@ -10,6 +10,16 @@ source_metadata_status: pending
 source_files:
   - data/committee_matcher_inputs/txt/senate_armed_services.txt
   - data/committee_matcher_inputs/md/senate-rule-xxv-committee-jurisdictions.md
+unit_input_basis:
+  committee: jurisdiction_text
+  subcommittees:
+    "Subcommittee on Airland": jurisdiction_text
+    "Subcommittee on Cybersecurity": jurisdiction_text
+    "Subcommittee on Emerging Threats and Capabilities": jurisdiction_text
+    "Subcommittee on Personnel": jurisdiction_text
+    "Subcommittee on Readiness and Management Support": jurisdiction_text
+    "Subcommittee on Seapower": jurisdiction_text
+    "Subcommittee on Strategic Forces": jurisdiction_text
 ---
 
 # Committee jurisdiction

@@ -10,6 +10,14 @@ source_metadata_status: pending
 source_files:
   - data/committee_matcher_inputs/txt/senate_agriculture.txt
   - data/committee_matcher_inputs/md/senate-rule-xxv-committee-jurisdictions.md
+unit_input_basis:
+  committee: jurisdiction_text
+  subcommittees:
+    "Subcommittee on Commodities, Derivatives, Risk Management, and Trade": jurisdiction_text
+    "Subcommittee on Rural Development, Energy, and Credit": jurisdiction_text
+    "Subcommittee on Conservation, Forestry, Natural Resources, and Biotechnology": jurisdiction_text
+    "Subcommittee on Food and Nutrition, Specialty Crops, Organics, and Research": jurisdiction_text
+    "Subcommittee on Livestock, Dairy, Poultry, and Food Safety": jurisdiction_text
 ---
 
 # Committee jurisdiction

@@ -571,6 +571,65 @@ python scrapers/generate_committee_structure.py
 
 ---
 
+## 7c. Committee Matcher V2 – Inputbaseline (P0)
+
+**Dateien:** `scripts/committee_matcher_migrate_inputs.py`,
+`scripts/committee_matcher_baseline.py`
+**Zweck:** Migriert die 46 kanonischen Committee-Markdowns auf den Inputvertrag
+(`unit_input_basis`) und erzeugt/prueft Corpusmanifest sowie Schutzbaseline.
+**Wann:** Einmalig zur Baselinebildung; danach als Regressionscheck, bevor eine
+spaetere Matcherphase auf den Inputs aufsetzt.
+**Netzwerk:** keiner der Befehle ruft externe Dienste auf.
+
+```bash
+# 1. Migration trocken pruefen (schreibt nichts)
+python scripts/committee_matcher_migrate_inputs.py --check
+
+# 2. Migration anwenden (atomar je Datei, anschliessend Vollvalidierung)
+python scripts/committee_matcher_migrate_inputs.py --apply
+
+# 3. Klassifikation je Datei ausgeben (Units, name_only, Delta)
+python scripts/committee_matcher_migrate_inputs.py --report
+
+# 4. Corpusmanifest erzeugen bzw. gegen die Platte pruefen
+python scripts/committee_matcher_baseline.py manifest --write
+python scripts/committee_matcher_baseline.py manifest --verify
+
+# 5. Schutzbaseline der Produktionspfade erzeugen bzw. pruefen
+python scripts/committee_matcher_baseline.py protect --write
+python scripts/committee_matcher_baseline.py protect --verify
+
+# 6. Unit-Sollmenge ableiten (ohne kanonische IDs; unit-id-v1 folgt in P3)
+python scripts/committee_matcher_baseline.py units
+python scripts/committee_matcher_baseline.py units --list
+```
+
+**Flags**
+
+| Flag | Skript | Wirkung |
+|---|---|---|
+| `--check` | migrate | Sollzustand berechnen, nichts schreiben |
+| `--apply` | migrate | Sollzustand atomar schreiben + validieren |
+| `--report` | migrate | Tabelle je Datei (Kammer, Subcommittees, name_only, Delta) |
+| `--input-root PFAD` | migrate, baseline | Abweichender Inputroot; eingefrorene Sollwerte gelten dann nicht (nur fuer Tests) |
+| `manifest --write/--verify` | baseline | Corpusmanifest erzeugen bzw. Rollen + SHA-256 pruefen |
+| `protect --write/--verify` | baseline | Schutzbaseline erzeugen bzw. Unveraendertheit pruefen |
+| `units [--list]` | baseline | Unit-Sollmenge zaehlen bzw. einzeln ausgeben |
+
+**Exit-Codes** (Teilmenge der verbindlichen V2-Matrix): `0` erfolgreich ·
+`4` Input-/Config-Preflight blockiert (Strukturfehler oder ausstehende
+Migration) · `10` unerwarteter interner Fehler.
+
+Beide Skripte geben immer einen nach Schweregrad und Fehlercode gruppierten
+Abschlussbericht aus — auch bei null Befunden. `--apply` ist idempotent: ein
+zweiter Lauf schreibt nichts mehr, weil ein vorhandenes `unit_input_basis` die
+massgebliche Quelle der Basiswerte ist.
+
+Artefakte + Spalten: `DATA_STRUCTURE.md` Abschnitt 3a.
+Tests: `tests/test_committee_matcher_input_baseline.py` (72 Tests, netzwerkfrei).
+
+---
+
 ## 8. House Scraper
 
 **Datei:** `scrapers/house_scraper.py`

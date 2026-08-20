@@ -10,6 +10,11 @@ source_metadata_status: pending
 source_files:
   - "data/committee_matcher_inputs/txt/house_rules.txt"
   - "data/committee_matcher_inputs/md/house-rule-x-committee-jurisdictions.md"
+unit_input_basis:
+  committee: jurisdiction_text
+  subcommittees:
+    "Subcommittee on Rules and Organization of the House": jurisdiction_text
+    "Subcommittee on Legislative and Budget Process": jurisdiction_text
 ---
 
 # Committee jurisdiction

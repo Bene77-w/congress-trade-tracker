@@ -10,6 +10,16 @@ source_metadata_status: pending
 source_files:
   - data/committee_matcher_inputs/txt/senate_judiciary.txt
   - data/committee_matcher_inputs/md/senate-rule-xxv-committee-jurisdictions.md
+unit_input_basis:
+  committee: jurisdiction_text
+  subcommittees:
+    "Subcommittee on Antitrust, Competition Policy, and Consumer Rights": jurisdiction_text
+    "Subcommittee on Border Security and Immigration": jurisdiction_text
+    "Subcommittee on the Constitution": jurisdiction_text
+    "Subcommittee on Crime and Counterterrorism": jurisdiction_text
+    "Subcommittee on Federal Courts, Oversight, Agency Action, and Federal Rights": jurisdiction_text
+    "Subcommittee on Intellectual Property": jurisdiction_text
+    "Subcommittee on Privacy, Technology, and the Law": jurisdiction_text
 ---
 
 # Committee jurisdiction

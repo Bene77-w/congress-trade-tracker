@@ -10,6 +10,13 @@ source_metadata_status: pending
 source_files:
   - data/committee_matcher_inputs/txt/senate_environment_public_works.txt
   - data/committee_matcher_inputs/md/senate-rule-xxv-committee-jurisdictions.md
+unit_input_basis:
+  committee: jurisdiction_text
+  subcommittees:
+    "Subcommittee on Clean Air, Climate, and Nuclear Innovation and Safety": jurisdiction_text
+    "Subcommittee on Fisheries, Wildlife, and Water": jurisdiction_text
+    "Subcommittee on Chemical Safety, Waste Management, Environmental Justice, and Regulatory Oversight": jurisdiction_text
+    "Subcommittee on Transportation and Infrastructure": jurisdiction_text
 ---
 
 # Committee jurisdiction

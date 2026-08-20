@@ -10,6 +10,13 @@ source_metadata_status: pending
 source_files:
   - data/committee_matcher_inputs/txt/senate_energy_natural_resources.txt
   - data/committee_matcher_inputs/md/senate-rule-xxv-committee-jurisdictions.md
+unit_input_basis:
+  committee: jurisdiction_text
+  subcommittees:
+    "Subcommittee on Energy": jurisdiction_text
+    "Subcommittee on National Parks": jurisdiction_text
+    "Subcommittee on Public Lands, Forests, and Mining": jurisdiction_text
+    "Subcommittee on Water and Power": jurisdiction_text
 ---
 
 # Committee jurisdiction

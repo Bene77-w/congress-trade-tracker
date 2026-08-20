@@ -11,6 +11,36 @@ Historie abgeschlossener Module/Phasen. **Aktiver WIP-Modul-Stand** steht im „
 
 ---
 
+## 2026-08-20 — Committee Matcher V2, P0: Inputbaseline migriert und eingefroren
+
+Die 46 kanonischen Committee-Markdowns unter `data/committee_matcher_inputs/md/`
+folgen jetzt dem Inputvertrag aus
+`organisation/committee_jurisdiction_input_template_codex.md`. Das versionierte,
+idempotente Migrationsskript `scripts/committee_matcher_migrate_inputs.py`
+(`input-basis-v1`, Modi `--check`/`--apply`/`--report`) hat `unit_input_basis`
+ergänzt, die zwölf alten `input_basis:`-Frontmatterfelder und die acht
+HTML-Ersatzmarker entfernt und dabei Jurisdiktionstexte und Identitäten
+unverändert gelassen.
+
+`scripts/committee_matcher_baseline.py` erzeugt und prüft die beiden
+Kontrollinputs: `data/committee_matcher_inputs/corpus_manifest.yaml`
+(95 Dateien: 46 `mapping_input`, 2 `source_only`, 46 `raw_source`,
+1 `administrative_excluded`, jeweils mit Rolle und SHA-256) und
+`data/config/committee_matcher_protected_baseline.yaml` (SHA-256 der neun
+matcherbezogenen Produktionspfade). Die Unit-Sollmenge ist mit 179
+`subcommittee` + 31 `committee_parent_core` + 15 `committee_direct` = 225
+eingefroren; kanonische Unit-IDs folgen erst in P3.
+
+`PyYAML==6.0.3` ist in `requirements.txt` gepinnt. Die V1-Einträge des alten
+Mapping-Agenten wurden aus `.gitignore` entfernt; gitignorierte Altartefakte mit
+nicht reproduzierbarer Reviewarbeit existieren nicht mehr.
+
+Test-Stand: `tests/test_committee_matcher_input_baseline.py` 72 Tests
+(netzwerkfrei, schreibende Fälle nur auf synthetischem Corpus), Gesamtsuite
+1042 Tests grün.
+
+---
+
 ## 2026-07-11 — Suspicious-Trades-Workflow als Schwesterprojekt ausgelagert
 
 Der zuvor im Congress Tracker enthaltene Workflow wurde vollständig nach

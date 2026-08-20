@@ -10,6 +10,15 @@ source_metadata_status: pending
 source_files:
   - data/committee_matcher_inputs/txt/senate_finance.txt
   - data/committee_matcher_inputs/md/senate-rule-xxv-committee-jurisdictions.md
+unit_input_basis:
+  committee: jurisdiction_text
+  subcommittees:
+    "Subcommittee on Social Security, Pensions, and Family Policy": name_only
+    "Subcommittee on International Trade, Customs, and Global Competitiveness": name_only
+    "Subcommittee on Energy, Natural Resources, and Infrastructure": name_only
+    "Subcommittee on Health Care": name_only
+    "Subcommittee on Taxation and IRS Oversight": name_only
+    "Subcommittee on Fiscal Responsibility and Economic Growth": name_only
 ---
 
 # Committee jurisdiction
@@ -30,32 +39,26 @@ source_files:
 
 ## Subcommittee on Social Security, Pensions, and Family Policy
 
-<!-- input_basis: name_only -->
 Kein separater Jurisdiktionstext liegt vor; nur der Subcommittee-Name und die Parent-Jurisdiktion sind Evidenz.
 
 ## Subcommittee on International Trade, Customs, and Global Competitiveness
 
-<!-- input_basis: name_only -->
 Kein separater Jurisdiktionstext liegt vor; nur der Subcommittee-Name und die Parent-Jurisdiktion sind Evidenz.
 
 ## Subcommittee on Energy, Natural Resources, and Infrastructure
 
-<!-- input_basis: name_only -->
 Kein separater Jurisdiktionstext liegt vor; nur der Subcommittee-Name und die Parent-Jurisdiktion sind Evidenz.
 
 ## Subcommittee on Health Care
 
-<!-- input_basis: name_only -->
 Kein separater Jurisdiktionstext liegt vor; nur der Subcommittee-Name und die Parent-Jurisdiktion sind Evidenz.
 
 ## Subcommittee on Taxation and IRS Oversight
 
-<!-- input_basis: name_only -->
 Kein separater Jurisdiktionstext liegt vor; nur der Subcommittee-Name und die Parent-Jurisdiktion sind Evidenz.
 
 ## Subcommittee on Fiscal Responsibility and Economic Growth
 
-<!-- input_basis: name_only -->
 Kein separater Jurisdiktionstext liegt vor; nur der Subcommittee-Name und die Parent-Jurisdiktion sind Evidenz.
 
 ## Zusätzliche Kommentare

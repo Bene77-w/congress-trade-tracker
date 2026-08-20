@@ -9,7 +9,9 @@ retrieved_at: null
 source_metadata_status: pending
 source_files:
   - data/committee_matcher_inputs/txt/senate_select_intelligence.txt
-input_basis: committee_direct
+unit_input_basis:
+  committee: jurisdiction_text
+  subcommittees: {}
 ---
 
 # Committee jurisdiction

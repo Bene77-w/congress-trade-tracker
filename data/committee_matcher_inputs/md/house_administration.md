@@ -10,6 +10,11 @@ source_metadata_status: pending
 source_files:
   - "data/committee_matcher_inputs/txt/house_administration.txt"
   - "data/committee_matcher_inputs/md/house-rule-x-committee-jurisdictions.md"
+unit_input_basis:
+  committee: jurisdiction_text
+  subcommittees:
+    "Subcommittee on Elections": jurisdiction_text
+    "Subcommittee on Modernization and Innovation": jurisdiction_text
 ---
 
 # Committee jurisdiction

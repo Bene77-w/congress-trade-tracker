@@ -10,6 +10,15 @@ source_metadata_status: pending
 source_files:
   - "data/committee_matcher_inputs/txt/house_permanent_select_intelligence.txt"
   - "data/committee_matcher_inputs/md/house-rule-x-committee-jurisdictions.md"
+unit_input_basis:
+  committee: jurisdiction_text
+  subcommittees:
+    "Subcommittee on Central Intelligence Agency": jurisdiction_text
+    "Subcommittee on National Intelligence Enterprise": jurisdiction_text
+    "Subcommittee on Defense Intelligence and Overhead Architecture": jurisdiction_text
+    "Subcommittee on National Security Agency and Cyber": jurisdiction_text
+    "Subcommittee on Oversight and Investigations": jurisdiction_text
+    "Subcommittee on Open Source Intelligence": jurisdiction_text
 ---
 
 # Committee jurisdiction

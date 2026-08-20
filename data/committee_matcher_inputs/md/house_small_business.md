@@ -10,6 +10,14 @@ source_metadata_status: pending
 source_files:
   - "data/committee_matcher_inputs/txt/house_small_business.txt"
   - "data/committee_matcher_inputs/md/house-rule-x-committee-jurisdictions.md"
+unit_input_basis:
+  committee: jurisdiction_text
+  subcommittees:
+    "Subcommittee on Contracting and Infrastructure": jurisdiction_text
+    "Subcommittee on Economic Growth, Tax, and Capital Access": jurisdiction_text
+    "Subcommittee on Innovation, Entrepreneurship, and Workforce Development": jurisdiction_text
+    "Subcommittee on Oversight, Investigations, and Regulations": jurisdiction_text
+    "Subcommittee on Rural Development, Energy, and Supply Chains": jurisdiction_text
 ---
 
 # Committee jurisdiction

@@ -10,6 +10,15 @@ source_metadata_status: pending
 source_files:
   - "data/committee_matcher_inputs/txt/house_agriculture.txt"
   - "data/committee_matcher_inputs/md/house-rule-x-committee-jurisdictions.md"
+unit_input_basis:
+  committee: jurisdiction_text
+  subcommittees:
+    "Subcommittee on General Farm Commodities, Risk Management, and Credit": jurisdiction_text
+    "Subcommittee on Forestry and Horticulture": jurisdiction_text
+    "Subcommittee on Conservation, Research, and Biotechnology": jurisdiction_text
+    "Subcommittee on Nutrition and Foreign Agriculture": jurisdiction_text
+    "Subcommittee on Livestock, Dairy, and Poultry": jurisdiction_text
+    "Subcommittee on Commodity Markets, Digital Assets, and Rural Development": jurisdiction_text
 ---
 
 # Committee jurisdiction

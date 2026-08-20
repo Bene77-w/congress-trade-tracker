@@ -10,6 +10,15 @@ source_metadata_status: pending
 source_files:
   - "data/committee_matcher_inputs/txt/house_financial_services.txt"
   - "data/committee_matcher_inputs/md/house-rule-x-committee-jurisdictions.md"
+unit_input_basis:
+  committee: jurisdiction_text
+  subcommittees:
+    "Subcommittee on Capital Markets": jurisdiction_text
+    "Subcommittee on Financial Institutions": jurisdiction_text
+    "Subcommittee on Housing and Insurance": jurisdiction_text
+    "Subcommittee on National Security, Illicit Finance, and International Financial Institutions": jurisdiction_text
+    "Subcommittee on Digital Assets, Financial Technology, and Artificial Intelligence": jurisdiction_text
+    "Subcommittee on Oversight and Investigations": jurisdiction_text
 ---
 
 # Committee jurisdiction

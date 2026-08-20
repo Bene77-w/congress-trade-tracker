@@ -10,6 +10,15 @@ source_metadata_status: pending
 source_files:
   - "data/committee_matcher_inputs/txt/house_energy_commerce.txt"
   - "data/committee_matcher_inputs/md/house-rule-x-committee-jurisdictions.md"
+unit_input_basis:
+  committee: jurisdiction_text
+  subcommittees:
+    "Subcommittee on Communications and Technology": jurisdiction_text
+    "Subcommittee on Energy": jurisdiction_text
+    "Subcommittee on Environment": jurisdiction_text
+    "Subcommittee on Health": jurisdiction_text
+    "Subcommittee on Commerce, Manufacturing, and Trade": jurisdiction_text
+    "Subcommittee on Oversight and Investigations": jurisdiction_text
 ---
 
 # Committee jurisdiction

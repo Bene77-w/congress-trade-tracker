@@ -10,6 +10,16 @@ source_metadata_status: pending
 source_files:
   - data/committee_matcher_inputs/txt/senate_foreign_relations.txt
   - data/committee_matcher_inputs/md/senate-rule-xxv-committee-jurisdictions.md
+unit_input_basis:
+  committee: jurisdiction_text
+  subcommittees:
+    "Subcommittee on State Department and USAID Management, International Operations, and Bilateral International Development": jurisdiction_text
+    "Subcommittee on Europe and Regional Security Cooperation": jurisdiction_text
+    "Subcommittee on Near East, South Asia, Central Asia, and Counterterrorism": jurisdiction_text
+    "Subcommittee on Western Hemisphere, Transnational Crime, Civilian Security, Democracy, Human Rights, and Global Women's Issues": jurisdiction_text
+    "Subcommittee on Africa and Global Health Policy": jurisdiction_text
+    "Subcommittee on East Asia, the Pacific, and International Cybersecurity Policy": jurisdiction_text
+    "Subcommittee on Multilateral International Development, Multilateral Institutions, and International Economic, Energy, and Environmental Policy": jurisdiction_text
 ---
 
 # Committee jurisdiction

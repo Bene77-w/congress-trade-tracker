@@ -10,6 +10,9 @@ source_metadata_status: pending
 source_files:
   - "data/committee_matcher_inputs/txt/house_budget.txt"
   - "data/committee_matcher_inputs/md/house-rule-x-committee-jurisdictions.md"
+unit_input_basis:
+  committee: jurisdiction_text
+  subcommittees: {}
 ---
 
 # Committee jurisdiction

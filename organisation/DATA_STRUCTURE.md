@@ -221,11 +221,85 @@ vollständig entfernt. Der bestehende Produktionsmaster
 `data/mappings/subcommittee_sector_industry_mapping.csv` bleibt bis zur späteren,
 separat freizugebenden Integration von V2 unverändert in Benutzung.
 
-V2 ist noch nicht implementiert. Verbindlicher Entscheidungsstand und
-Implementierungsreihenfolge stehen in
+Verbindlicher Entscheidungsstand und Implementierungsreihenfolge stehen in
 `committee_matcher_planung_entscheidungen_codex.md` und
-`committee_matcher_v2_implementierungsplan.md`. Neue V2-Formate werden erst mit
-ihrer Implementierung in dieser Datei dokumentiert.
+`committee_matcher_v2_implementierungsplan.md`. Der Mappingkern selbst ist noch
+nicht implementiert; die folgenden Inputartefakte stammen aus der abgeschlossenen
+Phase P0 (Inputbaseline) und sind bereits verbindlich.
+
+### `data/committee_matcher_inputs/md/*.md` (46 Mapping-Inputs + 2 Sammelquellen)
+
+Kanonische Committee-Jurisdiktionstexte im Format aus
+`committee_jurisdiction_input_template_codex.md`. Nach der P0-Migration
+(`input-basis-v1`) traegt jede der 46 Mapping-MDs ein `unit_input_basis` im
+Frontmatter; die alten `input_basis:`-Felder (12) und HTML-Ersatzmarker (8) sind
+entfernt.
+
+| Frontmatter-Feld | Typ | Bedeutung |
+|---|---|---|
+| `schema_version` | int | Version des Inputvertrags (aktuell 1) |
+| `congress` | int | Kongressnummer (119) |
+| `chamber` | enum | `house` \| `senate` \| `joint`; muss zum Dateinamenpraefix passen |
+| `committee` | str | Offizieller Committee-Name (Identitaet) |
+| `committee_type` | str | z. B. `standing`, `select`, `joint` |
+| `source_url` | str \| null | Quell-URL; bei `pending` zulaessig `null`, wird nie erfunden |
+| `retrieved_at` | str \| null | Abrufzeit (ISO-8601) oder `null` |
+| `source_metadata_status` | enum | `complete` \| `pending`; `complete` verlangt URL **und** Abrufzeit |
+| `source_files` | list[str] | Referenzen auf manifestierte `raw_source`/`source_only`-Dateien |
+| `unit_input_basis.committee` | enum | immer `jurisdiction_text` |
+| `unit_input_basis.subcommittees` | map | H2-Name → `jurisdiction_text` \| `name_only`; Keys exakt gleich der H2-Menge ohne Kommentarabschnitt, ausnahmslos doppelt gequotet |
+
+Body: genau eine H1 `# Committee jurisdiction`, je Subcommittee ein
+`## <offizieller Name>`, optional H3-Untergliederungen im Jurisdiktionsabschnitt
+und als letzter Abschnitt `## Zusätzliche Kommentare` — dieser ist reserviert und
+wird nie Mapping-Unit oder Promptkontext.
+
+Abgeleitete Unit-Sollmenge (eingefroren): **179** `subcommittee` + **31**
+`committee_parent_core` + **15** `committee_direct` = **225**; davon 8 Units
+`name_only`. Kanonische Unit-IDs entstehen erst in P3 (`unit-id-v1`).
+
+### `data/committee_matcher_inputs/corpus_manifest.yaml`
+
+Rollen- und Hashmanifest jeder regulaeren Datei unter dem Inputroot; erzeugt von
+`scripts/committee_matcher_baseline.py manifest --write`, nicht von Hand pflegen.
+Das Manifest ist Kontrollmetadata und deshalb selbst kein Corpusmitglied.
+
+| Feld | Typ | Bedeutung |
+|---|---|---|
+| `manifest_version` | str | `corpus-manifest-v1` |
+| `migration_version` | str | Version der Inputmigration (`input-basis-v1`) |
+| `input_root` | str | Projektrelativer Inputroot |
+| `role_counts` | map | `mapping_input=46`, `source_only=2`, `raw_source=46`, `administrative_excluded=1` |
+| `unit_counts` | map | Eingefrorene Unit-Sollmenge (s. oben) |
+| `files[].path` | str | Inputroot-relativer Pfad |
+| `files[].role` | enum | Corpusrolle; nur `mapping_input` erzeugt Units |
+| `files[].bytes` | int | Dateigroesse |
+| `files[].sha256` | str | SHA-256 der exakten Dateibytes (Post-Migrations-Stand) |
+
+`source_files` darf ausschliesslich Dateien der Rollen `raw_source` und
+`source_only` referenzieren; alle 46 TXTs und beide Sammel-MDs sind mindestens
+einmal referenziert.
+
+### `data/config/committee_matcher_protected_baseline.yaml`
+
+SHA-256-Baseline der neun matcherbezogenen Produktionspfade, die V2
+ausschliesslich liest (Produktionsmaster + XLSX, House-/Senate-Roster,
+yfinance-Mappingdateien, Committee-Listen). Erzeugt von
+`scripts/committee_matcher_baseline.py protect --write`; der Schutztest in
+`tests/test_committee_matcher_input_baseline.py` prueft die Unveraendertheit.
+Die Liste ist matcherbezogen und **nicht** aus der globalen
+`reset_pipeline.py`-Schutzliste abgeleitet.
+
+| Feld | Typ | Bedeutung |
+|---|---|---|
+| `baseline_version` | str | `protected-paths-v1` |
+| `scope` | str | `committee_matcher_v2` |
+| `paths[].path` | str | Projektrelativer Pfad |
+| `paths[].bytes` | int | Dateigroesse |
+| `paths[].sha256` | str | SHA-256 zum Zeitpunkt der Baseline |
+
+Beide YAML-Artefakte enthalten bewusst keine Zeitstempel; `--write` ist damit
+reproduzierbar und die Provenienz laeuft ueber Git.
 
 ## 4. Yahoo Finance Sektoren
 

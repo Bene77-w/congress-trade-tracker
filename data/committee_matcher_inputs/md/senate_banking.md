@@ -10,6 +10,15 @@ source_metadata_status: pending
 source_files:
   - data/committee_matcher_inputs/txt/senate_banking.txt
   - data/committee_matcher_inputs/md/senate-rule-xxv-committee-jurisdictions.md
+unit_input_basis:
+  committee: jurisdiction_text
+  subcommittees:
+    "Subcommittee on Economic Policy": jurisdiction_text
+    "Subcommittee on Financial Institutions and Consumer Protection": jurisdiction_text
+    "Subcommittee on Housing, Transportation, and Community Development": jurisdiction_text
+    "Subcommittee on National Security and International Trade and Finance": jurisdiction_text
+    "Subcommittee on Securities, Insurance, and Investment": jurisdiction_text
+    "Subcommittee on Digital Assets": jurisdiction_text
 ---
 
 # Committee jurisdiction

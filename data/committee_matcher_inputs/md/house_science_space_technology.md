@@ -10,6 +10,14 @@ source_metadata_status: pending
 source_files:
   - "data/committee_matcher_inputs/txt/house_science_space_technology.txt"
   - "data/committee_matcher_inputs/md/house-rule-x-committee-jurisdictions.md"
+unit_input_basis:
+  committee: jurisdiction_text
+  subcommittees:
+    "Subcommittee on Energy": jurisdiction_text
+    "Subcommittee on Environment": jurisdiction_text
+    "Subcommittee on Research and Technology": jurisdiction_text
+    "Subcommittee on Space and Aeronautics": jurisdiction_text
+    "Subcommittee on Investigations and Oversight": jurisdiction_text
 ---
 
 # Committee jurisdiction

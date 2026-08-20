@@ -10,6 +10,16 @@ source_metadata_status: pending
 source_files:
   - "data/committee_matcher_inputs/txt/house_foreign_affairs.txt"
   - "data/committee_matcher_inputs/md/house-rule-x-committee-jurisdictions.md"
+unit_input_basis:
+  committee: jurisdiction_text
+  subcommittees:
+    "Subcommittee on Africa": jurisdiction_text
+    "Subcommittee on East Asia and Pacific": jurisdiction_text
+    "Subcommittee on Europe": jurisdiction_text
+    "Subcommittee on Middle East and North Africa": jurisdiction_text
+    "Subcommittee on South and Central Asia": jurisdiction_text
+    "Subcommittee on Western Hemisphere": jurisdiction_text
+    "Subcommittee on Oversight and Intelligence": jurisdiction_text
 ---
 
 # Committee jurisdiction

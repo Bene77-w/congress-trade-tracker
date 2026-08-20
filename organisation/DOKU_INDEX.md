@@ -30,7 +30,9 @@ Dieser Index ist die **Routing-Quelle** für den Skill `/doku-update` und den `d
 | `Preis_Aktualisierung.md` | Erklärt je Lauf-Modus (Normal/`--delta`/Einzel-Stage), welche Preis-Felder (historisch vs. Mark-to-Market) aktualisiert werden und warum rückwirkende Splits nur per vollem `--stage_post_trade_performance`-Lauf in die historischen Spalten kommen. | Preis-Update-Logik je Lauf-Modus geändert, neue Preis-Stage, Cache-Refresh-Schwelle geändert. |
 | `DEPLOYMENT.md` | Deployment-/Plattformwechsel-Referenz (Linux↔Windows, USB-Betrieb, Docker). | Neue Python-Abhängigkeit, neue ENV-Variable, neue plattformspezifische Permission, Docker-Setup. |
 | `manual_review_anleitung.md` | Anleitung für die aktiven manuellen Review-Prozesse (Namen, Ticker, Duplikate). | Neuer Manual-Review-Typ, Review-Datei-Struktur geändert, neue Mapping-CSV. |
-| `committee_matcher_v2_implementierungsplan.md` | Konsolidierte Phasen-, Gate- und Abnahmeplanung für die vollständige Neuimplementierung des Committee Matchers. | Architekturentscheidung, Gate, Phase, Scope oder Abnahmekriterium des Committee-Matcher-V2 geändert. |
+| `committee_matcher_v2_implementierungsplan.md` | Konsolidierte Phasen-, Gate- und Abnahmeplanung für die vollständige Neuimplementierung des Committee Matchers. | Architekturentscheidung, Gate, Phase, Scope oder Abnahmekriterium des Committee-Matcher-V2 geändert; Phase abgeschlossen (Umsetzungsstandtabelle). |
+| `committee_matcher_planung_entscheidungen_codex.md` | Verbindliche Architektur- und Planungsentscheidungen des Committee Matchers V2 (Grundlage des Implementierungsplans). | Entscheidung zu Scope, Units, Taxonomie, Provider, Kosten, Review oder Evaluation geändert. |
+| `committee_jurisdiction_input_template_codex.md` | Inputvertrag der kanonischen Committee-Markdowns (Frontmatter + Abschnittsstruktur). | Frontmatter-Feld, `unit_input_basis`-Wert oder Abschnittskonvention geändert. |
 
 ## `organisation/tool_specific_md/`
 

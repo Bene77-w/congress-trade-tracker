@@ -10,6 +10,15 @@ source_metadata_status: pending
 source_files:
   - data/committee_matcher_inputs/txt/senate_commerce.txt
   - data/committee_matcher_inputs/md/senate-rule-xxv-committee-jurisdictions.md
+unit_input_basis:
+  committee: jurisdiction_text
+  subcommittees:
+    "Subcommittee on Aviation, Space, and Innovation": jurisdiction_text
+    "Subcommittee on Consumer Protection, Technology, and Data Privacy": jurisdiction_text
+    "Subcommittee on Coast Guard, Maritime, and Fisheries": jurisdiction_text
+    "Subcommittee on Science, Manufacturing, and Competitiveness": jurisdiction_text
+    "Subcommittee on Surface Transportation, Freight, Pipelines, and Safety": jurisdiction_text
+    "Subcommittee on Telecommunications and Media": jurisdiction_text
 ---
 
 # Committee jurisdiction
