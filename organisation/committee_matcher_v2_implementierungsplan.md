@@ -1,7 +1,7 @@
 # Implementierungsplan: Committee Matcher V2 – vollständige Neuplanung
 
-Stand: 2026-08-18  
-Status: Gate A offen; P0–P4 sind providerfrei planbar, OpenRouter-Calls beginnen erst nach Gate B  
+Stand: 2026-08-20  
+Status: P0.1–P0.3 (Baselinesicherung) und P1 (Rückbau) abgeschlossen; Rest-P0 startet nach Gate-A-`OK`, danach P2 → P3 → P4 providerfrei; OpenRouter-Calls beginnen erst nach Gate B  
 Verbindliche Grundlage: `organisation/committee_matcher_planung_entscheidungen_codex.md`  
 Scope: Matching-Phase bis zu manuell reviewten V2-Artefakten
 
@@ -317,29 +317,59 @@ Die XLSX trennt unveränderliche `model_*`-Felder von editierbaren
 
 ## 3. Implementierungsphasen und Gates
 
+### Umsetzungsstand (2026-08-20)
+
+| Schritt | Status | Nachweis / Bedingung |
+|---|---|---|
+| P0.1–P0.3 Baselinesicherung | abgeschlossen | Commit `8ff7bc8`; Inputs + Planungsdokumente pfadbezogen committet, kanonische Plankopie versioniert |
+| P1 Vollständiger Rückbau | abgeschlossen | Commit `d5a31fc`; `scripts/committee_mapping_agent/` entfernt, Altdoku und Altdependencies bereinigt; Rollback über Tag `committee-matcher-v1-final` |
+| P0.4–P0.6 Migration + Schutzbaseline | offen | startet mit Gate-A-`OK` |
+| P2 → P3 → P4 | offen | providerfrei, strikt in dieser Reihenfolge nach Rest-P0 |
+| Gate B und alles danach | gesperrt | keine Providerinstallation, kein OpenRouter-Call, keine Modellentscheidung |
+
+P1 wurde vor P0.4–P0.6 ausgeführt, da der Rückbau ausschließlich Altcode und
+Altdoku betrifft und den Inputroot nicht berührt. Der Schutzbezug bleibt
+unverändert der Post-Migrations-Hash aus P0.5; die Invariante „Baseline vor
+Migration“ gilt damit weiterhin.
+
 ### Gate A – Freigabe des providerfreien Kerns
 
-Bene gibt P0–P4 frei. Gate A autorisiert weder OpenRouter noch Mapping-/Review-
-Live-Runs. Die bereits vorhandenen fremden Doku-Löschungen müssen vor P0
-geklärt sein.
+Bene gibt den Rest von P0 sowie P2–P4 frei. Gate A autorisiert weder OpenRouter
+noch Mapping-/Review-Live-Runs.
+
+Vorbedingung Doku-/Worktree-Klärung:
+
+- Die früheren Doku-Löschungen (`organisation/Pipelines.md`,
+  `organisation/analyse_event_study.md`,
+  `organisation/tool_specific_md/Briefing_stage_post_trade_performance.md`) sind
+  über Commit `810d35a` geklärt und Teil des Branchstands.
+- Offen bleiben drei fremde, uncommittete Löschungen im Worktree
+  (`.agents/skills/frontend-design/LICENSE.txt`,
+  `.agents/skills/frontend-design/SKILL.md`,
+  `.claude/skills/skill-creator/SKILL.md`). Sie liegen außerhalb des
+  Matcher-Scopes, werden in keinen Matcher-Commit aufgenommen und warten auf
+  Benes Commit- oder Restore-Entscheidung.
 
 ### P0 – Baseline und Inputmigration
 
-1. Fremde Worktree-Änderungen mit `git status`, unstaged/staged Diff und
-   Branch-Diff dokumentieren und überlappende Dokuänderungen vor Beginn klären.
-2. Untracked Inputs und Planungsdokumente ausschließlich pfadbezogen sichern;
-   niemals `git add -A`.
-3. Diesen Plan als kanonische Repository-Kopie unter
+1. **[erledigt, `8ff7bc8`]** Fremde Worktree-Änderungen mit `git status`,
+   unstaged/staged Diff und Branch-Diff dokumentieren und überlappende
+   Dokuänderungen vor Beginn klären.
+2. **[erledigt, `8ff7bc8`]** Untracked Inputs und Planungsdokumente
+   ausschließlich pfadbezogen sichern; niemals `git add -A`.
+3. **[erledigt, `8ff7bc8`]** Diesen Plan als kanonische Repository-Kopie unter
    `organisation/committee_matcher_v2_implementierungsplan.md` versionieren.
-4. Migrationsskript und Corpusmanifest erstellen, Dry-Run prüfen, Migration
-   anwenden und 46/46 Mapping-MDs validieren.
-5. Post-Migrations-Baseline committen und matcherbezogene Schutz-Hashes bilden.
-6. Gitignorierte Altartefakte auf nicht reproduzierbare Reviewarbeit prüfen.
+4. **[offen]** Migrationsskript und Corpusmanifest erstellen, Dry-Run prüfen,
+   Migration anwenden und 46/46 Mapping-MDs validieren.
+5. **[offen]** Post-Migrations-Baseline committen und matcherbezogene
+   Schutz-Hashes bilden.
+6. **[offen]** Gitignorierte Altartefakte auf nicht reproduzierbare
+   Reviewarbeit prüfen.
 
 Abnahme: 48 MD/46 TXT/1 CSV vollständig klassifiziert, 225 Unit-IDs ableitbar,
 12 Legacyfelder und 8 Marker entfernt, keine fremde Änderung übernommen.
 
-### P1 – Vollständiger Rückbau
+### P1 – Vollständiger Rückbau *(abgeschlossen, Commit `d5a31fc`)*
 
 Den alten Paketinhalt unter `scripts/committee_mapping_agent/` einschließlich
 Research-, Mapping-, LLM-Review-, Finalize-, Cache-, Prompt-, Test- und
@@ -577,4 +607,4 @@ Diese Punkte sind absichtlich nicht vorgetäuscht präzisiert:
 - Holdoutumfang/-Strata und fachliche Abnahmeschwellen;
 - empirische Bestätigung oder Anpassung der Broad-Scope-Regel.
 
-Erst Benes Gate-A-`OK` startet P0.
+Erst Benes Gate-A-`OK` startet den Rest von P0 (Schritte 4–6).
