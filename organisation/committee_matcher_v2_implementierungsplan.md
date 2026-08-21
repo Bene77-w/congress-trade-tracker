@@ -1,7 +1,7 @@
 # Implementierungsplan: Committee Matcher V2 – vollständige Neuplanung
 
 Stand: 2026-08-20  
-Status: P0, P1, P2 und P3 abgeschlossen; nächste Phase ist P4 (providerfrei, yfinance erlaubt); OpenRouter-Calls beginnen erst nach Gate B  
+Status: P0–P4 abgeschlossen (providerfreier Kern steht); nächster Schritt ist Gate B, das bis zur Freigabe durch Bene gesperrt bleibt  
 Verbindliche Grundlage: `organisation/committee_matcher_planung_entscheidungen_codex.md`  
 Scope: Matching-Phase bis zu manuell reviewten V2-Artefakten
 
@@ -327,7 +327,7 @@ Die XLSX trennt unveränderliche `model_*`-Felder von editierbaren
 | P0.4–P0.6 Migration + Schutzbaseline | abgeschlossen | Commits `5e683a9` + `235a5c8`; Migration `input-basis-v1` idempotent, `corpus_manifest.yaml` (95 Dateien) + `committee_matcher_protected_baseline.yaml` (9 Pfade) erzeugt und verifiziert; Phasenreview mit Auflagen abgenommen, alle fünf Befunde behoben |
 | P2 Providerfreies Gerüst | abgeschlossen | Paket `committee_matcher/` mit Ownership-Karte für 17 Zielmodule; `status`, `errors`, `paths`, `settings_view`, `models`, `cli` implementiert; `COMMITTEE_MATCHER_*`-Block in `config/settings.py`; 127 netzwerkfreie Tests; Phasenreview mit Auflagen, alle sieben Befunde behoben |
 | P3 Input, Identität, Roster | abgeschlossen | `input_corpus.py` (strikter Parser + Fremdanweisungsgate), `units.py` (`unit-id-v1`/`mapping-input-v1`, Golden Tests), `roster_coverage.py` (Joint-Cross-Chamber-Regel); `input validate` bestätigt 225 Units mengengleich zur eingefrorenen Baseline, `roster validate` 227/230 gemappt; 75 zusätzliche netzwerkfreie Tests |
-| P4 yfinance-Snapshot | offen | nächste Phase; Netzzugriff nur auf yfinance |
+| P4 yfinance-Snapshot | abgeschlossen | Contract-Spike gegen `yfinance==1.3.0` bestätigt; `taxonomy_source.py` (Adapterrand verwirft Börsengrößen) + `taxonomy_snapshot.py` (`taxonomy-content-v1`, Katalog, Checkpoint/Resume, `no_baseline`- und Driftgate); Livelauf: 145 Industries in 11 Sektoren, Erstfreigabe erteilt; 26 netzwerkfreie Tests |
 | Gate B und alles danach | gesperrt | keine Providerinstallation, kein OpenRouter-Call, keine Modellentscheidung |
 
 P1 wurde vor P0.4–P0.6 ausgeführt, da der Rückbau ausschließlich Altcode und
@@ -426,9 +426,18 @@ Zwei bewusst offene Punkte, beide als Warnung sichtbar statt still korrigiert:
 - zwei abgeschnittene Jurisdiktionstexte im Corpus (House THUD, Senate Homeland
   Security) melden `INP_EVIDENCE_TOO_SHORT`; Corpuspflege, kein Codefehler.
 
-### P4 – yfinance-Contract-Spike und Snapshot
+### P4 – yfinance-Contract-Spike und Snapshot *(abgeschlossen)*
 
-Mit gepinnter yfinance-Version zunächst nachweisen:
+Der Contract-Spike gegen `yfinance==1.3.0` hat alle vier Punkte bestätigt:
+`SECTOR_INDUSTY_MAPPING` liefert 11 Seeds, `Sector(key).industries` den
+Live-Bestand (DataFrame mit `name`, `symbol`, `market weight`),
+`Industry(key).overview` Identität und Beschreibung neben Börsengrößen, die der
+Adapter verwirft. Checkpoint/Resume ist am Livelauf belegt: ein Abbruch wegen
+gedrosselter Sectorantwort hinterließ nur den Checkpoint, `snapshot resume`
+setzte darauf auf. Eine leere Sectorantwort wird seither als Drosselung
+behandelt und fällt in die Retrylogik.
+
+Ursprüngliche Nachweisliste:
 
 - Sector-Seeds führen vollständig zur Live-Industry-Liste;
 - Description/Identität sind stabil abrufbar;

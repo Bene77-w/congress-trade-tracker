@@ -1037,7 +1037,7 @@ Default-Port: **8501** → im Browser öffnen: `http://localhost:8501`
 
 ---
 
-## 15. Committee Matcher V2 – CLI und Settings (P2-Gerüst, P3-Kern)
+## 15. Committee Matcher V2 – CLI und Settings (P2-Gerüst, P3-Kern, P4-Snapshot)
 
 **Paket:** `committee_matcher/` · **Einstieg:** `python -m committee_matcher`
 **Zweck:** Providerfreier Kern des neu implementierten Matchers; kennt alle
@@ -1057,8 +1057,12 @@ python -m committee_matcher roster validate     # Roster-Coverage gegen die Unit
 python -m committee_matcher run execute         # Providerpfad: blockiert mit Exit 4
 ```
 
-`input validate` und `roster validate` sind seit P3 implementiert; alle übrigen
-Familien melden weiterhin `CLI_STAGE_NOT_IMPLEMENTED` mit ihrer Phase.
+`input validate` und `roster validate` sind seit P3 implementiert, die
+`snapshot`-Familie seit P4; alle übrigen Familien melden weiterhin
+`CLI_STAGE_NOT_IMPLEMENTED` mit ihrer Phase.
+
+**Netzwerk:** nur `snapshot build` und `snapshot resume` rufen yfinance. Kein
+Kommando erreicht OpenRouter, solange Gate B offen ist.
 
 **Familien** (vollständig, Plan 2.7 — es gibt kein `promote`, `finalize`,
 `research` oder LLM-`review`):
@@ -1225,14 +1229,69 @@ mit `chamber`, `committee_name`, `unit_name`, `coverage_status`, `unit_id`,
 `match_basis`, `hint` und `fuzzy_suggestion` je Zeile sowie der Liste
 `units_without_roster_occurrence`.
 
+### 15c. `snapshot build|approve|resume` — yfinance-Taxonomie (P4)
+
+Ruft die Industry-Taxonomie frisch bei yfinance ab (gepinnt auf `yfinance==1.3.0`),
+prüft sie und friert sie als Snapshot des Runs ein.
+
+Ablauf (Plan 2.4): gepinnte Sector-Seeds (11) → `Sector(key).industries` entdeckt
+den Live-Bestand → `Industry(key).overview` liefert die Beschreibung. Zwischen
+zwei Requests liegt `COMMITTEE_MATCHER_YFINANCE_REQUEST_PAUSE_S`, je Request
+gelten `..._MAX_RETRIES` Wiederholungen, und alle `..._CHECKPOINT_EVERY`
+Industries wird der run-lokale Checkpoint geschrieben. Eine leere Sectorantwort
+gilt als Drosselung und fällt in die Retrylogik.
+
+- **All-or-nothing:** persistiert wird nur ein vollständiger, kollisionsfreier
+  Snapshot. Fehlende Felder, doppelte oder kollidierende Industry-IDs und ein
+  leerer Snapshot blockieren (`TAX_FIELD_MISSING`, `TAX_ID_DUPLICATE`,
+  `TAX_ID_COLLISION`, `TAX_SNAPSHOT_EMPTY`). Ein Abbruch hinterlässt nur den
+  Checkpoint; `snapshot resume --run-id <revision>` setzt daraus fort und ruft
+  bereits Bekanntes nicht erneut ab.
+- **Keine Börsengrößen:** Market Cap, Market Weight, Firmen- und
+  Mitarbeiterzahlen sowie Symbole verwirft der Adapter am Rand
+  (`INDUSTRY_FIELDS` ist die abschließende Allowlist). Persistiert werden nur
+  `industry_id`, `industry_name`, `sector_id`, `sector_name`, `description`.
+- **`taxonomy-content-v1`:** SHA-256 über die kanonische JSON-Serialisierung der
+  sortierten Industries. Abrufzeiten, Run- und Snapshot-IDs gehen nicht ein —
+  zwei Abrufe derselben Taxonomie ergeben denselben Hash.
+- **Erstfreigabe und Drift:** ohne freigegebene Baseline endet der Lauf mit
+  `TAX_NO_BASELINE` in `awaiting_taxonomy_approval` (Exit 5). Danach blockiert
+  Identitätsdrift ebenso (`TAX_DRIFT_ADDED`, `TAX_DRIFT_REMOVED`,
+  `TAX_DRIFT_RENAMED`, `TAX_DRIFT_SECTOR`, alle Exit 5). Reine
+  Beschreibungsänderungen melden `TAX_DRIFT_DESCRIPTION` als Warnung (Exit 2)
+  und laufen durch; ihre Freigabepolicy legt Gate C fest.
+- **Freigabe ist gebunden:** `snapshot approve --run-id <revision>` gibt genau
+  den Snapshot dieses Runs frei und prüft dabei den Content-Hash gegen den
+  Inhalt (`TAX_SNAPSHOT_TAMPERED`). Fehlt der Run, blockiert
+  `TAX_SNAPSHOT_MISSING`.
+
+```bash
+python -m committee_matcher snapshot build --run-id run-2026-08-20   # Exit 5 beim ersten Mal
+python -m committee_matcher snapshot approve --run-id run-2026-08-20 # Baseline setzen
+python -m committee_matcher snapshot resume  --run-id run-2026-08-20 # nach Abbruch
+```
+
+Ohne `--run-id` erzeugt `snapshot build` eine Revision aus der UTC-Zeit
+(`run-YYYYMMDDTHHMMSSZ`); `resume` und `approve` verlangen die Revision
+ausdrücklich. Unzulässige Zeichen in der Revision blockieren
+(`CLI_RUN_ID_INVALID`).
+
+Artefakte je Run unter `data/committee_matcher_v2/runs/<run_id>/`:
+`taxonomy_snapshot.json`, `taxonomy_catalog.md` (nach Sektoren gruppierter
+Markdown-Katalog) und der volatile `taxonomy_checkpoint.json`. Die freigegebene
+Baseline liegt unter `data/committee_matcher_v2/taxonomy/approved_baseline.json`.
+
 **Schreibschutz:** `committee_matcher/paths.py` erlaubt Schreiben nur unter
 `data/committee_matcher_v2/`. Die Inputbaseline und alle neun Pfade der
 P0-Schutzbaseline sind gesperrt; fehlt oder bricht die Schutzbaseline,
 blockiert die Wache (fail closed) statt ungeschützt zu schreiben.
 
-Tests: `tests/test_committee_matcher_scaffold.py` (Gerüst) und
+Tests: `tests/test_committee_matcher_scaffold.py` (Gerüst),
 `tests/test_committee_matcher_input_units.py` (Parser, Kanonisierung, Roster;
-Golden-Tests für `unit-id-v1` und `mapping-input-v1`) — beide netzwerkfrei.
+Golden-Tests für `unit-id-v1` und `mapping-input-v1`) und
+`tests/test_committee_matcher_taxonomy_p4.py` (Adapterrand, Content-Hash,
+Checkpoint/Resume, Drift- und Freigabegate gegen ein yfinance-Testdouble) —
+alle netzwerkfrei.
 
 ## 16. Ausgelagerter Analyse-Workflow
 

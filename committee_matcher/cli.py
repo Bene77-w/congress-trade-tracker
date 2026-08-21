@@ -15,12 +15,21 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from typing import Sequence
 
 from . import SCAFFOLD_VERSION
-from . import input_corpus, paths, roster_coverage, units as unit_module
+from . import (
+    input_corpus,
+    paths,
+    roster_coverage,
+    taxonomy_snapshot,
+    taxonomy_source,
+    units as unit_module,
+)
 from .errors import ErrorCollector, MatcherError, Severity, Stage, print_report
 from .settings_view import MatcherSettings, SettingsBlocked, load_settings
 from .status import CoverageStatus, ExitCode, InputBasis
@@ -33,6 +42,9 @@ PROGRAM = "committee_matcher"
 REPORT_DIR = "reports"
 REPORT_FILENAME = "errors.json"
 
+#: Zulaessige Form einer Run-Revision.
+RUN_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
 
 @dataclass(frozen=True)
 class Command:
@@ -44,6 +56,12 @@ class Command:
     phase: str
     provider: bool
     help: str
+    #: True, wenn die Aktion yfinance abruft. Providerpfade sind davon
+    #: unabhaengig; ``network`` markiert ausschliesslich den Taxonomieabruf.
+    network: bool = False
+    #: True, wenn die Aktion ohne bestehende Run-Revision sinnlos waere
+    #: (Freigabe und Resume sind an genau einen Run gebunden).
+    requires_run_id: bool = False
 
     @property
     def name(self) -> str:
@@ -58,11 +76,13 @@ COMMANDS: tuple[Command, ...] = (
     Command("roster", "validate", Stage.ROSTER, "P3", False,
             "Roster-Coverage inklusive Joint-Cross-Chamber-Regel pruefen"),
     Command("snapshot", "build", Stage.TAXONOMY, "P4", False,
-            "frischen yfinance-Industry-Snapshot erzeugen"),
+            "frischen yfinance-Industry-Snapshot erzeugen", network=True),
     Command("snapshot", "approve", Stage.TAXONOMY, "P4", False,
-            "Snapshot bzw. erkannte Drift freigeben (run- und snapshotgebunden)"),
+            "Snapshot bzw. erkannte Drift freigeben (run- und snapshotgebunden)",
+            requires_run_id=True),
     Command("snapshot", "resume", Stage.TAXONOMY, "P4", False,
-            "abgebrochenen Snapshotabruf aus dem run-lokalen Checkpoint fortsetzen"),
+            "abgebrochenen Snapshotabruf aus dem run-lokalen Checkpoint fortsetzen",
+            network=True, requires_run_id=True),
     Command("run", "plan", Stage.WORKFLOW, "P7", True,
             "Entwicklungsrun planen inklusive Worst-Case-Kostenschaetzung"),
     Command("run", "execute", Stage.WORKFLOW, "P7", True,
@@ -292,10 +312,130 @@ def handle_roster_validate(
     return summary, artifacts
 
 
+def _run_id(namespace: argparse.Namespace) -> str:
+    """Liefert die Run-Revision; ohne Angabe entsteht eine neue aus der Uhrzeit.
+
+    Die Revision ist bewusst zeitbasiert und damit sortierbar. P7 uebernimmt die
+    Verwaltung der Runs; bis dahin genuegt eine eindeutige, stabile Kennung, an
+    die Snapshot, Checkpoint und Freigabe gebunden sind.
+    """
+    given = getattr(namespace, "run_id", None)
+    if given:
+        candidate = str(given).strip()
+        if not RUN_ID_RE.match(candidate):
+            raise MatcherError(
+                [
+                    ErrorCollector().blocker(
+                        "CLI_RUN_ID_INVALID", Stage.CLI, candidate,
+                        "Run-ID enthaelt unzulaessige Zeichen.",
+                        "Nur Buchstaben, Ziffern, '-' und '_' verwenden.",
+                    )
+                ],
+                "Run-ID ungueltig",
+            )
+        return candidate
+    return datetime.now(timezone.utc).strftime("run-%Y%m%dT%H%M%SZ")
+
+
+def _missing_run_id(
+    command: Command, namespace: argparse.Namespace, collector: ErrorCollector
+) -> bool:
+    """Meldet die fehlende Run-Revision fuer run-gebundene Aktionen."""
+    if not command.requires_run_id or getattr(namespace, "run_id", None):
+        return False
+    collector.blocker(
+        "CLI_RUN_ID_REQUIRED", Stage.TAXONOMY, command.name,
+        f"'{command.name}' ist an genau eine Run-Revision gebunden.",
+        "Lauf mit --run-id <revision> wiederholen.",
+    )
+    return True
+
+
+def _snapshot_summary(result: taxonomy_snapshot.SnapshotResult) -> list[str]:
+    lines = [
+        f"Run:      {result.run_id}",
+        f"Zustand:  {result.state.value}"
+        + (f" ({result.reason})" if result.reason else ""),
+        f"Snapshot: {result.industries} Industries"
+        + (f" | Content-Hash {result.content_hash[:12]}" if result.content_hash else ""),
+    ]
+    drift = result.drift
+    if drift is not None and drift.any_change:
+        lines.append(
+            "Drift:    "
+            + " | ".join(
+                f"{label}={len(items)}"
+                for label, items in (
+                    ("neu", drift.added), ("entfallen", drift.removed),
+                    ("umbenannt", drift.renamed), ("Sektor", drift.resectored),
+                    ("Beschreibung", drift.described),
+                )
+                if items
+            )
+        )
+    elif drift is not None:
+        lines.append("Drift:    keine")
+    return lines
+
+
+def _snapshot_run(
+    command: Command, namespace: argparse.Namespace,
+    collector: ErrorCollector, settings: MatcherSettings, *, resume: bool,
+) -> tuple[list[str], list[str]]:
+    """Gemeinsamer Ablauf von 'snapshot build' und 'snapshot resume' (Plan 2.4)."""
+    if _missing_run_id(command, namespace, collector):
+        return [], []
+    run_id = _run_id(namespace)
+    client = taxonomy_source.YFinanceClient(settings.offline)
+    result = taxonomy_snapshot.build_snapshot(
+        collector, client, run_id=run_id, resume=resume
+    )
+    return _snapshot_summary(result), list(result.artifacts)
+
+
+def handle_snapshot_build(
+    command: Command, namespace: argparse.Namespace,
+    collector: ErrorCollector, settings: MatcherSettings,
+) -> tuple[list[str], list[str]]:
+    """Frischen Snapshot abrufen, pruefen und all-or-nothing persistieren."""
+    return _snapshot_run(command, namespace, collector, settings, resume=False)
+
+
+def handle_snapshot_resume(
+    command: Command, namespace: argparse.Namespace,
+    collector: ErrorCollector, settings: MatcherSettings,
+) -> tuple[list[str], list[str]]:
+    """Abgebrochenen Abruf aus dem run-lokalen Checkpoint fortsetzen."""
+    return _snapshot_run(command, namespace, collector, settings, resume=True)
+
+
+def handle_snapshot_approve(
+    command: Command, namespace: argparse.Namespace,
+    collector: ErrorCollector, settings: MatcherSettings,
+) -> tuple[list[str], list[str]]:
+    """Snapshot eines Runs als neue Taxonomie-Baseline freigeben."""
+    if _missing_run_id(command, namespace, collector):
+        return [], []
+    run_id = _run_id(namespace)
+    digest = taxonomy_snapshot.approve_snapshot(collector, run_id)
+    if digest is None:
+        return [f"Run:      {run_id}", "Freigabe: abgelehnt"], []
+    return (
+        [
+            f"Run:      {run_id}",
+            f"Freigabe: erteilt (Content-Hash {digest[:12]})",
+        ],
+        [paths.relative_to_base(taxonomy_snapshot.baseline_path())],
+    )
+
+
 #: Bereits implementierte Aktionen; alles andere meldet die Zielphase.
 HANDLERS = {
     "input validate": handle_input_validate,
     "roster validate": handle_roster_validate,
+    "snapshot build": handle_snapshot_build,
+    "snapshot resume": handle_snapshot_resume,
+    "snapshot approve": handle_snapshot_approve,
 }
 
 

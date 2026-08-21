@@ -11,6 +11,53 @@ Historie abgeschlossener Module/Phasen. **Aktiver WIP-Modul-Stand** steht im „
 
 ---
 
+## 2026-08-21 — Committee Matcher V2, P4: Taxonomie-Snapshot (yfinance)
+
+Der Matcher holt seine Zielseite jetzt selbst. `taxonomy_source.py` ist das
+einzige Modul des Pakets, das Netzwerk berührt; yfinance wird erst beim ersten
+Abruf importiert, damit der providerfreie Kern importierbar bleibt. Der Adapter
+zieht die elf Sector-Seeds aus den gepinnten yfinance-Konstanten, holt je Sector
+die Industries und je Industry die Beschreibung — mit Pause zwischen den Abrufen
+und endlichen Retries, weil Yahoo einen ungedrosselten Durchlauf über alle
+Sektoren mit Rate-Limits beantwortet und ein halb abgerufener Snapshot wertlos
+ist. Eine leere Sectorantwort gilt als Drosselung und ist retrybar.
+
+Entscheidend ist, was **nicht** durchkommt: `INDUSTRY_FIELDS` ist eine
+abschließende Allowlist aus `industry_id`, `industry_name`, `sector_id`,
+`sector_name`, `description`. Market Cap, Market Weight, Firmen- und
+Mitarbeiterzahlen sowie Symbole liefert yfinance mit, sie werden am Adapterrand
+verworfen und erreichen kein Artefakt — eine Zuordnung soll fachliche Nähe von
+Jurisdiktion und Industry belegen, nicht Marktgröße.
+
+`taxonomy_snapshot.py` friert das Ergebnis ein: Inhaltshash `taxonomy-content-v1`
+(SHA-256 über die sortierten Industries, ohne Abrufzeiten, damit zwei Läufe mit
+gleichem Inhalt denselben Hash tragen), ein nach Sektoren gruppierter
+Markdown-Katalog und ein run-lokaler Checkpoint. Bricht ein Lauf ab, persistiert
+er nur den Checkpoint; `snapshot resume` setzt ohne erneuten Abruf des bereits
+Geholten fort. Snapshot und Katalog werden all-or-nothing geschrieben.
+
+Der Driftvergleich gegen `taxonomy/approved_baseline.json` trennt zwei Fälle:
+Identitätsdrift (Industry neu, entfallen, umbenannt oder in einen anderen Sektor
+verschoben) blockiert mit Exit 5 in `awaiting_taxonomy_approval`, weil sich die
+Mappingzielmenge geändert hat und das eine menschliche Freigabe braucht; eine
+reine Beschreibungsänderung warnt nur. Fehlt die Baseline ganz, stoppt jeder
+Lauf ebenfalls mit Exit 5. `snapshot approve` bindet die Freigabe an den
+Snapshotinhalt und weist einen nachträglich manipulierten Snapshot ab.
+
+CLI: `python -m committee_matcher snapshot build|resume|approve --run-id ...`.
+Livelauf gegen yfinance 1.3.0: 145 Industries in 11 Sektoren, Inhaltshash
+`8c3da76572d9…`; ein absichtlich gedrosselter Zweitlauf blockierte mit
+`TAX_SECTOR_EMPTY` und wurde per `resume` auf denselben Hash driftfrei
+abgeschlossen. Versioniert ist nur die freigegebene Baseline; `runs/` und
+`reports/` sind gitignoriert.
+
+Tests: 26 netzwerkfreie P4-Tests gegen einen Fake-Client
+(`tests/test_committee_matcher_taxonomy_p4.py`) inklusive Allowlist-,
+Drift-, Checkpoint- und Manipulationsmatrix; Gesamtsuite 1299 grün.
+Doku: `CLI_Bedienungsanleitung.md` 15c, `DATA_STRUCTURE.md` 3a.
+
+---
+
 ## 2026-08-20 — Committee Matcher V2, P3: Input, Identität und Roster
 
 Der providerfreie Kern liest den Corpus jetzt produktiv. `input_corpus.py` parst

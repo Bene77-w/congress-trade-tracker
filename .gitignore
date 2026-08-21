@@ -78,5 +78,8 @@ data/cache/price_history.parquet
 # opencode-Config (lokal)
 opencode.json
 
-# Committee Matcher V2 - volatile CLI-Fehlerberichte (Run-Revisionen bleiben versioniert)
+# Committee Matcher V2 - volatile Laufartefakte (Fehlerberichte, Run-Revisionen,
+# Checkpoints). Versioniert bleibt nur die freigegebene Taxonomiebaseline unter
+# data/committee_matcher_v2/taxonomy/.
 data/committee_matcher_v2/reports/
+data/committee_matcher_v2/runs/

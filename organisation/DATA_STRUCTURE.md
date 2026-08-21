@@ -353,15 +353,50 @@ Pfadliste, blockiert die Wache ebenfalls (fail closed). Geschrieben wird
 ausschließlich über `write_text_atomic` (Temporärdatei im Zielverzeichnis,
 `O_NOFOLLOW`, `os.replace`).
 
+#### `data/committee_matcher_v2/runs/<run_id>/` (P4, je Runrevision)
+
+| Datei | Zweck |
+|---|---|
+| `taxonomy_snapshot.json` | eingefrorene Taxonomie des Runs; nur vollständig und kollisionsfrei geschrieben |
+| `taxonomy_catalog.md` | nach Sektoren gruppierter Markdown-Katalog desselben Inhalts |
+| `taxonomy_checkpoint.json` | volatiler Abruffortschritt für `snapshot resume`; nie freigabefähig |
+
+`taxonomy_snapshot.json`:
+
+| Feld | Typ | Bedeutung |
+|---|---|---|
+| `content_version` | str | `taxonomy-content-v1` |
+| `snapshot_id` | str | Run-Revision, an die der Snapshot gebunden ist |
+| `yfinance_version` | str | Version der Abrufbibliothek (gepinnt `1.3.0`) |
+| `taxonomy_content_hash` | str | SHA-256 über die sortierten Industries, ohne Abrufzeiten |
+| `industries[].industry_id` / `.industry_name` | str | Identität der Industry |
+| `industries[].sector_id` / `.sector_name` | str | Sektorzuordnung |
+| `industries[].description` | str | Beschreibung als fachliche Mappinggrundlage |
+
+Börsengrößen (Market Cap, Market Weight, Firmen- und Mitarbeiterzahlen, Symbole)
+liefert yfinance mit, sie werden aber am Adapterrand verworfen und tauchen in
+keinem Artefakt auf — eine Zuordnung soll fachliche Nähe belegen, nicht
+Marktgröße.
+
+#### `data/committee_matcher_v2/taxonomy/approved_baseline.json` (P4)
+
+Die freigegebene Taxonomie-Baseline; erzeugt von `snapshot approve --run-id ...`.
+Felder wie im Snapshot, zusätzlich `approved_run_id`. Fehlt sie, stoppt jeder
+Snapshotlauf mit `no_baseline` in `awaiting_taxonomy_approval` (Exit 5).
+
 Bereits erzeugte Inhalte: `reports/<kommando>/errors.json` (strukturierter
 Fehlerbericht je CLI-Lauf, Plan 2.7), `reports/input_validate/units.json` (alle
 225 Units mit `unit_id`, `kind`, `input_basis`, `parent_unit_id`,
 `mapping_input_hash`, `source_bytes_sha256`) und
 `reports/roster_validate/roster_coverage.json` (je Rostervorkommen `chamber`,
 `committee_name`, `unit_name`, `coverage_status`, `unit_id`, `match_basis`,
-`hint`, `fuzzy_suggestion`, dazu die Liste `units_without_roster_occurrence`). Diese volatilen Berichte sind
-gitignoriert; die ab P4 entstehenden Run-, Snapshot- und Review-Revisionen
-bleiben versioniert.
+`hint`, `fuzzy_suggestion`, dazu die Liste `units_without_roster_occurrence`).
+
+Versioniert ist von den Laufartefakten nur `taxonomy/approved_baseline.json` —
+sie ist der Bezugspunkt der Drifterkennung und muss in jedem Klon identisch
+vorliegen. `reports/` und `runs/` sind gitignoriert: beide entstehen bei jedem
+CLI-Lauf neu, und der freigegebene Snapshotinhalt steht vollständig in der
+Baseline, sodass eine zweite versionierte Kopie nur Duplikate erzeugen würde.
 
 Das Paket `committee_matcher/` selbst hält seit P2 den providerfreien Kern:
 Zustände und Exit-Codes (`status.py`), Befundsammlung und Terminalbericht
@@ -369,7 +404,9 @@ Zustände und Exit-Codes (`status.py`), Befundsammlung und Terminalbericht
 Providergate (`settings_view.py`), Pydantic-Datenverträge (`models.py`) und das
 CLI-Skelett (`cli.py`). Seit P3 kommen der strikte Inputparser
 (`input_corpus.py`), die Unitbildung samt Kanonisierung (`units.py`) und die
-Roster-Coverage (`roster_coverage.py`) hinzu. Die Ownership-Karte aller 17
+Roster-Coverage (`roster_coverage.py`) hinzu, seit P4 der yfinance-Adapter
+(`taxonomy_source.py`) und die Snapshotlogik mit Katalog, Content-Hash sowie
+Drift- und Freigabegate (`taxonomy_snapshot.py`). Die Ownership-Karte aller 17
 Zielmodule steht im Docstring von `committee_matcher/__init__.py`. Bedienung, Familien, Exit-Codes
 und die vollständige Settingstabelle: `CLI_Bedienungsanleitung.md` Abschnitt 15.
 
