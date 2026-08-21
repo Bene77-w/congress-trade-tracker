@@ -32,6 +32,7 @@ Dieser Index ist die **Routing-Quelle** für den Skill `/doku-update` und den `d
 | `manual_review_anleitung.md` | Anleitung für die aktiven manuellen Review-Prozesse (Namen, Ticker, Duplikate). | Neuer Manual-Review-Typ, Review-Datei-Struktur geändert, neue Mapping-CSV. |
 | `committee_matcher_v2_implementierungsplan.md` | Konsolidierte Phasen-, Gate- und Abnahmeplanung für die vollständige Neuimplementierung des Committee Matchers. | Architekturentscheidung, Gate, Phase, Scope oder Abnahmekriterium des Committee-Matcher-V2 geändert; Phase abgeschlossen (Umsetzungsstandtabelle). |
 | `committee_matcher_planung_entscheidungen_codex.md` | Verbindliche Architektur- und Planungsentscheidungen des Committee Matchers V2 (Grundlage des Implementierungsplans). | Entscheidung zu Scope, Units, Taxonomie, Provider, Kosten, Review oder Evaluation geändert. |
+| `committee_matcher_gate_b_entscheidungsvorlage.md` | Entscheidungsvorlage für Gate B: Modell, Endpoint, Routing, Datenschutz, Token-, Timeout- und Budgetgrenzen mit Kostenmatrix am realen Corpus. | Gate-B-Wert bestätigt, geändert oder durch den Contract-Smoke widerlegt; Modell- oder Endpointwechsel. |
 | `committee_jurisdiction_input_template_codex.md` | Inputvertrag der kanonischen Committee-Markdowns (Frontmatter + Abschnittsstruktur). | Frontmatter-Feld, `unit_input_basis`-Wert oder Abschnittskonvention geändert. |
 
 ## `organisation/tool_specific_md/`
