@@ -63,11 +63,14 @@ melden soll. Beim Resume kommt nur noch die Beschreibung aus dem Checkpoint —
 Name und Sektor holt auch der Fortsetzungslauf frisch, sonst entstünde ein
 Mischsnapshot, in dem eine zwischenzeitlich umbenannte Industry unbemerkt
 weiterliefe. Eine leere `Industry.overview` gilt wie ein leerer Sector als
-Drosselung und fällt in die Retrylogik.
+Drosselung und fällt in die Retrylogik. In der Nachprüfung kam eine fehlende
+Objektprüfung der JSON-Wurzel hinzu: eine Baseline, ein Snapshot oder ein
+Checkpoint, dessen Wurzel eine Liste oder `null` ist, endet jetzt in einem
+`TAX_*_MALFORMED`-Befund statt in einem `AttributeError`.
 
-Tests: 41 netzwerkfreie P4-Tests gegen einen Fake-Client
+Tests: 45 netzwerkfreie P4-Tests gegen einen Fake-Client
 (`tests/test_committee_matcher_taxonomy_p4.py`) inklusive Allowlist-,
-Drift-, Checkpoint- und Manipulationsmatrix; Gesamtsuite 1314 grün.
+Drift-, Checkpoint- und Manipulationsmatrix; Gesamtsuite 1318 grün.
 Doku: `CLI_Bedienungsanleitung.md` 15c, `DATA_STRUCTURE.md` 3a.
 
 ---

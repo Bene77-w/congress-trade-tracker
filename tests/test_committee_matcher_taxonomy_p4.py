@@ -538,10 +538,12 @@ def test_empty_overview_is_retried_before_it_blocks(monkeypatch):
             self.key = key
 
         @property
-        def overview(self) -> dict:
+        def overview(self):
             calls["n"] += 1
-            if calls["n"] < 3:
-                return {}
+            if calls["n"] == 1:
+                return None          # formfremde Antwort
+            if calls["n"] == 2:
+                return {}            # leere Antwort
             return {"description": "Endlich da.", "market_cap": 1e12}
 
     module = type(sys)("yfinance")
@@ -553,6 +555,29 @@ def test_empty_overview_is_retried_before_it_blocks(monkeypatch):
     )
     assert client.description("uranium") == "Endlich da."
     assert calls["n"] == 3
+
+
+@pytest.mark.parametrize("payload", ["[]", "null", '"text"', "42"], ids=list("lnts"))
+def test_artifacts_with_a_non_object_root_block_in_order(artifact_sandbox, payload):
+    """Eine JSON-Wurzel, die kein Objekt ist, wird zum Befund - nicht zum Absturz."""
+    taxonomy_snapshot.build_snapshot(ErrorCollector(), FakeClient(sectors()), run_id="run-1")
+    taxonomy_snapshot.approve_snapshot(ErrorCollector(), "run-1")
+
+    (artifact_sandbox / "taxonomy" / "approved_baseline.json").write_text(payload, encoding="utf-8")
+    collector = ErrorCollector()
+    result = taxonomy_snapshot.build_snapshot(collector, FakeClient(sectors()), run_id="run-2")
+    assert "TAX_BASELINE_MALFORMED" in codes(collector)
+    assert result.state is WorkflowState.FAILED
+
+    (artifact_sandbox / "runs" / "run-1" / "taxonomy_snapshot.json").write_text(payload, encoding="utf-8")
+    collector = ErrorCollector()
+    assert taxonomy_snapshot.approve_snapshot(collector, "run-1") is None
+    assert "TAX_SNAPSHOT_MALFORMED" in codes(collector)
+
+    (artifact_sandbox / "runs" / "run-1" / "taxonomy_checkpoint.json").write_text(payload, encoding="utf-8")
+    collector = ErrorCollector()
+    assert taxonomy_snapshot.load_checkpoint(collector, "run-1").rows == {}
+    assert "TAX_CHECKPOINT_MALFORMED" in codes(collector, Severity.WARNUNG)
 
 
 def test_snapshot_writes_stay_inside_the_artifact_root(artifact_sandbox):

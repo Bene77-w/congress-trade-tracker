@@ -251,12 +251,18 @@ def load_checkpoint(collector: ErrorCollector, run_id: str) -> Checkpoint:
             "Abruf beginnt von vorn; der Checkpoint wird ueberschrieben.",
         )
         return Checkpoint(run_id=run_id)
-    if not isinstance(data, dict) or data.get("content_version") != TAXONOMY_CONTENT_VERSION:
+    if not isinstance(data, dict):
+        collector.warning(
+            "TAX_CHECKPOINT_MALFORMED", Stage.TAXONOMY, paths.relative_to_base(target),
+            "Checkpoint ist kein JSON-Objekt.",
+            "Abruf beginnt von vorn; der Checkpoint wird ueberschrieben.",
+        )
+        return Checkpoint(run_id=run_id)
+    if data.get("content_version") != TAXONOMY_CONTENT_VERSION:
         collector.warning(
             "TAX_CHECKPOINT_VERSION", Stage.TAXONOMY, paths.relative_to_base(target),
             f"Checkpoint traegt {data.get('content_version')!r} statt "
-            f"{TAXONOMY_CONTENT_VERSION!r}."
-            if isinstance(data, dict) else "Checkpoint ist kein Objekt.",
+            f"{TAXONOMY_CONTENT_VERSION!r}.",
             "Abruf beginnt von vorn; ein fremder Inhaltsvertrag wird nicht gemischt.",
         )
         return Checkpoint(run_id=run_id)
@@ -319,6 +325,13 @@ def load_baseline(collector: ErrorCollector) -> dict[str, dict[str, str]] | None
         collector.blocker(
             "TAX_BASELINE_MALFORMED", Stage.TAXONOMY, paths.relative_to_base(target),
             "Freigegebene Baseline ist kein gueltiges JSON.",
+            "Baseline pruefen und bewusst neu freigeben.",
+        )
+        return None
+    if not isinstance(data, dict):
+        collector.blocker(
+            "TAX_BASELINE_MALFORMED", Stage.TAXONOMY, paths.relative_to_base(target),
+            "Freigegebene Baseline ist kein JSON-Objekt.",
             "Baseline pruefen und bewusst neu freigeben.",
         )
         return None
@@ -550,12 +563,18 @@ def approve_snapshot(collector: ErrorCollector, run_id: str) -> str | None:
         )
         return None
 
-    if not isinstance(data, dict) or data.get("content_version") != TAXONOMY_CONTENT_VERSION:
+    if not isinstance(data, dict):
+        collector.blocker(
+            "TAX_SNAPSHOT_MALFORMED", Stage.TAXONOMY, run_id,
+            "Snapshot ist kein JSON-Objekt.",
+            "Snapshot neu erzeugen.",
+        )
+        return None
+    if data.get("content_version") != TAXONOMY_CONTENT_VERSION:
         collector.blocker(
             "TAX_SNAPSHOT_VERSION", Stage.TAXONOMY, run_id,
             f"Snapshot traegt {data.get('content_version')!r} statt "
-            f"{TAXONOMY_CONTENT_VERSION!r}."
-            if isinstance(data, dict) else "Snapshot ist kein Objekt.",
+            f"{TAXONOMY_CONTENT_VERSION!r}.",
             "Inhaltsvertrag und Snapshot gemeinsam versionieren.",
         )
         return None
