@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -349,13 +350,35 @@ class ProviderCallError(MatcherError):
     Konfiguration vergehen koennen (Drosselung, Ueberlast, Zeitueberschreitung).
     """
 
-    def __init__(self, findings, message=None, *, retryable: bool = False):
+    def __init__(self, findings, message=None, *, retryable: bool = False,
+                 routing_suspected: bool = False):
         super().__init__(findings, message)
         self.retryable = retryable
+        #: True, wenn der Providerfehler nach einer leeren Endpointmenge
+        #: aussieht - der Aufrufer haengt dann den ZDR-Befund an, statt den
+        #: Fehlertext erneut nach Stichworten zu durchsuchen.
+        self.routing_suspected = routing_suspected
+
+
+#: Muster, die wie ein Schluessel aussehen. Fehlertexte des SDK koennen
+#: Requestechos enthalten; ein Befund landet im Terminalbericht und in
+#: errors.json, deshalb wird vor der Uebernahme redigiert.
+_SECRET_PATTERN = re.compile(r"(sk-[A-Za-z0-9_\-]{4,}|Bearer\s+\S+)")
+
+#: Laengengrenze eines uebernommenen Fremdtextes im Befund.
+MAX_ERROR_DETAIL_CHARS = 300
+
+
+def redact(text: str) -> str:
+    """Entfernt schluesselaehnliche Zeichenfolgen und kuerzt den Rest."""
+    cleaned = _SECRET_PATTERN.sub("<redigiert>", str(text))
+    if len(cleaned) > MAX_ERROR_DETAIL_CHARS:
+        cleaned = cleaned[:MAX_ERROR_DETAIL_CHARS] + " [gekuerzt]"
+    return cleaned
 
 
 def _call_failure(code: str, obj: str, message: str, hint: str, *,
-                  retryable: bool) -> ProviderCallError:
+                  retryable: bool, routing_suspected: bool = False) -> ProviderCallError:
     finding = Finding(
         severity=Severity.BLOCKER,
         code=code,
@@ -365,7 +388,34 @@ def _call_failure(code: str, obj: str, message: str, hint: str, *,
         hint=hint,
         exit_code=ExitCode.PROVIDER_ERROR,
     )
-    return ProviderCallError([finding], f"{code}: {obj}", retryable=retryable)
+    return ProviderCallError([finding], f"{code}: {obj}", retryable=retryable,
+                             routing_suspected=routing_suspected)
+
+
+def _token_count(value) -> int:
+    """Tokenzahl aus der Usage; unplausible Werte gelten als unbekannt (0).
+
+    Negative oder nicht ganzzahlige Angaben duerfen nicht in Auditartefakte
+    und spaetere Kostenrechnungen wandern.
+    """
+    try:
+        count = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return count if count >= 0 else 0
+
+
+def _reported_cost(value) -> float | None:
+    """Gemeldete Kosten; alles Unplausible bleibt ``None`` (cost_unknown).
+
+    Eine negative Kostenangabe wuerde ein Budget rechnerisch entlasten - das
+    waere schlimmer als der Zustand cost_unknown, den P7 ohnehin behandelt.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if not math.isfinite(value) or value < 0.0:
+        return None
+    return float(value)
 
 
 class StructuredOutputProvider(Protocol):
@@ -517,6 +567,10 @@ class OpenRouterProvider:
         try:
             result = self._client.chat.send(
                 model=self._settings.model,
+                # Opt-in: ohne diesen Schalter liefert OpenRouter kein
+                # openrouter_metadata, und der tatsaechlich geroutete Provider
+                # bliebe entgegen dem Gate-B-Beschluss unprotokolliert.
+                x_open_router_metadata="enabled",
                 messages=[
                     {"role": "system", "content": request.system_prompt},
                     {"role": "user", "content": request.user_content},
@@ -534,9 +588,15 @@ class OpenRouterProvider:
 
         return self._to_response(request, result)
 
+    #: Formulierungen, mit denen OpenRouter eine leere Endpointmenge meldet.
+    ROUTING_MARKERS: tuple[str, ...] = (
+        "no endpoints found", "no allowed providers", "no providers available")
+
     def _translate(self, request: StructuredRequest, exc: Exception) -> ProviderCallError:
         name = exc.__class__.__name__
         retryable = name in RETRYABLE_ERRORS
+        detail = redact(exc)
+        routing = any(marker in str(exc).lower() for marker in self.ROUTING_MARKERS)
         if name in ("UnauthorizedResponseError", "ForbiddenResponseError"):
             return _call_failure(
                 "PROV_AUTH_FAILED", request.call_id,
@@ -555,11 +615,12 @@ class OpenRouterProvider:
         if name in ("BadRequestResponseError", "UnprocessableEntityResponseError"):
             return _call_failure(
                 "PROV_REQUEST_REJECTED", request.call_id,
-                f"OpenRouter weist die Anfrage zurueck ({name}: {exc}).",
+                f"OpenRouter weist die Anfrage zurueck ({name}: {detail}).",
                 "Schema, Modell und Providerfilter pruefen; ein erneuter "
                 "Versuch mit identischer Anfrage scheitert genauso. "
                 f"{ADJUSTMENT_HINT}",
                 retryable=False,
+                routing_suspected=routing,
             )
         if name == "PayloadTooLargeResponseError":
             return _call_failure(
@@ -571,11 +632,12 @@ class OpenRouterProvider:
             )
         return _call_failure(
             "PROV_CALL_FAILED", request.call_id,
-            f"Providercall fehlgeschlagen ({name}: {exc}).",
+            f"Providercall fehlgeschlagen ({name}: {detail}).",
             "Voruebergehende Stoerung; der Workflow darf den Call wiederholen."
             if retryable else
             "Nicht wiederholbarer Providerfehler; Ursache oben pruefen.",
             retryable=retryable,
+            routing_suspected=routing,
         )
 
     def _to_response(self, request: StructuredRequest, result) -> StructuredResponse:
@@ -634,15 +696,14 @@ class OpenRouterProvider:
             )
 
         usage = getattr(result, "usage", None)
-        cost = getattr(usage, "cost", None)
         return StructuredResponse(
             call_id=request.call_id,
             payload=payload,
             model=str(getattr(result, "model", None) or self._settings.model),
             provider=self._routed_provider(result),
-            prompt_tokens=int(getattr(usage, "prompt_tokens", 0) or 0),
-            completion_tokens=int(getattr(usage, "completion_tokens", 0) or 0),
-            cost_usd=float(cost) if isinstance(cost, (int, float)) else None,
+            prompt_tokens=_token_count(getattr(usage, "prompt_tokens", None)),
+            completion_tokens=_token_count(getattr(usage, "completion_tokens", None)),
+            cost_usd=_reported_cost(getattr(usage, "cost", None)),
             finish_reason=finish_reason,
             generation_id=getattr(result, "id", None),
         )

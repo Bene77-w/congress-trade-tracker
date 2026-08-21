@@ -487,6 +487,7 @@ def _prompt_lines(collector: ErrorCollector) -> list[str]:
 
 #: Minimalschema des Contract-Smokes. Bewusst winzig: geprueft wird der
 #: Vertrag, nicht die Fachlogik - jedes zusaetzliche Feld kostet Tokens.
+SMOKE_ECHO = "contract-smoke"
 SMOKE_SCHEMA = {
     "type": "object",
     "properties": {
@@ -496,6 +497,31 @@ SMOKE_SCHEMA = {
     "required": ["ok", "echo"],
     "additionalProperties": False,
 }
+
+
+def _smoke_schema_violations(payload: dict) -> list[str]:
+    """Prueft die Antwort gegen SMOKE_SCHEMA - ohne Zusatzabhaengigkeit.
+
+    Der Smoke soll belegen, dass der geroutete Endpoint striktes JSON-Schema
+    tatsaechlich einhaelt. Ein beliebiges JSON-Objekt durchzulassen wuerde
+    genau diesen Nachweis vortaeuschen.
+    """
+    problems = []
+    unexpected = sorted(set(payload) - set(SMOKE_SCHEMA["properties"]))
+    if unexpected:
+        problems.append(f"unerwartete Felder: {', '.join(unexpected)}")
+    missing = sorted(set(SMOKE_SCHEMA["required"]) - set(payload))
+    if missing:
+        problems.append(f"fehlende Pflichtfelder: {', '.join(missing)}")
+    if "ok" in payload and not isinstance(payload["ok"], bool):
+        problems.append(f"ok ist {type(payload['ok']).__name__}, erwartet boolean")
+    if "echo" in payload and not isinstance(payload["echo"], str):
+        problems.append(f"echo ist {type(payload['echo']).__name__}, erwartet string")
+    if payload.get("ok") is False:
+        problems.append("ok ist false, erwartet true")
+    if isinstance(payload.get("echo"), str) and payload["echo"] != SMOKE_ECHO:
+        problems.append(f"echo ist {payload['echo']!r}, erwartet {SMOKE_ECHO!r}")
+    return problems
 
 
 def handle_provider_smoke(
@@ -517,7 +543,7 @@ def handle_provider_smoke(
     request = provider.StructuredRequest(
         call_id="contract-smoke",
         system_prompt="Antworte ausschliesslich mit dem geforderten JSON-Objekt.",
-        user_content='Setze ok=true und echo="contract-smoke".',
+        user_content=f'Setze ok=true und echo="{SMOKE_ECHO}".',
         schema_name="ContractSmoke",
         json_schema=SMOKE_SCHEMA,
         max_output_tokens=64,
@@ -526,9 +552,28 @@ def handle_provider_smoke(
         response = adapter.complete(request)
     except provider.ProviderCallError as exc:
         collector.extend(exc.findings)
-        if "No endpoints found" in str(exc) or "no endpoints" in str(exc).lower():
-            provider.routing_failure_finding(collector, provider_settings, str(exc))
+        if exc.routing_suspected:
+            provider.routing_failure_finding(
+                collector, provider_settings, exc.findings[0].message)
         return ["Smoke:    fehlgeschlagen (siehe Befunde)"], []
+
+    violations = _smoke_schema_violations(response.payload)
+    if violations:
+        collector.blocker(
+            "PROV_SCHEMA_VIOLATED", Stage.PROVIDER, response.call_id,
+            "Antwort haelt das erzwungene JSON-Schema nicht ein: "
+            + "; ".join(violations) + ".",
+            "Der geroutete Endpoint unterstuetzt Structured Output nur "
+            "nominell. Quantisierungs- oder Preisfilter enger fassen, damit "
+            "ein anderer Endpoint greift, oder Modell wechseln "
+            "(COMMITTEE_MATCHER_MODEL).",
+            exit_code=ExitCode.PROVIDER_ERROR,
+        )
+        return [
+            f"Smoke:    Schema verletzt ({len(violations)} Abweichungen)",
+            f"Routing:  {response.provider or 'unbekannt'} | Modell {response.model}",
+            f"Payload:  {response.payload}",
+        ], []
 
     cost = ("unbekannt (cost_unknown)" if response.cost_usd is None
             else f"{response.cost_usd:.6f} USD")

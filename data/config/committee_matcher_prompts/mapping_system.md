@@ -83,12 +83,15 @@ Je Zuordnung:
   ausdruecklich; die Zuordnung ist ohne Auslegung erkennbar.
 - **3** – Der Text nennt ein Produkt, eine Taetigkeit oder eine Regulierung,
   die eindeutig zum Kerngeschaeft gehoert, ohne die Industry zu benennen.
-- **2** – Die Zuordnung ist fachlich vertretbar, stuetzt sich aber auf eine
-  Auslegung des Textes; ein Fachleser koennte widersprechen.
-- **1** – Die Direktheit ist zweifelhaft. Verwende diesen Wert nur, wenn du die
-  Zuordnung trotz Zweifeln fuer nennenswert haeltst; sonst ordne nicht zu.
+- **2** – Die drei Fragen sind mit Ja beantwortbar, die Zuordnung stuetzt sich
+  aber auf eine Auslegung des Textes; ein Fachleser koennte widersprechen.
+- **1** – Die drei Fragen sind mit Ja beantwortbar, der Beleg ist jedoch knapp
+  oder nennt die Taetigkeit nur beilaeufig.
 
-Confidence beschreibt die fachliche Zuverlaessigkeit der Zuordnung, nicht deine
+Confidence bewertet die Belegstaerke einer **bereits zulaessigen** Zuordnung.
+Sie ist kein Ventil fuer Zweifelsfaelle: Ist eine der drei Fragen der
+Zuordnungsregel nicht mit Ja beantwortbar, ordnest du nicht zu - auch nicht mit
+Confidence 1. Confidence beschreibt die fachliche Belegstaerke, nicht deine
 sprachliche Sicherheit und nicht die Wichtigkeit der Industry.
 
 # Datenbloecke

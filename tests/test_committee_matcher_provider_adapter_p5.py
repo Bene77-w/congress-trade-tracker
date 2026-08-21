@@ -421,3 +421,135 @@ def test_cli_smoke_maps_a_call_failure_to_exit_nine(capsys, artifact_sandbox,
     out = capsys.readouterr().out
     assert "PROV_AUTH_FAILED" in out
     assert "fehlgeschlagen" in out
+
+
+# -- Nachbesserungen aus dem P5-Review --------------------------------------
+def test_routing_metadata_is_requested_explicitly():
+    """Ohne Opt-in liefert OpenRouter kein openrouter_metadata - der
+    tatsaechlich geroutete Provider bliebe entgegen Gate B unprotokolliert."""
+    adapter, client = _provider(_Result())
+    adapter.complete(_request())
+    assert client.chat.kwargs["x_open_router_metadata"] == "enabled"
+
+
+def test_error_detail_redacts_key_like_strings():
+    adapter, _ = _provider(error=_sdk_error("BadRequestResponseError").__class__(
+        "Header Authorization: Bearer sk-or-v1-geheim123456 abgelehnt"))
+    with pytest.raises(provider.ProviderCallError) as exc:
+        adapter.complete(_request())
+    message = exc.value.findings[0].message
+    assert "sk-or-v1-geheim123456" not in message
+    assert "<redigiert>" in message
+
+
+def test_error_detail_is_length_capped():
+    adapter, _ = _provider(error=_sdk_error("BadRequestResponseError").__class__("x" * 5000))
+    with pytest.raises(provider.ProviderCallError) as exc:
+        adapter.complete(_request())
+    assert len(exc.value.findings[0].message) < 600
+    assert "gekuerzt" in exc.value.findings[0].message
+
+
+def test_routing_failure_is_flagged_instead_of_string_matched():
+    adapter, _ = _provider(error=_sdk_error("BadRequestResponseError").__class__(
+        "No endpoints found matching your data policy"))
+    with pytest.raises(provider.ProviderCallError) as exc:
+        adapter.complete(_request())
+    assert exc.value.routing_suspected is True
+
+
+def test_ordinary_failure_is_not_flagged_as_routing():
+    adapter, _ = _provider(error=_sdk_error("BadRequestResponseError").__class__("schema invalid"))
+    with pytest.raises(provider.ProviderCallError) as exc:
+        adapter.complete(_request())
+    assert exc.value.routing_suspected is False
+
+
+@pytest.mark.parametrize("cost", [-0.5, float("inf"), float("nan"), "0.01", True, None])
+def test_implausible_cost_stays_unknown(cost):
+    """Eine negative Kostenangabe wuerde ein Budget rechnerisch entlasten."""
+    adapter, _ = _provider(_Result(usage=_Usage(cost=cost)))
+    assert adapter.complete(_request()).cost_usd is None
+
+
+@pytest.mark.parametrize("tokens,expected", [(-5, 0), (None, 0), ("12", 12), (7, 7)])
+def test_token_counts_are_normalised(tokens, expected):
+    adapter, _ = _provider(_Result(usage=_Usage(prompt=tokens)))
+    assert adapter.complete(_request()).prompt_tokens == expected
+
+
+def test_usage_may_be_absent_entirely():
+    class _NoUsage(_Result):
+        def __init__(self):
+            super().__init__()
+            self.usage = None
+
+    adapter, _ = _provider(_NoUsage())
+    response = adapter.complete(_request())
+    assert response.prompt_tokens == 0 and response.cost_usd is None
+
+
+def test_malformed_routing_metadata_does_not_crash():
+    class _Broken:
+        attempts = "kaputt"
+
+    adapter, _ = _provider(_Result(metadata=_Broken()))
+    assert adapter.complete(_request()).provider is None
+
+
+# -- Smoke prueft das Schema, nicht nur "irgendein Objekt" ------------------
+@pytest.mark.parametrize("payload,marker", [
+    ({"ok": True}, "fehlende Pflichtfelder: echo"),
+    ({"ok": True, "echo": "contract-smoke", "extra": 1}, "unerwartete Felder: extra"),
+    ({"ok": "ja", "echo": "contract-smoke"}, "ok ist str"),
+    ({"ok": False, "echo": "contract-smoke"}, "ok ist false"),
+    ({"ok": True, "echo": "etwas anderes"}, "echo ist"),
+])
+def test_smoke_schema_violations_are_named(payload, marker):
+    from committee_matcher import cli
+
+    problems = cli._smoke_schema_violations(payload)
+    assert any(marker in p for p in problems), problems
+
+
+def test_smoke_schema_accepts_the_contracted_answer():
+    from committee_matcher import cli
+
+    assert cli._smoke_schema_violations({"ok": True, "echo": "contract-smoke"}) == []
+
+
+def test_cli_smoke_fails_when_the_endpoint_ignores_the_schema(capsys, artifact_sandbox,
+                                                              monkeypatch):
+    """Ein beliebiges JSON-Objekt darf den kostenpflichtigen Smoke nicht bestehen."""
+    from committee_matcher import cli
+
+    monkeypatch.setenv(provider.API_KEY_ENV, "sk-test")
+    monkeypatch.setattr(provider, "fetch_endpoints", _catalog_with_one_endpoint)
+    monkeypatch.setattr(
+        provider.OpenRouterProvider, "_build_client",
+        staticmethod(lambda api_key: _Client(_Result(
+            content='{"antwort": "irgendwas"}', metadata=_Metadata("x")))))
+
+    assert cli.main(["provider", "smoke"]) == int(ExitCode.PROVIDER_ERROR)
+    out = capsys.readouterr().out
+    assert "PROV_SCHEMA_VIOLATED" in out
+    assert "Schema verletzt" in out
+
+
+def test_cli_smoke_appends_the_zdr_finding_on_a_routing_failure(capsys, artifact_sandbox,
+                                                                monkeypatch):
+    from committee_matcher import cli
+
+    monkeypatch.setenv(provider.API_KEY_ENV, "sk-test")
+    monkeypatch.setattr(provider, "fetch_endpoints", _catalog_with_one_endpoint)
+    monkeypatch.setattr(
+        provider.OpenRouterProvider, "_build_client",
+        staticmethod(lambda api_key: _Client(
+            error=_sdk_error("BadRequestResponseError").__class__(
+                "No endpoints found matching your data policy"))))
+
+    assert cli.main(["provider", "smoke"]) == int(ExitCode.PROVIDER_ERROR)
+    out = capsys.readouterr().out
+    assert "PROV_REQUEST_REJECTED" in out
+    assert "PROV_NO_ENDPOINT" in out, "der ZDR-Befund muss angehaengt werden"
+    assert "zdr=True" in out

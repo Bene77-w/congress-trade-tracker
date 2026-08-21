@@ -21,6 +21,7 @@ neutralisiert wird.
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -44,6 +45,10 @@ REQUIRED_FIELDS: tuple[str, ...] = ("prompt_id", "prompt_version", "schema_versi
 
 #: Groessengrenze einer Promptdatei; ein Vielfaches der erwarteten Laenge.
 MAX_PROMPT_BYTES = 200_000
+
+#: Zulaessige Blockbeschriftung. Das Label geht in beide Rahmenzeilen ein und
+#: darf deshalb weder Zeilenumbrueche noch Rahmenzeichen enthalten.
+LABEL_PATTERN = re.compile(r"[A-Z0-9_-]{1,40}")
 
 #: Rahmen der Datenbloecke. Die Zeilen stehen bewusst nicht im Promptext, damit
 #: ein Zustaendigkeitstext sie nicht versehentlich reproduziert.
@@ -142,6 +147,9 @@ def load_prompt(collector: ErrorCollector, prompt_id: str) -> SystemPrompt | Non
         )
         return None
 
+    # Ein BOM wuerde die einleitende '---'-Zeile unkenntlich machen und
+    # faelschlich als fehlendes Frontmatter erscheinen.
+    raw = raw.lstrip("\ufeff")
     parsed = _split_frontmatter(raw)
     if parsed is None:
         _blocker(
@@ -153,13 +161,18 @@ def load_prompt(collector: ErrorCollector, prompt_id: str) -> SystemPrompt | Non
         return None
 
     meta, body = parsed
+    # Pflichtfelder muessen Strings sein: eine als Zahl notierte Version
+    # (prompt_version: 2) waere im Manifest nicht eindeutig wiedererkennbar.
     missing = [field for field in REQUIRED_FIELDS
-               if not str(meta.get(field) or "").strip()]
+               if not isinstance(meta.get(field), str)
+               or not meta[field].strip()]
     if missing:
         _blocker(
             collector, "PRM_MALFORMED", shown,
-            f"Frontmatter fehlt: {', '.join(missing)}.",
-            "Fehlende Felder ergaenzen; sie werden im Runmanifest eingefroren.",
+            f"Frontmatter fehlt oder ist kein nichtleerer Text: "
+            f"{', '.join(missing)}.",
+            "Fehlende Felder als Text ergaenzen; sie werden im Runmanifest "
+            "eingefroren.",
         )
         return None
 
@@ -218,10 +231,15 @@ def load_all(collector: ErrorCollector) -> dict[str, SystemPrompt] | None:
 def untrusted_block(label: str, text: str) -> str:
     """Rahmt Fremdtext als Datenblock ein.
 
-    Der Rahmen ist nur dann eine Grenze, wenn der Inhalt ihn nicht selbst
-    erzeugen kann: eine Zeile im Text, die wie eine Rahmenzeile aussieht, wird
-    deshalb entschaerft, statt den Block vorzeitig zu schliessen.
+    Der Rahmen ist nur dann eine Grenze, wenn ihn weder Inhalt noch Beschriftung
+    faelschen koennen: eine Zeile im Text, die wie eine Rahmenzeile aussieht,
+    wird entschaerft, und das Label muss ein kurzer Bezeichner sein - ein
+    mehrzeiliges Label wuerde sonst eigene Rahmenzeilen erzeugen.
     """
+    if not LABEL_PATTERN.fullmatch(label):
+        raise ValueError(
+            f"unzulaessiges Blocklabel {label!r}: erlaubt sind bis zu 40 "
+            "Zeichen aus A-Z, 0-9, Unterstrich und Bindestrich")
     opening = BLOCK_OPEN.format(label=label)
     closing = BLOCK_CLOSE.format(label=label)
     safe_lines = [

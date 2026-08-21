@@ -1402,9 +1402,20 @@ python -m committee_matcher provider smoke
 # Generation: <id>
 ```
 
-Exit-Codes: 0 bei gültiger Antwort, 4 wenn Key, Prompts oder Endpointmenge
-blockieren, 9 bei einem Providerfehler. Schlägt der Call mit einem
-Routingfehler fehl, ergänzt der Bericht den ZDR-Befund aus 15d.
+Die Antwort wird gegen `SMOKE_SCHEMA` geprüft — Feldmenge, Typen und die
+erwarteten Werte `ok=true` und `echo="contract-smoke"`. Ein beliebiges
+JSON-Objekt besteht den Smoke also nicht: sonst könnte ein Endpoint, der
+Structured Output nur nominell unterstützt, den Nachweis vortäuschen
+(`PROV_SCHEMA_VIOLATED`, Exit 9).
+
+Exit-Codes: 0 bei vertragsgemäßer Antwort, 4 wenn Key, Prompts oder
+Endpointmenge blockieren, 9 bei einem Providerfehler oder Schemaverstoß.
+Schlägt der Call mit einem Routingfehler fehl, ergänzt der Bericht den
+ZDR-Befund aus 15d.
+
+Fremdtexte in Fehlermeldungen werden vor der Übernahme in Bericht und
+`errors.json` redigiert (schlüsselähnliche Zeichenfolgen) und auf 300 Zeichen
+gekürzt.
 
 **API-Key:** ausschließlich `OPENROUTER_API_KEY` in `.env` (gitignored). Er
 steht nicht im `COMMITTEE_MATCHER_*`-Block, erscheint in keinem Artefakt, in
