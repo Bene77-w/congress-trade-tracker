@@ -1043,8 +1043,10 @@ Default-Port: **8501** → im Browser öffnen: `http://localhost:8501`
 **Zweck:** Providerfreier Kern des neu implementierten Matchers; kennt alle
 CLI-Familien, prüft die Settings und blockiert jeden Providerpfad, solange
 Gate B offen ist.
-**Netzwerk:** kein Aufruf erreicht yfinance oder OpenRouter. Der Paketimport
-zieht weder `openrouter` noch `yfinance` oder eine HTTP-Bibliothek nach.
+**Netzwerk:** der Paketimport zieht weder `openrouter` noch `yfinance` oder
+eine HTTP-Bibliothek nach; yfinance lädt erst der erste Abruf. Netzwerk berühren
+ausschließlich `snapshot build` und `snapshot resume` (yfinance). Kein Kommando
+erreicht OpenRouter, solange Gate B offen ist.
 
 Der frühere Aufruf `python -m scripts.committee_mapping_agent.run ...` ist nach
 dem V1-Rückbau nicht mehr verfügbar; der produktive Mapping-Master bleibt
@@ -1245,8 +1247,15 @@ gilt als Drosselung und fällt in die Retrylogik.
   Snapshot. Fehlende Felder, doppelte oder kollidierende Industry-IDs und ein
   leerer Snapshot blockieren (`TAX_FIELD_MISSING`, `TAX_ID_DUPLICATE`,
   `TAX_ID_COLLISION`, `TAX_SNAPSHOT_EMPTY`). Ein Abbruch hinterlässt nur den
-  Checkpoint; `snapshot resume --run-id <revision>` setzt daraus fort und ruft
-  bereits Bekanntes nicht erneut ab.
+  Checkpoint; `snapshot resume --run-id <revision>` setzt daraus fort. Aus dem
+  Checkpoint kommt dabei ausschließlich die teure Beschreibung — die Sectorlisten
+  und damit Name und Sektor jeder Industry holt auch der Resume-Lauf frisch,
+  sonst liefe eine zwischen Abbruch und Fortsetzung umbenannte Industry mit
+  ihrer alten Identität weiter und die Driftprüfung sähe die Änderung nicht.
+  Der Checkpoint ist an seinen Run gebunden: ein Checkpoint mit fremder
+  `run_id`, fremdem Inhaltsvertrag oder vertragswidrigen Einträgen wird
+  verworfen (`TAX_CHECKPOINT_FOREIGN_RUN`, `TAX_CHECKPOINT_VERSION`,
+  `TAX_CHECKPOINT_MALFORMED`), der Abruf beginnt dann von vorn.
 - **Keine Börsengrößen:** Market Cap, Market Weight, Firmen- und
   Mitarbeiterzahlen sowie Symbole verwirft der Adapter am Rand
   (`INDUSTRY_FIELDS` ist die abschließende Allowlist). Persistiert werden nur
@@ -1261,9 +1270,17 @@ gilt als Drosselung und fällt in die Retrylogik.
   Beschreibungsänderungen melden `TAX_DRIFT_DESCRIPTION` als Warnung (Exit 2)
   und laufen durch; ihre Freigabepolicy legt Gate C fest.
 - **Freigabe ist gebunden:** `snapshot approve --run-id <revision>` gibt genau
-  den Snapshot dieses Runs frei und prüft dabei den Content-Hash gegen den
-  Inhalt (`TAX_SNAPSHOT_TAMPERED`). Fehlt der Run, blockiert
-  `TAX_SNAPSHOT_MISSING`.
+  den Snapshot dieses Runs frei. Geprüft werden Inhaltsvertrag
+  (`TAX_SNAPSHOT_VERSION`), die Bindung `snapshot_id == run_id`
+  (`TAX_SNAPSHOT_RUN_MISMATCH` — ein in ein anderes Runverzeichnis kopierter
+  Snapshot ist damit nicht freigabefähig), die Feldmenge jedes Eintrags und der
+  Content-Hash gegen den Inhalt (beides `TAX_SNAPSHOT_TAMPERED`). Fehlt der Run,
+  blockiert `TAX_SNAPSHOT_MISSING`.
+- **Baseline wird nachgerechnet:** vor jedem Driftvergleich prüft der Lauf die
+  Baseline gegen ihren eigenen Hash und ihre Feldmenge. Eine am Hash vorbei
+  editierte Baseline blockiert mit `TAX_BASELINE_TAMPERED`, statt die Drift zu
+  verdecken, die sie melden soll; daneben greifen `TAX_BASELINE_MALFORMED`,
+  `TAX_BASELINE_VERSION` und `TAX_BASELINE_EMPTY`.
 
 ```bash
 python -m committee_matcher snapshot build --run-id run-2026-08-20   # Exit 5 beim ersten Mal

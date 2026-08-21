@@ -82,11 +82,47 @@ def content_records(rows: "tuple[IndustryRow, ...] | list[IndustryRow]") -> list
     return [row.as_record() for row in sorted(rows, key=lambda r: r.industry_id)]
 
 
-def content_hash(rows: "tuple[IndustryRow, ...] | list[IndustryRow]") -> str:
-    """SHA-256 des Taxonomieinhalts gemaess ``taxonomy-content-v1``."""
-    payload = {"version": TAXONOMY_CONTENT_VERSION, "industries": content_records(rows)}
+def hash_records(records: "list[dict[str, str]]") -> str:
+    """SHA-256 ueber bereits kanonische Datensaetze."""
+    payload = {
+        "version": TAXONOMY_CONTENT_VERSION,
+        "industries": sorted(records, key=lambda r: r["industry_id"]),
+    }
     serialized = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def content_hash(rows: "tuple[IndustryRow, ...] | list[IndustryRow]") -> str:
+    """SHA-256 des Taxonomieinhalts gemaess ``taxonomy-content-v1``."""
+    return hash_records(content_records(rows))
+
+
+def strict_records(payload: object) -> list[dict[str, str]] | None:
+    """Liest eine persistierte Industryliste strikt; ``None`` = Vertragsbruch.
+
+    Streng heisst: exakt die fuenf erlaubten Felder, alle nichtleere Strings,
+    keine doppelte ID. Ein Fremdfeld wird nicht stillschweigend ignoriert -
+    stuende eine Boersengroesse in einem Artefakt, waere der Adapterrand
+    umgangen worden, und genau das soll auffallen.
+    """
+    if not isinstance(payload, list):
+        return None
+    records: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for entry in payload:
+        if not isinstance(entry, dict) or set(entry) != set(INDUSTRY_FIELDS):
+            return None
+        values: dict[str, str] = {}
+        for key in INDUSTRY_FIELDS:
+            value = entry[key]
+            if not isinstance(value, str) or not value.strip():
+                return None
+            values[key] = value
+        if values["industry_id"] in seen:
+            return None
+        seen.add(values["industry_id"])
+        records.append(values)
+    return records
 
 
 def build_catalog(rows: "tuple[IndustryRow, ...] | list[IndustryRow]") -> str:
@@ -215,21 +251,36 @@ def load_checkpoint(collector: ErrorCollector, run_id: str) -> Checkpoint:
             "Abruf beginnt von vorn; der Checkpoint wird ueberschrieben.",
         )
         return Checkpoint(run_id=run_id)
-    if data.get("content_version") != TAXONOMY_CONTENT_VERSION:
+    if not isinstance(data, dict) or data.get("content_version") != TAXONOMY_CONTENT_VERSION:
         collector.warning(
             "TAX_CHECKPOINT_VERSION", Stage.TAXONOMY, paths.relative_to_base(target),
             f"Checkpoint traegt {data.get('content_version')!r} statt "
-            f"{TAXONOMY_CONTENT_VERSION!r}.",
+            f"{TAXONOMY_CONTENT_VERSION!r}."
+            if isinstance(data, dict) else "Checkpoint ist kein Objekt.",
             "Abruf beginnt von vorn; ein fremder Inhaltsvertrag wird nicht gemischt.",
         )
         return Checkpoint(run_id=run_id)
-    rows: dict[str, IndustryRow] = {}
-    for record in data.get("industries") or []:
-        if not isinstance(record, dict):
-            continue
-        row = IndustryRow.from_payload(record)
-        if row.industry_id and row.description:
-            rows[row.industry_id] = row
+    if data.get("run_id") != run_id:
+        # Ein Checkpoint gehoert genau einem Run. Waere er uebertragbar, koennte
+        # ein Resume Beschreibungen aus einem fremden Lauf uebernehmen, ohne
+        # dass der Snapshot das noch erkennen laesst.
+        collector.warning(
+            "TAX_CHECKPOINT_FOREIGN_RUN", Stage.TAXONOMY, paths.relative_to_base(target),
+            f"Checkpoint gehoert zu Run {data.get('run_id')!r}, nicht zu {run_id!r}.",
+            "Abruf beginnt von vorn; Checkpoints sind nicht zwischen Runs uebertragbar.",
+        )
+        return Checkpoint(run_id=run_id)
+    records = strict_records(data.get("industries"))
+    if records is None:
+        collector.warning(
+            "TAX_CHECKPOINT_MALFORMED", Stage.TAXONOMY, paths.relative_to_base(target),
+            "Checkpointeintraege verletzen den Inhaltsvertrag.",
+            "Abruf beginnt von vorn; der Checkpoint wird ueberschrieben.",
+        )
+        return Checkpoint(run_id=run_id)
+    rows = {
+        record["industry_id"]: IndustryRow(**record) for record in records
+    }
     return Checkpoint(run_id=run_id, rows=rows)
 
 
@@ -279,20 +330,42 @@ def load_baseline(collector: ErrorCollector) -> dict[str, dict[str, str]] | None
             "Inhaltsvertrag und Baseline gemeinsam versionieren.",
         )
         return None
-    records = {}
-    for record in data.get("industries") or []:
-        if isinstance(record, dict) and record.get("industry_id"):
-            records[str(record["industry_id"])] = {
-                key: str(record.get(key, "")) for key in INDUSTRY_FIELDS
-            }
-    if not records:
+    entries = strict_records(data.get("industries"))
+    if entries is None:
+        collector.blocker(
+            "TAX_BASELINE_TAMPERED", Stage.TAXONOMY, paths.relative_to_base(target),
+            "Baselineeintraege verletzen den Inhaltsvertrag.",
+            "Baseline pruefen und bewusst neu freigeben.",
+        )
+        return None
+    if not entries:
         collector.blocker(
             "TAX_BASELINE_EMPTY", Stage.TAXONOMY, paths.relative_to_base(target),
             "Freigegebene Baseline enthaelt keine Industry.",
             "Baseline bewusst neu freigeben.",
         )
         return None
-    return records
+    # Die Baseline ist der Bezugspunkt der Drifterkennung. Wird sie am Hash
+    # vorbei veraendert - etwa eine Beschreibung angepasst -, wuerde genau die
+    # Aenderung unsichtbar, die der Vergleich melden soll. Deshalb wird ihr
+    # Hash nachgerechnet statt geglaubt.
+    digest = hash_records(entries)
+    if digest != data.get("taxonomy_content_hash"):
+        collector.blocker(
+            "TAX_BASELINE_TAMPERED", Stage.TAXONOMY, paths.relative_to_base(target),
+            "Content-Hash passt nicht zum Baselineinhalt.",
+            "Baseline pruefen und bewusst neu freigeben.",
+        )
+        return None
+    approved_run = data.get("approved_run_id")
+    if not isinstance(approved_run, str) or not approved_run.strip():
+        collector.blocker(
+            "TAX_BASELINE_TAMPERED", Stage.TAXONOMY, paths.relative_to_base(target),
+            "Baseline nennt keinen freigegebenen Run.",
+            "Baseline pruefen und bewusst neu freigeben.",
+        )
+        return None
+    return {record["industry_id"]: record for record in entries}
 
 
 def compare_with_baseline(
@@ -477,11 +550,43 @@ def approve_snapshot(collector: ErrorCollector, run_id: str) -> str | None:
         )
         return None
 
-    records = [
-        r for r in (data.get("industries") or [])
-        if isinstance(r, dict) and r.get("industry_id")
-    ]
-    rows = tuple(IndustryRow.from_payload(record) for record in records)
+    if not isinstance(data, dict) or data.get("content_version") != TAXONOMY_CONTENT_VERSION:
+        collector.blocker(
+            "TAX_SNAPSHOT_VERSION", Stage.TAXONOMY, run_id,
+            f"Snapshot traegt {data.get('content_version')!r} statt "
+            f"{TAXONOMY_CONTENT_VERSION!r}."
+            if isinstance(data, dict) else "Snapshot ist kein Objekt.",
+            "Inhaltsvertrag und Snapshot gemeinsam versionieren.",
+        )
+        return None
+    if data.get("snapshot_id") != run_id:
+        # Freigegeben wird der Snapshot dieses Runs. Ohne diese Pruefung liesse
+        # sich ein in ein anderes Runverzeichnis kopierter Snapshot mit intaktem
+        # Hash als Ergebnis dieses Runs freigeben.
+        collector.blocker(
+            "TAX_SNAPSHOT_RUN_MISMATCH", Stage.TAXONOMY, run_id,
+            f"Snapshot ist an Run {data.get('snapshot_id')!r} gebunden.",
+            "Snapshot des angegebenen Runs freigeben oder neu erzeugen.",
+        )
+        return None
+    version = data.get("yfinance_version")
+    if not isinstance(version, str) or not version.strip():
+        collector.blocker(
+            "TAX_SNAPSHOT_TAMPERED", Stage.TAXONOMY, run_id,
+            "Snapshot nennt keine yfinance-Version.",
+            "Snapshot neu erzeugen; freigegeben wird nur unveraenderter Inhalt.",
+        )
+        return None
+
+    records = strict_records(data.get("industries"))
+    if records is None:
+        collector.blocker(
+            "TAX_SNAPSHOT_TAMPERED", Stage.TAXONOMY, run_id,
+            "Snapshoteintraege verletzen den Inhaltsvertrag.",
+            "Snapshot neu erzeugen; freigegeben wird nur unveraenderter Inhalt.",
+        )
+        return None
+    rows = tuple(IndustryRow(**record) for record in records)
     if not validate_rows(collector, rows):
         return None
     digest = content_hash(rows)
@@ -501,7 +606,7 @@ def approve_snapshot(collector: ErrorCollector, run_id: str) -> str | None:
                 "content_version": TAXONOMY_CONTENT_VERSION,
                 "approved_run_id": run_id,
                 "taxonomy_content_hash": digest,
-                "yfinance_version": data.get("yfinance_version"),
+                "yfinance_version": version,
                 "industries": content_records(rows),
             },
             ensure_ascii=False, indent=2,

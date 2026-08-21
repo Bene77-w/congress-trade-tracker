@@ -399,6 +399,162 @@ def test_checkpoint_of_a_foreign_version_is_not_mixed_in(artifact_sandbox):
     assert "TAX_CHECKPOINT_VERSION" in codes(collector, Severity.WARNUNG)
 
 
+def test_foreign_run_checkpoint_is_not_adopted(artifact_sandbox):
+    """Ein kopierter Checkpoint darf keinen fremden Run fortsetzen."""
+    checkpoint = taxonomy_snapshot.Checkpoint(
+        run_id="run-1",
+        rows={"uranium": IndustryRow("uranium", "Uranium", "energy", "Energy", "Alt.")},
+    )
+    checkpoint.write()
+    source = artifact_sandbox / "runs" / "run-1" / "taxonomy_checkpoint.json"
+    target = artifact_sandbox / "runs" / "run-2" / "taxonomy_checkpoint.json"
+    target.parent.mkdir(parents=True)
+    target.write_text(source.read_text("utf-8"), encoding="utf-8")
+
+    collector = ErrorCollector()
+    loaded = taxonomy_snapshot.load_checkpoint(collector, "run-2")
+    assert loaded.rows == {}
+    assert "TAX_CHECKPOINT_FOREIGN_RUN" in codes(collector, Severity.WARNUNG)
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        pytest.param(lambda r: r.pop("description"), id="feld-fehlt"),
+        pytest.param(lambda r: r.update(market_cap="1e12"), id="fremdfeld"),
+        pytest.param(lambda r: r.update(industry_name="  "), id="leerer-wert"),
+        pytest.param(lambda r: r.update(sector_id=7), id="falscher-typ"),
+    ],
+)
+def test_checkpoint_with_broken_records_starts_over(artifact_sandbox, mutate):
+    """Ein strukturell kaputter Checkpoint wird verworfen, nicht teilweise gelesen."""
+    taxonomy_snapshot.Checkpoint(
+        run_id="run-1",
+        rows={"uranium": IndustryRow("uranium", "Uranium", "energy", "Energy", "Text.")},
+    ).write()
+    target = artifact_sandbox / "runs" / "run-1" / "taxonomy_checkpoint.json"
+    data = json.loads(target.read_text("utf-8"))
+    mutate(data["industries"][0])
+    target.write_text(json.dumps(data), encoding="utf-8")
+
+    collector = ErrorCollector()
+    loaded = taxonomy_snapshot.load_checkpoint(collector, "run-1")
+    assert loaded.rows == {}
+    assert "TAX_CHECKPOINT_MALFORMED" in codes(collector, Severity.WARNUNG)
+
+
+def test_copied_snapshot_cannot_be_approved_under_another_run(artifact_sandbox):
+    """Freigabe ist an den Run gebunden, nicht nur an einen stimmigen Hash."""
+    taxonomy_snapshot.build_snapshot(ErrorCollector(), FakeClient(sectors()), run_id="run-1")
+    source = artifact_sandbox / "runs" / "run-1" / "taxonomy_snapshot.json"
+    target = artifact_sandbox / "runs" / "run-2" / "taxonomy_snapshot.json"
+    target.parent.mkdir(parents=True)
+    target.write_text(source.read_text("utf-8"), encoding="utf-8")
+
+    collector = ErrorCollector()
+    assert taxonomy_snapshot.approve_snapshot(collector, "run-2") is None
+    assert "TAX_SNAPSHOT_RUN_MISMATCH" in codes(collector)
+    assert not (artifact_sandbox / "taxonomy" / "approved_baseline.json").exists()
+
+
+@pytest.mark.parametrize(
+    "mutate, code",
+    [
+        pytest.param(lambda d: d.update(content_version="taxonomy-content-v0"),
+                     "TAX_SNAPSHOT_VERSION", id="fremde-version"),
+        pytest.param(lambda d: d.pop("yfinance_version"),
+                     "TAX_SNAPSHOT_TAMPERED", id="ohne-yfinance-version"),
+        pytest.param(lambda d: d["industries"][0].update(market_cap="1e12"),
+                     "TAX_SNAPSHOT_TAMPERED", id="boersengroesse-eingeschleust"),
+    ],
+)
+def test_snapshot_violating_the_contract_cannot_be_approved(artifact_sandbox, mutate, code):
+    taxonomy_snapshot.build_snapshot(ErrorCollector(), FakeClient(sectors()), run_id="run-1")
+    target = artifact_sandbox / "runs" / "run-1" / "taxonomy_snapshot.json"
+    data = json.loads(target.read_text("utf-8"))
+    mutate(data)
+    target.write_text(json.dumps(data), encoding="utf-8")
+
+    collector = ErrorCollector()
+    assert taxonomy_snapshot.approve_snapshot(collector, "run-1") is None
+    assert code in codes(collector)
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        pytest.param(lambda d: d["industries"][0].update(description="Umgeschrieben."),
+                     id="beschreibung-am-hash-vorbei"),
+        pytest.param(lambda d: d["industries"][0].update(industry_name="Anders"),
+                     id="name-am-hash-vorbei"),
+        pytest.param(lambda d: d["industries"][0].update(market_cap="1e12"),
+                     id="fremdfeld"),
+        pytest.param(lambda d: d.pop("approved_run_id"), id="ohne-freigabe-run"),
+    ],
+)
+def test_baseline_edited_past_its_hash_blocks(artifact_sandbox, mutate):
+    """Die Baseline ist Bezugspunkt der Drift - ihr Hash wird nachgerechnet."""
+    taxonomy_snapshot.build_snapshot(ErrorCollector(), FakeClient(sectors()), run_id="run-1")
+    taxonomy_snapshot.approve_snapshot(ErrorCollector(), "run-1")
+    target = artifact_sandbox / "taxonomy" / "approved_baseline.json"
+    data = json.loads(target.read_text("utf-8"))
+    mutate(data)
+    target.write_text(json.dumps(data), encoding="utf-8")
+
+    collector = ErrorCollector()
+    result = taxonomy_snapshot.build_snapshot(collector, FakeClient(sectors()), run_id="run-2")
+    assert "TAX_BASELINE_TAMPERED" in codes(collector)
+    assert result.state is WorkflowState.FAILED
+
+
+def test_resume_takes_identity_live_and_only_the_description_from_the_checkpoint(artifact_sandbox):
+    """Zwischen Abbruch und Resume umbenannte Industries fallen nicht durchs Raster."""
+    client = FakeClient(sectors(), fail_on="semiconductors")
+    with pytest.raises(taxonomy_source.TaxonomyFetchError):
+        taxonomy_snapshot.build_snapshot(ErrorCollector(), client, run_id="run-1")
+
+    renamed = sectors()
+    next(r for r in renamed["energy"] if r["key"] == "uranium")["name"] = "Uranium Mining"
+    healthy = FakeClient(renamed)
+    result = taxonomy_snapshot.build_snapshot(
+        ErrorCollector(), healthy, run_id="run-1", resume=True
+    )
+    snapshot = json.loads(
+        (artifact_sandbox / "runs" / "run-1" / "taxonomy_snapshot.json").read_text("utf-8")
+    )
+    entry = next(r for r in snapshot["industries"] if r["industry_id"] == "uranium")
+    assert entry["industry_name"] == "Uranium Mining"       # Identitaet frisch
+    assert entry["description"] == "Uranabbau und -aufbereitung."  # Beschreibung gecacht
+    assert "uranium" not in healthy.described               # nicht erneut abgerufen
+    assert result.industries == 3
+
+
+def test_empty_overview_is_retried_before_it_blocks(monkeypatch):
+    """Eine leere Overview ist eine Drosselung und faellt in die Retrylogik."""
+    calls = {"n": 0}
+
+    class FakeIndustry:
+        def __init__(self, key: str) -> None:
+            self.key = key
+
+        @property
+        def overview(self) -> dict:
+            calls["n"] += 1
+            if calls["n"] < 3:
+                return {}
+            return {"description": "Endlich da.", "market_cap": 1e12}
+
+    module = type(sys)("yfinance")
+    module.Industry = FakeIndustry
+    monkeypatch.setitem(sys.modules, "yfinance", module)
+
+    client = taxonomy_source.YFinanceClient(
+        replace(OFFLINE, yfinance_max_retries=3), sleep=lambda _s: None
+    )
+    assert client.description("uranium") == "Endlich da."
+    assert calls["n"] == 3
+
+
 def test_snapshot_writes_stay_inside_the_artifact_root(artifact_sandbox):
     taxonomy_snapshot.build_snapshot(ErrorCollector(), FakeClient(sectors()), run_id="run-1")
     written = [p for p in artifact_sandbox.rglob("*") if p.is_file()]

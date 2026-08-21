@@ -56,6 +56,10 @@ class EmptySectorResponse(RuntimeError):
     """Leere Sectorantwort; retrybar, da fast immer eine Drosselung."""
 
 
+class EmptyOverviewResponse(RuntimeError):
+    """Leere Industry-Overview; retrybar, da fast immer eine Drosselung."""
+
+
 @dataclass(frozen=True)
 class SectorSeed:
     """Ein Sector-Seed aus den gepinnten yfinance-Konstanten."""
@@ -196,13 +200,19 @@ class YFinanceClient:
     def description(self, industry_id: str) -> str:
         import yfinance
 
-        overview = self._call(
-            f"industry {industry_id}",
-            lambda: yfinance.Industry(industry_id).overview,
-        )
-        if not isinstance(overview, dict):
-            return ""
-        return str(overview.get("description", "")).strip()
+        def fetch() -> object:
+            overview = yfinance.Industry(industry_id).overview
+            # Wie beim leeren Sector: eine leere oder formfremde Antwort ist in
+            # der Praxis eine Drosselung. Sie faellt deshalb in die Retrylogik,
+            # statt den Lauf sofort mit TAX_DESCRIPTION_MISSING zu beenden.
+            if not isinstance(overview, dict):
+                raise EmptyOverviewResponse(industry_id)
+            text = str(overview.get("description", "")).strip()
+            if not text:
+                raise EmptyOverviewResponse(industry_id)
+            return text
+
+        return str(self._call(f"industry {industry_id}", fetch))
 
 
 def _iter_frame(frame: object) -> Iterator[tuple[str, dict]]:
@@ -268,12 +278,20 @@ def fetch_taxonomy(
             )
             continue
         for row in rows:
+            # Identitaet stammt immer aus dem frischen Sectorabruf; aus dem
+            # Checkpoint kommt ausschliesslich die teure Beschreibung. Sonst
+            # entstuende beim Resume ein Mischsnapshot, in dem eine zwischen
+            # Abbruch und Fortsetzung umbenannte oder umsortierte Industry mit
+            # ihrer alten Identitaet weiterlaeuft - und die Driftpruefung
+            # genau diese Aenderung nicht mehr sehen wuerde.
             cached = known.get(row.industry_id)
-            if cached is not None and cached.description:
-                result.append(cached)
-                continue
-            description = client.description(row.industry_id)
+            description = cached.description if cached is not None else ""
             if not description:
+                description = client.description(row.industry_id)
+            if not description:
+                # Der Livecient laesst es dazu praktisch nicht kommen - eine
+                # leere Overview ist dort retrybar. Der Befund bleibt als Netz
+                # fuer jede andere Clientimplementierung stehen.
                 collector.blocker(
                     "TAX_DESCRIPTION_MISSING", Stage.TAXONOMY, row.industry_id,
                     "Industry ohne Beschreibung.",
@@ -290,5 +308,7 @@ def fetch_taxonomy(
             )
             result.append(complete)
             if on_progress is not None:
+                # Auch uebernommene Beschreibungen werden gemeldet, damit der
+                # Checkpoint die aktuelle Identitaet traegt.
                 on_progress(complete)
     return tuple(result)

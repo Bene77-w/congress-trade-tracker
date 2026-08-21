@@ -51,9 +51,23 @@ Livelauf gegen yfinance 1.3.0: 145 Industries in 11 Sektoren, Inhaltshash
 abgeschlossen. Versioniert ist nur die freigegebene Baseline; `runs/` und
 `reports/` sind gitignoriert.
 
-Tests: 26 netzwerkfreie P4-Tests gegen einen Fake-Client
+Review-Auflagen (gpt-5.6-terra, „Phase mit Auflagen abgenommen") direkt
+nachgezogen: der Checkpoint ist jetzt an seine `run_id` gebunden und wird strikt
+gegen den Inhaltsvertrag gelesen statt teilweise übernommen; `snapshot approve`
+prüft zusätzlich Inhaltsvertrag, Feldmenge und die Bindung
+`snapshot_id == run_id`, sodass ein in ein fremdes Runverzeichnis kopierter
+Snapshot nicht freigabefähig ist; die Baseline wird vor jedem Driftvergleich
+gegen ihren eigenen Hash nachgerechnet (`TAX_BASELINE_TAMPERED`), weil eine am
+Hash vorbei editierte Baseline sonst genau die Drift verdecken könnte, die sie
+melden soll. Beim Resume kommt nur noch die Beschreibung aus dem Checkpoint —
+Name und Sektor holt auch der Fortsetzungslauf frisch, sonst entstünde ein
+Mischsnapshot, in dem eine zwischenzeitlich umbenannte Industry unbemerkt
+weiterliefe. Eine leere `Industry.overview` gilt wie ein leerer Sector als
+Drosselung und fällt in die Retrylogik.
+
+Tests: 41 netzwerkfreie P4-Tests gegen einen Fake-Client
 (`tests/test_committee_matcher_taxonomy_p4.py`) inklusive Allowlist-,
-Drift-, Checkpoint- und Manipulationsmatrix; Gesamtsuite 1299 grün.
+Drift-, Checkpoint- und Manipulationsmatrix; Gesamtsuite 1314 grün.
 Doku: `CLI_Bedienungsanleitung.md` 15c, `DATA_STRUCTURE.md` 3a.
 
 ---

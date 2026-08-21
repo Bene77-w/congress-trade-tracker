@@ -359,7 +359,7 @@ ausschließlich über `write_text_atomic` (Temporärdatei im Zielverzeichnis,
 |---|---|
 | `taxonomy_snapshot.json` | eingefrorene Taxonomie des Runs; nur vollständig und kollisionsfrei geschrieben |
 | `taxonomy_catalog.md` | nach Sektoren gruppierter Markdown-Katalog desselben Inhalts |
-| `taxonomy_checkpoint.json` | volatiler Abruffortschritt für `snapshot resume`; nie freigabefähig |
+| `taxonomy_checkpoint.json` | volatiler Abruffortschritt für `snapshot resume`; an die eigene `run_id` gebunden, nie freigabefähig; enthält nur Beschreibungen, die Identität holt auch der Resume-Lauf frisch |
 
 `taxonomy_snapshot.json`:
 
@@ -382,7 +382,12 @@ Marktgröße.
 
 Die freigegebene Taxonomie-Baseline; erzeugt von `snapshot approve --run-id ...`.
 Felder wie im Snapshot, zusätzlich `approved_run_id`. Fehlt sie, stoppt jeder
-Snapshotlauf mit `no_baseline` in `awaiting_taxonomy_approval` (Exit 5).
+Snapshotlauf mit `no_baseline` in `awaiting_taxonomy_approval` (Exit 5). Jeder
+Lauf rechnet ihren `taxonomy_content_hash` aus den Einträgen nach und prüft
+deren Feldmenge; eine am Hash vorbei editierte Baseline blockiert mit
+`TAX_BASELINE_TAMPERED`, weil sie sonst genau die Drift verdecken könnte, die
+sie melden soll. `snapshot approve` prüft spiegelbildlich Inhaltsvertrag,
+Feldmenge, Hash und die Bindung `snapshot_id == run_id`.
 
 Bereits erzeugte Inhalte: `reports/<kommando>/errors.json` (strukturierter
 Fehlerbericht je CLI-Lauf, Plan 2.7), `reports/input_validate/units.json` (alle
