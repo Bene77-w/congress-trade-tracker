@@ -11,6 +11,44 @@ Historie abgeschlossener Module/Phasen. **Aktiver WIP-Modul-Stand** steht im „
 
 ---
 
+## 2026-08-21 — Committee Matcher V2, Gate B: Providersettings + Routing-Preflight
+
+Gate B ist beschlossen. Defaultmodell ist `deepseek/deepseek-v4-flash-0731`, den
+Endpoint wählt OpenRouter selbst: kein `only`, kein `order`,
+`allow_fallbacks = true`. Gefiltert wird ausschließlich über Eigenschaften —
+`require_parameters`, Quantisierung (`fp8`/`bf16`/`fp16`), `data_collection =
+"deny"`, `zdr = true` und ein Preisdeckel. Der neue Filter
+`COMMITTEE_MATCHER_QUANTIZATIONS` ersetzt die frühere Endpointbindung
+`COMMITTEE_MATCHER_PROVIDER_SLUG`: ohne ihn mischt ein Lauf 4-Bit- und
+16-Bit-Endpoints, womit Evaluationsergebnisse nicht mehr auf den
+Produktionslauf übertragbar wären. Die Kostenwache ist über
+`COMMITTEE_MATCHER_COST_GUARD` abschaltbar, ohne Provider oder Modell zu binden.
+
+Neu ist `committee_matcher/provider.py` mit dem Routing-Preflight und dem
+Kommando `provider check`. Er fragt den öffentlichen Endpointkatalog
+`models/<modell>/endpoints` ab — ohne Key, ohne Kosten, ohne Modellaufruf — und
+bricht sofort mit Exit 4 ab, wenn zur Konfiguration kein Endpoint existiert.
+Grund für die Vorschaltung: Eine leere Endpointmenge ist der einzige
+Konfigurationsfehler, den `allow_fallbacks` nicht abfangen kann; ohne Preflight
+scheitert stattdessen der erste kostenpflichtige Call mit einer generischen
+SDK-Meldung. Jede Leerungsursache meldet sich getrennt
+(`PROV_CATALOG_UNREACHABLE`, `PROV_MODEL_UNKNOWN`, `PROV_NO_STRUCTURED_OUTPUT`,
+`PROV_NO_ENDPOINT` je für Quantisierungsfilter und Preisdeckel), und jeder
+Befund nennt die beiden Stellschrauben, die die Workflowlogik nicht berühren:
+Modellwechsel und `COMMITTEE_MATCHER_ZDR = False`. Fehlt einem Modell die
+Structured-Output-Fähigkeit, fordert der Befund ausdrücklich einen Modellwechsel.
+
+Was der Katalog nicht hergibt, ist ZDR: die Eigenschaft steht nicht je Endpoint
+darin. Scheitert ein realer Call trotz grünem Preflight am Routing, listet
+`routing_failure_finding` alle wirksamen Bedingungen und benennt `zdr=true` als
+wahrscheinlichste Ursache.
+
+Live geprüft: 7 von 30 Endpoints des Defaultmodells sind zulässig, günstigster
+`deepinfra/fp8` (0.080/0.180 USD pro Mtok). Tests: 15 netzwerkfreie Tests in
+`tests/test_committee_matcher_provider_preflight.py`; Gesamtsuite grün.
+
+---
+
 ## 2026-08-21 — Committee Matcher V2, P4: Taxonomie-Snapshot (yfinance)
 
 Der Matcher holt seine Zielseite jetzt selbst. `taxonomy_source.py` ist das

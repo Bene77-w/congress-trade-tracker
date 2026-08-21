@@ -9,8 +9,9 @@ Zwei Gruppen mit unterschiedlicher Strenge:
 
 - **offline**: muss immer gueltig sein; ein Fehler blockiert jeden Lauf
   (``SettingsBlocked``, Exit-Code 4).
-- **provider**: darf bis Gate B unset sein. Der providerfreie Kern laeuft
-  damit vollstaendig; jeder Providerpfad blockiert aber ueber
+- **provider**: seit dem Gate-B-Beschluss vollstaendig gesetzt, technisch
+  aber weiterhin einzeln abschaltbar (``None``). Der providerfreie Kern laeuft
+  auch ohne diese Werte vollstaendig; jeder Providerpfad blockiert dann ueber
   ``require_provider`` bzw. ``require_budget`` mit einem Befund je fehlendem
   Setting.
 
@@ -30,7 +31,9 @@ from .status import ExitCode
 
 #: Feste Providerinvarianten (Plan 2.6) - bewusst nicht konfigurierbar.
 PROVIDER_REQUIRE_PARAMETERS = True
-PROVIDER_ALLOW_FALLBACKS = False
+#: Gate-B-Beschluss: OpenRouter waehlt den Endpoint, gefiltert wird nur
+#: ueber Faehigkeit, Quantisierung, Datenschutz und Preis.
+PROVIDER_ALLOW_FALLBACKS = True
 PROVIDER_SDK_RETRIES = 0
 PROVIDER_MAX_CONCURRENT_CALLS = 1
 
@@ -38,6 +41,11 @@ PROVIDER_MAX_CONCURRENT_CALLS = 1
 ALLOWED_BATCH_SIZES = (1, 3)
 #: Zulaessige Datenschutzmodi des Providerroutings.
 ALLOWED_DATA_COLLECTION = ("deny", "allow")
+#: Quantisierungsliterale des gepinnten OpenRouter-SDK.
+ALLOWED_QUANTIZATIONS = (
+    "int4", "int8", "fp4", "mxfp4", "nvfp4", "fp6", "fp8", "mxfp8",
+    "fp16", "bf16", "fp32", "unknown",
+)
 
 _PREFIX = "COMMITTEE_MATCHER_"
 
@@ -102,7 +110,7 @@ class _Reader:
         caster: Callable[[Any], Any],
         expected: str,
     ) -> Any:
-        """Providerabhaengiges Setting: ``None``/fehlend ist bis Gate B erlaubt."""
+        """Providerabhaengiges Setting: ``None``/fehlend blockiert nur Providerpfade."""
         value = self.raw(name)
         if value is _MISSING or value is None:
             return None
@@ -112,7 +120,7 @@ class _Reader:
             self._fail(
                 "CFG_INVALID", name,
                 f"{name}={value!r} ist unzulaessig: {exc}.",
-                f"Erwartet: {expected} oder None bis Gate B.",
+                f"Erwartet: {expected} oder None (sperrt alle Providerpfade).",
             )
             return None
 
@@ -189,6 +197,25 @@ def _price_map(value: Any) -> dict[str, float]:
     return result
 
 
+def _strict_bool(value: Any) -> bool:
+    """Nimmt ausschliesslich echte Booleans; 0/1 waere zu leicht verwechselbar."""
+    if not isinstance(value, bool):
+        raise TypeError("Wert ist kein bool")
+    return value
+
+
+def _quantizations(value: Any) -> tuple[str, ...]:
+    """Prueft die Quantisierungs-Allowlist; leere Menge ist kein Filter."""
+    if isinstance(value, str) or not isinstance(value, (tuple, list)):
+        raise TypeError("Wert ist keine Liste von Quantisierungen")
+    if not value:
+        raise ValueError("leere Liste; fuer 'kein Filter' None setzen")
+    unknown = [q for q in value if q not in ALLOWED_QUANTIZATIONS]
+    if unknown:
+        raise ValueError(f"unbekannte Quantisierung(en): {unknown}")
+    return tuple(value)
+
+
 @dataclass(frozen=True)
 class OfflineSettings:
     """Immer gueltige Laufparameter des providerfreien Kerns."""
@@ -201,20 +228,25 @@ class OfflineSettings:
     yfinance_checkpoint_every: int
     batch_size: int
     workflow_retries: int
+    #: Kostenwache; per CLI-Flag je Lauf abschaltbar.
+    cost_guard: bool
 
 
 @dataclass(frozen=True)
 class ProviderSettings:
-    """Vollstaendig gesetzte Providerparameter (erst ab Gate B)."""
+    """Vollstaendig gesetzte Providerparameter (Gate-B-Beschluss)."""
 
     model: str
-    provider_slug: str
     data_collection: str
+    #: True verlangt Zero Data Retention beim Routing.
+    zdr: bool
     max_price_usd_per_mtok: dict[str, float]
     endpoint_context_tokens: int
     max_output_tokens: int
     reasoning_reserve_tokens: int
     request_timeout_s: float
+    #: Zulaessige Rechenpraezisionen; None laesst jede Quantisierung zu.
+    quantizations: tuple[str, ...] | None = None
 
     #: Invarianten, die im Runmanifest miteingefroren werden.
     require_parameters: bool = PROVIDER_REQUIRE_PARAMETERS
@@ -233,7 +265,7 @@ BUDGET_SETTINGS = {
 
 @dataclass(frozen=True)
 class MatcherSettings:
-    """Gesamtsicht: offline immer gueltig, Provider erst ab Gate B."""
+    """Gesamtsicht: offline immer gueltig, Provider nur bei vollstaendigen Werten."""
 
     offline: OfflineSettings
     provider: ProviderSettings | None
@@ -253,8 +285,8 @@ class MatcherSettings:
                         "CFG_PROVIDER_UNSET",
                         f"{_PREFIX}*",
                         "Providersettings sind nicht gesetzt.",
-                        "Gate B abschliessen und Modell, Endpoint, Kontext und "
-                        "Preise in config/settings.py eintragen.",
+                        "Modell, Endpoint, Kontext und Preise in "
+                        "config/settings.py eintragen.",
                     ),
                 ),
                 "Providerpfad blockiert: Settings unvollstaendig",
@@ -315,6 +347,8 @@ def load_settings(module: ModuleType | None = None) -> MatcherSettings:
         workflow_retries=reader.required(
             f"{_PREFIX}WORKFLOW_RETRIES", _int_in(0, 5),
             "int 0..5", 2),
+        cost_guard=reader.required(
+            f"{_PREFIX}COST_GUARD", _strict_bool, "bool", True),
     )
     if reader.collector.has_blockers():
         raise SettingsBlocked(reader.collector.blockers, "Offlinesettings ungueltig")
@@ -323,11 +357,11 @@ def load_settings(module: ModuleType | None = None) -> MatcherSettings:
     values = {
         "model": provider_reader.optional(
             f"{_PREFIX}MODEL", _non_empty_str, "Modellslug"),
-        "provider_slug": provider_reader.optional(
-            f"{_PREFIX}PROVIDER_SLUG", _non_empty_str, "genau ein Endpointslug"),
         "data_collection": provider_reader.optional(
             f"{_PREFIX}DATA_COLLECTION", _choice(ALLOWED_DATA_COLLECTION),
             "'deny' oder 'allow'"),
+        "zdr": provider_reader.optional(
+            f"{_PREFIX}ZDR", _strict_bool, "bool"),
         "max_price_usd_per_mtok": provider_reader.optional(
             f"{_PREFIX}MAX_PRICE_USD_PER_MTOK", _price_map,
             "Dict mit 'prompt' und 'completion' > 0"),
@@ -344,6 +378,10 @@ def load_settings(module: ModuleType | None = None) -> MatcherSettings:
             f"{_PREFIX}REQUEST_TIMEOUT_S", _float_in(1.0, 3_600.0),
             "float 1..3600"),
     }
+
+    quantizations = provider_reader.optional(
+        f"{_PREFIX}QUANTIZATIONS", _quantizations,
+        f"Liste aus {ALLOWED_QUANTIZATIONS}")
 
     budgets: dict[str, float | None] = {}
     for kind, name in BUDGET_SETTINGS.items():
@@ -365,7 +403,8 @@ def load_settings(module: ModuleType | None = None) -> MatcherSettings:
 
     provider: ProviderSettings | None = None
     if not missing and not provider_reader.collector.has_blockers():
-        provider = ProviderSettings(**values)  # type: ignore[arg-type]
+        provider = ProviderSettings(
+            quantizations=quantizations, **values)  # type: ignore[arg-type]
 
     context_ok_findings: list[Finding] = list(provider_reader.collector.blockers)
     if provider is not None:

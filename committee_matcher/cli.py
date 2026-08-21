@@ -2,8 +2,9 @@
 
 Plan 2.7 legt die CLI-Familien und die Exit-Codes fest. Dieses Modul haelt
 beides zusammen: es kennt alle Familien bereits vollstaendig, fuehrt den
-Offline-Preflight der Settings aus, blockiert jeden Providerpfad, solange
-Gate B offen ist, und gibt in jedem Fall den Terminalbericht aus.
+Offline-Preflight der Settings aus, blockiert jeden Providerpfad mit
+unvollstaendigen Providersettings und gibt in jedem Fall den Terminalbericht
+aus.
 
 Stages, die erst in spaeteren Phasen entstehen, melden ``CLI_STAGE_NOT_IMPLEMENTED``
 und beenden mit Exit-Code 4 (Preflight blockiert). Das ist bewusst kein neuer
@@ -25,6 +26,7 @@ from . import SCAFFOLD_VERSION
 from . import (
     input_corpus,
     paths,
+    provider,
     roster_coverage,
     taxonomy_snapshot,
     taxonomy_source,
@@ -56,8 +58,8 @@ class Command:
     phase: str
     provider: bool
     help: str
-    #: True, wenn die Aktion yfinance abruft. Providerpfade sind davon
-    #: unabhaengig; ``network`` markiert ausschliesslich den Taxonomieabruf.
+    #: True, wenn die Aktion einen externen Dienst abruft (yfinance oder
+    #: den oeffentlichen OpenRouter-Katalog). Sagt nichts ueber Kosten aus.
     network: bool = False
     #: True, wenn die Aktion ohne bestehende Run-Revision sinnlos waere
     #: (Freigabe und Resume sind an genau einen Run gebunden).
@@ -83,6 +85,9 @@ COMMANDS: tuple[Command, ...] = (
     Command("snapshot", "resume", Stage.TAXONOMY, "P4", False,
             "abgebrochenen Snapshotabruf aus dem run-lokalen Checkpoint fortsetzen",
             network=True, requires_run_id=True),
+    Command("provider", "check", Stage.PROVIDER, "P5", True,
+            "Endpointverfuegbarkeit der Providerkonfiguration vorab pruefen "
+            "(kostenlos, kein Modellaufruf)", network=True),
     Command("run", "plan", Stage.WORKFLOW, "P7", True,
             "Entwicklungsrun planen inklusive Worst-Case-Kostenschaetzung"),
     Command("run", "execute", Stage.WORKFLOW, "P7", True,
@@ -124,8 +129,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser = _Parser(
         prog=PROGRAM,
         description=(
-            "Committee Matcher V2 - providerfreier Kern "
-            f"({SCAFFOLD_VERSION}). Providerpfade bleiben bis Gate B gesperrt."
+            "Committee Matcher V2 "
+            f"({SCAFFOLD_VERSION}). Providerpfade rufen erst ab P5 ein Modell "
+            "auf; 'provider check' prueft die Endpointverfuegbarkeit vorab "
+            "kostenlos gegen den OpenRouter-Katalog."
         ),
     )
     parser.add_argument("--version", action="version", version=SCAFFOLD_VERSION)
@@ -175,7 +182,7 @@ def _lookup(namespace: argparse.Namespace) -> Command:
 
 
 def _preflight(command: Command, collector: ErrorCollector) -> MatcherSettings | None:
-    """Prueft Settings; Providerpfade zusaetzlich gegen das offene Gate B."""
+    """Prueft Settings; Providerpfade zusaetzlich auf vollstaendige Providerwerte."""
     try:
         settings = load_settings()
     except SettingsBlocked as exc:
@@ -429,8 +436,41 @@ def handle_snapshot_approve(
     )
 
 
+def handle_provider_check(
+    command: Command, namespace: argparse.Namespace,
+    collector: ErrorCollector, settings: MatcherSettings,
+) -> tuple[list[str], list[str]]:
+    """Prueft vor dem ersten Call, ob ein zulaessiger Endpoint existiert."""
+    provider_settings = settings.require_provider()
+    report = provider.check_routing(collector, provider_settings)
+    lines = [
+        f"Modell:   {provider_settings.model}",
+        f"Filter:   structured_outputs, quantizations="
+        f"{list(provider_settings.quantizations or ()) or 'keine'}, "
+        f"max_price={provider_settings.max_price_usd_per_mtok}, "
+        f"zdr={provider_settings.zdr}",
+    ]
+    if report is None:
+        lines.append("Endpoints: keiner zulaessig")
+        return lines, []
+    cheapest = report.cheapest
+    lines.append(
+        f"Endpoints: {len(report.eligible)} von {report.total} zulaessig"
+        + (f" | guenstigster {cheapest.tag} "
+           f"({cheapest.prompt_usd_per_mtok:.3f}/"
+           f"{cheapest.completion_usd_per_mtok:.3f} USD pro Mtok)"
+           if cheapest else "")
+    )
+    lines.append(
+        "Hinweis:  ZDR ist im Katalog nicht ausgewiesen und wird erst beim "
+        "ersten Call geprueft."
+    )
+    return lines, []
+
+
 #: Bereits implementierte Aktionen; alles andere meldet die Zielphase.
 HANDLERS = {
+    "provider check": handle_provider_check,
     "input validate": handle_input_validate,
     "roster validate": handle_roster_validate,
     "snapshot build": handle_snapshot_build,
@@ -449,8 +489,11 @@ def run_command(command: Command, namespace: argparse.Namespace) -> int:
     if command.provider and collector.has_blockers():
         collector.blocker(
             "CLI_PROVIDER_GATE_CLOSED", Stage.PROVIDER, command.name,
-            "Providerpfad ist gesperrt, solange Gate B nicht abgeschlossen ist.",
-            "Providerfreie Familien input, roster, snapshot, review und report nutzen.",
+            "Providerpfad blockiert: die Providersettings sind unvollstaendig "
+            "oder ungueltig.",
+            "Fehlende COMMITTEE_MATCHER_*-Werte in config/settings.py "
+            "ergaenzen; die providerfreien Familien input, roster, snapshot, "
+            "review und report laufen unabhaengig davon.",
         )
     elif handler is None or settings is None:
         if settings is not None:
@@ -477,7 +520,7 @@ def run_command(command: Command, namespace: argparse.Namespace) -> int:
         f"Phase:    {command.phase}",
         f"Settings: offline geprueft"
         + (
-            f" | Provider {'bereit' if settings.provider_ready else 'unset (Gate B offen)'}"
+            f" | Provider {'bereit' if settings.provider_ready else 'unvollstaendig'}"
             if settings is not None
             else " | Settings ungueltig"
         ),

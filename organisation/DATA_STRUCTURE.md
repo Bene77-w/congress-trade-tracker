@@ -390,7 +390,8 @@ sie melden soll. `snapshot approve` prüft spiegelbildlich Inhaltsvertrag,
 Feldmenge, Hash und die Bindung `snapshot_id == run_id`.
 
 Bereits erzeugte Inhalte: `reports/<kommando>/errors.json` (strukturierter
-Fehlerbericht je CLI-Lauf, Plan 2.7), `reports/input_validate/units.json` (alle
+Fehlerbericht je CLI-Lauf, Plan 2.7 — darunter `reports/provider_check/errors.json`
+mit den Befunden des Routing-Preflights), `reports/input_validate/units.json` (alle
 225 Units mit `unit_id`, `kind`, `input_basis`, `parent_unit_id`,
 `mapping_input_hash`, `source_bytes_sha256`) und
 `reports/roster_validate/roster_coverage.json` (je Rostervorkommen `chamber`,
@@ -411,7 +412,10 @@ CLI-Skelett (`cli.py`). Seit P3 kommen der strikte Inputparser
 (`input_corpus.py`), die Unitbildung samt Kanonisierung (`units.py`) und die
 Roster-Coverage (`roster_coverage.py`) hinzu, seit P4 der yfinance-Adapter
 (`taxonomy_source.py`) und die Snapshotlogik mit Katalog, Content-Hash sowie
-Drift- und Freigabegate (`taxonomy_snapshot.py`). Die Ownership-Karte aller 17
+Drift- und Freigabegate (`taxonomy_snapshot.py`). Mit dem Gate-B-Beschluss kommt
+der Routing-Preflight (`provider.py`) hinzu: er prüft den öffentlichen
+OpenRouter-Endpointkatalog auf einen zulässigen Endpoint, ohne Key, ohne Kosten
+und ohne Modellaufruf. Die Ownership-Karte aller 17
 Zielmodule steht im Docstring von `committee_matcher/__init__.py`. Bedienung, Familien, Exit-Codes
 und die vollständige Settingstabelle: `CLI_Bedienungsanleitung.md` Abschnitt 15.
 

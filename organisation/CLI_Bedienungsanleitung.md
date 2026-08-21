@@ -1040,13 +1040,14 @@ Default-Port: **8501** → im Browser öffnen: `http://localhost:8501`
 ## 15. Committee Matcher V2 – CLI und Settings (P2-Gerüst, P3-Kern, P4-Snapshot)
 
 **Paket:** `committee_matcher/` · **Einstieg:** `python -m committee_matcher`
-**Zweck:** Providerfreier Kern des neu implementierten Matchers; kennt alle
-CLI-Familien, prüft die Settings und blockiert jeden Providerpfad, solange
-Gate B offen ist.
+**Zweck:** Providerfreier Kern des neu implementierten Matchers plus der
+Routing-Preflight; kennt alle CLI-Familien, prüft die Settings und blockiert
+jeden Providerpfad mit unvollständigen Providerwerten.
 **Netzwerk:** der Paketimport zieht weder `openrouter` noch `yfinance` oder
 eine HTTP-Bibliothek nach; yfinance lädt erst der erste Abruf. Netzwerk berühren
-ausschließlich `snapshot build` und `snapshot resume` (yfinance). Kein Kommando
-erreicht OpenRouter, solange Gate B offen ist.
+`snapshot build`, `snapshot resume` (yfinance) und `provider check` (öffentlicher
+OpenRouter-Katalog, kein Key, keine Kosten). Ein Modell ruft bis einschließlich
+P4 kein Kommando auf.
 
 Der frühere Aufruf `python -m scripts.committee_mapping_agent.run ...` ist nach
 dem V1-Rückbau nicht mehr verfügbar; der produktive Mapping-Master bleibt
@@ -1056,15 +1057,13 @@ unverändert.
 python -m committee_matcher --help
 python -m committee_matcher input validate      # Corpus + Units + Sollmenge
 python -m committee_matcher roster validate     # Roster-Coverage gegen die Units
+python -m committee_matcher provider check      # Endpointverfügbarkeit, kostenlos
 python -m committee_matcher run execute         # Providerpfad: blockiert mit Exit 4
 ```
 
 `input validate` und `roster validate` sind seit P3 implementiert, die
-`snapshot`-Familie seit P4; alle übrigen Familien melden weiterhin
-`CLI_STAGE_NOT_IMPLEMENTED` mit ihrer Phase.
-
-**Netzwerk:** nur `snapshot build` und `snapshot resume` rufen yfinance. Kein
-Kommando erreicht OpenRouter, solange Gate B offen ist.
+`snapshot`-Familie seit P4, `provider check` seit dem Gate-B-Beschluss; alle
+übrigen Familien melden weiterhin `CLI_STAGE_NOT_IMPLEMENTED` mit ihrer Phase.
 
 **Familien** (vollständig, Plan 2.7 — es gibt kein `promote`, `finalize`,
 `research` oder LLM-`review`):
@@ -1117,25 +1116,37 @@ ist ausschließlich `committee_matcher/settings_view.py`):
 | `COMMITTEE_MATCHER_YFINANCE_CHECKPOINT_EVERY` | int 1–500 | 10 | Snapshot (P4) |
 | `COMMITTEE_MATCHER_BATCH_SIZE` | 1 oder 3 | 3 | Mappingcalls (P6) |
 | `COMMITTEE_MATCHER_WORKFLOW_RETRIES` | int 0–5 | 2 | Workflow (P7) |
-| `COMMITTEE_MATCHER_MODEL` | str oder None | None | Provider (Gate B) |
-| `COMMITTEE_MATCHER_PROVIDER_SLUG` | str oder None | None | Provider (Gate B) |
-| `COMMITTEE_MATCHER_DATA_COLLECTION` | `deny`/`allow`/None | None | Provider (Gate B) |
-| `COMMITTEE_MATCHER_MAX_PRICE_USD_PER_MTOK` | dict mit `prompt`+`completion` > 0 | None | Provider (Gate B) |
-| `COMMITTEE_MATCHER_ENDPOINT_CONTEXT_TOKENS` | int 1.000–10.000.000 | None | Context-Gate (Gate B) |
-| `COMMITTEE_MATCHER_MAX_OUTPUT_TOKENS` | int 256–1.000.000 | None | Context-Gate (Gate B) |
-| `COMMITTEE_MATCHER_REASONING_RESERVE_TOKENS` | int 0–1.000.000 | None | Context-Gate (Gate B) |
-| `COMMITTEE_MATCHER_REQUEST_TIMEOUT_S` | float 1–3600 | None | Provider (Gate B) |
-| `COMMITTEE_MATCHER_MAX_RUN_COST_USD` | float 0 < x ≤ 10.000 | None | Kostenstop (Gate B) |
-| `COMMITTEE_MATCHER_MAX_EVALUATION_COST_USD` | float 0 < x ≤ 10.000 | None | Kostenstop (Gate B) |
-| `COMMITTEE_MATCHER_MAX_QUALIFICATION_COST_USD` | float 0 < x ≤ 10.000 | None | Kostenstop (Gate B) |
+| `COMMITTEE_MATCHER_COST_GUARD` | bool | True | Kostenwache (P7) |
+| `COMMITTEE_MATCHER_MODEL` | str oder None | `deepseek/deepseek-v4-flash-0731` | Provider (P5) |
+| `COMMITTEE_MATCHER_QUANTIZATIONS` | Tupel aus `int4`,`int8`,`fp4`,`mxfp4`,`nvfp4`,`fp6`,`fp8`,`mxfp8`,`fp16`,`bf16`,`fp32`,`unknown` oder None | `("fp8","bf16","fp16")` | Routingfilter (P5) |
+| `COMMITTEE_MATCHER_DATA_COLLECTION` | `deny`/`allow`/None | `deny` | Provider (P5) |
+| `COMMITTEE_MATCHER_ZDR` | bool oder None | True | Provider (P5) |
+| `COMMITTEE_MATCHER_MAX_PRICE_USD_PER_MTOK` | dict mit `prompt`+`completion` > 0 | `{prompt: 0.30, completion: 0.90}` | Provider (P5) |
+| `COMMITTEE_MATCHER_ENDPOINT_CONTEXT_TOKENS` | int 1.000–10.000.000 | 200000 | Context-Gate (P6) |
+| `COMMITTEE_MATCHER_MAX_OUTPUT_TOKENS` | int 256–1.000.000 | 8000 | Context-Gate (P6) |
+| `COMMITTEE_MATCHER_REASONING_RESERVE_TOKENS` | int 0–1.000.000 | 24000 | Context-Gate (P6) |
+| `COMMITTEE_MATCHER_REQUEST_TIMEOUT_S` | float 1–3600 | 300.0 | Provider (P5) |
+| `COMMITTEE_MATCHER_MAX_RUN_COST_USD` | float 0 < x ≤ 10.000 | 25.0 | Kostenstop (P7) |
+| `COMMITTEE_MATCHER_MAX_EVALUATION_COST_USD` | float 0 < x ≤ 10.000 | 40.0 | Kostenstop (P7) |
+| `COMMITTEE_MATCHER_MAX_QUALIFICATION_COST_USD` | float 0 < x ≤ 10.000 | 15.0 | Kostenstop (P7) |
 
-Ungültige Offline-Settings blockieren jeden Lauf mit Exit 4. Nicht gesetzte
-Provider-Settings sind bis Gate B zulässig, blockieren aber jeden Providerpfad
-und werden im Bericht einzeln benannt; ein fehlendes Budget blockiert mit
-Exit 6. Die Sicherheitsinvarianten `require_parameters=true`,
-`allow_fallbacks=false`, genau ein `provider.only`-Eintrag, keine SDK-Retries
-und ein gleichzeitiger Call sind Codekonstanten und bewusst nicht
-konfigurierbar.
+Ungültige Offline-Settings blockieren jeden Lauf mit Exit 4. Ein fehlender
+Provider-Wert blockiert weiterhin jeden Providerpfad und wird im Bericht
+einzeln benannt; ein fehlendes Budget blockiert mit Exit 6.
+
+Seit Gate B gilt: Den Endpoint wählt OpenRouter. `only` und `order` werden
+nicht gesetzt, `allow_fallbacks=true` erlaubt den Wechsel zwischen Providern
+desselben Modells, und gefiltert wird ausschließlich über Fähigkeit
+(`require_parameters=true`), Quantisierung, Datenschutz und Preis. Der
+tatsächlich geroutete Provider wird je Call protokolliert, aber nicht
+gebunden. Codekonstanten und bewusst nicht konfigurierbar bleiben
+`require_parameters=true`, `allow_fallbacks=true`, keine SDK-Retries und genau
+ein gleichzeitiger Call.
+
+`COMMITTEE_MATCHER_QUANTIZATIONS` begrenzt die Rechenpräzision der zulässigen
+Endpoints. Ohne Filter mischt ein Lauf 4-Bit- und 16-Bit-Endpoints, womit
+Evaluationsergebnisse nicht mehr auf den Produktionslauf übertragbar sind;
+`None` hebt die Einschränkung auf.
 
 ### 15a. `input validate` — Corpus, Parser, Unit-Sollmenge (P3)
 
@@ -1309,6 +1320,52 @@ Golden-Tests für `unit-id-v1` und `mapping-input-v1`) und
 `tests/test_committee_matcher_taxonomy_p4.py` (Adapterrand, Content-Hash,
 Checkpoint/Resume, Drift- und Freigabegate gegen ein yfinance-Testdouble) —
 alle netzwerkfrei.
+
+### 15d. `provider check` — Routing-Preflight vor dem ersten Call
+
+Prüft gegen den öffentlichen Endpointkatalog
+`https://openrouter.ai/api/v1/models/<modell>/endpoints`, ob es zur
+konfigurierten Kombination aus Modell, Structured-Output-Fähigkeit,
+Quantisierung und Preisdeckel überhaupt einen Endpoint gibt. Der Abruf braucht
+keinen API-Key, kostet nichts und ruft kein Modell auf.
+
+Warum vor dem ersten Call: Eine leere Endpointmenge ist der einzige
+Konfigurationsfehler, den `allow_fallbacks` nicht abfangen kann — Fallbacks
+wählen innerhalb der gefilterten Menge, nicht daneben. Ohne Preflight scheitert
+stattdessen der erste kostenpflichtige Call mit einer generischen SDK-Meldung.
+Der Contract-Smoke und jeder spätere Providerlauf (P5+) rufen denselben
+Preflight vorgeschaltet auf und brechen mit Exit 4 ab, bevor Kosten entstehen.
+
+Jede Ursache einer leeren Menge wird **getrennt** gemeldet, damit im Terminal
+steht, welches Kriterium geleert hat:
+
+| Code | Ursache | Genannte Stellschraube |
+|---|---|---|
+| `PROV_CATALOG_UNREACHABLE` | Katalog nicht abrufbar (HTTP-Status, Timeout, unlesbares JSON) | Netzverbindung |
+| `PROV_MODEL_UNKNOWN` | Modellslug im Katalog nicht vorhanden oder ohne Endpoints | Modellslug prüfen |
+| `PROV_NO_STRUCTURED_OUTPUT` | kein Endpoint des Modells unterstützt striktes JSON-Schema | Modell tauschen (`COMMITTEE_MATCHER_MODEL`) |
+| `PROV_NO_ENDPOINT` | Quantisierungsfilter leert die Menge (nennt gewünschte und vorhandene Quantisierungen) | `COMMITTEE_MATCHER_QUANTIZATIONS` lockern oder `None` |
+| `PROV_NO_ENDPOINT` | Preisdeckel leert die Menge (nennt den günstigsten vorhandenen Endpoint) | `COMMITTEE_MATCHER_MAX_PRICE_USD_PER_MTOK` anheben |
+
+Alle fünf blockieren mit Exit 4 in Stage `provider`. Jeder Befund nennt
+zusätzlich die beiden Stellschrauben, die die Workflowlogik nicht berühren:
+Modellwechsel und `COMMITTEE_MATCHER_ZDR = False`.
+
+**Was der Preflight nicht sehen kann:** Der Katalog weist die
+ZDR-Eigenschaft je Endpoint nicht aus. Scheitert ein realer Call trotz grünem
+Preflight am Routing, meldet `PROV_NO_ENDPOINT` alle wirksamen Bedingungen
+(`require_parameters`, `zdr`, `data_collection`, `quantizations`, `max_price`)
+und benennt `zdr=true` als wahrscheinlichste Ursache.
+
+```bash
+python -m committee_matcher provider check
+# Modell:    deepseek/deepseek-v4-flash-0731
+# Filter:    structured_outputs, quantizations=['fp8', 'bf16', 'fp16'], ...
+# Endpoints: 7 von 30 zulaessig | guenstigster deepinfra/fp8 (0.080/0.180 USD pro Mtok)
+```
+
+Tests: `tests/test_committee_matcher_provider_preflight.py` (netzwerkfrei, der
+Katalogabruf wird injiziert).
 
 ## 16. Ausgelagerter Analyse-Workflow
 

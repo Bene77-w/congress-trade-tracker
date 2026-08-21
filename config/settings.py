@@ -759,19 +759,30 @@ COMMITTEE_MATCHER_BATCH_SIZE = 3                    # int, {1, 3}
 # SDK-Retries bleiben unabhaengig davon aus (Doppelabrechnungsrisiko).
 COMMITTEE_MATCHER_WORKFLOW_RETRIES = 2              # int, 0..5
 
-# --- provider: erst mit Gate B zu setzen (Verbraucher: provider.py) --------
-COMMITTEE_MATCHER_MODEL = None                      # str|None, Modellslug
-COMMITTEE_MATCHER_PROVIDER_SLUG = None              # str|None, genau ein Endpoint
-COMMITTEE_MATCHER_DATA_COLLECTION = None            # 'deny'|'allow'|None (ZDR)
-COMMITTEE_MATCHER_MAX_PRICE_USD_PER_MTOK = None     # dict|None, {'prompt':..,'completion':..}
-COMMITTEE_MATCHER_ENDPOINT_CONTEXT_TOKENS = None    # int|None, Kontextfenster
-COMMITTEE_MATCHER_MAX_OUTPUT_TOKENS = None          # int|None
-COMMITTEE_MATCHER_REASONING_RESERVE_TOKENS = None   # int|None, Reserve im Context-Gate
-COMMITTEE_MATCHER_REQUEST_TIMEOUT_S = None          # float|None, Sekunden
+# --- provider: mit Gate B gesetzt (Verbraucher: provider.py) ---------------
+# Die Endpointwahl trifft OpenRouter (kein 'only', kein 'order'); gefiltert wird
+# nur ueber Faehigkeit, Quantisierung, Datenschutz und Preis. Der tatsaechlich
+# geroutete Provider wird je Call protokolliert, aber nicht gebunden.
+COMMITTEE_MATCHER_MODEL = "deepseek/deepseek-v4-flash-0731"  # str|None, Modellslug
+# Rechenpraezision der zulaessigen Endpoints. Ohne Filter mischt ein Lauf
+# 4-Bit- und 16-Bit-Endpoints, womit Evaluationsergebnisse nicht mehr auf den
+# Produktionslauf uebertragbar sind. None hebt die Einschraenkung auf.
+COMMITTEE_MATCHER_QUANTIZATIONS = ("fp8", "bf16", "fp16")  # tuple|None
+COMMITTEE_MATCHER_DATA_COLLECTION = "deny"          # 'deny'|'allow'|None
+COMMITTEE_MATCHER_ZDR = True                        # bool, Zero Data Retention verlangen
+COMMITTEE_MATCHER_MAX_PRICE_USD_PER_MTOK = {"prompt": 0.30, "completion": 0.90}
+COMMITTEE_MATCHER_ENDPOINT_CONTEXT_TOKENS = 200_000  # int|None, bewusst unter dem Modellfenster
+COMMITTEE_MATCHER_MAX_OUTPUT_TOKENS = 8_000         # int|None
+COMMITTEE_MATCHER_REASONING_RESERVE_TOKENS = 24_000  # int|None, Reserve im Context-Gate
+COMMITTEE_MATCHER_REQUEST_TIMEOUT_S = 300.0         # float|None, Sekunden
 
 # --- provider: Kostengrenzen (Verbraucher: workflow.py) --------------------
 # Konservative Worst-Case-Kosten muessen vor Run UND vor jedem Call in das
 # jeweilige Budget passen. None blockiert den zugehoerigen Lauf.
-COMMITTEE_MATCHER_MAX_RUN_COST_USD = None           # float|None, 0 < x <= 10000
-COMMITTEE_MATCHER_MAX_EVALUATION_COST_USD = None    # float|None, 0 < x <= 10000
-COMMITTEE_MATCHER_MAX_QUALIFICATION_COST_USD = None  # float|None, 0 < x <= 10000
+COMMITTEE_MATCHER_MAX_RUN_COST_USD = 25.0           # float|None, 0 < x <= 10000
+COMMITTEE_MATCHER_MAX_EVALUATION_COST_USD = 40.0    # float|None, 0 < x <= 10000
+COMMITTEE_MATCHER_MAX_QUALIFICATION_COST_USD = 15.0  # float|None, 0 < x <= 10000
+# Kostenwache: prueft vor Run und vor jedem Call gegen das Budget. Per
+# --disable-cost-guard je Lauf abschaltbar; Ist-Kosten werden dann weiterhin
+# protokolliert und angezeigt, der abgeschaltete Guard steht im Runmanifest.
+COMMITTEE_MATCHER_COST_GUARD = True                 # bool

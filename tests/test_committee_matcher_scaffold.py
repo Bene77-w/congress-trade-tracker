@@ -357,9 +357,11 @@ def _offline_module(**overrides):
         "COMMITTEE_MATCHER_YFINANCE_CHECKPOINT_EVERY": 10,
         "COMMITTEE_MATCHER_BATCH_SIZE": 3,
         "COMMITTEE_MATCHER_WORKFLOW_RETRIES": 2,
+        "COMMITTEE_MATCHER_COST_GUARD": True,
         "COMMITTEE_MATCHER_MODEL": None,
-        "COMMITTEE_MATCHER_PROVIDER_SLUG": None,
+        "COMMITTEE_MATCHER_QUANTIZATIONS": None,
         "COMMITTEE_MATCHER_DATA_COLLECTION": None,
+        "COMMITTEE_MATCHER_ZDR": None,
         "COMMITTEE_MATCHER_MAX_PRICE_USD_PER_MTOK": None,
         "COMMITTEE_MATCHER_ENDPOINT_CONTEXT_TOKENS": None,
         "COMMITTEE_MATCHER_MAX_OUTPUT_TOKENS": None,
@@ -376,8 +378,9 @@ def _offline_module(**overrides):
 def _provider_module(**overrides):
     values = dict(
         COMMITTEE_MATCHER_MODEL="anbieter/modell",
-        COMMITTEE_MATCHER_PROVIDER_SLUG="anbieter/endpoint",
+        COMMITTEE_MATCHER_QUANTIZATIONS=("fp8", "bf16"),
         COMMITTEE_MATCHER_DATA_COLLECTION="deny",
+        COMMITTEE_MATCHER_ZDR=True,
         COMMITTEE_MATCHER_MAX_PRICE_USD_PER_MTOK={"prompt": 3.0, "completion": 15.0},
         COMMITTEE_MATCHER_ENDPOINT_CONTEXT_TOKENS=200_000,
         COMMITTEE_MATCHER_MAX_OUTPUT_TOKENS=8_000,
@@ -389,10 +392,18 @@ def _provider_module(**overrides):
     return _offline_module(**values)
 
 
-def test_real_settings_are_valid_offline_and_provider_free():
+def test_real_settings_are_complete_after_gate_b():
+    """Seit Gate B tragen die echten Settings einen vollstaendigen Providerblock."""
     loaded = load_settings()
     assert loaded.offline.batch_size in settings_view.ALLOWED_BATCH_SIZES
-    assert loaded.provider_ready is False, "Providersettings duerfen vor Gate B nicht gesetzt sein"
+    provider = loaded.require_provider()
+    assert provider.model, "Modellslug fehlt"
+    assert provider.data_collection in settings_view.ALLOWED_DATA_COLLECTION
+    assert provider.require_parameters is True, "Structured Output ist Pflicht"
+    assert provider.allow_fallbacks is True, "OpenRouter waehlt den Endpoint"
+    assert provider.sdk_retries == 0 and provider.max_concurrent_calls == 1
+    for quantization in provider.quantizations or ():
+        assert quantization in settings_view.ALLOWED_QUANTIZATIONS
 
 
 def test_offline_settings_are_typed_and_bounded():
@@ -474,7 +485,7 @@ def test_complete_provider_settings_unlock_the_provider_path():
     loaded = load_settings(_provider_module())
     provider = loaded.require_provider()
     assert provider.model == "anbieter/modell"
-    assert provider.allow_fallbacks is False
+    assert provider.allow_fallbacks is True
     assert provider.require_parameters is True
     assert provider.sdk_retries == 0
     assert provider.max_concurrent_calls == 1
@@ -837,7 +848,7 @@ def artifact_sandbox(tmp_path, monkeypatch):
 def test_cli_families_match_the_plan():
     families = {command.family for command in cli.COMMANDS}
     assert families == {
-        "input", "roster", "snapshot", "run", "review", "evaluate",
+        "input", "roster", "snapshot", "provider", "run", "review", "evaluate",
         "qualify", "full-run", "report",
     }
     forbidden = {"promote", "finalize", "research"}
@@ -855,8 +866,11 @@ def test_every_open_command_is_reachable_and_blocks_with_exit_four(command, caps
     assert cli.main(argv) == int(ExitCode.PREFLIGHT_BLOCKED)
     out = capsys.readouterr().out
     assert command.name in out
-    expected = "CLI_PROVIDER_GATE_CLOSED" if command.provider else "CLI_STAGE_NOT_IMPLEMENTED"
-    assert expected in out
+    assert "CLI_STAGE_NOT_IMPLEMENTED" in out
+    assert "CLI_PROVIDER_GATE_CLOSED" not in out, (
+        "Providersettings sind seit Gate B vollstaendig; das Gate darf nicht "
+        "mehr schliessen"
+    )
 
 
 #: Implementierte Kommandos ohne Netzwerk; die Taxonomieabrufe pruefen die
@@ -877,12 +891,15 @@ def test_implemented_commands_run_without_the_stub_marker(name, capsys, artifact
     assert "CLI_PROVIDER_GATE_CLOSED" not in out
 
 
-def test_provider_families_name_the_missing_settings(capsys, artifact_sandbox):
+def test_provider_families_name_the_missing_settings(capsys, artifact_sandbox, monkeypatch):
+    """Faellt ein Providerwert weg, nennt der Bericht ihn und schliesst das Gate."""
+    incomplete = _provider_module(COMMITTEE_MATCHER_MODEL=None)
+    monkeypatch.setattr(cli, "load_settings", lambda: load_settings(incomplete))
     assert cli.main(["run", "execute"]) == int(ExitCode.PREFLIGHT_BLOCKED)
     out = capsys.readouterr().out
     assert "CFG_PROVIDER_UNSET" in out
     assert "COMMITTEE_MATCHER_MODEL" in out
-    assert "Gate B" in out
+    assert "CLI_PROVIDER_GATE_CLOSED" in out
 
 
 def test_provider_free_families_do_not_mention_the_provider_gate(capsys, artifact_sandbox):
@@ -905,7 +922,7 @@ def test_unknown_command_uses_the_contract_exit_code(capsys, artifact_sandbox):
 
 def test_help_exits_zero(capsys):
     assert cli.main(["--help"]) == 0
-    assert "Gate B" in capsys.readouterr().out
+    assert "provider check" in capsys.readouterr().out
 
 
 def test_version_reports_the_scaffold_version(capsys):
