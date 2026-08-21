@@ -25,10 +25,11 @@ venv/bin/python -m committee_matcher provider smoke
 ```
 
 `provider check` fragt den Endpointkatalog des konfigurierten Modells ab und
-prüft ihn gegen die Providervorgaben (Structured Output, ZDR, Datenschutz,
-Preisgrenze, Contextfenster). Bleibt kein Endpoint übrig, endet der Lauf mit
-Exit-Code `4` und nennt die zulässigen Stellschrauben: Modellwechsel oder
-`COMMITTEE_MATCHER_ZDR = False`.
+prüft ihn gegen die Providervorgaben: Structured Output, Datenschutzpolitik,
+Quantisierung, Preisgrenze, Contextfenster. **ZDR weist der Katalog nicht aus
+und wird deshalb nicht geprüft** — ein grüner Preflight ist kein ZDR-Nachweis.
+Bleibt kein Endpoint übrig, endet der Lauf mit Exit-Code `4` und nennt die
+zulässigen Stellschrauben: Modellwechsel oder `COMMITTEE_MATCHER_ZDR = False`.
 
 `provider smoke` ist der einzige kostenpflichtige Prüfbefehl (< 0,001 USD). Er
 führt einen echten Call gegen das erzwungene Ausgabeschema aus und schlägt

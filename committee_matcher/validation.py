@@ -45,24 +45,32 @@ from .models import (
 NARROW_KINDS: frozenset[UnitKind] = frozenset({UnitKind.COMMITTEE_PARENT_CORE})
 
 
-#: Laengengrenze eines zitierten Fremdwertes in einer Verstossmeldung.
-MAX_QUOTED_CHARS = 80
+#: Feldnamen des Ausgabevertrags. Nur sie duerfen in einem gemeldeten Feldpfad
+#: erscheinen; alles Uebrige koennte ein vom Modell erfundener Schluessel sein.
+KNOWN_FIELDS: frozenset[str] = frozenset({
+    "requested_batch_id", "units", "unit_id", "decision", "no_mapping_reason",
+    "broad_scope_exception", "broad_scope_reason", "assignments",
+    "industry_id", "confidence", "evidence_excerpt", "rationale_short",
+})
 
 
-def quote_untrusted(value: object) -> str:
-    """Zitiert einen Wert aus der Modellantwort gefahrlos.
+def field_path(location: "tuple | list") -> str:
+    """Feldpfad eines Schemafehlers, ausschliesslich aus eigenem Vokabular.
 
     Die Verstossliste steht im Reparaturprompt **ausserhalb** der Datenbloecke:
-    sie ist der verbindliche Auftrag. Ein Wert aus der vorherigen Antwort - eine
-    erfundene ``industry_id``, eine fremde ``unit_id`` - darf dort keine eigenen
-    Zeilen oder Blockrahmen erzeugen und damit selbst wie eine Anweisung wirken.
-    Deshalb wird er auf eine Zeile gebracht, gekuerzt und in Anfuehrungszeichen
-    gesetzt; genannt werden muss er, damit die Reparatur die Stelle findet.
+    sie ist der verbindliche Auftrag. Deshalb darf kein Zeichen aus der Antwort
+    des Modells in sie gelangen - auch kein einzeilig zitiertes. Genannt werden
+    nur Vertragsfeldnamen und Positionen; die Stelle selbst findet die Reparatur
+    ueber diese Position in ihrer eigenen, im Datenblock beigelegten Antwort.
     """
-    text = " ".join(str(value).split())
-    if len(text) > MAX_QUOTED_CHARS:
-        text = text[:MAX_QUOTED_CHARS] + "..."
-    return f'"{text}"'
+    parts: list[str] = []
+    for element in location:
+        if isinstance(element, int) and not isinstance(element, bool):
+            parts.append(f"[{element + 1}]")
+            continue
+        name = str(element) if element in KNOWN_FIELDS else "<unbekanntes Feld>"
+        parts.append(name if not parts else f".{name}")
+    return "".join(parts) or "Antwort"
 
 
 @dataclass(frozen=True)
@@ -136,8 +144,7 @@ def evidence_supported(unit: MatcherUnit, excerpt: str) -> bool:
     return any(needle in comparable_text(text) for _, text in evidence_contexts(unit))
 
 
-def _evidence_violation(unit: MatcherUnit, industry_id: str,
-                        excerpt: str) -> Violation:
+def _evidence_violation(unit: MatcherUnit, position: int, excerpt: str) -> Violation:
     """Benennt, warum eine Evidence nicht traegt - inklusive Parent-Fall.
 
     Der Parent-Fall bekommt eine eigene Meldung, weil er der haeufigste ist und
@@ -147,7 +154,7 @@ def _evidence_violation(unit: MatcherUnit, industry_id: str,
             unit.parent_context_text):
         return Violation(
             "MAP_EVIDENCE_FROM_PARENT",
-            f"Die Evidence zu {quote_untrusted(industry_id)} stammt aus dem Text des "
+            f"Die Evidence der {position}. Zuordnung stammt aus dem Text des "
             "uebergeordneten Committees. Der ist Kontext, kein Beleg: belege "
             "mit dem eigenen Namen oder dem eigenen Zustaendigkeitstext dieser "
             "Einheit oder entferne die Zuordnung.",
@@ -156,7 +163,7 @@ def _evidence_violation(unit: MatcherUnit, industry_id: str,
     quellen = ", ".join(label for label, _ in evidence_contexts(unit))
     return Violation(
         "MAP_EVIDENCE_UNSUPPORTED",
-        f"Die Evidence zu {quote_untrusted(industry_id)} kommt nicht woertlich und "
+        f"Die Evidence der {position}. Zuordnung kommt nicht woertlich und "
         f"zusammenhaengend in den erlaubten Quellen vor ({quellen}). Zitiere "
         "eine belegbare Stelle oder entferne die Zuordnung.",
         unit.unit_id,
@@ -164,20 +171,45 @@ def _evidence_violation(unit: MatcherUnit, industry_id: str,
 
 
 # -- Pruefung --------------------------------------------------------------
-def _schema_violations(exc: ValidationError) -> tuple[Violation, ...]:
+def _unit_of(location: "tuple | list", payload: object, batch) -> str | None:
+    """Ordnet einen Schemafehler seiner Unit zu, wenn das eindeutig geht.
+
+    Der Index in ``units[n]`` bezieht sich auf die Antwort, nicht auf den Batch.
+    Die dort genannte ``unit_id`` ist Fremdtext und wird deshalb nicht
+    uebernommen, sondern nur gegen die angefragten IDs abgeglichen: passt sie,
+    ist der Bezug sicher, sonst bleibt der Fehler batchweit. Ohne diesen Bezug
+    wuerde ein Tippfehler in einer einzelnen Unit den ganzen Batch wiederholen.
+    """
+    if len(location) < 2 or location[0] != "units":
+        return None
+    index = location[1]
+    if isinstance(index, bool) or not isinstance(index, int):
+        return None
+    units = payload.get("units") if isinstance(payload, dict) else None
+    if not isinstance(units, list) or not 0 <= index < len(units):
+        return None
+    entry = units[index]
+    claimed = entry.get("unit_id") if isinstance(entry, dict) else None
+    return claimed if claimed in batch.unit_ids else None
+
+
+def _schema_violations(exc: ValidationError, payload: object,
+                       batch) -> tuple[Violation, ...]:
     """Uebersetzt Pydantic-Fehler in Verstoesse.
 
-    Uebernommen werden nur Feldpfad und die von ``models.py`` selbst
-    formulierte Meldung - beides stammt aus dem eigenen Vertrag, nicht aus dem
-    Antworttext des Modells.
+    Uebernommen werden nur Feldpfad, Positionen und der Pydantic-Fehlertyp -
+    alles eigenes Vokabular, nichts aus dem Antworttext.
     """
     violations = []
     for error in exc.errors():
-        location = ".".join(str(part) for part in error.get("loc", ()))
+        location = error.get("loc", ())
+        # ``type`` ist ein fester Pydantic-Code (``missing``,
+        # ``extra_forbidden``, ...). Die ausformulierte ``msg`` bleibt draussen:
+        # sie kann Werte aus der Antwort enthalten.
         violations.append(Violation(
             "MAP_SCHEMA_INVALID",
-            f"{quote_untrusted(location) if location else 'Antwort'}: "
-            f"{quote_untrusted(error.get('msg', 'ungueltig'))}",
+            f"{field_path(location)}: {error.get('type', 'ungueltig')}",
+            unit_id=_unit_of(location, payload, batch),
         ))
     return tuple(violations)
 
@@ -199,15 +231,15 @@ def validate_payload(payload: object, batch, snapshot: TaxonomySnapshot
     try:
         result = MappingBatchResult.model_validate(payload)
     except ValidationError as exc:
-        return ValidationOutcome(None, _schema_violations(exc))
+        return ValidationOutcome(None, _schema_violations(exc, payload, batch))
 
     violations: list[Violation] = []
 
     if result.requested_batch_id != batch.batch_id:
         violations.append(Violation(
             "MAP_BATCH_ID_MISMATCH",
-            f"requested_batch_id ist {quote_untrusted(result.requested_batch_id)}, "
-            f"angefragt war {batch.batch_id}. Uebernimm die Batch-ID zeichengenau.",
+            f"requested_batch_id weicht von der Anfrage ab; angefragt war "
+            f"{batch.batch_id}. Uebernimm die Batch-ID zeichengenau.",
         ))
 
     requested = set(batch.unit_ids)
@@ -223,8 +255,8 @@ def validate_payload(payload: object, batch, snapshot: TaxonomySnapshot
     if extra:
         violations.append(Violation(
             "MAP_UNITS_UNEXPECTED",
-            f"Nicht angefragt: {', '.join(quote_untrusted(u) for u in extra)}. "
-            "Antworte ausschliesslich auf die angefragten Units.",
+            f"{len(extra)} nicht angefragte Unit(s) in der Antwort. Antworte "
+            f"ausschliesslich auf: {', '.join(sorted(requested))}.",
         ))
 
     known_ids = snapshot.industry_ids()
@@ -255,19 +287,18 @@ def validate_payload(payload: object, batch, snapshot: TaxonomySnapshot
         if unit_result.decision is MappingDecision.NO_MAPPING:
             continue
 
-        for assignment in unit_result.assignments:
+        for position, assignment in enumerate(unit_result.assignments, start=1):
             if assignment.industry_id not in known_ids:
                 violations.append(Violation(
                     "MAP_UNKNOWN_INDUSTRY",
-                    f"industry_id {quote_untrusted(assignment.industry_id)} kommt "
-                    "in der uebergebenen Taxonomie nicht vor. Verwende eine ID "
-                    "aus der Liste, zeichengenau, oder entferne die Zuordnung.",
+                    f"Die industry_id der {position}. Zuordnung kommt in der "
+                    "uebergebenen Taxonomie nicht vor. Verwende eine ID aus der "
+                    "Liste, zeichengenau, oder entferne die Zuordnung.",
                     unit.unit_id,
                 ))
             if not evidence_supported(unit, assignment.evidence_excerpt):
                 violations.append(
-                    _evidence_violation(unit, assignment.industry_id,
-                                        assignment.evidence_excerpt))
+                    _evidence_violation(unit, position, assignment.evidence_excerpt))
 
     if violations:
         return ValidationOutcome(None, tuple(violations), parsed=result)
@@ -329,7 +360,7 @@ def find_boundary_conflicts(
 
 
 __all__ = [
-    "NARROW_KINDS", "MAX_QUOTED_CHARS", "Violation", "ValidationOutcome",
-    "BoundaryConflict", "format_violations", "quote_untrusted", "evidence_contexts", "evidence_supported",
+    "NARROW_KINDS", "KNOWN_FIELDS", "Violation", "ValidationOutcome",
+    "BoundaryConflict", "format_violations", "field_path", "evidence_contexts", "evidence_supported",
     "validate_payload", "family_id", "find_boundary_conflicts",
 ]

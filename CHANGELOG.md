@@ -54,7 +54,7 @@ und wird im Review entschieden.
 
 **Phasenreview (GPT Sol).** Vier hohe Befunde, alle behoben: Werte aus der
 Modellantwort standen unmaskiert in der Verstoßliste und damit im autoritativen
-Teil des Reparaturprompts — sie werden jetzt einzeilig und gekürzt zitiert; der
+Teil des Reparaturprompts; der
 Repair umfasste den ganzen Batch und konnte gültige Units still überschreiben;
 die Kontextschätzung zählte Zeichen statt UTF-8-Bytes und veranschlagte das
 Schema pauschal; die Mitglieder eines Boundary-Konflikts folgten der
@@ -63,11 +63,35 @@ schon bei abweichender Schreibweise als eigene Evidence, unsichtbare
 Unicode-Formatzeichen bestanden als Pflichttext, und der Systemprompt verlangte
 weggelassene Felder, wo das Schema `null` erzwingt (`mapping-system-v2`).
 
+**Nachprüfung (GPT Sol).** Drei weitere hohe Befunde, alle behoben:
+
+- Zitieren blieb ein Injektionspfad, auch einzeilig und gekürzt. Die
+  Verstoßliste nennt jetzt ausschließlich Positionen aus dem eigenen Vertrag
+  (`units[3].assignments[1].confidence`, „1. Zuordnung"); Schlüssel außerhalb
+  von `KNOWN_FIELDS` erscheinen als `<unbekanntes Feld>`. Kein Wert aus der
+  Modellantwort erreicht mehr den autoritativen Promptteil.
+- Ein gescheiterter Teil-Repair konnte den Folgeversuch wieder auf den ganzen
+  Batch ausweiten und den letzten vollständigen Stand verlieren. Der
+  Reparaturauftrag wird jetzt einmal nach dem Erstcall festgelegt und bleibt
+  über alle Versuche gleich; gemergt wird immer gegen den letzten Stand, der
+  alle Units abdeckt.
+- Die Tokenschätzung erlaubte bis zu 8 Zeichen je Token und hätte damit
+  systematisch unterschätzt. Der Bereich endet jetzt bei 4.0.
+
+Restunschärfe bewusst offen: die Schätzung bleibt eine Heuristik ohne
+beweisbare Obergrenze, weil der Tokenizer des Endpoints nicht bekannt ist. Die
+harte Grenze ist die Ablehnung durch den Endpoint — benannter Abbruch, keine
+stille Kürzung.
+
 Nicht übernommen: der Vorschlag, auch zu große Reparaturcalls noch einmal
 3→2→1 zu teilen. Der Fall setzt voraus, dass bereits der Erstcall am Limit lag;
 der Zusatzaufwand in Kosten- und Callführung steht dazu außer Verhältnis.
+Ebenfalls nicht übernommen: Schemafehler einer einzelnen Unit als Teil-Repair
+zu behandeln. Eine unparsebare Antwort hinterlässt keinen gültigen Teilstand,
+gegen den gemergt werden könnte; der Batch wiederholt als Ganzes, der Unitbezug
+steht in der Verstoßliste.
 
-Tests: 1564 grün, davon 88 neu und netzwerkfrei.
+Tests: 1570 grün, davon 94 neu und netzwerkfrei.
 
 ---
 

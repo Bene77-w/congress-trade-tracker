@@ -765,8 +765,10 @@ COMMITTEE_MATCHER_WORKFLOW_RETRIES = 2              # int, 0..5
 COMMITTEE_MATCHER_MAX_REPAIR_ATTEMPTS = 1           # int, 0..3
 # Zeichen je Token in der Kontextschaetzung. Der Wert ist bewusst niedriger als
 # das reale Verhaeltnis (~4), damit die Schaetzung ueber- statt unterschaetzt:
-# ein zu klein geschaetzter Batch wuerde am Endpoint abgeschnitten.
-COMMITTEE_MATCHER_CHARS_PER_TOKEN = 3.0             # float, 1.0..8.0
+# ein zu klein geschaetzter Batch wuerde am Endpoint abgeschnitten. Die
+# Obergrenze liegt deshalb bei 4.0 - darueber wuerde die Schaetzung fuer
+# lateinischen Text systematisch unter dem realen Verbrauch liegen.
+COMMITTEE_MATCHER_CHARS_PER_TOKEN = 3.0             # float, 1.0..4.0
 
 # Der API-Key steht ausschliesslich in .env (gitignored) und wird ueber
 # os.getenv gelesen. Er gehoert bewusst NICHT in den COMMITTEE_MATCHER_*-Block:

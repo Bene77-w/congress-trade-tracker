@@ -1120,7 +1120,7 @@ ist ausschließlich `committee_matcher/settings_view.py`):
 | `COMMITTEE_MATCHER_BATCH_SIZE` | 1 oder 3 | 3 | Mappingcalls (P6) |
 | `COMMITTEE_MATCHER_WORKFLOW_RETRIES` | int 0–5 | 2 | Workflow (P7) |
 | `COMMITTEE_MATCHER_MAX_REPAIR_ATTEMPTS` | int 0–3 | 1 | Repair (P6) |
-| `COMMITTEE_MATCHER_CHARS_PER_TOKEN` | float 1–8 | 3.0 | Context-Gate (P6) |
+| `COMMITTEE_MATCHER_CHARS_PER_TOKEN` | float 1–4 | 3.0 | Context-Gate (P6) |
 | `COMMITTEE_MATCHER_COST_GUARD` | bool | True | Kostenwache (P7) |
 | `COMMITTEE_MATCHER_MODEL` | str oder None | `deepseek/deepseek-v4-flash-0731` | Provider (P5) |
 | `COMMITTEE_MATCHER_QUANTIZATIONS` | Tupel aus `int4`,`int8`,`fp4`,`mxfp4`,`nvfp4`,`fp6`,`fp8`,`mxfp8`,`fp16`,`bf16`,`fp32`,`unknown` oder None | `("fp8","bf16","fp16")` | Routingfilter (P5) |
@@ -1459,8 +1459,18 @@ Wunschzuschnitt (1 oder 3). Passt ein Batch nicht in das Eingabebudget, wird er
 3→2→1 geteilt. Das Eingabebudget ist
 `ENDPOINT_CONTEXT_TOKENS − MAX_OUTPUT_TOKENS − REASONING_RESERVE_TOKENS`; die
 Tokenschätzung rechnet bewusst mit `CHARS_PER_TOKEN = 3.0` statt der realen
-~4 und überschätzt damit. Ein zu kleiner Wert vergrößert nur die Batchzahl, ein
-zu großer riskiert abgeschnittene Antworten.
+~4 und überschätzt damit; erlaubt sind 1.0 bis 4.0, weil oberhalb von 4.0 die
+Schätzung für lateinischen Text systematisch unter dem realen Verbrauch läge.
+Ein zu kleiner Wert vergrößert nur die Batchzahl, ein zu großer riskiert
+abgeschnittene Antworten.
+
+Die Schätzung bleibt eine Heuristik ohne beweisbare Obergrenze: der echte
+Tokenizer des Endpoints ist nicht bekannt, und ein Text aus vielen kurzen
+Sondertoken kann den Schätzwert überschreiten. Die harte Sicherheitsgrenze ist
+deshalb nicht die Schätzung, sondern die Ablehnung durch den Endpoint — ein
+benannter Abbruch mit `PROVIDER_ERROR`, keine stille Kürzung. Sicherheit lässt
+sich über einen kleineren `CHARS_PER_TOKEN` oder eine höhere
+`REASONING_RESERVE_TOKENS` erkaufen, beides zulasten der Batchgröße.
 
 Gekürzt wird nie. Passt eine einzelne Unit nicht, blockiert der Lauf:
 

@@ -581,8 +581,15 @@ def _previous_stand(scope: MappingBatch, outcome: ValidationOutcome,
     }
 
 
+def _is_complete(outcome: ValidationOutcome, batch: MappingBatch) -> bool:
+    """Deckt der geparste Stand alle Units des Batches ab?"""
+    if outcome.parsed is None:
+        return False
+    return {unit.unit_id for unit in outcome.parsed.units} == set(batch.unit_ids)
+
+
 def _merged_outcome(batch: MappingBatch, snapshot: TaxonomySnapshot,
-                    previous: ValidationOutcome, repaired: ValidationOutcome,
+                    baseline: ValidationOutcome, repaired: ValidationOutcome,
                     scope: MappingBatch) -> ValidationOutcome:
     """Fuehrt reparierte und unbeanstandete Units zusammen und prueft erneut.
 
@@ -596,17 +603,17 @@ def _merged_outcome(batch: MappingBatch, snapshot: TaxonomySnapshot,
     Reparaturantwort zaehlen ausschliesslich die angefragten Units; eine
     mitgeschickte fremde Unit darf ein gueltiges Ergebnis nicht ueberschreiben.
     """
-    if repaired.parsed is None or previous.parsed is None:
+    if repaired.parsed is None or baseline.parsed is None:
         return repaired
     if repaired.batch_wide_violations():
         return repaired
     requested = set(scope.unit_ids)
     repaired_units = {unit.unit_id: unit for unit in repaired.parsed.units
                       if unit.unit_id in requested}
-    previous_units = {unit.unit_id: unit for unit in previous.parsed.units}
+    baseline_units = {unit.unit_id: unit for unit in baseline.parsed.units}
     merged = []
     for unit_id in batch.unit_ids:
-        unit = repaired_units.get(unit_id) or previous_units.get(unit_id)
+        unit = repaired_units.get(unit_id) or baseline_units.get(unit_id)
         if unit is None:  # kann nur bei einer unvollstaendigen Erstantwort auftreten
             return repaired
         merged.append(unit.model_dump(mode="json"))
@@ -640,8 +647,16 @@ def map_batch(provider: StructuredOutputProvider,
     if outcome.ok:
         return BatchOutcome(batch, outcome.result, (), tuple(calls))
 
+    # Der Reparaturauftrag wird einmal festgelegt und aendert sich ueber alle
+    # Versuche nicht mehr. Sonst koennte ein gescheiterter Teil-Repair den
+    # Auftrag auf den ganzen Batch ausweiten - und damit gerade die Units
+    # wieder oeffnen, die im Erstcall gueltig waren.
+    scope = repair_scope(batch, outcome)
+    #: Letzter Stand, der alle Units des Batches abdeckt; er liefert beim Merge
+    #: die unbeanstandeten Units.
+    baseline = outcome
+
     for attempt in range(1, offline.max_repair_attempts + 1):
-        scope = repair_scope(batch, outcome)
         repair_request = build_repair_request(
             scope, snapshot, repair_prompt, provider_settings,
             attempt=attempt,
@@ -660,7 +675,9 @@ def map_batch(provider: StructuredOutputProvider,
         response = provider.complete(repair_request)
         repaired = validate_payload(response.payload, scope, snapshot)
         outcome = (repaired if scope.unit_ids == batch.unit_ids
-                   else _merged_outcome(batch, snapshot, outcome, repaired, scope))
+                   else _merged_outcome(batch, snapshot, baseline, repaired, scope))
+        if _is_complete(outcome, batch):
+            baseline = outcome
         calls.append(CallRecord("repair", repair_request, response, outcome.violations))
         if outcome.ok:
             return BatchOutcome(batch, outcome.result, (), tuple(calls))
