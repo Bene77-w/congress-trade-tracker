@@ -19,6 +19,7 @@ mit einem Routingfehler fehl, ist ZDR die wahrscheinliche Ursache -
 from __future__ import annotations
 
 import json
+import math
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -36,6 +37,11 @@ STRUCTURED_OUTPUT_PARAMETER = "structured_outputs"
 
 #: Zeitgrenze des Katalogabrufs in Sekunden.
 CATALOG_TIMEOUT_S = 30.0
+
+#: Groessengrenze der Katalogantwort. Die Endpointliste eines Modells liegt bei
+#: wenigen zehn Kilobyte; eine groessere Antwort ist ein Fehler und wird nicht
+#: erst vollstaendig in den Speicher gelesen.
+CATALOG_MAX_BYTES = 4_000_000
 
 #: Handlungshinweis bei leerer Endpointmenge. Beide genannten Stellschrauben
 #: aendern die Workflowlogik nicht - Modell und ZDR sind reine Settings.
@@ -90,7 +96,13 @@ def fetch_endpoints(model: str) -> dict:
         url, headers={"User-Agent": "congress-tracker/committee-matcher"})
     try:
         with urllib.request.urlopen(request, timeout=CATALOG_TIMEOUT_S) as response:
-            return json.loads(response.read().decode("utf-8"))
+            payload = response.read(CATALOG_MAX_BYTES + 1)
+            if len(payload) > CATALOG_MAX_BYTES:
+                raise CatalogUnavailable(
+                    f"Antwort ueberschreitet {CATALOG_MAX_BYTES} Bytes")
+            return json.loads(payload.decode("utf-8"))
+    except CatalogUnavailable:
+        raise
     except urllib.error.HTTPError as exc:
         if exc.code == 404:
             return {}
@@ -102,17 +114,22 @@ def fetch_endpoints(model: str) -> dict:
 def _price(pricing: dict, key: str) -> float:
     """Katalogpreis (USD pro Token) als USD pro Mtok; fehlend heisst unendlich.
 
-    Fail closed: ein fehlendes, leeres oder nicht lesbares Preisfeld darf nicht
-    als 0.0 durchgehen, sonst passiert ein Endpoint mit unbekanntem Preis jeden
-    Deckel und erschiene sogar als der guenstigste.
+    Fail closed: ein fehlendes, leeres, nicht lesbares oder unsinniges Preisfeld
+    darf nicht als niedriger Preis durchgehen, sonst passiert ein Endpoint mit
+    unbekanntem Preis jeden Deckel und erschiene sogar als der guenstigste.
+    Zulaessig ist nur eine endliche, nichtnegative Zahl; alles andere - auch
+    ``-1`` oder ``-inf`` - gilt als unbekannt.
     """
     raw = pricing.get(key)
     if raw is None or raw == "":
         return float("inf")
     try:
-        return float(raw) * 1_000_000
+        value = float(raw)
     except (TypeError, ValueError):
         return float("inf")
+    if not math.isfinite(value) or value < 0.0:
+        return float("inf")
+    return value * 1_000_000
 
 
 def _fmt_price(value: float) -> str:

@@ -158,7 +158,10 @@ def test_malformed_catalog_answers_do_not_crash(payload):
     {},
     {"prompt": "", "completion": ""},
     {"prompt": "guenstig", "completion": "teuer"},
-], ids=["null", "fehlt", "leer", "text"])
+    {"prompt": "-1", "completion": "-1"},
+    {"prompt": "-Infinity", "completion": "-Infinity"},
+    {"prompt": "nan", "completion": "nan"},
+], ids=["null", "fehlt", "leer", "text", "negativ", "minus-inf", "nan"])
 def test_unreadable_price_fails_closed(pricing):
     """Ein unbekannter Preis darf keinen Deckel passieren (sonst faellt ein
     teurer Endpoint als vermeintlich kostenloser durch)."""
@@ -180,6 +183,25 @@ def test_string_instead_of_parameter_list_does_not_imply_the_capability():
     assert provider.check_routing(collector, _settings(),
                                   fetch=_catalog(entry)) is None
     assert only(collector).code == "PROV_NO_STRUCTURED_OUTPUT"
+
+
+def test_oversized_catalog_answer_is_refused_before_it_is_parsed(monkeypatch):
+    """Eine ueberlange Antwort endet als Befund, nicht im Speicher."""
+    class _Response:
+        def read(self, size=-1):
+            return b"x" * (provider.CATALOG_MAX_BYTES + 1)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(provider.urllib.request, "urlopen",
+                        lambda *a, **k: _Response())
+    with pytest.raises(provider.CatalogUnavailable) as exc:
+        provider.fetch_endpoints("anbieter/modell")
+    assert "Bytes" in str(exc.value)
 
 
 def test_unreadable_context_length_does_not_crash_the_preflight():

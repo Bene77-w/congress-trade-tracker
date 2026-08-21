@@ -50,9 +50,10 @@ Ebenso belegt nur eine echte Liste in `supported_parameters` die
 Structured-Output-Fähigkeit — bei einem String wäre `in` eine Teilstringsuche
 und bejahte die Fähigkeit fälschlich.
 
-Live geprüft: 7 von 30 Endpoints des Defaultmodells sind zulässig, günstigster
-zu 0.080 USD pro Mtok Prompt. Tests: 21 netzwerkfreie Tests in
-`tests/test_committee_matcher_provider_preflight.py`; Gesamtsuite 1339 grün.
+Live geprüft am 2026-08-22: 7 von 30 Endpoints des Defaultmodells sind
+zulässig, günstigster zu 0.080 USD pro Mtok Prompt — Katalogwerte, die sich
+ohne Zutun des Projekts ändern. Tests: 25 netzwerkfreie Tests in
+`tests/test_committee_matcher_provider_preflight.py`; Gesamtsuite grün.
 
 ---
 

@@ -194,15 +194,22 @@ Der Fachcode verwendet ein schmales providerneutrales Structured-Output-
 Interface; V1 implementiert es ausschließlich über das offizielle, gepinnte
 OpenRouter-Paket. SDK-Typen verlassen den Adapter nicht.
 
-Vor dem ersten Call werden Modell, ein einzelner Provider-/Endpoint-Slug,
-Structured-Output-Fähigkeit, Routing, Datenschutz, Preise und Kontextgrenzen im
-Runmanifest eingefroren. V1 setzt:
+Vor dem ersten Call werden Modell, Routingbedingungen, Datenschutz, Preise und
+Kontextgrenzen im Runmanifest eingefroren. Den Endpoint wählt seit dem
+Gate-B-Beschluss (2026-08-21) OpenRouter innerhalb dieser Bedingungen; er wird
+je Call protokolliert, aber nicht gebunden. V1 setzt:
 
 - `require_parameters=true`;
-- `allow_fallbacks=false`;
-- genau einen Eintrag in `provider.only`;
+- `allow_fallbacks=true`, kein `provider.only` und kein `provider.order`;
+- Quantisierungsfilter `COMMITTEE_MATCHER_QUANTIZATIONS`, damit ein Lauf nicht
+  4-Bit- und 16-Bit-Endpoints mischt;
 - explizites `data_collection`/ZDR und `max_price`;
 - keine SDK-Retries und genau einen gleichzeitigen Providercall.
+
+Vor jedem Providerlauf prüft der Routing-Preflight (`committee_matcher/provider.py`,
+Kommando `provider check`) gegen den öffentlichen Endpointkatalog, ob unter
+diesen Bedingungen überhaupt ein Endpoint existiert, und blockiert sonst mit
+Exit 4, bevor Kosten entstehen.
 
 Alle veränderbaren Laufparameter liegen unter `COMMITTEE_MATCHER_*` in
 `config/settings.py`; dazu gehören Modell, Tokens/Kontext, Timeout, Workflow-
@@ -329,7 +336,7 @@ Die XLSX trennt unveränderliche `model_*`-Felder von editierbaren
 | P3 Input, Identität, Roster | abgeschlossen | `input_corpus.py` (strikter Parser + Fremdanweisungsgate), `units.py` (`unit-id-v1`/`mapping-input-v1`, Golden Tests), `roster_coverage.py` (Joint-Cross-Chamber-Regel); `input validate` bestätigt 225 Units mengengleich zur eingefrorenen Baseline, `roster validate` 227/230 gemappt; 75 zusätzliche netzwerkfreie Tests |
 | P4 yfinance-Snapshot | abgeschlossen | Contract-Spike gegen `yfinance==1.3.0` bestätigt; `taxonomy_source.py` (Adapterrand verwirft Börsengrößen) + `taxonomy_snapshot.py` (`taxonomy-content-v1`, Katalog, Checkpoint/Resume, `no_baseline`- und Driftgate); Livelauf: 145 Industries in 11 Sektoren, Erstfreigabe erteilt; 45 netzwerkfreie Tests; Phasenreview mit Auflagen, alle sechs Befunde plus der Nachprüfungsbefund behoben (Checkpoint-Runbindung, strikte Recordprüfung, Freigabebindung `snapshot_id == run_id`, nachgerechneter Baselinehash, live geholte Identität beim Resume, retrybare leere Overview) |
 | Gate B Providerentscheidungen | beschlossen (2026-08-21) | Beschluss in `committee_matcher_gate_b_entscheidungsvorlage.md`; Modell `deepseek/deepseek-v4-flash-0731`, freie Providerwahl (`allow_fallbacks`, kein `only`/`order`), Filter über `require_parameters`, Quantisierung, `data_collection=deny`, `zdr=true`, Preisdeckel; Kostenwache abschaltbar; SDK `openrouter==1.1.71` installiert |
-| Routing-Preflight | abgeschlossen | `provider.py` + `provider check`; prüft den öffentlichen Endpointkatalog ohne Key, Kosten und Modellaufruf und blockiert mit Exit 4, wenn kein Endpoint zur Konfiguration passt; live 7 von 30 Endpoints zulässig; 15 netzwerkfreie Tests |
+| Routing-Preflight | abgeschlossen | `provider.py` + `provider check`; prüft den öffentlichen Endpointkatalog ohne Key, Kosten und Modellaufruf und blockiert mit Exit 4, wenn kein Endpoint zur Konfiguration passt; live am 2026-08-22 7 von 30 Endpoints zulässig; 25 netzwerkfreie Tests |
 | P5 und alles danach | offen | kein OpenRouter-Modellaufruf; Contract-Smoke, Prompts und Adapter stehen aus |
 
 P1 wurde vor P0.4–P0.6 ausgeführt, da der Rückbau ausschließlich Altcode und
@@ -456,7 +463,8 @@ Verbindlich festlegen und im Plan-/Runvertrag einfrieren:
 
 - Modell, Confidence-Rubrik und Kandidatenversion des OpenRouter-SDKs;
 - Outputschema- und Workbook-Schemaversion;
-- exakter Provider-/Endpoint-Slug, Routing, Datenschutz/ZDR und `max_price`;
+- Routingbedingungen (Fähigkeit, Quantisierung, Datenschutz/ZDR, `max_price`)
+  statt eines gebundenen Endpoint-Slugs;
 - Endpoint-Kontextfenster, Token-Estimator, Output-/Reasoningreserve;
 - Timeout und Workflow-Retries;
 - Run-, Evaluations- und Qualifikationsbudget.
@@ -469,7 +477,11 @@ Generation-Lookup und lokale Validierung aus.
 
 Mapping-/Repair-Prompts, Loader/Hashing, providerneutrales Interface,
 OpenRouter-Adapter und Fake-Provider implementieren. Kein SDK-Typ gelangt in
-Fachmodule; SDK-Retries und Fallbacks bleiben aus.
+Fachmodule; SDK-Retries bleiben aus. Providerfallbacks innerhalb desselben
+Modells sind seit Gate B ausdrücklich erwünscht (`allow_fallbacks=true`).
+Verbindliche Integrationsanforderung: Adapter und Contract-Smoke rufen
+`provider.check_routing` vorgeschaltet auf und brechen mit Exit 4 ab, bevor ein
+kostenpflichtiger Call abgesetzt wird.
 
 ### P6 – Mappingkern
 
@@ -597,7 +609,7 @@ opt-in und hart begrenzt.
 | Corpus oder Unitmenge wird unvollständig verarbeitet | vollständiges Rollenmanifest, exakte 225-ID-Setprüfung, unbekannte Dateien blockieren |
 | yfinance liefert unvollständige oder geänderte Taxonomie | P4-Spike, Checkpoints, All-or-nothing-Snapshot, Drift-/Erstfreigabe |
 | Modell erzeugt False Positives oder überbreite Zuordnungen | direkte Evidenzregel, `no_mapping`, max2/enge Ausnahme5, Repair, Review, Precision/FDR-Holdout |
-| Context- oder Providerroute weicht unbemerkt ab | Gate-B-Freeze, Context-Preflight, ein Endpoint, keine Fallbacks, Contract-Smoke |
+| Context- oder Providerroute weicht unbemerkt ab | Gate-B-Freeze der Routingbedingungen, Context-Preflight, Routing-Preflight vor jedem Call, Quantisierungsfilter, protokollierter Ist-Endpoint je Call, Contract-Smoke |
 | Retry verursacht Doppelabrechnung | serieller Betrieb, Kostenreserve, `outcome_unknown`, Generation-Reconciliation, manueller Retry |
 | Stale oder manipulierte XLSX überschreibt Ergebnisse | Exportmanifest, Hash-/Snapshotbindung, read-only-Vergleich, neue Revision statt Überschreiben |
 | Entwicklungsset führt zu Overfitting | getrenntes Holdout, vorab fixierte Schwellen, verbrauchtes Holdout nicht wiederverwenden |
@@ -619,7 +631,7 @@ Diese Punkte sind absichtlich nicht vorgetäuscht präzisiert:
 ### Gate B
 
 - Modell und Confidence-Rubrik;
-- OpenRouter-SDK-Version und exakter Provider-/Endpoint-Slug;
+- OpenRouter-SDK-Version und Routingbedingungen statt eines Endpoint-Slugs;
 - Context-/Token-Estimator und Token-, Timeout-, Retry- und Preisgrenzen;
 - Run-, Evaluations- und Qualifikationsbudget;
 - finale Schema-/Workbook-Version und Datenschutz/ZDR.

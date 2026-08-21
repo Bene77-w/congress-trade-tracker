@@ -1334,8 +1334,11 @@ Warum vor dem ersten Call: Eine leere Endpointmenge ist der einzige
 Konfigurationsfehler, den `allow_fallbacks` nicht abfangen kann — Fallbacks
 wählen innerhalb der gefilterten Menge, nicht daneben. Ohne Preflight scheitert
 stattdessen der erste kostenpflichtige Call mit einer generischen SDK-Meldung.
-Der Contract-Smoke und jeder spätere Providerlauf (P5+) rufen denselben
-Preflight vorgeschaltet auf und brechen mit Exit 4 ab, bevor Kosten entstehen.
+Für P5 gilt deshalb als verbindliche Integrationsanforderung: Contract-Smoke
+und jeder spätere Providerlauf rufen denselben Preflight vorgeschaltet auf und
+brechen mit Exit 4 ab, bevor Kosten entstehen. Umgesetzt ist bislang nur das
+eigenständige Kommando `provider check`; einen Contract-Smoke gibt es noch
+nicht.
 
 Jede Ursache einer leeren Menge wird **getrennt** gemeldet, damit im Terminal
 steht, welches Kriterium geleert hat:
@@ -1368,8 +1371,12 @@ und benennt `zdr=true` als wahrscheinlichste Ursache.
 python -m committee_matcher provider check
 # Modell:    deepseek/deepseek-v4-flash-0731
 # Filter:    structured_outputs, quantizations=['fp8', 'bf16', 'fp16'], ...
-# Endpoints: 7 von 30 zulaessig | guenstigster <anbieter>/fp8 (0.080/0.160 USD pro Mtok)
+# Endpoints: <N> von <M> zulaessig | guenstigster <anbieter>/<quant> (<preise> USD pro Mtok)
 ```
+
+Die Zahlen sind Live-Werte des Katalogs und ändern sich ohne Zutun des
+Projekts: am 2026-08-22 waren 7 von 30 Endpoints zulässig, günstigster zu
+0.080 USD pro Mtok Prompt.
 
 Tests: `tests/test_committee_matcher_provider_preflight.py` (netzwerkfrei, der
 Katalogabruf wird injiziert).
