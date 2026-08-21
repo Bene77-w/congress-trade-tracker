@@ -931,6 +931,37 @@ def test_a_failed_partial_repair_does_not_widen_the_next_attempt():
     assert by_id["u-3"].assignments[0].industry_id == "industry-2"
 
 
+def test_a_rejected_repair_never_becomes_the_new_baseline():
+    """Vollzaehligkeit allein macht eine abgelehnte Antwort nicht zum Stand.
+
+    Der erste Reparaturversuch schickt alle drei Units zurueck, obwohl nur u-3
+    angefragt war. Die Antwort deckt damit den ganzen Batch ab - uebernommen
+    werden darf sie trotzdem nicht, sonst gilt im zweiten Versuch die still
+    umgeschriebene u-1 als gueltiger Ausgangsstand.
+    """
+    units = _three_units()
+    batch = _batch(*units)
+    sub_id = mapping.batch_id_for(["u-3"])
+    provider = FakeProvider([
+        _broken_third(batch),
+        {"requested_batch_id": sub_id, "units": [
+            _unit_payload("u-1", assignments=[_assignment("industry-2", confidence=4)]),
+            _unit_payload("u-2"),
+            _unit_payload("u-3", assignments=[_assignment("industry-1")]),
+        ]},
+        {"requested_batch_id": sub_id, "units": [_unit_payload("u-3")]},
+    ])
+    outcome = mapping.map_batch(
+        provider, batch, _snapshot(), mapping_prompt=_prompt(),
+        repair_prompt=_prompt("repair_system"),
+        offline=_offline(max_repair_attempts=2),
+        provider_settings=_provider_settings())
+    assert outcome.ok
+    by_id = {unit.unit_id: unit for unit in outcome.result.units}
+    assert by_id["u-1"].assignments[0].industry_id == "industry-0"
+    assert by_id["u-1"].assignments[0].confidence == 3
+
+
 def test_a_schema_error_repairs_the_whole_batch_but_names_the_unit():
     """Ohne geparsten Stand fehlt die Grundlage fuer einen Teil-Repair.
 

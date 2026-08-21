@@ -354,7 +354,7 @@ def load_settings(module: ModuleType | None = None) -> MatcherSettings:
             "int 0..3", 1),
         chars_per_token=reader.required(
             f"{_PREFIX}CHARS_PER_TOKEN", _float_in(1.0, 4.0),
-            "float 1..8", 3.0),
+            "float 1..4", 3.0),
         cost_guard=reader.required(
             f"{_PREFIX}COST_GUARD", _strict_bool, "bool", True),
     )

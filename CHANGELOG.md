@@ -74,7 +74,9 @@ weggelassene Felder, wo das Schema `null` erzwingt (`mapping-system-v2`).
   Batch ausweiten und den letzten vollständigen Stand verlieren. Der
   Reparaturauftrag wird jetzt einmal nach dem Erstcall festgelegt und bleibt
   über alle Versuche gleich; gemergt wird immer gegen den letzten Stand, der
-  alle Units abdeckt.
+  aus einem zustande gekommenen Merge stammt. Vollzähligkeit allein genügt
+  dafür nicht — eine abgelehnte Reparatur, die ungefragt alle Units mitschickt,
+  wird nicht zum Ausgangsstand des nächsten Versuchs.
 - Die Tokenschätzung erlaubte bis zu 8 Zeichen je Token und hätte damit
   systematisch unterschätzt. Der Bereich endet jetzt bei 4.0.
 
@@ -91,7 +93,7 @@ zu behandeln. Eine unparsebare Antwort hinterlässt keinen gültigen Teilstand,
 gegen den gemergt werden könnte; der Batch wiederholt als Ganzes, der Unitbezug
 steht in der Verstoßliste.
 
-Tests: 1570 grün, davon 94 neu und netzwerkfrei.
+Tests: 1571 grün, davon 95 neu und netzwerkfrei.
 
 ---
 

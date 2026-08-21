@@ -581,16 +581,9 @@ def _previous_stand(scope: MappingBatch, outcome: ValidationOutcome,
     }
 
 
-def _is_complete(outcome: ValidationOutcome, batch: MappingBatch) -> bool:
-    """Deckt der geparste Stand alle Units des Batches ab?"""
-    if outcome.parsed is None:
-        return False
-    return {unit.unit_id for unit in outcome.parsed.units} == set(batch.unit_ids)
-
-
 def _merged_outcome(batch: MappingBatch, snapshot: TaxonomySnapshot,
                     baseline: ValidationOutcome, repaired: ValidationOutcome,
-                    scope: MappingBatch) -> ValidationOutcome:
+                    scope: MappingBatch) -> ValidationOutcome | None:
     """Fuehrt reparierte und unbeanstandete Units zusammen und prueft erneut.
 
     Das Zusammenfuehren ist selbst kein Freibrief: der gemergte Stand laeuft
@@ -602,11 +595,14 @@ def _merged_outcome(batch: MappingBatch, snapshot: TaxonomySnapshot,
     keinen Unitbezug und wuerden beim Zusammenfuehren verschwinden. Und aus der
     Reparaturantwort zaehlen ausschliesslich die angefragten Units; eine
     mitgeschickte fremde Unit darf ein gueltiges Ergebnis nicht ueberschreiben.
+
+    Gibt None zurueck, wenn nicht zusammengefuehrt werden kann. Der Aufrufer
+    behaelt dann seinen bisherigen vollstaendigen Stand.
     """
     if repaired.parsed is None or baseline.parsed is None:
-        return repaired
+        return None
     if repaired.batch_wide_violations():
-        return repaired
+        return None
     requested = set(scope.unit_ids)
     repaired_units = {unit.unit_id: unit for unit in repaired.parsed.units
                       if unit.unit_id in requested}
@@ -615,7 +611,7 @@ def _merged_outcome(batch: MappingBatch, snapshot: TaxonomySnapshot,
     for unit_id in batch.unit_ids:
         unit = repaired_units.get(unit_id) or baseline_units.get(unit_id)
         if unit is None:  # kann nur bei einer unvollstaendigen Erstantwort auftreten
-            return repaired
+            return None
         merged.append(unit.model_dump(mode="json"))
     return validate_payload(
         {"requested_batch_id": batch.batch_id, "units": merged}, batch, snapshot)
@@ -674,10 +670,16 @@ def map_batch(provider: StructuredOutputProvider,
 
         response = provider.complete(repair_request)
         repaired = validate_payload(response.payload, scope, snapshot)
-        outcome = (repaired if scope.unit_ids == batch.unit_ids
-                   else _merged_outcome(batch, snapshot, baseline, repaired, scope))
-        if _is_complete(outcome, batch):
-            baseline = outcome
+        if scope.unit_ids == batch.unit_ids:
+            outcome = repaired
+        else:
+            merged = _merged_outcome(batch, snapshot, baseline, repaired, scope)
+            # Nur ein zustande gekommener Merge ist ein neuer vollstaendiger
+            # Stand. Eine abgelehnte Reparatur darf die Baseline nicht ersetzen,
+            # auch wenn sie zufaellig alle Units enthaelt.
+            if merged is not None:
+                baseline = merged
+            outcome = merged if merged is not None else repaired
         calls.append(CallRecord("repair", repair_request, response, outcome.violations))
         if outcome.ok:
             return BatchOutcome(batch, outcome.result, (), tuple(calls))
