@@ -11,6 +11,49 @@ freigegebenen Taxonomiebaseline gemessen.
 Zweck: Bene bestätigt oder ändert zehn Werte; danach friert der Runvertrag sie
 ein und ein einzelner kostenbegrenzter Contract-Smoke prüft sie live.
 
+## Beschluss (2026-08-21)
+
+Bene hat entschieden; die folgenden Werte gelten, die Empfehlungen darunter
+bleiben als Begründungsgrundlage stehen.
+
+| Gegenstand | Beschluss | Verhältnis zur Empfehlung |
+|---|---|---|
+| Defaultmodell | `deepseek/deepseek-v4-flash-0731` | abweichend (empfohlen war `anthropic/claude-opus-5`) |
+| Modellwahl | über Settings und CLI überschreibbar; tatsächlich verwendetes Modell je Run im Manifest eingefroren; kein automatischer Modellwechsel | erweitert |
+| Produktionsfreigabe eines Modells | erst nach Evaluation + Qualifikation | wie Plan |
+| Providerwahl | vollständig durch OpenRouter: kein `only`, kein `order`, `allow_fallbacks = true` innerhalb desselben Modells | abweichend (empfohlen war genau ein Endpoint) |
+| `require_parameters` | `true` | wie empfohlen |
+| Datenschutz | `data_collection = "deny"`, `zdr = true` | wie empfohlen |
+| Providerprotokollierung | tatsächlicher Provider je Call nur protokolliert, nicht gebunden | abweichend |
+| Kostenwache | standardmäßig aktiv, per `--disable-cost-guard` deaktivierbar; Ist-Kosten weiterhin protokolliert und angezeigt; deaktivierter Guard im Runmanifest gekennzeichnet; keine Provider- oder Modellbindung durch das Flag | neu |
+
+Kosten des Defaultmodells: 0,08 / 0,18 USD pro Mtok, Kontextfenster 1 310 720,
+`structured_outputs` unterstützt. Full-Run über alle 225 Units mit Batch 3:
+**0,12 USD** inklusive 20 % Repairaufschlag (Batch 1: 0,27 USD). Damit liegt der
+gesamte Lauf um den Faktor 80 unter dem empfohlenen Runbudget — das trägt die
+Entscheidung, die Kostenwache abschaltbar zu machen.
+
+Zwei Konsequenzen der freien Providerwahl, bewusst in Kauf genommen:
+
+- Das Modell hat 30 Endpoints mit Quantisierungen von fp4 über fp8 bis bf16 und
+  Preisen von 0,065 bis 0,44 USD pro Mtok. Ohne `only` kann derselbe Prompt in
+  Evaluation und Produktionslauf auf unterschiedlich quantisierten Endpoints
+  landen; Evaluationsergebnisse sind damit nicht mehr streng auf den Full-Run
+  übertragbar. Die Providerprotokollierung je Call macht den Effekt
+  nachträglich sichtbar, verhindert ihn aber nicht.
+- 10 der 30 Endpoints melden `structured_outputs = false`. Diese filtert
+  `require_parameters = true` automatisch heraus — das Flag ist damit die
+  tragende Absicherung und darf nicht abgeschaltet werden.
+
+Offen bis zum Contract-Smoke: ob unter `zdr = true` + `data_collection = "deny"`
+überhaupt ein Endpoint dieses Modells geroutet wird. Der Katalog weist die
+ZDR-Eigenschaft je Endpoint nicht aus; bleibt die Menge leer, schlägt jeder Call
+fehl und die Kombination muss gelockert werden.
+
+Die Punkte 5 bis 8 und 10 der Vorlage (max_price, Kontext-/Tokengrenzen,
+Timeout/Retries, Budgets, Confidence-Rubrik) sind mit diesem Beschluss nicht
+berührt und gelten weiterhin als Vorschlag.
+
 ## Kurzfassung – zu bestätigende Werte
 
 | # | Entscheidung | Empfehlung |
