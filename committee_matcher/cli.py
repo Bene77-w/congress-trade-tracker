@@ -26,6 +26,7 @@ from . import SCAFFOLD_VERSION
 from . import (
     input_corpus,
     paths,
+    prompts,
     provider,
     roster_coverage,
     taxonomy_snapshot,
@@ -88,6 +89,10 @@ COMMANDS: tuple[Command, ...] = (
     Command("provider", "check", Stage.PROVIDER, "P5", True,
             "Endpointverfuegbarkeit der Providerkonfiguration vorab pruefen "
             "(kostenlos, kein Modellaufruf)", network=True),
+    Command("provider", "smoke", Stage.PROVIDER, "P5", True,
+            "Contract-Smoke: ein einzelner kostenpflichtiger Minimalcall prueft "
+            "Auth, Structured Output, Usage/Kosten und das tatsaechliche Routing",
+            network=True),
     Command("run", "plan", Stage.WORKFLOW, "P7", True,
             "Entwicklungsrun planen inklusive Worst-Case-Kostenschaetzung"),
     Command("run", "execute", Stage.WORKFLOW, "P7", True,
@@ -465,12 +470,82 @@ def handle_provider_check(
         "Hinweis:  ZDR ist im Katalog nicht ausgewiesen und wird erst beim "
         "ersten Call geprueft."
     )
+    lines.extend(_prompt_lines(collector))
     return lines, []
+
+
+def _prompt_lines(collector: ErrorCollector) -> list[str]:
+    """Provenienz der Systemprompts; Befunde landen im selben Bericht."""
+    loaded = prompts.load_all(collector)
+    if loaded is None:
+        return ["Prompts:  nicht ladbar (siehe Befunde)"]
+    return [
+        f"Prompts:  {name} {item.version} ({item.sha256[:12]})"
+        for name, item in sorted(loaded.items())
+    ]
+
+
+#: Minimalschema des Contract-Smokes. Bewusst winzig: geprueft wird der
+#: Vertrag, nicht die Fachlogik - jedes zusaetzliche Feld kostet Tokens.
+SMOKE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "ok": {"type": "boolean"},
+        "echo": {"type": "string"},
+    },
+    "required": ["ok", "echo"],
+    "additionalProperties": False,
+}
+
+
+def handle_provider_smoke(
+    command: Command, namespace: argparse.Namespace,
+    collector: ErrorCollector, settings: MatcherSettings,
+) -> tuple[list[str], list[str]]:
+    """Setzt genau einen kostenpflichtigen Minimalcall ab (Plan 2.6).
+
+    Der Smoke bestaetigt vor jedem groesseren Lauf, was der kostenlose
+    Preflight nicht sehen kann: Auth, echte Structured-Output-Faehigkeit des
+    gerouteten Endpoints, gemeldete Kosten und die ZDR-Vertraeglichkeit.
+    """
+    provider_settings = settings.require_provider()
+    loaded = prompts.load_all(collector)
+    adapter = provider.OpenRouterProvider.create(collector, provider_settings)
+    if adapter is None or loaded is None:
+        return ["Smoke:    nicht ausgefuehrt (Vorbedingung blockiert)"], []
+
+    request = provider.StructuredRequest(
+        call_id="contract-smoke",
+        system_prompt="Antworte ausschliesslich mit dem geforderten JSON-Objekt.",
+        user_content='Setze ok=true und echo="contract-smoke".',
+        schema_name="ContractSmoke",
+        json_schema=SMOKE_SCHEMA,
+        max_output_tokens=64,
+    )
+    try:
+        response = adapter.complete(request)
+    except provider.ProviderCallError as exc:
+        collector.extend(exc.findings)
+        if "No endpoints found" in str(exc) or "no endpoints" in str(exc).lower():
+            provider.routing_failure_finding(collector, provider_settings, str(exc))
+        return ["Smoke:    fehlgeschlagen (siehe Befunde)"], []
+
+    cost = ("unbekannt (cost_unknown)" if response.cost_usd is None
+            else f"{response.cost_usd:.6f} USD")
+    return [
+        f"Smoke:    Antwort gueltig, Schema eingehalten",
+        f"Routing:  {response.provider or 'unbekannt'} | Modell {response.model}",
+        f"Tokens:   {response.prompt_tokens} Prompt / "
+        f"{response.completion_tokens} Completion | Kosten {cost}",
+        f"Payload:  {response.payload}",
+        f"Generation: {response.generation_id or 'unbekannt'}",
+    ], []
 
 
 #: Bereits implementierte Aktionen; alles andere meldet die Zielphase.
 HANDLERS = {
     "provider check": handle_provider_check,
+    "provider smoke": handle_provider_smoke,
     "input validate": handle_input_validate,
     "roster validate": handle_roster_validate,
     "snapshot build": handle_snapshot_build,

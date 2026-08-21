@@ -353,3 +353,71 @@ def test_fake_provider_satisfies_the_neutral_interface():
 def _call_error() -> provider.ProviderCallError:
     return provider._call_failure(
         "PROV_CALL_FAILED", "batch-1", "Testfall", "Testfall", retryable=True)
+
+
+# -- CLI: Contract-Smoke ----------------------------------------------------
+@pytest.fixture()
+def artifact_sandbox(tmp_path, monkeypatch):
+    """Leitet die Artefaktwurzel um, damit CLI-Laeufe nichts ins Repo schreiben."""
+    from committee_matcher import paths
+
+    monkeypatch.setattr(paths, "ARTIFACT_ROOT", tmp_path)
+    return tmp_path
+
+
+def _catalog_with_one_endpoint(model):
+    return {"data": {"endpoints": [{
+        "tag": "a/fp8", "quantization": "fp8", "context_length": 1_000_000,
+        "pricing": {"prompt": "0.00000008", "completion": "0.00000018"},
+        "supported_parameters": ["structured_outputs"],
+    }]}}
+
+
+def test_cli_smoke_reports_routing_and_cost(capsys, artifact_sandbox, monkeypatch):
+    from committee_matcher import cli
+
+    monkeypatch.setenv(provider.API_KEY_ENV, "sk-test")
+    monkeypatch.setattr(provider, "fetch_endpoints", _catalog_with_one_endpoint)
+    monkeypatch.setattr(
+        provider.OpenRouterProvider, "_build_client",
+        staticmethod(lambda api_key: _Client(_Result(
+            content='{"ok": true, "echo": "contract-smoke"}',
+            metadata=_Metadata("deepinfra")))))
+
+    assert cli.main(["provider", "smoke"]) == int(ExitCode.SUCCESS)
+    out = capsys.readouterr().out
+    assert "Schema eingehalten" in out
+    assert "deepinfra" in out
+    assert "Kosten 0.000400 USD" in out
+
+
+def test_cli_smoke_stops_before_the_call_without_a_key(capsys, artifact_sandbox,
+                                                       monkeypatch):
+    from committee_matcher import cli
+
+    monkeypatch.delenv(provider.API_KEY_ENV, raising=False)
+
+    def _fail(model):  # pragma: no cover - darf nie laufen
+        raise AssertionError("ohne Key darf der Katalog nicht abgefragt werden")
+
+    monkeypatch.setattr(provider, "fetch_endpoints", _fail)
+    assert cli.main(["provider", "smoke"]) == int(ExitCode.PREFLIGHT_BLOCKED)
+    out = capsys.readouterr().out
+    assert "PROV_NO_API_KEY" in out
+    assert "nicht ausgefuehrt" in out
+
+
+def test_cli_smoke_maps_a_call_failure_to_exit_nine(capsys, artifact_sandbox,
+                                                    monkeypatch):
+    from committee_matcher import cli
+
+    monkeypatch.setenv(provider.API_KEY_ENV, "sk-test")
+    monkeypatch.setattr(provider, "fetch_endpoints", _catalog_with_one_endpoint)
+    monkeypatch.setattr(
+        provider.OpenRouterProvider, "_build_client",
+        staticmethod(lambda api_key: _Client(error=_sdk_error("UnauthorizedResponseError"))))
+
+    assert cli.main(["provider", "smoke"]) == int(ExitCode.PROVIDER_ERROR)
+    out = capsys.readouterr().out
+    assert "PROV_AUTH_FAILED" in out
+    assert "fehlgeschlagen" in out

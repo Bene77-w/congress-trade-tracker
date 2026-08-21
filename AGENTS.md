@@ -46,5 +46,6 @@ git merge --no-ff agent/<name> -m "Merge agent/<name>: ..."
 ## Aktueller Stand
 
 - Committee Matcher V2; P0–P4 abgeschlossen; Gate B am 2026-08-21 beschlossen (Modell `deepseek/deepseek-v4-flash-0731`, freie Providerwahl, Kostenwache)
-- Providersettings gesetzt + Routing-Preflight `provider check` live; P5 (Prompts, Adapter, Contract-Smoke) offen
+- Providersettings gesetzt + Routing-Preflight `provider check` live
+- P5 implementiert: Systemprompts, providerneutrales Interface, FakeProvider, OpenRouter-Adapter, `provider smoke`; Contract-Smoke noch nicht live ausgefuehrt (Gate)
 - Detailstand + History; `CHANGELOG.md`; laufende Entscheidungen + Pläne; `organisation/` und `~/.claude/plans/`

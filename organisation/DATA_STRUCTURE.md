@@ -378,6 +378,16 @@ liefert yfinance mit, sie werden aber am Adapterrand verworfen und tauchen in
 keinem Artefakt auf — eine Zuordnung soll fachliche Nähe belegen, nicht
 Marktgröße.
 
+#### `data/config/committee_matcher_prompts/` (P5, versionierter Kontrollinput)
+
+Die beiden editierbaren Systemprompts `mapping_system.md` und
+`repair_system.md` (UTF-8-Markdown mit YAML-Frontmatter). Pflichtfelder:
+`prompt_id`, `prompt_version`, `schema_version`. Die `schema_version` bindet
+den Prompt an den Ausgabevertrag des Codestands (`mapping-output-v1`); weicht
+sie ab, blockiert der Lauf mit `PRM_SCHEMA_MISMATCH`. Der Inhaltshash (SHA-256)
+deckt nur den Text ohne Frontmatter ab und wird zusammen mit der Version im
+Runmanifest eingefroren.
+
 #### `data/committee_matcher_v2/taxonomy/approved_baseline.json` (P4)
 
 Die freigegebene Taxonomie-Baseline; erzeugt von `snapshot approve --run-id ...`.
@@ -415,7 +425,10 @@ Roster-Coverage (`roster_coverage.py`) hinzu, seit P4 der yfinance-Adapter
 Drift- und Freigabegate (`taxonomy_snapshot.py`). Mit dem Gate-B-Beschluss kommt
 der Routing-Preflight (`provider.py`) hinzu: er prüft den öffentlichen
 OpenRouter-Endpointkatalog auf einen zulässigen Endpoint, ohne Key, ohne Kosten
-und ohne Modellaufruf. Die Ownership-Karte aller 17
+und ohne Modellaufruf. Seit P5 hält dasselbe Modul zusätzlich das
+providerneutrale Structured-Output-Interface, den `FakeProvider` für
+netzwerkfreie Tests und den OpenRouter-Adapter als einzigen Ort mit SDK-Kontakt;
+`prompts.py` lädt und prüft die beiden Systemprompts. Die Ownership-Karte aller 17
 Zielmodule steht im Docstring von `committee_matcher/__init__.py`. Bedienung, Familien, Exit-Codes
 und die vollständige Settingstabelle: `CLI_Bedienungsanleitung.md` Abschnitt 15.
 

@@ -1074,6 +1074,8 @@ python -m committee_matcher run execute         # Providerpfad: blockiert mit Ex
 | `input validate` | P3 | nein | Corpusmanifest, Parser, Unitbildung, 225-ID-Sollmenge |
 | `roster validate` | P3 | nein | Roster-Coverage inkl. Joint-Cross-Chamber-Regel |
 | `snapshot build\|approve\|resume` | P4 | nein | yfinance-Snapshot erzeugen, freigeben, fortsetzen |
+| `provider check` | P5 | ja | Endpointverfügbarkeit prüfen (kostenlos, kein Modellaufruf) |
+| `provider smoke` | P5 | ja | Contract-Smoke: ein kostenpflichtiger Minimalcall |
 | `run plan\|execute\|reconcile` | P7 | ja | Entwicklungsrun planen, ausführen, `outcome_unknown` klären |
 | `review export\|import` | P8 | nein | Review-XLSX exportieren und validiert zurückimportieren |
 | `evaluate goldset` | P9 | ja | Entwicklungs-Gold-Set auswerten |
@@ -1380,6 +1382,58 @@ Projekts: am 2026-08-22 waren 7 von 30 Endpoints zulässig, günstigster zu
 
 Tests: `tests/test_committee_matcher_provider_preflight.py` (netzwerkfrei, der
 Katalogabruf wird injiziert).
+
+### 15e. `provider smoke` — Contract-Smoke (kostenpflichtig)
+
+Setzt **einen** Minimalcall gegen das konfigurierte Modell ab und prüft damit,
+was der kostenlose Preflight nicht sehen kann: Authentifizierung, echte
+Structured-Output-Fähigkeit des tatsächlich gerouteten Endpoints, gemeldete
+Kosten und die ZDR-Verträglichkeit der Routingbedingungen.
+
+Ablauf: `provider check`-Preflight → Systemprompts laden → ein Call mit einem
+zweifeldrigen Schema (`ok`, `echo`), 64 Ausgabetokens. Kosten liegen im Bereich
+weniger Zehntausendstel USD. Blockiert eine Vorbedingung, unterbleibt der Call.
+
+```bash
+python -m committee_matcher provider smoke
+# Smoke:      Antwort gueltig, Schema eingehalten
+# Routing:    <anbieter> | Modell <slug>
+# Tokens:     <n> Prompt / <n> Completion | Kosten <x> USD
+# Generation: <id>
+```
+
+Exit-Codes: 0 bei gültiger Antwort, 4 wenn Key, Prompts oder Endpointmenge
+blockieren, 9 bei einem Providerfehler. Schlägt der Call mit einem
+Routingfehler fehl, ergänzt der Bericht den ZDR-Befund aus 15d.
+
+**API-Key:** ausschließlich `OPENROUTER_API_KEY` in `.env` (gitignored). Er
+steht nicht im `COMMITTEE_MATCHER_*`-Block, erscheint in keinem Artefakt, in
+keinem Runmanifest und in keinem Terminalbericht.
+
+### 15f. Systemprompts
+
+Die beiden editierbaren Systemprompts liegen als UTF-8-Markdown mit
+YAML-Frontmatter unter `data/config/committee_matcher_prompts/`:
+
+| Datei | Zweck |
+|---|---|
+| `mapping_system.md` | Zuordnungsregel, Anzahlgrenzen, Confidence-Rubrik, Evidence- und Ausgabevertrag |
+| `repair_system.md` | gezielte Korrektur einer formal ungültigen Antwort ohne Neuerfindung |
+
+Frontmatter-Pflichtfelder: `prompt_id`, `prompt_version`, `schema_version`.
+Die `schema_version` muss dem Ausgabevertrag des Codestands entsprechen
+(`mapping-output-v1`), sonst blockiert der Lauf — ein Prompt gegen ein anderes
+Schema erzeugt systematisch ungültige Antworten. Der Inhaltshash deckt nur den
+Text ohne Frontmatter ab: eine reine Versionsangabe bewegt ihn nicht, jede
+Textänderung schon. Version und Hash wandern in das Runmanifest.
+
+Fehlercodes: `PRM_MISSING`, `PRM_MALFORMED`, `PRM_ID_MISMATCH`,
+`PRM_SCHEMA_MISMATCH`, `PRM_EMPTY`, `PRM_TOO_LARGE`, `PRM_NOT_UTF8` — alle
+Exit 4 in Stage `config`.
+
+Zuständigkeitstexte und Taxonomie erreichen das Modell in markierten
+Datenblöcken; eine Zeile im Fremdtext, die den Rahmen nachbildet, wird
+entschärft, statt den Block vorzeitig zu schließen.
 
 ## 16. Ausgelagerter Analyse-Workflow
 

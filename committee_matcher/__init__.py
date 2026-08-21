@@ -31,9 +31,11 @@ Modul                        Zustaendigkeit                               Phase
                              und Weight-Felder)
 ``taxonomy_snapshot``        Snapshot, Checkpoint/Resume, Katalog,         P4
                              ``taxonomy_content_hash``, Driftgate
-``prompts``                  Systemprompts laden, Version/Hash pruefen     P5
-``provider``                 providerneutrales Structured-Output-          P5
-                             Interface + OpenRouter-Adapter
+``prompts``                  Systemprompts laden, Version/Hash pruefen,    P5
+                             Fremdtext als Datenblock abgrenzen
+``provider``                 Routing-Preflight, providerneutrales          P5
+                             Structured-Output-Interface, FakeProvider
+                             und OpenRouter-Adapter
 ``mapping_engine``           Batching, Context-Gate, formale Validierung,  P6
                              gezielter Repair
 ``workflow``                 Runzustand, Cache/Resume, Kostenkontrolle     P7

@@ -11,6 +11,47 @@ Historie abgeschlossener Module/Phasen. **Aktiver WIP-Modul-Stand** steht im „
 
 ---
 
+## 2026-08-22 — Committee Matcher V2, P5: Systemprompts und Provideradapter
+
+Der Matcher kann jetzt mit einem Modell sprechen — tut es aber erst auf
+ausdrückliche Freigabe.
+
+**Prompts.** `mapping_system.md` und `repair_system.md` liegen als editierbare
+Kontrollinputs unter `data/config/committee_matcher_prompts/`. `prompts.py`
+prüft ihr Frontmatter und bindet die `schema_version` an den Ausgabevertrag des
+Codestands: ein Prompt, der ein anderes Schema beschreibt als der Code
+erzwingt, erzeugt systematisch ungültige Antworten und blockiert deshalb.
+Der Inhaltshash deckt nur den Text ohne Frontmatter ab — eine reine
+Versionsangabe bewegt ihn nicht, jede Textänderung schon. Vertauschte Dateien
+fallen über `prompt_id` auf. Fremdtexte gehen in markierte Datenblöcke; eine
+Zeile, die den Rahmen nachbildet, wird entschärft statt den Block zu schließen.
+
+**Provideradapter.** `provider.py` hält zusätzlich das providerneutrale
+Structured-Output-Interface, einen `FakeProvider` für netzwerkfreie P6/P7-Tests
+und den `OpenRouterProvider` als einzigen Ort mit SDK-Kontakt. `create()`
+prüft API-Key und ruft den Routing-Preflight vorgeschaltet auf — kein Call ohne
+zulässigen Endpoint. Je Call genau ein Versuch: SDK-Retries bleiben aus, weil
+ein wiederholter Call doppelt abrechnen kann, während der Workflow in P7 selbst
+entscheidet, was wiederholt wird. Jeder Ausgang wird fachlich übersetzt (Auth,
+Guthaben, abgewiesene oder zu große Anfrage, Refusal, Abschneiden am
+Ausgabelimit, ungültiges JSON, leere Antwort); ein unbekannter SDK-Fehler gilt
+fail closed als nicht wiederholbar. Fehlende Kosten bleiben `None`
+(`cost_unknown`) statt stillschweigend 0.0 zu werden.
+
+**Contract-Smoke.** `provider smoke` setzt einen einzelnen kostenpflichtigen
+Minimalcall ab und prüft, was der kostenlose Preflight nicht sehen kann: Auth,
+echte Structured-Output-Fähigkeit des gerouteten Endpoints, gemeldete Kosten
+und ZDR-Verträglichkeit. Das Kommando ist implementiert, aber noch nicht live
+ausgeführt — der erste kostenpflichtige Call ist ein Gate.
+
+**API-Key.** `OPENROUTER_API_KEY` steht ausschließlich in `.env`, wird über
+`os.getenv` in `config/settings.py` gelesen und erscheint in keinem Artefakt,
+Manifest oder Terminalbericht.
+
+60 neue netzwerkfreie Tests; Gesamtsuite 1403 grün.
+
+---
+
 ## 2026-08-21 — Committee Matcher V2, Gate B: Providersettings + Routing-Preflight
 
 Gate B ist beschlossen. Defaultmodell ist `deepseek/deepseek-v4-flash-0731`, den
