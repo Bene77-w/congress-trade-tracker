@@ -44,8 +44,10 @@ Modul                        Zustaendigkeit                               Phase
 Invarianten des providerfreien Kerns:
 
 - Der Import dieses Pakets zieht weder ``openrouter`` noch ``yfinance`` oder
-  eine HTTP-Bibliothek nach; Netzzugriff entsteht erst in P4 (yfinance) und
-  nach Gate B (OpenRouter).
+  eine externe HTTP-Bibliothek nach; einzige Ausnahme ist das stdlib-``urllib``
+  in ``provider.py``, das den Katalog erst beim Aufruf anfasst. Netzzugriff
+  entsteht in P4 (yfinance) und im Routing-Preflight (oeffentlicher
+  OpenRouter-Katalog, kein Key).
 - Providerabhaengige Settings duerfen unset sein, blockieren dann aber jeden
   Providerpfad (``settings_view.MatcherSettings.require_provider``).
 - Geschrieben wird ausschliesslich unter ``data/committee_matcher_v2/``; der

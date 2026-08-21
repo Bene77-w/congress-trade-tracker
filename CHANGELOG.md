@@ -43,9 +43,16 @@ darin. Scheitert ein realer Call trotz grünem Preflight am Routing, listet
 `routing_failure_finding` alle wirksamen Bedingungen und benennt `zdr=true` als
 wahrscheinlichste Ursache.
 
+Preise wertet der Preflight fail closed: ein fehlendes, leeres oder nicht
+lesbares Preisfeld gilt als unendlich teuer statt als 0.0, sonst passierte ein
+Endpoint mit unbekanntem Preis jeden Deckel und erschiene als der günstigste.
+Ebenso belegt nur eine echte Liste in `supported_parameters` die
+Structured-Output-Fähigkeit — bei einem String wäre `in` eine Teilstringsuche
+und bejahte die Fähigkeit fälschlich.
+
 Live geprüft: 7 von 30 Endpoints des Defaultmodells sind zulässig, günstigster
-`deepinfra/fp8` (0.080/0.180 USD pro Mtok). Tests: 15 netzwerkfreie Tests in
-`tests/test_committee_matcher_provider_preflight.py`; Gesamtsuite grün.
+zu 0.080 USD pro Mtok Prompt. Tests: 21 netzwerkfreie Tests in
+`tests/test_committee_matcher_provider_preflight.py`; Gesamtsuite 1339 grün.
 
 ---
 

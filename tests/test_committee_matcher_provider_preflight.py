@@ -152,6 +152,45 @@ def test_malformed_catalog_answers_do_not_crash(payload):
     assert only(collector).code == "PROV_MODEL_UNKNOWN"
 
 
+# -- Malformte Felder innerhalb eines Endpoints -----------------------------
+@pytest.mark.parametrize("pricing", [
+    {"prompt": None, "completion": None},
+    {},
+    {"prompt": "", "completion": ""},
+    {"prompt": "guenstig", "completion": "teuer"},
+], ids=["null", "fehlt", "leer", "text"])
+def test_unreadable_price_fails_closed(pricing):
+    """Ein unbekannter Preis darf keinen Deckel passieren (sonst faellt ein
+    teurer Endpoint als vermeintlich kostenloser durch)."""
+    entry = _endpoint("a/fp8")
+    entry["pricing"] = pricing
+    collector = ErrorCollector()
+    assert provider.check_routing(collector, _settings(),
+                                  fetch=_catalog(entry)) is None
+    finding = only(collector)
+    assert finding.code == "PROV_NO_ENDPOINT"
+    assert "unbekannt" in finding.message
+
+
+def test_string_instead_of_parameter_list_does_not_imply_the_capability():
+    """``in`` auf einem String waere eine Teilstringsuche - hier unzulaessig."""
+    entry = _endpoint("a/fp8")
+    entry["supported_parameters"] = "kein_structured_outputs_hier"
+    collector = ErrorCollector()
+    assert provider.check_routing(collector, _settings(),
+                                  fetch=_catalog(entry)) is None
+    assert only(collector).code == "PROV_NO_STRUCTURED_OUTPUT"
+
+
+def test_unreadable_context_length_does_not_crash_the_preflight():
+    entry = _endpoint("a/fp8")
+    entry["context_length"] = "unbegrenzt"
+    collector = ErrorCollector()
+    report = provider.check_routing(collector, _settings(), fetch=_catalog(entry))
+    assert collector.findings == []
+    assert report.eligible[0].context_tokens == 0
+
+
 # -- Der Fall, den der Preflight nicht sehen kann ---------------------------
 def test_routing_failure_points_at_zdr_because_the_catalog_hides_it():
     collector = ErrorCollector()

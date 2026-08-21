@@ -726,13 +726,15 @@ UI_SCOPE_HELP = {
 #
 # Zwei Gruppen:
 #   offline    -> muessen immer gueltig sein (Parser, Snapshot, Artefakte)
-#   provider   -> duerfen bis Gate B None sein; jeder Providerpfad blockiert
-#                 dann mit Exit-Code 4 statt zu raten.
+#   provider   -> seit dem Gate-B-Beschluss gesetzt; ein auf None
+#                 zurueckgesetzter Wert blockiert jeden Providerpfad mit
+#                 Exit-Code 4 statt zu raten.
 #
-# Feste Invarianten (require_parameters=true, allow_fallbacks=false, genau ein
-# provider.only-Eintrag, keine SDK-Retries, genau ein gleichzeitiger Call)
-# stehen bewusst NICHT hier, sondern als Konstanten im Code: sie sind
-# Sicherheitsvertrag und kein Bedienparameter.
+# Feste Invarianten (require_parameters=true, allow_fallbacks=true, kein
+# provider.only und kein order, keine SDK-Retries, genau ein gleichzeitiger
+# Call) stehen bewusst NICHT hier, sondern als Konstanten im Code: sie sind
+# Sicherheitsvertrag und kein Bedienparameter. Den Endpoint waehlt OpenRouter
+# innerhalb der unten gesetzten Eigenschaftsfilter.
 
 # --- offline: Inputparser (Verbraucher: committee_matcher/input_corpus.py) ---
 # Groessengrenzen gegen praeparierte oder versehentlich riesige Inputs.

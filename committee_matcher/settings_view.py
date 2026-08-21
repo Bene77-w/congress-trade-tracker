@@ -395,8 +395,8 @@ def load_settings(module: ModuleType | None = None) -> MatcherSettings:
         provider_reader.collector.extend([
             _finding(
                 "CFG_PROVIDER_UNSET", name,
-                f"{name} ist bis Gate B nicht gesetzt.",
-                "Wert im Rahmen von Gate B festlegen; bis dahin bleibt jeder "
+                f"{name} ist nicht gesetzt.",
+                "Wert in config/settings.py eintragen; ohne ihn bleibt jeder "
                 "Providerpfad blockiert.",
             )
         ])

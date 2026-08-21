@@ -1044,7 +1044,8 @@ Default-Port: **8501** → im Browser öffnen: `http://localhost:8501`
 Routing-Preflight; kennt alle CLI-Familien, prüft die Settings und blockiert
 jeden Providerpfad mit unvollständigen Providerwerten.
 **Netzwerk:** der Paketimport zieht weder `openrouter` noch `yfinance` oder
-eine HTTP-Bibliothek nach; yfinance lädt erst der erste Abruf. Netzwerk berühren
+eine externe HTTP-Bibliothek nach — `provider.py` nutzt das stdlib-`urllib`,
+yfinance lädt erst der erste Abruf. Netzwerk berühren
 `snapshot build`, `snapshot resume` (yfinance) und `provider check` (öffentlicher
 OpenRouter-Katalog, kein Key, keine Kosten). Ein Modell ruft bis einschließlich
 P4 kein Kommando auf.
@@ -1347,6 +1348,12 @@ steht, welches Kriterium geleert hat:
 | `PROV_NO_ENDPOINT` | Quantisierungsfilter leert die Menge (nennt gewünschte und vorhandene Quantisierungen) | `COMMITTEE_MATCHER_QUANTIZATIONS` lockern oder `None` |
 | `PROV_NO_ENDPOINT` | Preisdeckel leert die Menge (nennt den günstigsten vorhandenen Endpoint) | `COMMITTEE_MATCHER_MAX_PRICE_USD_PER_MTOK` anheben |
 
+Nennt der Katalog für einen Endpoint keinen lesbaren Preis, gilt er als
+unendlich teuer und fällt durch jeden Deckel (fail closed); im Befund steht
+dann `unbekannt` statt einer Zahl. Der günstigste Endpoint wird am Promptpreis
+gemessen — er dominiert die Kosten des Matchers, da jeder Call denselben großen
+Taxonomie- und Unitprefix trägt und nur kurzes JSON zurückgibt.
+
 Alle fünf blockieren mit Exit 4 in Stage `provider`. Jeder Befund nennt
 zusätzlich die beiden Stellschrauben, die die Workflowlogik nicht berühren:
 Modellwechsel und `COMMITTEE_MATCHER_ZDR = False`.
@@ -1361,7 +1368,7 @@ und benennt `zdr=true` als wahrscheinlichste Ursache.
 python -m committee_matcher provider check
 # Modell:    deepseek/deepseek-v4-flash-0731
 # Filter:    structured_outputs, quantizations=['fp8', 'bf16', 'fp16'], ...
-# Endpoints: 7 von 30 zulaessig | guenstigster deepinfra/fp8 (0.080/0.180 USD pro Mtok)
+# Endpoints: 7 von 30 zulaessig | guenstigster <anbieter>/fp8 (0.080/0.160 USD pro Mtok)
 ```
 
 Tests: `tests/test_committee_matcher_provider_preflight.py` (netzwerkfrei, der

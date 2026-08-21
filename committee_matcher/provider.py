@@ -68,6 +68,12 @@ class RoutingReport:
 
     @property
     def cheapest(self) -> Endpoint | None:
+        """Guenstigster zulaessiger Endpoint, gemessen am Promptpreis.
+
+        Der Promptanteil dominiert die Kosten des Matchers deutlich (grosser
+        Taxonomie- und Unitprefix, kurze JSON-Antwort), deshalb genuegt er als
+        Sortierschluessel dieser Anzeige.
+        """
         if not self.eligible:
             return None
         return min(self.eligible, key=lambda e: e.prompt_usd_per_mtok)
@@ -94,10 +100,23 @@ def fetch_endpoints(model: str) -> dict:
 
 
 def _price(pricing: dict, key: str) -> float:
+    """Katalogpreis (USD pro Token) als USD pro Mtok; fehlend heisst unendlich.
+
+    Fail closed: ein fehlendes, leeres oder nicht lesbares Preisfeld darf nicht
+    als 0.0 durchgehen, sonst passiert ein Endpoint mit unbekanntem Preis jeden
+    Deckel und erschiene sogar als der guenstigste.
+    """
+    raw = pricing.get(key)
+    if raw is None or raw == "":
+        return float("inf")
     try:
-        return float(pricing.get(key) or 0.0) * 1_000_000
+        return float(raw) * 1_000_000
     except (TypeError, ValueError):
-        return 0.0
+        return float("inf")
+
+
+def _fmt_price(value: float) -> str:
+    return "unbekannt" if value == float("inf") else f"{value:.3f}"
 
 
 def _endpoints(payload: dict) -> tuple[Endpoint, ...]:
@@ -110,14 +129,21 @@ def _endpoints(payload: dict) -> tuple[Endpoint, ...]:
         if not isinstance(entry, dict):
             continue
         pricing = entry.get("pricing") if isinstance(entry.get("pricing"), dict) else {}
-        parameters = entry.get("supported_parameters") or []
+        # Nur eine echte Liste belegt die Faehigkeit: ein String wuerde ``in``
+        # zur Teilstringsuche machen und Structured Output faelschlich bejahen.
+        parameters = entry.get("supported_parameters")
+        parameters = parameters if isinstance(parameters, list) else []
+        try:
+            context_tokens = int(entry.get("context_length") or 0)
+        except (TypeError, ValueError):
+            context_tokens = 0
         result.append(Endpoint(
             tag=str(entry.get("tag") or entry.get("name") or "?"),
             quantization=str(entry.get("quantization") or "unknown"),
             prompt_usd_per_mtok=_price(pricing, "prompt"),
             completion_usd_per_mtok=_price(pricing, "completion"),
             structured_outputs=STRUCTURED_OUTPUT_PARAMETER in parameters,
-            context_tokens=int(entry.get("context_length") or 0),
+            context_tokens=context_tokens,
         ))
     return tuple(result)
 
@@ -202,8 +228,11 @@ def check_routing(
             collector, "PROV_NO_ENDPOINT", model,
             f"Kein Endpoint bleibt unter dem Preisdeckel "
             f"{limits['prompt']}/{limits['completion']} USD pro Mtok; der "
-            f"guenstigste kostet {cheapest.prompt_usd_per_mtok:.3f}/"
-            f"{cheapest.completion_usd_per_mtok:.3f}.",
+            f"guenstigste kostet "
+            f"{_fmt_price(cheapest.prompt_usd_per_mtok)}/"
+            f"{_fmt_price(cheapest.completion_usd_per_mtok)} "
+            f"('unbekannt' heisst: der Katalog nennt keinen lesbaren Preis, "
+            f"der Endpoint faellt damit bewusst durch den Deckel).",
             f"COMMITTEE_MATCHER_MAX_PRICE_USD_PER_MTOK anheben. "
             f"{ADJUSTMENT_HINT}",
         )
