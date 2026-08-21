@@ -428,7 +428,11 @@ OpenRouter-Endpointkatalog auf einen zulässigen Endpoint, ohne Key, ohne Kosten
 und ohne Modellaufruf. Seit P5 hält dasselbe Modul zusätzlich das
 providerneutrale Structured-Output-Interface, den `FakeProvider` für
 netzwerkfreie Tests und den OpenRouter-Adapter als einzigen Ort mit SDK-Kontakt;
-`prompts.py` lädt und prüft die beiden Systemprompts. Die Ownership-Karte aller 17
+`prompts.py` lädt und prüft die beiden Systemprompts. Seit P6 kommt der
+Mappingkern hinzu: `mapping.py` (Ausgabeschema, Batching mit Context-Split,
+Requestbau, Ausführung und gezielter Repair) und `validation.py` (formale
+Prüfung gegen Vertrag, Unit und Snapshot; Verstoßliste und Boundary-Erkennung).
+Die Ownership-Karte aller 18
 Zielmodule steht im Docstring von `committee_matcher/__init__.py`. Bedienung, Familien, Exit-Codes
 und die vollständige Settingstabelle: `CLI_Bedienungsanleitung.md` Abschnitt 15.
 

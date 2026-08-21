@@ -11,6 +11,49 @@ Historie abgeschlossener Module/Phasen. **Aktiver WIP-Modul-Stand** steht im „
 
 ---
 
+## 2026-08-22 — Committee Matcher V2, P6: Mappingkern
+
+Ein Batch läuft jetzt vom Zuschnitt bis zum geprüften Ergebnis durch — ohne
+Runzustand, der entsteht in P7.
+
+**Batching und Kontext.** `COMMITTEE_MATCHER_BATCH_SIZE` ist der Wunsch, nicht
+die Zusage: passt ein Batch nicht in das Eingabebudget
+(`ENDPOINT_CONTEXT_TOKENS` minus Ausgabe- und Reasoningreserve), wird er 3→2→1
+geteilt. Die Tokenschätzung rechnet über den neuen Wert
+`COMMITTEE_MATCHER_CHARS_PER_TOKEN = 3.0` bewusst zu pessimistisch — eine
+Unterschätzung würde Antworten abschneiden, eine Überschätzung kostet nur einen
+zusätzlichen Batch. Passt eine einzelne Unit nicht, blockiert der Lauf mit
+`MAP_UNIT_TOO_LARGE`; gekürzt wird weder Zuständigkeitstext noch Taxonomie.
+
+**Ausgabeschema.** Der Vertrag 2.5 liegt als JSON-Schema vor und ist per Golden
+Test eingefroren. Optionale Felder sind nullable statt abwesend, damit ein
+fehlender Schlüssel von einem bewusst leeren unterscheidbar bleibt.
+`industry_id` bleibt ein freier String: eine Enum über alle Snapshot-IDs wäre
+strenger, würde das Schema aber um hunderte Werte aufblähen und den Lauf an
+eine Schemafähigkeit binden, die nicht jeder Endpoint zuverlässig beherrscht.
+Unbekannte IDs fängt die formale Prüfung ab.
+
+**Formale Prüfung.** `validation.py` prüft Batchdeckung, Snapshotbindung,
+Evidenzherkunft und die unittypabhängigen Obergrenzen. Erlaubte Belegquelle ist
+der eigene Name beziehungsweise der eigene Zuständigkeitstext — der Text des
+übergeordneten Committees ist Kontext und bekommt als häufigster Fehlerfall
+eine eigene Meldung (`MAP_EVIDENCE_FROM_PARENT`). `committee_parent_core` und
+`name_only` bleiben bei zwei Zuordnungen.
+
+**Repair ohne Silent-Fix.** Eine beanstandete Antwort geht mit der vollständigen
+Verstoßliste zurück an das Modell, höchstens
+`COMMITTEE_MATCHER_MAX_REPAIR_ATTEMPTS` mal (Default 1). Bleibt ein Verstoß,
+scheitert der Batch mit benannten Gründen — nichts wird gekappt, gelöscht oder
+in der Confidence verschoben, und ein Batch wird nie teilweise übernommen.
+
+**Boundary-Erkennung.** Dieselbe Industry in Geschwister-Units einer
+Committee-Familie wird gemeldet, nicht entfernt: Überlappung kann legitim sein
+und wird im Review entschieden.
+
+Tests: 1542 grün, davon 67 neu und netzwerkfrei.
+
+---
+
 ## 2026-08-22 — Committee Matcher V2, P5: Systemprompts und Provideradapter
 
 Der Matcher kann jetzt mit einem Modell sprechen — tut es aber erst auf

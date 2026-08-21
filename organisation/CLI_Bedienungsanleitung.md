@@ -1119,6 +1119,8 @@ ist ausschließlich `committee_matcher/settings_view.py`):
 | `COMMITTEE_MATCHER_YFINANCE_CHECKPOINT_EVERY` | int 1–500 | 10 | Snapshot (P4) |
 | `COMMITTEE_MATCHER_BATCH_SIZE` | 1 oder 3 | 3 | Mappingcalls (P6) |
 | `COMMITTEE_MATCHER_WORKFLOW_RETRIES` | int 0–5 | 2 | Workflow (P7) |
+| `COMMITTEE_MATCHER_MAX_REPAIR_ATTEMPTS` | int 0–3 | 1 | Repair (P6) |
+| `COMMITTEE_MATCHER_CHARS_PER_TOKEN` | float 1–8 | 3.0 | Context-Gate (P6) |
 | `COMMITTEE_MATCHER_COST_GUARD` | bool | True | Kostenwache (P7) |
 | `COMMITTEE_MATCHER_MODEL` | str oder None | `deepseek/deepseek-v4-flash-0731` | Provider (P5) |
 | `COMMITTEE_MATCHER_QUANTIZATIONS` | Tupel aus `int4`,`int8`,`fp4`,`mxfp4`,`nvfp4`,`fp6`,`fp8`,`mxfp8`,`fp16`,`bf16`,`fp32`,`unknown` oder None | `("fp8","bf16","fp16")` | Routingfilter (P5) |
@@ -1445,6 +1447,65 @@ Exit 4 in Stage `config`.
 Zuständigkeitstexte und Taxonomie erreichen das Modell in markierten
 Datenblöcken; eine Zeile im Fremdtext, die den Rahmen nachbildet, wird
 entschärft, statt den Block vorzeitig zu schließen.
+
+### 15g. Mappingkern — Batching, Validierung, Repair (P6)
+
+Der Mappingkern ist implementiert, aber noch nicht über ein eigenes Kommando
+aufrufbar: Runzustand, Persistenz und Kostenwachen entstehen in P7. Die
+folgenden Regeln gelten ab sofort für jeden Mappingcall.
+
+**Batchbildung und Context-Split.** `COMMITTEE_MATCHER_BATCH_SIZE` ist der
+Wunschzuschnitt (1 oder 3). Passt ein Batch nicht in das Eingabebudget, wird er
+3→2→1 geteilt. Das Eingabebudget ist
+`ENDPOINT_CONTEXT_TOKENS − MAX_OUTPUT_TOKENS − REASONING_RESERVE_TOKENS`; die
+Tokenschätzung rechnet bewusst mit `CHARS_PER_TOKEN = 3.0` statt der realen
+~4 und überschätzt damit. Ein zu kleiner Wert vergrößert nur die Batchzahl, ein
+zu großer riskiert abgeschnittene Antworten.
+
+Gekürzt wird nie. Passt eine einzelne Unit nicht, blockiert der Lauf:
+
+| Code | Bedeutung | Exit |
+|---|---|---|
+| `MAP_CONTEXT_BUDGET_INVALID` | Reserven lassen kein Eingabebudget übrig | 4 |
+| `MAP_UNIT_TOO_LARGE` | Einzelne Unit passt nicht in das Fenster | 4 |
+| `MAP_CONTEXT_EXCEEDED` | Batch überschreitet das Budget; kein Call abgesetzt | – |
+| `MAP_REPAIR_CONTEXT_EXCEEDED` | Reparaturcall würde das Budget überschreiten | – |
+
+**Formale Prüfung.** Geprüft wird ausschließlich Formales; über die fachliche
+Direktheit entscheiden Prompt, Gold-Set, Holdout und der manuelle Review.
+
+| Code | Bedeutung |
+|---|---|
+| `MAP_SCHEMA_INVALID` | Antwort verletzt den Ausgabevertrag (Feldpfad wird genannt) |
+| `MAP_BATCH_ID_MISMATCH` | `requested_batch_id` weicht von der Anfrage ab |
+| `MAP_UNITS_MISSING` / `MAP_UNITS_UNEXPECTED` | Batch nicht deckungsgleich beantwortet |
+| `MAP_UNKNOWN_INDUSTRY` | `industry_id` steht nicht zeichengenau im Snapshot |
+| `MAP_EVIDENCE_UNSUPPORTED` | Evidence kommt nicht zusammenhängend in einer erlaubten Quelle vor |
+| `MAP_EVIDENCE_FROM_PARENT` | Evidence stammt aus dem Text des übergeordneten Committees |
+| `MAP_TOO_MANY_ASSIGNMENTS` | Obergrenze des Unittyps überschritten |
+| `MAP_BROAD_SCOPE_NOT_ALLOWED` | Broad-Scope-Ausnahme für diesen Unittyp unzulässig |
+
+Erlaubte Belegquellen je Unit: der eigene Name, bei `committee_direct` und
+`committee_parent_core` zusätzlich der Committeename, und — außer bei
+`name_only` — der eigene Zuständigkeitstext. Der Text des übergeordneten
+Committees ist Kontext und nie Beleg. Verglichen wird nach Unicode-, Whitespace-
+und Groß-/Kleinschreibungsnormalisierung als zusammenhängender Substring.
+
+Obergrenzen: 1–2 Zuordnungen sind der Normalfall, 3–5 nur mit
+`broad_scope_exception` und Confidence ≥ 3; `committee_parent_core` und
+`name_only` bleiben immer bei 2; mehr als 5 ist immer ungültig.
+
+**Repair.** Eine beanstandete Antwort geht mit der vollständigen Verstoßliste
+und der vorherigen Antwort an das Modell zurück, höchstens
+`COMMITTEE_MATCHER_MAX_REPAIR_ATTEMPTS` mal (Default 1, `0` schaltet ab).
+Bleibt ein Verstoß, scheitert der Batch mit benannten Gründen. Es gibt keine
+automatische Kappung, Löschung oder Confidence-Änderung, und ein Batch wird nie
+teilweise übernommen.
+
+**Boundary-Konflikte.** Dieselbe Industry in mehreren Units derselben
+Committee-Familie (Parent-Core plus seine Subcommittees) wird als Konflikt
+gemeldet, nicht entfernt: eine Überlappung kann legitim sein. Entschieden wird
+sie im Review mit `keep_a`, `keep_b`, `remove_both` oder `legitimate_overlap`.
 
 ## 16. Ausgelagerter Analyse-Workflow
 

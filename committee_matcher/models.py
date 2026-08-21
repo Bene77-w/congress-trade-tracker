@@ -46,6 +46,10 @@ MAX_ASSIGNMENTS_REGULAR = 2
 BROAD_SCOPE_MIN_CONFIDENCE = 3
 #: Units je Mappingcall (Plan 2.5).
 MAX_UNITS_PER_BATCH = 3
+#: Grenzen der Confidence-Skala. Das Ausgabeschema in ``mapping.py`` leitet
+#: seine Enum daraus ab, damit Schema und Modell nicht auseinanderlaufen.
+MIN_CONFIDENCE = 1
+MAX_CONFIDENCE = 4
 
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
@@ -53,7 +57,8 @@ NonEmptyStr = Annotated[str, Field(min_length=1)]
 #: Zahlen- und Wahrheitsfelder des Fachvertrags werden strikt gelesen: ohne
 #: ``strict`` akzeptiert Pydantic ``True`` als ``1`` und ``0`` als ``False``,
 #: womit ein ungueltiges Modellergebnis die formale Pruefung passieren wuerde.
-Confidence = Annotated[int, Field(ge=1, le=4, strict=True)]
+Confidence = Annotated[
+    int, Field(ge=MIN_CONFIDENCE, le=MAX_CONFIDENCE, strict=True)]
 StrictFlag = Annotated[bool, Field(strict=True)]
 ByteCount = Annotated[int, Field(ge=0, strict=True)]
 

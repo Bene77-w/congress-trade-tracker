@@ -760,6 +760,13 @@ COMMITTEE_MATCHER_BATCH_SIZE = 3                    # int, {1, 3}
 # Workflowseitige Wiederholungen eines fachlich fehlgeschlagenen Calls.
 # SDK-Retries bleiben unabhaengig davon aus (Doppelabrechnungsrisiko).
 COMMITTEE_MATCHER_WORKFLOW_RETRIES = 2              # int, 0..5
+# Gezielte Reparaturversuche je Batch, nachdem die formale Pruefung Verstoesse
+# gemeldet hat. 0 schaltet den Repair ab; der Batch scheitert dann sofort.
+COMMITTEE_MATCHER_MAX_REPAIR_ATTEMPTS = 1           # int, 0..3
+# Zeichen je Token in der Kontextschaetzung. Der Wert ist bewusst niedriger als
+# das reale Verhaeltnis (~4), damit die Schaetzung ueber- statt unterschaetzt:
+# ein zu klein geschaetzter Batch wuerde am Endpoint abgeschnitten.
+COMMITTEE_MATCHER_CHARS_PER_TOKEN = 3.0             # float, 1.0..8.0
 
 # Der API-Key steht ausschliesslich in .env (gitignored) und wird ueber
 # os.getenv gelesen. Er gehoert bewusst NICHT in den COMMITTEE_MATCHER_*-Block:

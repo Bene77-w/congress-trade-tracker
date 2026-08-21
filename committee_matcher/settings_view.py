@@ -228,6 +228,8 @@ class OfflineSettings:
     yfinance_checkpoint_every: int
     batch_size: int
     workflow_retries: int
+    max_repair_attempts: int
+    chars_per_token: float
     #: Kostenwache; per CLI-Flag je Lauf abschaltbar.
     cost_guard: bool
 
@@ -347,6 +349,12 @@ def load_settings(module: ModuleType | None = None) -> MatcherSettings:
         workflow_retries=reader.required(
             f"{_PREFIX}WORKFLOW_RETRIES", _int_in(0, 5),
             "int 0..5", 2),
+        max_repair_attempts=reader.required(
+            f"{_PREFIX}MAX_REPAIR_ATTEMPTS", _int_in(0, 3),
+            "int 0..3", 1),
+        chars_per_token=reader.required(
+            f"{_PREFIX}CHARS_PER_TOKEN", _float_in(1.0, 8.0),
+            "float 1..8", 3.0),
         cost_guard=reader.required(
             f"{_PREFIX}COST_GUARD", _strict_bool, "bool", True),
     )

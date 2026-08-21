@@ -6,7 +6,11 @@ Matchers. Verbindliche Grundlage sind
 ``organisation/committee_matcher_planung_entscheidungen_codex.md``.
 
 Ownership-Karte (Zielgroesse 12-18 kohaerente Laufzeitmodule; jede
-Zustaendigkeit existiert genau einmal):
+Zustaendigkeit existiert genau einmal). Der urspruenglich als ``mapping_engine``
+geplante Mappingkern liegt in zwei Modulen: ``mapping`` entscheidet, **was
+gesendet** wird, ``validation`` urteilt darueber, **was zurueckkam** - die
+Pruefung braucht weder Provider noch Prompt und bleibt so allein aus Vertrag
+und Snapshot heraus pruefbar.
 
 ===========================  ===========================================  =====
 Modul                        Zustaendigkeit                               Phase
@@ -36,8 +40,10 @@ Modul                        Zustaendigkeit                               Phase
 ``provider``                 Routing-Preflight, providerneutrales          P5
                              Structured-Output-Interface, FakeProvider
                              und OpenRouter-Adapter
-``mapping_engine``           Batching, Context-Gate, formale Validierung,  P6
-                             gezielter Repair
+``mapping``                  Ausgabeschema, Batching mit Context-Split,     P6
+                             Requestbau, Ausfuehrung, gezielter Repair
+``validation``               formale Pruefung gegen Vertrag, Unit und      P6
+                             Snapshot; Verstossliste, Boundary-Erkennung
 ``workflow``                 Runzustand, Cache/Resume, Kostenkontrolle     P7
 ``artifacts``                Long-CSV, Coverage, Manifest, Review-XLSX     P8
 ``evaluation``               Gold-Set-, Stabilitaets- und Holdoutmetriken  P9
