@@ -318,7 +318,7 @@ Die XLSX trennt unveränderliche `model_*`-Felder von editierbaren
 
 ## 3. Implementierungsphasen und Gates
 
-### Umsetzungsstand (2026-08-20)
+### Umsetzungsstand (2026-08-21)
 
 | Schritt | Status | Nachweis / Bedingung |
 |---|---|---|
@@ -327,7 +327,7 @@ Die XLSX trennt unveränderliche `model_*`-Felder von editierbaren
 | P0.4–P0.6 Migration + Schutzbaseline | abgeschlossen | Commits `5e683a9` + `235a5c8`; Migration `input-basis-v1` idempotent, `corpus_manifest.yaml` (95 Dateien) + `committee_matcher_protected_baseline.yaml` (9 Pfade) erzeugt und verifiziert; Phasenreview mit Auflagen abgenommen, alle fünf Befunde behoben |
 | P2 Providerfreies Gerüst | abgeschlossen | Paket `committee_matcher/` mit Ownership-Karte für 17 Zielmodule; `status`, `errors`, `paths`, `settings_view`, `models`, `cli` implementiert; `COMMITTEE_MATCHER_*`-Block in `config/settings.py`; 127 netzwerkfreie Tests; Phasenreview mit Auflagen, alle sieben Befunde behoben |
 | P3 Input, Identität, Roster | abgeschlossen | `input_corpus.py` (strikter Parser + Fremdanweisungsgate), `units.py` (`unit-id-v1`/`mapping-input-v1`, Golden Tests), `roster_coverage.py` (Joint-Cross-Chamber-Regel); `input validate` bestätigt 225 Units mengengleich zur eingefrorenen Baseline, `roster validate` 227/230 gemappt; 75 zusätzliche netzwerkfreie Tests |
-| P4 yfinance-Snapshot | abgeschlossen | Contract-Spike gegen `yfinance==1.3.0` bestätigt; `taxonomy_source.py` (Adapterrand verwirft Börsengrößen) + `taxonomy_snapshot.py` (`taxonomy-content-v1`, Katalog, Checkpoint/Resume, `no_baseline`- und Driftgate); Livelauf: 145 Industries in 11 Sektoren, Erstfreigabe erteilt; 26 netzwerkfreie Tests |
+| P4 yfinance-Snapshot | abgeschlossen | Contract-Spike gegen `yfinance==1.3.0` bestätigt; `taxonomy_source.py` (Adapterrand verwirft Börsengrößen) + `taxonomy_snapshot.py` (`taxonomy-content-v1`, Katalog, Checkpoint/Resume, `no_baseline`- und Driftgate); Livelauf: 145 Industries in 11 Sektoren, Erstfreigabe erteilt; 45 netzwerkfreie Tests; Phasenreview mit Auflagen, alle sechs Befunde plus der Nachprüfungsbefund behoben (Checkpoint-Runbindung, strikte Recordprüfung, Freigabebindung `snapshot_id == run_id`, nachgerechneter Baselinehash, live geholte Identität beim Resume, retrybare leere Overview) |
 | Gate B und alles danach | gesperrt | keine Providerinstallation, kein OpenRouter-Call, keine Modellentscheidung |
 
 P1 wurde vor P0.4–P0.6 ausgeführt, da der Rückbau ausschließlich Altcode und
