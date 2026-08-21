@@ -1,8 +1,9 @@
 # Committee Matcher V2 – Kurzbedienung
 
-Der Workflow wird über die CLI gesteuert. Aktuell sind Inputprüfung,
-Roster-Coverage und yfinance-Snapshots (P0–P4) verfügbar. OpenRouter-, Mapping-
-und Reviewläufe bleiben bis Gate B gesperrt.
+Der Workflow wird über die CLI gesteuert. Verfügbar sind Inputprüfung,
+Roster-Coverage, Taxonomie-Snapshots (P0–P4) sowie Routing-Preflight und
+Contract-Smoke des Providers (P5). Mapping-, Review- und Evaluationsläufe
+folgen ab P6.
 
 ## Schnellstart
 
@@ -15,6 +16,23 @@ venv/bin/python -m committee_matcher roster validate
 Exit-Code `2` bedeutet erfolgreicher Lauf mit Warnungen; Details stehen im
 Terminalbericht und unter
 `data/committee_matcher_v2/reports/<kommando>/errors.json`.
+
+## Provider prüfen
+
+```bash
+venv/bin/python -m committee_matcher provider check
+venv/bin/python -m committee_matcher provider smoke
+```
+
+`provider check` fragt den Endpointkatalog des konfigurierten Modells ab und
+prüft ihn gegen die Providervorgaben (Structured Output, ZDR, Datenschutz,
+Preisgrenze, Contextfenster). Bleibt kein Endpoint übrig, endet der Lauf mit
+Exit-Code `4` und nennt die zulässigen Stellschrauben: Modellwechsel oder
+`COMMITTEE_MATCHER_PROVIDER_ZDR=False`.
+
+`provider smoke` ist der einzige kostenpflichtige Prüfbefehl (< 0,001 USD). Er
+führt einen echten Call gegen das erzwungene Ausgabeschema aus und schlägt
+fehl, wenn das Modell Structured Output nur nominell unterstützt.
 
 ## Taxonomie abrufen und freigeben
 
@@ -43,10 +61,10 @@ Abgebrochenen Abruf aus dem Checkpoint fortsetzen:
 venv/bin/python -m committee_matcher snapshot resume --run-id "$RUN_ID"
 ```
 
-## Workflow nach Gate B
+## Noch nicht implementiert
 
-Die folgenden Familien sind bereits sichtbar, aber noch nicht implementiert
-beziehungsweise bis zu ihrer Phase gesperrt:
+Die folgenden Familien sind bereits sichtbar, aber bis zu ihrer Phase
+gesperrt:
 
 ```text
 run plan|execute|reconcile  → Entwicklungsrun und Kostenkontrolle

@@ -432,37 +432,82 @@ def test_routing_metadata_is_requested_explicitly():
     assert client.chat.kwargs["x_open_router_metadata"] == "enabled"
 
 
-def test_error_detail_redacts_key_like_strings():
-    adapter, _ = _provider(error=_sdk_error("BadRequestResponseError").__class__(
-        "Header Authorization: Bearer sk-or-v1-geheim123456 abgelehnt"))
-    with pytest.raises(provider.ProviderCallError) as exc:
-        adapter.complete(_request())
-    message = exc.value.findings[0].message
-    assert "sk-or-v1-geheim123456" not in message
-    assert "<redigiert>" in message
+def _failing(text: str, name: str = "BadRequestResponseError", **attrs):
+    """Adapter, dessen SDK-Client mit einem bestimmten Fremdtext scheitert."""
+    error = _sdk_error(name).__class__(text)
+    for key, value in attrs.items():
+        setattr(error, key, value)
+    return _provider(error=error)[0]
 
 
-def test_error_detail_is_length_capped():
-    adapter, _ = _provider(error=_sdk_error("BadRequestResponseError").__class__("x" * 5000))
+def _finding_text(adapter) -> str:
     with pytest.raises(provider.ProviderCallError) as exc:
         adapter.complete(_request())
-    assert len(exc.value.findings[0].message) < 600
-    assert "gekuerzt" in exc.value.findings[0].message
+    finding = exc.value.findings[0]
+    return f"{finding.message}\n{finding.hint}"
+
+
+@pytest.mark.parametrize("secret,carrier", [
+    ("sk-or-v1-geheim123456", "Header Authorization: Bearer {} abgelehnt"),
+    ("or-v1-abcdef0123456789", "authorization: bearer {} rejected"),
+    ("Zm9vYmFyLXNlY3JldC10b2tlbg", "upstream url https://x/y?api_key={}"),
+    ("eyJhbGciOiJIUzI1NiJ9.abc.def", "request echo: token={}"),
+    ("hunter2supersecretvalue", "provider said: key {} is invalid"),
+])
+def test_no_foreign_error_text_reaches_the_finding(secret, carrier):
+    """Reviewbefund: eine Mustersuche trifft nur bekannte Schluesselformen.
+
+    Deshalb wird der Fremdtext gar nicht uebernommen - kein Zeichen daraus darf
+    im Befund landen, unabhaengig davon, wie der Schluessel notiert ist.
+    """
+    text = carrier.format(secret)
+    reported = _finding_text(_failing(text))
+    assert secret not in reported
+    for word in ("authorization", "bearer", "api_key", "token=", "upstream"):
+        assert word not in reported.lower()
+
+
+def test_a_known_cause_is_named_in_the_operators_own_words():
+    reported = _finding_text(_failing("response_format json_schema unsupported"))
+    assert "Ausgabeschema" in reported
+
+
+def test_an_unknown_cause_stays_short_and_explicit():
+    reported = _finding_text(_failing("x" * 5000))
+    assert len(reported) < 800
+    assert "keine bekannte Ursache erkannt" in reported
+
+
+def test_a_plausible_http_status_is_reported():
+    reported = _finding_text(_failing("egal", status_code=400))
+    assert "HTTP 400" in reported
+
+
+@pytest.mark.parametrize("status", [None, True, "400", 42, 999, 1.5])
+def test_an_implausible_http_status_is_dropped(status):
+    reported = _finding_text(_failing("egal", status_code=status))
+    assert "HTTP" not in reported
 
 
 def test_routing_failure_is_flagged_instead_of_string_matched():
-    adapter, _ = _provider(error=_sdk_error("BadRequestResponseError").__class__(
-        "No endpoints found matching your data policy"))
+    adapter = _failing("No endpoints found matching your data policy")
     with pytest.raises(provider.ProviderCallError) as exc:
         adapter.complete(_request())
     assert exc.value.routing_suspected is True
 
 
 def test_ordinary_failure_is_not_flagged_as_routing():
-    adapter, _ = _provider(error=_sdk_error("BadRequestResponseError").__class__("schema invalid"))
+    adapter = _failing("schema invalid")
     with pytest.raises(provider.ProviderCallError) as exc:
         adapter.complete(_request())
     assert exc.value.routing_suspected is False
+
+
+def test_diagnose_returns_only_its_own_vocabulary():
+    """Jede Diagnose stammt aus der Tabelle, nie aus dem geprueften Text."""
+    labels = {label for _, label in provider.ERROR_MARKERS}
+    assert set(provider.diagnose("rate limit exceeded for sk-or-v1-x")) <= labels
+    assert provider.diagnose("voellig unbekannter fehler") == ()
 
 
 @pytest.mark.parametrize("cost", [-0.5, float("inf"), float("nan"), "0.01", True, None])
@@ -472,8 +517,13 @@ def test_implausible_cost_stays_unknown(cost):
     assert adapter.complete(_request()).cost_usd is None
 
 
-@pytest.mark.parametrize("tokens,expected", [(-5, 0), (None, 0), ("12", 12), (7, 7)])
+@pytest.mark.parametrize("tokens,expected", [
+    (-5, 0), (None, 0), ("12", 0), (3.9, 0), (True, 0), (float("inf"), 0),
+    (float("nan"), 0), ([1], 0), (7, 7), (0, 0),
+])
 def test_token_counts_are_normalised(tokens, expected):
+    """Nur echte nichtnegative ints zaehlen: ``3.9`` waere still gerundet und
+    ``float("inf")`` haette den Lauf nach einem bezahlten Call abgebrochen."""
     adapter, _ = _provider(_Result(usage=_Usage(prompt=tokens)))
     assert adapter.complete(_request()).prompt_tokens == expected
 
@@ -489,11 +539,16 @@ def test_usage_may_be_absent_entirely():
     assert response.prompt_tokens == 0 and response.cost_usd is None
 
 
-def test_malformed_routing_metadata_does_not_crash():
+@pytest.mark.parametrize("attempts", ["kaputt", 7, None, {"a": 1}, 3.5, object()])
+def test_malformed_routing_metadata_does_not_crash(attempts):
+    """Der geroutete Provider ist reine Protokollangabe; ein fremdgeformtes
+    Feld darf den bereits bezahlten Call nicht nachtraeglich zerstoeren."""
     class _Broken:
-        attempts = "kaputt"
+        pass
 
-    adapter, _ = _provider(_Result(metadata=_Broken()))
+    broken = _Broken()
+    broken.attempts = attempts
+    adapter, _ = _provider(_Result(metadata=broken))
     assert adapter.complete(_request()).provider is None
 
 

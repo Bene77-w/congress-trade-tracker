@@ -21,7 +21,6 @@ from __future__ import annotations
 import json
 import math
 import os
-import re
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -360,21 +359,57 @@ class ProviderCallError(MatcherError):
         self.routing_suspected = routing_suspected
 
 
-#: Muster, die wie ein Schluessel aussehen. Fehlertexte des SDK koennen
-#: Requestechos enthalten; ein Befund landet im Terminalbericht und in
-#: errors.json, deshalb wird vor der Uebernahme redigiert.
-_SECRET_PATTERN = re.compile(r"(sk-[A-Za-z0-9_\-]{4,}|Bearer\s+\S+)")
+#: Formulierungen, mit denen OpenRouter eine leere Endpointmenge meldet.
+ROUTING_MARKERS: tuple[str, ...] = (
+    "no endpoints found", "no allowed providers", "no providers available")
 
-#: Laengengrenze eines uebernommenen Fremdtextes im Befund.
-MAX_ERROR_DETAIL_CHARS = 300
+#: Diagnose der leeren Endpointmenge; der Aufrufer haengt daran den ZDR-Hinweis.
+ROUTING_DIAGNOSIS = "kein Endpoint erfuellt die Providerfilter"
+
+#: Bekannte Fehlermarker mit selbst formulierter Diagnose.
+#:
+#: Fehlertexte des SDK koennen Requestechos samt Kopfzeilen enthalten, und ein
+#: Befund landet im Terminalbericht und in errors.json. Eine Redigierung per
+#: Mustersuche trifft nur die Schluesselformen, die sie kennt - unbekannte
+#: Formen (``token=``, ``?api_key=``, kleingeschriebenes ``bearer``, Schluessel
+#: ohne Praefix) blieben stehen. Deshalb wird der Fremdtext nur gelesen, nie
+#: uebernommen: in den Befund geht ausschliesslich die hier hinterlegte,
+#: selbst formulierte Diagnose.
+ERROR_MARKERS: tuple[tuple[tuple[str, ...], str], ...] = (
+    (ROUTING_MARKERS, ROUTING_DIAGNOSIS),
+    (("structured output", "response_format", "json_schema", "json schema"),
+     "der Endpoint beanstandet das erzwungene Ausgabeschema"),
+    (("context length", "context_length", "maximum context", "too many tokens"),
+     "die Anfrage ueberschreitet das Contextfenster des Endpoints"),
+    (("unsupported parameter", "not supported", "invalid parameter",
+      "temperature", "max_tokens"),
+     "ein uebergebener Parameter wird vom Endpoint nicht unterstuetzt"),
+    (("rate limit", "quota", "too many requests"),
+     "eine Mengenbegrenzung des Anbieters greift"),
+    (("moderation", "flagged", "content policy"),
+     "eine Inhaltspruefung hat die Anfrage abgelehnt"),
+    (("data policy", "data collection", "zdr"),
+     "die Datenschutzvorgaben schliessen den Endpoint aus"),
+)
 
 
-def redact(text: str) -> str:
-    """Entfernt schluesselaehnliche Zeichenfolgen und kuerzt den Rest."""
-    cleaned = _SECRET_PATTERN.sub("<redigiert>", str(text))
-    if len(cleaned) > MAX_ERROR_DETAIL_CHARS:
-        cleaned = cleaned[:MAX_ERROR_DETAIL_CHARS] + " [gekuerzt]"
-    return cleaned
+def diagnose(text: object) -> tuple[str, ...]:
+    """Bekannte Ursachen aus einem Fremdtext, als eigene Formulierung.
+
+    Der Rueckgabewert enthaelt ausschliesslich Zeichenfolgen aus
+    ``ERROR_MARKERS``; nichts aus ``text`` wird weitergereicht.
+    """
+    lowered = str(text).lower()
+    return tuple(label for markers, label in ERROR_MARKERS
+                 if any(marker in lowered for marker in markers))
+
+
+def _status_code(exc: Exception) -> int | None:
+    """HTTP-Status des SDK-Fehlers, sofern es ein plausibler Statuscode ist."""
+    value = getattr(exc, "status_code", None)
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value if 100 <= value <= 599 else None
 
 
 def _call_failure(code: str, obj: str, message: str, hint: str, *,
@@ -395,14 +430,14 @@ def _call_failure(code: str, obj: str, message: str, hint: str, *,
 def _token_count(value) -> int:
     """Tokenzahl aus der Usage; unplausible Werte gelten als unbekannt (0).
 
-    Negative oder nicht ganzzahlige Angaben duerfen nicht in Auditartefakte
-    und spaetere Kostenrechnungen wandern.
+    Nur eine echte nichtnegative ganze Zahl zaehlt. Ein ``int()`` ueber alles
+    Uebrige waere schaedlich statt tolerant: ``3.9`` wuerde still zu ``3``,
+    ``True`` zu ``1``, und ``float("inf")`` wuerde mit ``OverflowError``
+    abbrechen - nach einem bereits bezahlten Call.
     """
-    try:
-        count = int(value)
-    except (TypeError, ValueError):
+    if isinstance(value, bool) or not isinstance(value, int):
         return 0
-    return count if count >= 0 else 0
+    return value if value >= 0 else 0
 
 
 def _reported_cost(value) -> float | None:
@@ -588,15 +623,14 @@ class OpenRouterProvider:
 
         return self._to_response(request, result)
 
-    #: Formulierungen, mit denen OpenRouter eine leere Endpointmenge meldet.
-    ROUTING_MARKERS: tuple[str, ...] = (
-        "no endpoints found", "no allowed providers", "no providers available")
-
     def _translate(self, request: StructuredRequest, exc: Exception) -> ProviderCallError:
         name = exc.__class__.__name__
         retryable = name in RETRYABLE_ERRORS
-        detail = redact(exc)
-        routing = any(marker in str(exc).lower() for marker in self.ROUTING_MARKERS)
+        hints = diagnose(exc)
+        routing = ROUTING_DIAGNOSIS in hints
+        status = _status_code(exc)
+        detail = "; ".join(hints) if hints else "keine bekannte Ursache erkannt"
+        origin = f"{name}, HTTP {status}" if status is not None else name
         if name in ("UnauthorizedResponseError", "ForbiddenResponseError"):
             return _call_failure(
                 "PROV_AUTH_FAILED", request.call_id,
@@ -615,7 +649,7 @@ class OpenRouterProvider:
         if name in ("BadRequestResponseError", "UnprocessableEntityResponseError"):
             return _call_failure(
                 "PROV_REQUEST_REJECTED", request.call_id,
-                f"OpenRouter weist die Anfrage zurueck ({name}: {detail}).",
+                f"OpenRouter weist die Anfrage zurueck ({origin}): {detail}.",
                 "Schema, Modell und Providerfilter pruefen; ein erneuter "
                 "Versuch mit identischer Anfrage scheitert genauso. "
                 f"{ADJUSTMENT_HINT}",
@@ -632,7 +666,7 @@ class OpenRouterProvider:
             )
         return _call_failure(
             "PROV_CALL_FAILED", request.call_id,
-            f"Providercall fehlgeschlagen ({name}: {detail}).",
+            f"Providercall fehlgeschlagen ({origin}): {detail}.",
             "Voruebergehende Stoerung; der Workflow darf den Call wiederholen."
             if retryable else
             "Nicht wiederholbarer Providerfehler; Ursache oben pruefen.",
@@ -722,7 +756,11 @@ class OpenRouterProvider:
     def _routed_provider(result) -> str | None:
         """Liest den tatsaechlich gerouteten Provider - nur zum Protokoll."""
         metadata = getattr(result, "openrouter_metadata", None)
-        attempts = getattr(metadata, "attempts", None) or []
+        attempts = getattr(metadata, "attempts", None)
+        # Ein fremdgeformtes Feld (Zahl, String, None) darf den Lauf nicht
+        # abbrechen; der Provider ist reine Protokollangabe.
+        if not isinstance(attempts, (list, tuple)):
+            return None
         for attempt in reversed(attempts):
             provider_name = getattr(attempt, "provider", None)
             if provider_name:
