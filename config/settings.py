@@ -761,6 +761,11 @@ COMMITTEE_MATCHER_BATCH_SIZE = 3                    # int, {1, 3}
 # SDK-Retries bleiben unabhaengig davon aus (Doppelabrechnungsrisiko).
 COMMITTEE_MATCHER_WORKFLOW_RETRIES = 2              # int, 0..5
 
+# Der API-Key steht ausschliesslich in .env (gitignored) und wird ueber
+# os.getenv gelesen. Er gehoert bewusst NICHT in den COMMITTEE_MATCHER_*-Block:
+# der ist per UI ueberschreibbar und landet in Auditartefakten.
+OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY', '')
+
 # --- provider: mit Gate B gesetzt (Verbraucher: provider.py) ---------------
 # Die Endpointwahl trifft OpenRouter (kein 'only', kein 'order'); gefiltert wird
 # nur ueber Faehigkeit, Quantisierung, Datenschutz und Preis. Der tatsaechlich
