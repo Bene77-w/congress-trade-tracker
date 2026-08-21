@@ -1495,17 +1495,36 @@ Obergrenzen: 1–2 Zuordnungen sind der Normalfall, 3–5 nur mit
 `broad_scope_exception` und Confidence ≥ 3; `committee_parent_core` und
 `name_only` bleiben immer bei 2; mehr als 5 ist immer ungültig.
 
-**Repair.** Eine beanstandete Antwort geht mit der vollständigen Verstoßliste
-und der vorherigen Antwort an das Modell zurück, höchstens
-`COMMITTEE_MATCHER_MAX_REPAIR_ATTEMPTS` mal (Default 1, `0` schaltet ab).
-Bleibt ein Verstoß, scheitert der Batch mit benannten Gründen. Es gibt keine
-automatische Kappung, Löschung oder Confidence-Änderung, und ein Batch wird nie
-teilweise übernommen.
+**Repair.** Der Repair ist gezielt: zurück gehen nur die beanstandeten Units
+mit ihrer Verstoßliste und ihrem bisherigen Ergebnis, höchstens
+`COMMITTEE_MATCHER_MAX_REPAIR_ATTEMPTS` mal (Default 1, `0` schaltet ab). Die
+unbeanstandeten Units behalten ihre Erstantwort und werden dem Modell gar nicht
+erst erneut vorgelegt. Ein Verstoß ohne Unitbezug — unlesbares Schema, falsche
+Batch-ID, fehlende Units — trifft den ganzen Batch und wiederholt ihn
+vollständig.
+
+Der zusammengeführte Stand durchläuft dieselbe Prüfung wie jede Modellantwort;
+ein Ergebnis entsteht nie ungeprüft aus zwei Teilantworten. Bleibt ein Verstoß,
+scheitert der Batch mit benannten Gründen. Es gibt keine automatische Kappung,
+Löschung oder Confidence-Änderung.
+
+Die Verstoßliste steht im Reparaturprompt außerhalb der Datenblöcke — sie ist
+der verbindliche Auftrag. Werte aus der Modellantwort (etwa eine erfundene
+`industry_id`) werden dort einzeilig und gekürzt zitiert, damit sie keine
+eigenen Zeilen oder Blockrahmen erzeugen können.
+
+Passt ein Reparaturcall nicht mehr in das Kontextfenster, scheitert der Batch
+mit `MAP_REPAIR_CONTEXT_EXCEEDED`; er wird bewusst nicht noch einmal geteilt.
+Der Fall setzt voraus, dass bereits der Erstcall am Limit lag.
 
 **Boundary-Konflikte.** Dieselbe Industry in mehreren Units derselben
 Committee-Familie (Parent-Core plus seine Subcommittees) wird als Konflikt
 gemeldet, nicht entfernt: eine Überlappung kann legitim sein. Entschieden wird
 sie im Review mit `keep_a`, `keep_b`, `remove_both` oder `legitimate_overlap`.
+Die Mitglieder eines Konflikts sind nach Unit-ID sortiert, damit die
+Antwortreihenfolge des Providers nicht bestimmt, welche Unit als „a" gilt.
+Offen für P8: wie ein Konflikt mit mehr als zwei Units auf `keep_a`/`keep_b`
+abgebildet wird.
 
 ## 16. Ausgelagerter Analyse-Workflow
 

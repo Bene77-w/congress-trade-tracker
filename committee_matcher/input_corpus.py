@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import hashlib
 import re
-import unicodedata
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
@@ -37,6 +36,9 @@ import yaml
 
 from . import paths
 from .errors import ErrorCollector, Stage
+# ``normalize_text`` gehoert zum Datenvertrag und liegt deshalb in ``models``;
+# der Reexport haelt den Inputparser als gewohnten Fundort.
+from .models import normalize_text
 from .settings_view import OfflineSettings
 from .status import CorpusRole, InputBasis
 
@@ -102,17 +104,6 @@ class CommitteeDocument:
     @property
     def has_subcommittees(self) -> bool:
         return bool(self.sections)
-
-
-def normalize_text(text: str) -> str:
-    """Kanonische Textform fuer Hashes und Evidenzpruefung.
-
-    NFKC, vereinheitlichte Zeilenenden und auf ein Leerzeichen reduzierte
-    Whitespace-Laeufe. Gross-/Kleinschreibung bleibt erhalten, weil das Modell
-    den Text so sieht; der Vergleich in P6 casefoldet zusaetzlich.
-    """
-    normalized = unicodedata.normalize("NFKC", text.replace("\r\n", "\n"))
-    return " ".join(normalized.split())
 
 
 def sha256_bytes(data: bytes) -> str:

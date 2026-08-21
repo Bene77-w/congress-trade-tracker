@@ -40,17 +40,34 @@ der eigene Name beziehungsweise der eigene Zuständigkeitstext — der Text des
 eine eigene Meldung (`MAP_EVIDENCE_FROM_PARENT`). `committee_parent_core` und
 `name_only` bleiben bei zwei Zuordnungen.
 
-**Repair ohne Silent-Fix.** Eine beanstandete Antwort geht mit der vollständigen
-Verstoßliste zurück an das Modell, höchstens
-`COMMITTEE_MATCHER_MAX_REPAIR_ATTEMPTS` mal (Default 1). Bleibt ein Verstoß,
+**Repair ohne Silent-Fix.** Zurück gehen nur die beanstandeten Units mit ihrer
+Verstoßliste, höchstens `COMMITTEE_MATCHER_MAX_REPAIR_ATTEMPTS` mal (Default 1);
+die unbeanstandeten behalten ihre Erstantwort und werden dem Modell nicht erneut
+vorgelegt. Verstöße ohne Unitbezug wiederholen den ganzen Batch. Der
+zusammengeführte Stand wird vollständig neu geprüft. Bleibt ein Verstoß,
 scheitert der Batch mit benannten Gründen — nichts wird gekappt, gelöscht oder
-in der Confidence verschoben, und ein Batch wird nie teilweise übernommen.
+in der Confidence verschoben.
 
 **Boundary-Erkennung.** Dieselbe Industry in Geschwister-Units einer
 Committee-Familie wird gemeldet, nicht entfernt: Überlappung kann legitim sein
 und wird im Review entschieden.
 
-Tests: 1542 grün, davon 67 neu und netzwerkfrei.
+**Phasenreview (GPT Sol).** Vier hohe Befunde, alle behoben: Werte aus der
+Modellantwort standen unmaskiert in der Verstoßliste und damit im autoritativen
+Teil des Reparaturprompts — sie werden jetzt einzeilig und gekürzt zitiert; der
+Repair umfasste den ganzen Batch und konnte gültige Units still überschreiben;
+die Kontextschätzung zählte Zeichen statt UTF-8-Bytes und veranschlagte das
+Schema pauschal; die Mitglieder eines Boundary-Konflikts folgten der
+Antwortreihenfolge des Providers. Dazu drei mittlere: Broad-Scope-Belege galten
+schon bei abweichender Schreibweise als eigene Evidence, unsichtbare
+Unicode-Formatzeichen bestanden als Pflichttext, und der Systemprompt verlangte
+weggelassene Felder, wo das Schema `null` erzwingt (`mapping-system-v2`).
+
+Nicht übernommen: der Vorschlag, auch zu große Reparaturcalls noch einmal
+3→2→1 zu teilen. Der Fall setzt voraus, dass bereits der Erstcall am Limit lag;
+der Zusatzaufwand in Kosten- und Callführung steht dazu außer Verhältnis.
+
+Tests: 1564 grün, davon 88 neu und netzwerkfrei.
 
 ---
 

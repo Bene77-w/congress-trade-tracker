@@ -1,6 +1,6 @@
 ---
 prompt_id: mapping_system
-prompt_version: mapping-system-v1
+prompt_version: mapping-system-v2
 schema_version: mapping-output-v1
 ---
 
@@ -60,9 +60,12 @@ Je Einheit:
 - `unit_id` – unveraendert aus der Anfrage uebernehmen.
 - `decision` – `mapped` oder `no_mapping`.
 - `no_mapping_reason` – nur bei `no_mapping`; ein Satz, warum keine Industry
-  die Direktheitsregel erfuellt. Bei `mapped` weglassen.
+  die Direktheitsregel erfuellt. Bei `mapped` ausdruecklich `null`.
 - `broad_scope_exception` / `broad_scope_reason` – nur bei mehr als 2
-  Zuordnungen, sonst `false` beziehungsweise weglassen.
+  Zuordnungen, sonst `false` beziehungsweise ausdruecklich `null`.
+
+Jedes Feld erscheint in jeder Antwort. Nicht zutreffende Felder bekommen `null`
+beziehungsweise `false`; weggelassene Felder verletzen das Ausgabeschema.
 - `assignments` – bei `no_mapping` leer.
 
 Je Zuordnung:

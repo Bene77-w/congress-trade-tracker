@@ -18,6 +18,7 @@ einen Vertrag vortaeuschen.
 from __future__ import annotations
 
 import re
+import unicodedata
 from typing import Annotated
 
 from pydantic import (
@@ -52,6 +53,41 @@ MIN_CONFIDENCE = 1
 MAX_CONFIDENCE = 4
 
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+def normalize_text(text: str) -> str:
+    """Kanonische Textform fuer Hashes und Evidenzpruefung.
+
+    NFKC, vereinheitlichte Zeilenenden und auf ein Leerzeichen reduzierte
+    Whitespace-Laeufe. Gross-/Kleinschreibung bleibt erhalten, weil das Modell
+    den Text so sieht; wo verglichen wird, casefoldet der Vergleich zusaetzlich.
+
+    Die Funktion steht hier statt im Inputparser, weil sie zum Datenvertrag
+    gehoert: Unitbildung, Evidenzpruefung und die Eindeutigkeit von
+    Broad-Scope-Belegen muessen denselben Textbegriff verwenden.
+    """
+    normalized = unicodedata.normalize("NFKC", text.replace("\r\n", "\n"))
+    return " ".join(normalized.split())
+
+
+def comparable_text(text: str) -> str:
+    """Vergleichsform: kanonisiert und ohne Gross-/Kleinschreibung."""
+    return normalize_text(text).casefold()
+
+
+def has_visible_text(value: str | None) -> bool:
+    """Enthaelt der Text sichtbaren Inhalt?
+
+    ``strip()`` allein genuegt nicht: unsichtbare Formatzeichen (Kategorie Cf,
+    etwa Zero-Width-Space) sind kein Whitespace und wuerden ein leeres
+    Pflichtfeld formal bestehen lassen. Der Originaltext bleibt unveraendert;
+    geprueft wird nur eine Kopie.
+    """
+    if not value:
+        return False
+    visible = "".join(ch for ch in unicodedata.normalize("NFKC", value)
+                      if unicodedata.category(ch) != "Cf")
+    return bool(visible.strip())
 
 NonEmptyStr = Annotated[str, Field(min_length=1)]
 #: Zahlen- und Wahrheitsfelder des Fachvertrags werden strikt gelesen: ohne
@@ -263,8 +299,8 @@ class Assignment(MatcherModel):
     @field_validator("evidence_excerpt", "rationale_short")
     @classmethod
     def _not_blank(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("Feld darf nicht nur aus Whitespace bestehen")
+        if not has_visible_text(value):
+            raise ValueError("Feld braucht sichtbaren Text")
         return value
 
 
@@ -299,7 +335,7 @@ class MappingUnitResult(MatcherModel):
         if self.decision is MappingDecision.NO_MAPPING:
             if count:
                 raise ValueError("no_mapping besitzt keine Zuordnungen")
-            if not (self.no_mapping_reason or "").strip():
+            if not has_visible_text(self.no_mapping_reason):
                 raise ValueError("no_mapping verlangt no_mapping_reason")
             if self.broad_scope_exception or self.broad_scope_reason:
                 raise ValueError("no_mapping besitzt keine Broad-Scope-Ausnahme")
@@ -316,7 +352,7 @@ class MappingUnitResult(MatcherModel):
                     f"mehr als {MAX_ASSIGNMENTS_REGULAR} Zuordnungen verlangen "
                     "broad_scope_exception"
                 )
-            if not (self.broad_scope_reason or "").strip():
+            if not has_visible_text(self.broad_scope_reason):
                 raise ValueError("broad_scope_exception verlangt broad_scope_reason")
             weak = [a.industry_id for a in self.assignments
                     if a.confidence < BROAD_SCOPE_MIN_CONFIDENCE]
@@ -325,10 +361,13 @@ class MappingUnitResult(MatcherModel):
                     "Broad-Scope-Ausnahme verlangt Confidence >= "
                     f"{BROAD_SCOPE_MIN_CONFIDENCE}: {', '.join(sorted(weak))}"
                 )
-            evidences = [a.evidence_excerpt.strip() for a in self.assignments]
+            # Verglichen wird in derselben kanonischen Form wie die
+            # Evidenzpruefung: sonst wuerden Gross-/Kleinschreibung oder ein
+            # zusaetzliches Leerzeichen denselben Beleg als eigenen ausgeben.
+            evidences = [comparable_text(a.evidence_excerpt) for a in self.assignments]
             if len(set(evidences)) != len(evidences):
                 raise ValueError("Broad-Scope-Ausnahme verlangt eigene Evidence je Industry")
-            rationales = [a.rationale_short.strip() for a in self.assignments]
+            rationales = [comparable_text(a.rationale_short) for a in self.assignments]
             if len(set(rationales)) != len(rationales):
                 raise ValueError("Broad-Scope-Ausnahme verlangt eigene Rationale je Industry")
         elif self.broad_scope_exception or self.broad_scope_reason:

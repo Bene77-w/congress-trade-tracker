@@ -208,7 +208,7 @@ def test_shipped_prompts_are_valid():
     collector = ErrorCollector()
     loaded = prompts.load_all(collector)
     assert collector.findings == [], [f.message for f in collector.findings]
-    assert loaded["mapping_system"].version == "mapping-system-v1"
+    assert loaded["mapping_system"].version == "mapping-system-v2"
     assert loaded["repair_system"].version == "repair-system-v1"
     # Die Direktheitsregel ist der fachliche Kern; sie darf nicht verschwinden.
     assert "unmittelbar" in loaded["mapping_system"].text
@@ -264,6 +264,13 @@ def test_a_dashed_line_inside_the_body_stays_in_the_body(prompt_dir):
     _write(prompt_dir, content=VALID.rstrip("\n") + "\n\n---\n\nZweiter Abschnitt.\n")
     prompt = prompts.load_prompt(ErrorCollector(), "mapping_system")
     assert "Zweiter Abschnitt." in prompt.text
+
+
+def test_the_prompt_demands_null_instead_of_omitted_fields():
+    """Reviewbefund P6: das Ausgabeschema verlangt jedes Feld, auch leere."""
+    prompt = prompts.load_all(ErrorCollector())["mapping_system"]
+    assert "ausdruecklich `null`" in prompt.text
+    assert "weglassen" not in prompt.text
 
 
 def test_confidence_one_does_not_reopen_the_directness_rule():

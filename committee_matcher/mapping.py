@@ -52,13 +52,15 @@ from .prompts import SystemPrompt, untrusted_block
 from .provider import StructuredOutputProvider, StructuredRequest, StructuredResponse
 from .settings_view import OfflineSettings, ProviderSettings
 from .status import ExitCode
-from .validation import Violation, format_violations, validate_payload
+from .validation import (
+    ValidationOutcome, Violation, format_violations, validate_payload)
 
 #: Name des erzwungenen Ausgabeschemas; geht als ``schema_name`` in den Call.
 SCHEMA_NAME = "MappingBatchResult"
 
-#: Fester Aufschlag auf jede Schaetzung: Rollenmarkierungen, Schemauebertragung
-#: und Formatierungsanteile, die nicht im gemessenen Text stehen.
+#: Fester Aufschlag auf jede Schaetzung: Rollenmarkierungen und
+#: Protokollrahmen, die in keinem der gemessenen Texte stehen. Das Schema wird
+#: nicht hierueber abgedeckt, sondern seit dem P6-Review mitgemessen.
 FIXED_OVERHEAD_TOKENS = 512
 
 #: Zulaessige Batchgroessen nach einem Context-Split (Plan 2.5: 3->2->1).
@@ -311,21 +313,30 @@ def context_budget(settings: ProviderSettings) -> ContextBudget:
 def estimate_tokens(text: str, chars_per_token: float) -> int:
     """Konservative Tokenschaetzung eines Textes.
 
-    Aufgerundet und mit einem bewusst zu kleinen Zeichen-je-Token-Wert, damit
-    die Schaetzung ueber- statt unterschaetzt: eine zu niedrige Schaetzung
-    fuehrt zu einer abgeschnittenen Antwort, eine zu hohe nur zu einem
-    kleineren Batch.
+    Gemessen wird die **UTF-8-Bytelaenge**, nicht die Zeichenzahl: fuer ASCII
+    ist beides gleich, fuer alles Uebrige liegt die Byteform naeher an dem, was
+    ein Tokenizer tatsaechlich verbraucht. Zusammen mit dem bewusst zu kleinen
+    Zeichen-je-Token-Wert ueberschaetzt die Rechnung damit auch bei fremden
+    Schriften. Eine zu niedrige Schaetzung fuehrt zu einer abgeschnittenen
+    Antwort, eine zu hohe nur zu einem kleineren Batch.
     """
     if chars_per_token <= 0:
         raise ValueError("chars_per_token muss groesser als 0 sein")
-    return math.ceil(len(text) / chars_per_token)
+    return math.ceil(len(text.encode("utf-8")) / chars_per_token)
 
 
 def estimate_request_tokens(system_prompt: str, user_content: str,
-                            chars_per_token: float) -> int:
-    """Geschaetzte Eingabetokens eines Calls einschliesslich Fixaufschlag."""
+                            chars_per_token: float, *,
+                            json_schema: dict | None = None) -> int:
+    """Geschaetzte Eingabetokens eines Calls einschliesslich Fixaufschlag.
+
+    Das erzwungene Schema wird mitgesendet und deshalb mitgemessen; frueher lief
+    es unter dem Pauschalaufschlag mit und konnte ihn ueberschreiten.
+    """
+    schema_text = json.dumps(json_schema or batch_schema(), ensure_ascii=False)
     return (estimate_tokens(system_prompt, chars_per_token)
             + estimate_tokens(user_content, chars_per_token)
+            + estimate_tokens(schema_text, chars_per_token)
             + FIXED_OVERHEAD_TOKENS)
 
 
@@ -454,7 +465,8 @@ def fits_context(request: StructuredRequest, offline: OfflineSettings,
     """
     budget = context_budget(provider_settings)
     estimated = estimate_request_tokens(
-        request.system_prompt, request.user_content, offline.chars_per_token)
+        request.system_prompt, request.user_content, offline.chars_per_token,
+        json_schema=request.json_schema)
     return estimated <= budget.input_tokens, estimated, budget.input_tokens
 
 
@@ -514,13 +526,12 @@ class BatchOutcome:
                    for call in self.calls)
 
 
-def _payload_text(response: StructuredResponse) -> str:
-    """Die vorherige Antwort so, wie sie dem Modell erneut vorgelegt wird."""
-    return json.dumps(response.payload, ensure_ascii=False, indent=2, sort_keys=True)
+def _payload_text(payload: dict) -> str:
+    """Ein Antwortstand so, wie er dem Modell erneut vorgelegt wird."""
+    return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
 
 
-def _context_violation(request: StructuredRequest, estimated: int,
-                       available: int, *, repair: bool) -> Violation:
+def _context_violation(estimated: int, available: int, *, repair: bool) -> Violation:
     code = "MAP_REPAIR_CONTEXT_EXCEEDED" if repair else "MAP_CONTEXT_EXCEEDED"
     what = ("Der Reparaturcall traegt zusaetzlich die vorherige Antwort und die "
             "Verstossliste und") if repair else "Der Call"
@@ -531,6 +542,76 @@ def _context_violation(request: StructuredRequest, estimated: int,
         "Reserven anpassen oder ein groesseres Kontextfenster freigeben; "
         "gekuerzt wird nicht.",
     )
+
+
+def repair_scope(batch: MappingBatch, outcome: ValidationOutcome) -> MappingBatch:
+    """Die Units, die tatsaechlich repariert werden muessen.
+
+    Der Repair ist gezielt: beanstandet das Ergebnis nur eine von drei Units,
+    geht auch nur diese zurueck an das Modell. Das haelt den Reparaturcall
+    klein und schuetzt die uebrigen Units davor, bei der Gelegenheit
+    umgeschrieben zu werden.
+
+    Ein Verstoss ohne Unitbezug - unlesbares Schema, falsche Batch-ID, fehlende
+    Units - trifft den ganzen Batch; dann wird auch der ganze Batch wiederholt.
+    """
+    if outcome.batch_wide_violations() or outcome.parsed is None:
+        return batch
+    affected = set(outcome.units_with_violations())
+    units = tuple(unit for unit in batch.units if unit.unit_id in affected)
+    if not units or len(units) == len(batch.units):
+        return batch
+    return MappingBatch(batch_id_for([unit.unit_id for unit in units]), units)
+
+
+def _previous_stand(scope: MappingBatch, outcome: ValidationOutcome,
+                    raw_payload: dict) -> dict:
+    """Der Antwortstand, den der Reparaturcall vorgelegt bekommt.
+
+    Bei einem Teil-Repair sind das nur die betroffenen Units; das Modell soll
+    die uebrigen gar nicht erst vor Augen haben.
+    """
+    if outcome.parsed is None:
+        return raw_payload
+    wanted = set(scope.unit_ids)
+    return {
+        "requested_batch_id": scope.batch_id,
+        "units": [unit.model_dump(mode="json")
+                  for unit in outcome.parsed.units if unit.unit_id in wanted],
+    }
+
+
+def _merged_outcome(batch: MappingBatch, snapshot: TaxonomySnapshot,
+                    previous: ValidationOutcome, repaired: ValidationOutcome,
+                    scope: MappingBatch) -> ValidationOutcome:
+    """Fuehrt reparierte und unbeanstandete Units zusammen und prueft erneut.
+
+    Das Zusammenfuehren ist selbst kein Freibrief: der gemergte Stand laeuft
+    vollstaendig durch dieselbe Pruefung wie jede Modellantwort. Ein Ergebnis
+    entsteht also nie ungeprueft aus zwei Teilantworten.
+
+    Beantwortet die Reparatur den Auftrag nicht - falsche Batch-ID, fremde oder
+    fehlende Units -, wird gar nicht erst gemergt: solche Verstoesse haben
+    keinen Unitbezug und wuerden beim Zusammenfuehren verschwinden. Und aus der
+    Reparaturantwort zaehlen ausschliesslich die angefragten Units; eine
+    mitgeschickte fremde Unit darf ein gueltiges Ergebnis nicht ueberschreiben.
+    """
+    if repaired.parsed is None or previous.parsed is None:
+        return repaired
+    if repaired.batch_wide_violations():
+        return repaired
+    requested = set(scope.unit_ids)
+    repaired_units = {unit.unit_id: unit for unit in repaired.parsed.units
+                      if unit.unit_id in requested}
+    previous_units = {unit.unit_id: unit for unit in previous.parsed.units}
+    merged = []
+    for unit_id in batch.unit_ids:
+        unit = repaired_units.get(unit_id) or previous_units.get(unit_id)
+        if unit is None:  # kann nur bei einer unvollstaendigen Erstantwort auftreten
+            return repaired
+        merged.append(unit.model_dump(mode="json"))
+    return validate_payload(
+        {"requested_batch_id": batch.batch_id, "units": merged}, batch, snapshot)
 
 
 def map_batch(provider: StructuredOutputProvider,
@@ -551,7 +632,7 @@ def map_batch(provider: StructuredOutputProvider,
     if not fits:
         return BatchOutcome(
             batch=batch, result=None, blocked=True,
-            violations=(_context_violation(request, estimated, available, repair=False),))
+            violations=(_context_violation(estimated, available, repair=False),))
 
     response = provider.complete(request)
     outcome = validate_payload(response.payload, batch, snapshot)
@@ -560,10 +641,12 @@ def map_batch(provider: StructuredOutputProvider,
         return BatchOutcome(batch, outcome.result, (), tuple(calls))
 
     for attempt in range(1, offline.max_repair_attempts + 1):
+        scope = repair_scope(batch, outcome)
         repair_request = build_repair_request(
-            batch, snapshot, repair_prompt, provider_settings,
+            scope, snapshot, repair_prompt, provider_settings,
             attempt=attempt,
-            previous_payload=_payload_text(response),
+            previous_payload=_payload_text(
+                _previous_stand(scope, outcome, response.payload)),
             violations_text=format_violations(outcome.violations),
         )
         fits, estimated, available = fits_context(
@@ -572,10 +655,12 @@ def map_batch(provider: StructuredOutputProvider,
             return BatchOutcome(
                 batch=batch, result=None, calls=tuple(calls), blocked=True,
                 violations=outcome.violations + (
-                    _context_violation(repair_request, estimated, available, repair=True),))
+                    _context_violation(estimated, available, repair=True),))
 
         response = provider.complete(repair_request)
-        outcome = validate_payload(response.payload, batch, snapshot)
+        repaired = validate_payload(response.payload, scope, snapshot)
+        outcome = (repaired if scope.unit_ids == batch.unit_ids
+                   else _merged_outcome(batch, snapshot, outcome, repaired, scope))
         calls.append(CallRecord("repair", repair_request, response, outcome.violations))
         if outcome.ok:
             return BatchOutcome(batch, outcome.result, (), tuple(calls))
@@ -591,5 +676,5 @@ __all__ = [
     "build_user_content", "build_repair_content",
     "context_budget", "estimate_tokens", "estimate_request_tokens",
     "plan_batches", "build_request", "build_repair_request", "fits_context",
-    "CallRecord", "BatchOutcome", "map_batch",
+    "CallRecord", "BatchOutcome", "map_batch", "repair_scope",
 ]
