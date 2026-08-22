@@ -378,6 +378,46 @@ liefert yfinance mit, sie werden aber am Adapterrand verworfen und tauchen in
 keinem Artefakt auf — eine Zuordnung soll fachliche Nähe belegen, nicht
 Marktgröße.
 
+#### `data/committee_matcher_v2/runs/<run_id>/mapping/` (P7a, je Runrevision)
+
+| Datei | Zweck |
+|---|---|
+| `run_manifest.json` | eingefrorene Laufbedingungen; Grundlage der Resume-Prüfung |
+| `run_state.json` | Workflowstatus plus Stand je Unit; Grundlage von Cache und Resume |
+| `calls/<call_id>.json` | Provenienz und rohe Antwortnutzlast eines Providercalls |
+
+`run_manifest.json` (`version: run-manifest-v1`):
+
+| Feld | Typ | Bedeutung |
+|---|---|---|
+| `run_id` / `snapshot_id` | str | Run- und Snapshotrevision |
+| `input_manifest_hash` / `taxonomy_content_hash` | str | fachliche Bindung an Input und Taxonomie |
+| `unit_count` | int | Sollmenge der Units dieses Laufs |
+| `model` | str | eingefrorenes Modell |
+| `routing` | obj | `require_parameters`, `allow_fallbacks`, `quantizations`, `data_collection`, `zdr`, `max_price_usd_per_mtok`, `sdk_retries`, `max_concurrent_calls` |
+| `context` | obj | `endpoint_context_tokens`, `max_output_tokens`, `reasoning_reserve_tokens`, `request_timeout_s` |
+| `batching` | obj | `batch_size`, `max_repair_attempts`, `chars_per_token`, `workflow_retries` |
+| `prompts[]` | obj | `prompt_id`, `prompt_version`, `schema_version`, `prompt_sha256`, `path` |
+| `schema` | obj | `schema_name`, `schema_sha256` |
+| `cache_key_version` | str | `cache-key-v1` |
+| `budget_usd` / `cost_guard` | float / bool | Kostendeckel des Laufs und Zustand der Wache |
+
+Kein Prompttext und kein Zugangsdatum: das Manifest wird versioniert abgelegt
+und ist damit so öffentlich wie das Repository; der Prompt ist über
+`prompt_sha256` eindeutig belegt.
+
+`run_state.json` (`version: run-state-v1`): `run_id`, `workflow_state` sowie je
+Unit `unit_id`, `status` (`not_decided | mapped | no_mapping | failed`),
+`cache_key`, das vollständig geprüfte `result` und die `violations`-Codes eines
+Fehlschlags. Workflowstatus und Unitstatus bleiben getrennt — ein Lauf in
+`outcome_unknown` fällt nie in ein Mappingurteil zurück.
+
+`calls/<call_id>.json` (`version: call-audit-v1`): `call_id`, `model`,
+`provider`, `prompt_tokens`, `completion_tokens`, `cost_usd`, `finish_reason`,
+`generation_id`, `schema_name`, `max_output_tokens` und die rohe `payload`.
+Geschrieben **vor** der fachlichen Prüfung. Systemprompt und Nutzdaten stehen
+bewusst nicht darin.
+
 #### `data/config/committee_matcher_prompts/` (P5, versionierter Kontrollinput)
 
 Die beiden editierbaren Systemprompts `mapping_system.md` und

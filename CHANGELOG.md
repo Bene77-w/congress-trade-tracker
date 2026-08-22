@@ -11,6 +11,48 @@ Historie abgeschlossener Module/Phasen. **Aktiver WIP-Modul-Stand** steht im „
 
 ---
 
+## 2026-08-22 — Committee Matcher V2, P7a: Runzustand, Auditspur, Kosten
+
+`workflow.py` liefert die Bausteine, die das Runkommando am Ende von P7
+zusammensetzt: Runmanifest, Laufzustand, Auditspur, Kostenwache, Cache-Key.
+
+**Kostenwache und Auditspur am Providerrand.** Beide sitzen in einem
+Providerdekorator statt im Mappingkern. Damit wird jeder Call erfasst — auch
+ein Reparaturcall —, die Antwort liegt vor der Fachvalidierung auf der Platte,
+und `mapping.py` bleibt frei von Runzustand. Die Reihenfolge ist Vertrag:
+prüfen, senden, persistieren, verbuchen, zurückgeben.
+
+Gerechnet wird mit dem Preisdeckel, nicht mit einem erwarteten Preis — er ist
+die einzige vor dem Call feststehende Zahl. Ein Call ohne Kostenmeldung gilt
+als ungeklärt, nicht als kostenlos: sein Worst Case bleibt reserviert und zählt
+gegen das Budget. Ein gescheiterter Call ebenso; ob der Provider ihn
+abgerechnet hat, ist von hier aus nicht feststellbar.
+`COMMITTEE_MATCHER_COST_GUARD = False` schaltet allein das Blockieren ab, nicht
+die Buchführung.
+
+**Cache-Key ohne Endpoint.** Plan 2.6 nennt den gerouteten Endpoint als
+Schlüsselbestandteil. Das stammt aus der Zeit vor dem Gate-B-Beschluss vom
+2026-08-21, der die Providerwahl freigegeben hat: bei freier Wahl ist der
+Endpoint des nächsten Calls im Voraus unbekannt, ein Schlüssel mit Endpoint
+wäre nie wieder treffbar und der Cache damit tot. Der Endpoint bleibt
+Auditprovenienz je Call. Enthalten sind stattdessen Unitinput,
+Taxonomie-Content-Hash, Prompt, Schema, Modell und die Inferenzparameter;
+volatile IDs bleiben draußen.
+
+**Laufzustand.** Workflowstatus und Unitstatus werden getrennt persistiert. Ein
+beschädigter Zustand führt nie zu einem teilweise übernommenen Lauf — er wird
+als Ganzes verworfen; die Alternative wäre, einzelne Units aus einer kaputten
+Datei zu glauben. Ein Resume gegen ein vorhandenes Manifest ist nur zulässig,
+solange die ergebnisbestimmenden Felder unverändert sind; ein anderes Budget
+oder eine andere Snapshot-ID werfen keine bezahlten Ergebnisse weg.
+
+Noch kein Kommando: `map run` entsteht am Ende von P7 zusammen mit den
+Artefakten.
+
+Tests: 1631 grün, davon 60 neu und netzwerkfrei.
+
+---
+
 ## 2026-08-22 — Committee Matcher V2, P6: Mappingkern
 
 Ein Batch läuft jetzt vom Zuschnitt bis zum geprüften Ergebnis durch — ohne

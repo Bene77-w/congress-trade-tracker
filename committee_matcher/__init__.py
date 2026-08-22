@@ -44,8 +44,9 @@ Modul                        Zustaendigkeit                               Phase
                              Requestbau, Ausfuehrung, gezielter Repair
 ``validation``               formale Pruefung gegen Vertrag, Unit und      P6
                              Snapshot; Verstossliste, Boundary-Erkennung
-``workflow``                 Runzustand, Cache/Resume, Kostenkontrolle     P7
-``artifacts``                Long-CSV, Coverage, Manifest, Review-XLSX     P8
+``workflow``                 Runzustand, Auditspur am Providerrand,        P7
+                             Kostenwache, Cache/Resume, Runmanifest
+``artifacts``                Long-CSV, Coverage, Berichte, Review-XLSX     P7
 ``evaluation``               Gold-Set-, Stabilitaets- und Holdoutmetriken  P9
 ===========================  ===========================================  =====
 

@@ -1451,8 +1451,9 @@ entschärft, statt den Block vorzeitig zu schließen.
 ### 15g. Mappingkern — Batching, Validierung, Repair (P6)
 
 Der Mappingkern ist implementiert, aber noch nicht über ein eigenes Kommando
-aufrufbar: Runzustand, Persistenz und Kostenwachen entstehen in P7. Die
-folgenden Regeln gelten ab sofort für jeden Mappingcall.
+aufrufbar: das Runkommando entsteht am Ende von P7. Runzustand, Auditspur und
+Kostenwache stehen seit P7a bereit (Abschnitt 15h). Die folgenden Regeln gelten
+ab sofort für jeden Mappingcall.
 
 **Batchbildung und Context-Split.** `COMMITTEE_MATCHER_BATCH_SIZE` ist der
 Wunschzuschnitt (1 oder 3). Passt ein Batch nicht in das Eingabebudget, wird er
@@ -1519,9 +1520,11 @@ scheitert der Batch mit benannten Gründen. Es gibt keine automatische Kappung,
 Löschung oder Confidence-Änderung.
 
 Die Verstoßliste steht im Reparaturprompt außerhalb der Datenblöcke — sie ist
-der verbindliche Auftrag. Werte aus der Modellantwort (etwa eine erfundene
-`industry_id`) werden dort einzeilig und gekürzt zitiert, damit sie keine
-eigenen Zeilen oder Blockrahmen erzeugen können.
+der verbindliche Auftrag. Deshalb enthält sie **keinen einzigen Wert aus der
+Modellantwort**, auch keinen gekürzten: benannt werden ausschließlich
+Positionen aus dem eigenen Vertrag (`units[3].assignments[1].confidence`,
+„1. Zuordnung"). Ein vom Modell erfundener Feldname erscheint als
+`<unbekanntes Feld>`.
 
 Passt ein Reparaturcall nicht mehr in das Kontextfenster, scheitert der Batch
 mit `MAP_REPAIR_CONTEXT_EXCEEDED`; er wird bewusst nicht noch einmal geteilt.
@@ -1535,6 +1538,77 @@ Die Mitglieder eines Konflikts sind nach Unit-ID sortiert, damit die
 Antwortreihenfolge des Providers nicht bestimmt, welche Unit als „a" gilt.
 Offen für P8: wie ein Konflikt mit mehr als zwei Units auf `keep_a`/`keep_b`
 abgebildet wird.
+
+### 15h. Runzustand, Auditspur und Kostenwache (P7a)
+
+Noch kein eigenes Kommando; das Modul `committee_matcher/workflow.py` liefert
+die Bausteine, die das Runkommando am Ende von P7 zusammensetzt.
+
+**Artefakte je Lauf** unter `data/committee_matcher_v2/runs/<run_id>/mapping/`:
+
+| Datei | Inhalt |
+|---|---|
+| `run_manifest.json` | eingefrorene Laufbedingungen: Modell, Routing, Kontext, Batching, Prompt-Hashes, Schema-Hash, Budget |
+| `run_state.json` | Workflowstatus plus Stand je Unit (Status, Cache-Key, geprüftes Ergebnis, Verstoßcodes) |
+| `calls/<call_id>.json` | Provenienz und rohe Antwortnutzlast eines Calls |
+
+Alle drei werden atomar geschrieben. Die Calldatei entsteht **vor** der
+fachlichen Prüfung — ein Absturz während der Validierung verliert keinen
+bezahlten Call. Sie enthält bewusst weder Systemprompt noch Nutzdaten: der
+Prompt liegt versioniert als Kontrollinput vor und ist über `prompt_sha256`
+belegt.
+
+**Cache und Resume.** Der Cache-Key einer Unit besteht aus
+`mapping_input_hash`, `taxonomy_content_hash`, Prompt-ID und -Hash, Schemaname
+und -Hash, Modell sowie den Inferenzparametern `max_output_tokens` und
+`reasoning_reserve_tokens`. Volatile Provenienz — Run-, Snapshot-, Call- und
+Evaluations-IDs — bleibt draußen; sonst wäre jeder Lauf ein vollständiger
+Cache-Miss.
+
+Der geroutete Endpoint gehört ebenfalls **nicht** in den Schlüssel. Plan 2.6
+nennt ihn noch, das stammt aber aus der Zeit vor dem Gate-B-Beschluss vom
+2026-08-21, der die Providerwahl freigegeben hat: bei freier Wahl ist der
+Endpoint des nächsten Calls im Voraus unbekannt, ein Schlüssel mit Endpoint
+wäre nie wieder treffbar. Der Endpoint bleibt Auditprovenienz je Call.
+
+Wiederverwendet wird nur ein entschiedenes, vollständig geprüftes Ergebnis.
+Ein beschädigter `run_state.json` führt nie zu einem teilweise übernommenen
+Lauf: er wird mit `RUN_STATE_MALFORMED` verworfen, der Lauf beginnt von vorn.
+
+Ein Resume gegen ein vorhandenes Manifest ist nur zulässig, solange
+`taxonomy_content_hash`, `input_manifest_hash`, `model`, `prompts`, `schema`,
+`batching` und `cache_key_version` unverändert sind; sonst blockiert
+`RUN_MANIFEST_DRIFT` mit Exit 4. Ein anderes Budget oder eine andere
+Snapshot-ID sind ausdrücklich kein Grund, bezahlte Ergebnisse wegzuwerfen.
+
+**Kostenwache.** Gerechnet wird mit dem Preisdeckel
+`COMMITTEE_MATCHER_MAX_PRICE_USD_PER_MTOK`, nicht mit einem erwarteten Preis:
+er ist die einzige vor dem Call feststehende Zahl, und die Routingbedingungen
+lassen keinen teureren Endpoint zu. Die Eingabe wird geschätzt (dieselbe
+pessimistische Schätzung wie im Context-Gate), die Ausgabe mit
+`MAX_OUTPUT_TOKENS` angesetzt.
+
+| Buchung | Bedeutung |
+|---|---|
+| `spent_usd` | vom Provider gemeldete Kosten |
+| `reserved_usd` | Worst Case für Calls ohne Kostenmeldung und für gescheiterte Calls |
+| `committed_usd` | Summe beider; nur sie zählt gegen das Budget |
+
+Ein Call ohne Kostenmeldung ist nicht kostenlos, nur ungeklärt. Passt der
+nächste Call nicht mehr in `COMMITTEE_MATCHER_MAX_RUN_COST_USD`, wird er gar
+nicht erst gesendet: `COST_BUDGET_EXCEEDED`, Exit 6.
+`COMMITTEE_MATCHER_COST_GUARD = False` schaltet allein das Blockieren ab, nicht
+die Buchführung — der Kostenbericht bleibt vollständig.
+
+Kostenwache und Auditspur sitzen als Dekorator am Providerrand. Dadurch wird
+jeder Call erfasst, auch ein Reparaturcall, und der Mappingkern bleibt frei von
+Runzustand.
+
+**Ungeklärte Calls.** Ein Timeout mit unbekannter Providerannahme wird
+`RUN_OUTCOME_UNKNOWN` (Exit 8) und nie automatisch wiederholt. Abgeglichen wird
+ausschließlich über eine vorhandene OpenRouter-`generation_id`; fehlt sie,
+bleibt der Call dauerhaft offen. Erneutes Senden ist eine Entscheidung von Bene
+— es kann doppelt abgerechnet werden.
 
 ## 16. Ausgelagerter Analyse-Workflow
 
