@@ -276,7 +276,7 @@ def render_report(
     if cost_usd is None:
         lines.append("Kosten: 0.00 USD (providerfreie Phase, keine Modellaufrufe)")
     else:
-        lines.append(f"Kosten: {cost_usd:.4f} USD")
+        lines.append(f"Kosten: {cost_usd:.6f} USD")
     resolved = collector.exit_code() if exit_code is None else exit_code
     lines.append(f"Exit-Code: {int(resolved)} ({resolved.name.lower()})")
     return "\n".join(lines)

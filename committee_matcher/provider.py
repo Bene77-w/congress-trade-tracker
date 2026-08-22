@@ -440,6 +440,21 @@ def _token_count(value) -> int:
     return value if value >= 0 else 0
 
 
+#: Hoechstlaenge des protokollierten Providernamens; laenger ist kein Name mehr,
+#: sondern eingeschleuster Text.
+MAX_PROVIDER_NAME_CHARS = 60
+
+
+def _provider_name(value) -> str | None:
+    """Providername als einzeilige, laengenbegrenzte Protokollangabe."""
+    if not isinstance(value, str):
+        return None
+    single_line = " ".join(value.split())
+    if not single_line:
+        return None
+    return single_line[:MAX_PROVIDER_NAME_CHARS]
+
+
 def _reported_cost(value) -> float | None:
     """Gemeldete Kosten; alles Unplausible bleibt ``None`` (cost_unknown).
 
@@ -754,15 +769,29 @@ class OpenRouterProvider:
 
     @staticmethod
     def _routed_provider(result) -> str | None:
-        """Liest den tatsaechlich gerouteten Provider - nur zum Protokoll."""
+        """Liest den tatsaechlich gerouteten Provider - nur zum Protokoll.
+
+        OpenRouter liefert die Endpointliste des Calls und markiert den
+        genommenen mit ``selected``; ``attempts`` bleibt im Normalfall leer und
+        fuellt sich erst, wenn ein Fallback gegriffen hat. Beide Wege werden
+        gelesen, der letzte Versuch gewinnt.
+
+        Der Name ist ein Fremdwert und landet in Auditartefakten und im
+        Terminalbericht: er wird deshalb auf eine Zeile und eine Hoechstlaenge
+        gebracht. Ein fremdgeformtes Feld darf den Lauf nie abbrechen.
+        """
         metadata = getattr(result, "openrouter_metadata", None)
         attempts = getattr(metadata, "attempts", None)
-        # Ein fremdgeformtes Feld (Zahl, String, None) darf den Lauf nicht
-        # abbrechen; der Provider ist reine Protokollangabe.
-        if not isinstance(attempts, (list, tuple)):
-            return None
-        for attempt in reversed(attempts):
-            provider_name = getattr(attempt, "provider", None)
-            if provider_name:
-                return str(provider_name)
+        if isinstance(attempts, (list, tuple)):
+            for attempt in reversed(attempts):
+                name = _provider_name(getattr(attempt, "provider", None))
+                if name:
+                    return name
+        endpoints = getattr(getattr(metadata, "endpoints", None), "available", None)
+        if isinstance(endpoints, (list, tuple)):
+            for endpoint in endpoints:
+                if getattr(endpoint, "selected", None) is True:
+                    name = _provider_name(getattr(endpoint, "provider", None))
+                    if name:
+                        return name
         return None

@@ -1415,9 +1415,19 @@ Endpointmenge blockieren, 9 bei einem Providerfehler oder Schemaverstoß.
 Schlägt der Call mit einem Routingfehler fehl, ergänzt der Bericht den
 ZDR-Befund aus 15d.
 
-Fremdtexte in Fehlermeldungen werden vor der Übernahme in Bericht und
-`errors.json` redigiert (schlüsselähnliche Zeichenfolgen) und auf 300 Zeichen
-gekürzt.
+Fremdtexte aus Providerfehlern werden **nicht** übernommen, auch nicht
+redigiert oder gekürzt: in Bericht und `errors.json` steht ausschließlich eine
+selbst formulierte Diagnose aus `ERROR_MARKERS`. Eine Redigierung per
+Mustersuche träfe nur die bekannten Schlüsselformen.
+
+Der geroutete Provider steht in `openrouter_metadata.endpoints.available` als
+Eintrag mit `selected=true`; `attempts` füllt sich erst, wenn ein Fallback
+gegriffen hat, und gewinnt dann. Der Name wird als Fremdwert auf eine Zeile und
+60 Zeichen begrenzt.
+
+**Ausgeführt am 2026-08-22:** Antwort vertragsgemäß, Schema eingehalten,
+Routing `Morph`, 0,000018 USD, Exit 0. Structured Output, Usage-Meldung und die
+ZDR-Routingbedingungen sind damit live bestätigt.
 
 **API-Key:** ausschließlich `OPENROUTER_API_KEY` in `.env` (gitignored). Er
 steht nicht im `COMMITTEE_MATCHER_*`-Block, erscheint in keinem Artefakt, in

@@ -11,6 +11,31 @@ Historie abgeschlossener Module/Phasen. **Aktiver WIP-Modul-Stand** steht im „
 
 ---
 
+## 2026-08-22 — Committee Matcher V2: Contract-Smoke live bestanden
+
+Erster kostenpflichtiger Call nach Freigabe durch Bene. Antwort vertragsgemäß,
+Schema eingehalten, Exit 0, 0,000018 USD.
+
+Der Lauf deckte zwei Fehler auf, die nur ein echter Call zeigen konnte:
+
+- **Routing blieb „unbekannt".** `_routed_provider` las
+  `openrouter_metadata.attempts`; dort steht der Endpoint aber erst, wenn ein
+  Fallback gegriffen hat. Im Normalfall trägt ihn
+  `endpoints.available` mit `selected=true`. Damit wäre der geroutete Provider
+  entgegen dem Gate-B-Beschluss dauerhaft unprotokolliert geblieben. Beide Wege
+  werden jetzt gelesen; der Name wird als Fremdwert auf eine Zeile und 60
+  Zeichen begrenzt, weil er in Audit und Terminalbericht landet.
+- **Der Abschlussbericht wies einen bezahlten Call als providerfreie Phase
+  aus.** `run_command` hat die Kosten eines Handlers nie an den Bericht
+  weitergereicht. Ein Handler darf jetzt als drittes Element seine
+  Providerkosten melden; ohne dieses Element bleibt der Lauf wie bisher
+  providerfrei. Die Kostenzeile zeigt sechs statt vier Nachkommastellen — bei
+  vier verschwand der Betrag in der Rundung.
+
+Tests: 1646 grün, davon 15 neu.
+
+---
+
 ## 2026-08-22 — Committee Matcher V2, P7a: Runzustand, Auditspur, Kosten
 
 `workflow.py` liefert die Bausteine, die das Runkommando am Ende von P7

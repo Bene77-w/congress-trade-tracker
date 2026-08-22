@@ -147,7 +147,7 @@ def test_report_shows_cost_and_artifacts_when_given():
         artifacts=["data/committee_matcher_v2/runs/r1/manifest.json"],
         cost_usd=0.1234,
     )
-    assert "Kosten: 0.1234 USD" in text
+    assert "Kosten: 0.123400 USD" in text
     assert "runs/r1/manifest.json" in text
 
 

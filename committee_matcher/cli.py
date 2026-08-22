@@ -573,7 +573,7 @@ def handle_provider_smoke(
             f"Smoke:    Schema verletzt ({len(violations)} Abweichungen)",
             f"Routing:  {response.provider or 'unbekannt'} | Modell {response.model}",
             f"Payload:  {response.payload}",
-        ], []
+        ], [], response.cost_usd
 
     cost = ("unbekannt (cost_unknown)" if response.cost_usd is None
             else f"{response.cost_usd:.6f} USD")
@@ -584,7 +584,7 @@ def handle_provider_smoke(
         f"{response.completion_tokens} Completion | Kosten {cost}",
         f"Payload:  {response.payload}",
         f"Generation: {response.generation_id or 'unbekannt'}",
-    ], []
+    ], [], response.cost_usd
 
 
 #: Bereits implementierte Aktionen; alles andere meldet die Zielphase.
@@ -605,6 +605,7 @@ def run_command(command: Command, namespace: argparse.Namespace) -> int:
     handler = HANDLERS.get(command.name)
     stage_summary: list[str] = []
     stage_artifacts: list[str] = []
+    stage_cost: float | None = None
 
     if command.provider and collector.has_blockers():
         collector.blocker(
@@ -624,9 +625,12 @@ def run_command(command: Command, namespace: argparse.Namespace) -> int:
             )
     else:
         try:
-            stage_summary, stage_artifacts = handler(
-                command, namespace, collector, settings
-            )
+            # Ein Handler liefert (Zusammenfassung, Artefakte) und optional die
+            # tatsaechlich angefallenen Providerkosten. Ohne dritten Wert bleibt
+            # der Lauf providerfrei - so bleiben die bestehenden Handler gueltig.
+            result = handler(command, namespace, collector, settings)
+            stage_summary, stage_artifacts = result[0], result[1]
+            stage_cost = result[2] if len(result) > 2 else None
         except MatcherError as exc:
             collector.extend(exc.findings)
 
@@ -650,6 +654,7 @@ def run_command(command: Command, namespace: argparse.Namespace) -> int:
         headline=f"Committee Matcher V2 - {command.name}",
         summary_lines=summary,
         artifacts=artifacts,
+        cost_usd=stage_cost,
     )
     return int(collector.exit_code())
 
