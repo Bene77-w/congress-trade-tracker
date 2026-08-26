@@ -59,6 +59,7 @@ def _offline(**overrides) -> OfflineSettings:
         yfinance_request_pause_s=0.4, yfinance_max_retries=3,
         yfinance_checkpoint_every=25, batch_size=3, workflow_retries=2,
         max_repair_attempts=1, chars_per_token=3.0, cost_guard=True,
+        reconcile_min_age_s=300.0,
     )
     values.update(overrides)
     return OfflineSettings(**values)
@@ -411,7 +412,12 @@ def test_a_paid_call_without_audit_file_is_marked_for_reconciliation(artifact_sa
 
 
 def test_an_unusable_answer_is_booked_with_its_reported_cost(artifact_sandbox):
-    """Kam die Antwort samt Kostenmeldung an, ist nichts offen - nur unbrauchbar."""
+    """Kam die Antwort samt Kostenmeldung an, ist der Ausgang geklaert.
+
+    Der Call ist bezahlt und unbrauchbar; zu klaeren bleibt nichts. Seine Spur
+    ist die Klaerungsdatei, nicht die Liste der offenen Calls - sonst verlangte
+    ein solcher Lauf eine Reconciliation, die nichts mehr feststellen kann.
+    """
     guard = workflow.CostGuard(budget_usd=1.0, rates=workflow.CostRates(1.0, 1.0))
     failure = _call_error("PROV_INVALID_JSON", retryable=True)
     failure.generation_id, failure.cost_usd = "gen-9", 0.0007
@@ -421,9 +427,14 @@ def test_an_unusable_answer_is_booked_with_its_reported_cost(artifact_sandbox):
         audited.complete(_request())
     assert guard.spent_usd == pytest.approx(0.0007)
     assert guard.reserved_usd == 0.0
-    # Bezahlt, aber ohne Auditdatei: die Vormerkung bleibt als einzige Spur.
-    assert [(c.generation_id, c.reason) for c in audited.unknown] == [
-        ("gen-9", "PROV_INVALID_JSON")]
+    assert audited.unknown == []
+    assert audited.settled == ["call-1"]
+    payload = json.loads(workflow.reconciled_path("run-1", "call-1").read_text(
+        encoding="utf-8"))
+    assert payload["outcome"] == "charged"
+    assert payload["cost_usd"] == pytest.approx(0.0007)
+    assert payload["generation_id"] == "gen-9"
+    assert workflow.open_intents("run-1") == ()
 
 
 def test_an_open_call_keeps_the_generation_id_it_knows(artifact_sandbox):

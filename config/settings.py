@@ -769,6 +769,11 @@ COMMITTEE_MATCHER_MAX_REPAIR_ATTEMPTS = 1           # int, 0..3
 # Obergrenze liegt deshalb bei 4.0 - darueber wuerde die Schaetzung fuer
 # lateinischen Text systematisch unter dem realen Verbrauch liegen.
 COMMITTEE_MATCHER_CHARS_PER_TOKEN = 3.0             # float, 1.0..4.0
+# Mindestalter eines Calls, bevor 'run reconcile' eine unbekannte Generation als
+# 'nicht abgerechnet' werten darf. Der Provider zeigt eine frische Generation
+# teils verzoegert; ein zu frueher Abgleich wuerde die Reservierung aufloesen und
+# einen zweiten kostenpflichtigen Call erlauben.
+COMMITTEE_MATCHER_RECONCILE_MIN_AGE_S = 300.0       # float, 0..86400
 
 # Der API-Key steht ausschliesslich in .env (gitignored) und wird ueber
 # os.getenv gelesen. Er gehoert bewusst NICHT in den COMMITTEE_MATCHER_*-Block:

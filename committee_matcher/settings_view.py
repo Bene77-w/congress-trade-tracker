@@ -230,6 +230,9 @@ class OfflineSettings:
     workflow_retries: int
     max_repair_attempts: int
     chars_per_token: float
+    #: Mindestalter eines Calls, bevor 'run reconcile' eine unbekannte
+    #: Generation als nicht abgerechnet werten darf.
+    reconcile_min_age_s: float
     #: Kostenwache; per CLI-Flag je Lauf abschaltbar.
     cost_guard: bool
 
@@ -355,6 +358,9 @@ def load_settings(module: ModuleType | None = None) -> MatcherSettings:
         chars_per_token=reader.required(
             f"{_PREFIX}CHARS_PER_TOKEN", _float_in(1.0, 4.0),
             "float 1..4", 3.0),
+        reconcile_min_age_s=reader.required(
+            f"{_PREFIX}RECONCILE_MIN_AGE_S", _float_in(0.0, 86_400.0),
+            "float 0..86400", 300.0),
         cost_guard=reader.required(
             f"{_PREFIX}COST_GUARD", _strict_bool, "bool", True),
     )

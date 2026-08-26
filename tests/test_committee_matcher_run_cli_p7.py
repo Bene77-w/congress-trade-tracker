@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 import sys
+from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -55,6 +57,7 @@ def settings_module(**overrides):
         "COMMITTEE_MATCHER_WORKFLOW_RETRIES": 2,
         "COMMITTEE_MATCHER_MAX_REPAIR_ATTEMPTS": 1,
         "COMMITTEE_MATCHER_CHARS_PER_TOKEN": 3.0,
+        "COMMITTEE_MATCHER_RECONCILE_MIN_AGE_S": 300.0,
         "COMMITTEE_MATCHER_COST_GUARD": True,
         "COMMITTEE_MATCHER_MODEL": "anbieter/modell",
         "COMMITTEE_MATCHER_QUANTIZATIONS": ("fp8", "bf16"),
@@ -504,6 +507,16 @@ def reconcile_argv(run_id: str = "run-test") -> list[str]:
     return ["run", "reconcile", "--run-id", run_id]
 
 
+def _age_intent(call_id, seconds=3_600, run_id="run-test"):
+    """Datiert die Vormerkung zurueck; 'run reconcile' verlangt ein Mindestalter."""
+    target = workflow.intent_path(run_id, call_id)
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    stamp = datetime.now(timezone.utc) - timedelta(seconds=seconds)
+    payload["created_at"] = stamp.isoformat(timespec="seconds")
+    target.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+                      encoding="utf-8")
+
+
 def _leave_one_open(scripted, capsys, *, generation_id="gen-offen"):
     """Erzeugt genau einen Call mit offenem Ausgang."""
     scripted.install(errors=[cli.provider._call_failure(
@@ -540,6 +553,7 @@ def _forbidden_fetch(*args, **kwargs):
 def test_a_generation_the_provider_does_not_know_was_never_charged(
         scripted, capsys, api_key, monkeypatch):
     call_id = _leave_one_open(scripted, capsys)
+    _age_intent(call_id)
     monkeypatch.setattr(
         cli.provider, "fetch_generation",
         lambda generation_id, key: cli.provider.GenerationRecord(
@@ -599,13 +613,15 @@ def test_reconcile_without_an_api_key_blocks(scripted, capsys, monkeypatch):
     _leave_one_open(scripted, capsys)
     monkeypatch.delenv(cli.provider.API_KEY_ENV, raising=False)
     monkeypatch.setattr(cli.provider, "fetch_generation", _forbidden_fetch)
-    assert cli.main(reconcile_argv()) == int(ExitCode.PROVIDER_ERROR)
+    # Kein Providercall gescheitert: der Lauf startet gar nicht erst.
+    assert cli.main(reconcile_argv()) == int(ExitCode.PREFLIGHT_BLOCKED)
     assert "PROV_NO_API_KEY" in capsys.readouterr().out
 
 
 def test_a_cleared_batch_runs_again_under_a_new_call_id(scripted, capsys, api_key,
                                                         monkeypatch):
     call_id = _leave_one_open(scripted, capsys)
+    _age_intent(call_id)
     monkeypatch.setattr(
         cli.provider, "fetch_generation",
         lambda generation_id, key: cli.provider.GenerationRecord(
@@ -617,3 +633,93 @@ def test_a_cleared_batch_runs_again_under_a_new_call_id(scripted, capsys, api_ke
     assert len(adapter.calls) == 1
     assert adapter.calls[0].call_id == f"pass2-{call_id}"
     assert workflow.mapping_path("run-test", "artifacts_manifest.json").exists()
+
+
+# ---------------------------------------------------------------------------
+# Wiederaufnahme, Kostenstand und Reparaturen (P7c-Reviewbefunde)
+# ---------------------------------------------------------------------------
+
+def test_open_intents_block_the_next_execute(scripted, capsys):
+    _leave_one_open(scripted, capsys)
+    adapter = scripted.install()
+    assert cli.main(execute_argv()) == int(ExitCode.OUTCOME_UNKNOWN)
+    out = capsys.readouterr().out
+    assert adapter.calls == [], "vor der Klaerung wird kein weiterer Call gesendet"
+    assert "RUN_OUTCOME_UNKNOWN" in out
+    assert "run reconcile --run-id run-test" in out
+
+
+def test_cost_of_earlier_passes_carries_into_the_next_run(scripted, capsys):
+    _single_unit_batches(scripted.monkeypatch)
+    first = scripted.install(errors=[None, _provider_error(
+        retryable=False, outcome_unknown=False)])
+    cli.main(plan_argv())
+    capsys.readouterr()
+    assert cli.main(execute_argv()) == int(ExitCode.PROVIDER_ERROR)
+    capsys.readouterr()
+    assert len(first.calls) == 2
+
+    second = scripted.install()
+    assert cli.main(execute_argv()) in (0, 2)
+    out = capsys.readouterr().out
+    assert "[INFO] cost | run=run-test | prior_calls=1" in out
+    report = json.loads(workflow.mapping_path(
+        "run-test", "cost_report.json").read_text(encoding="utf-8"))
+    # Ein bezahlter Call des ersten Durchlaufs plus zwei des zweiten.
+    assert report["calls"] == 3
+    assert report["spent_usd"] == pytest.approx(3 * 0.000012)
+
+
+class RepairProvider(ScriptedProvider):
+    """Erster Call verletzt den Vertrag, der Reparaturcall scheitert."""
+
+    def complete(self, request):
+        if "-repair-" in request.call_id:
+            self.calls.append(request)
+            raise _provider_error(retryable=True, outcome_unknown=False)
+        response = super().complete(request)
+        payload = dict(response.payload)
+        payload["units"] = [
+            unit_result(unit["unit_id"], assignments=[_assignment("gibt-es-nicht")])
+            for unit in payload["units"]
+        ]
+        return replace(response, payload=payload)
+
+
+def test_a_failed_repair_does_not_resend_the_paid_first_call(scripted, capsys):
+    adapter = RepairProvider()
+    scripted.monkeypatch.setattr(
+        cli.provider.OpenRouterProvider, "create",
+        classmethod(lambda cls, collector, settings: adapter))
+    cli.main(plan_argv())
+    capsys.readouterr()
+    assert cli.main(execute_argv()) == int(ExitCode.PROVIDER_ERROR)
+    capsys.readouterr()
+    kinds = [request.call_id for request in adapter.calls]
+    assert len(kinds) == 2, "der bezahlte Erstcall wird nicht erneut gesendet"
+    assert "-repair-1" in kinds[1]
+    assert not any(call_id.startswith("retry") for call_id in kinds)
+
+
+def test_a_fresh_generation_is_not_declared_uncharged(scripted, capsys, api_key,
+                                                      monkeypatch):
+    _leave_one_open(scripted, capsys)
+    monkeypatch.setattr(
+        cli.provider, "fetch_generation",
+        lambda generation_id, key: cli.provider.GenerationRecord(
+            generation_id=generation_id, found=False))
+    assert cli.main(reconcile_argv()) == int(ExitCode.OUTCOME_UNKNOWN)
+    out = capsys.readouterr().out
+    assert "COST_RECONCILE_TOO_FRESH" in out
+    assert len(workflow.open_intents("run-test")) == 1
+
+
+def test_execute_without_target_flags_uses_the_planned_scope(scripted, capsys):
+    adapter = scripted.install()
+    assert cli.main(plan_argv("run-test", "--unit-id", "house--testing")) in (0, 2)
+    capsys.readouterr()
+    assert cli.main(["run", "execute", "--run-id", "run-test"]) in (0, 2)
+    capsys.readouterr()
+    sent = sorted(unit for request in adapter.calls
+                  for unit in _requested_units(request))
+    assert sent == ["house--testing"], "die eingefrorene Auswahl bleibt massgeblich"

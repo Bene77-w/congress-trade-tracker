@@ -18,6 +18,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
@@ -189,6 +190,96 @@ def free_call_prefix(run_id: str, batch_id: str) -> str:
         if not call_taken(run_id, f"{prefix}{batch_id}"):
             return prefix
     return f"pass{MAX_CALL_PASSES + 1}-"
+
+
+def _now_iso() -> str:
+    """Zeitpunkt in UTC; ausschliesslich fuer Vormerkungen und Klaerungen."""
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+@dataclass(frozen=True)
+class PriorCosts:
+    """Was ein Lauf vor dem aktuellen Durchlauf bereits ausgegeben hat.
+
+    Ohne diesen Stand begaenne jeder Resume mit leerem Budget: derselbe Lauf
+    koennte sein Kostenlimit beliebig oft ausschoepfen, und der Kostenbericht
+    der Revision naennte nur den letzten Durchlauf.
+    """
+
+    calls: int = 0
+    spent_usd: float = 0.0
+    unknown_calls: int = 0
+    reserved_usd: float = 0.0
+    #: Calls mit eigener Spur auf der Platte (Auditdatei oder Klaerung).
+    documented_calls: int = 0
+    #: Call-IDs mit Auditdatei, aber ohne Eintrag im Laufzustand.
+    orphaned_audits: tuple[str, ...] = ()
+
+
+def _read_json(target: Path) -> dict | None:
+    try:
+        data = json.loads(target.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def prior_costs(run_id: str, rates: CostRates, state: "RunState | None" = None
+                ) -> PriorCosts:
+    """Rekonstruiert den Kostenstand frueherer Durchlaeufe aus den Callspuren.
+
+    Gelesen werden die Auditdateien (bezahlte, verwertete Calls), die
+    Klaerungen (bezahlte Calls ohne Antwort und nachweislich nicht ausgefuehrte
+    Calls) und die liegengebliebenen Vormerkungen (offener Ausgang). Ein Call
+    ohne gemeldete Kosten wird mit den Kosten seiner tatsaechlichen Tokenzahl
+    reserviert - der Preisdeckel macht daraus eine Obergrenze, keine Schaetzung.
+    """
+    folder = mapping_path(run_id, CALLS_DIRNAME)
+    if not folder.is_dir():
+        return PriorCosts()
+
+    known_units = {record.call_id for record in (state.units.values() if state else ())}
+    calls = documented = unknown = 0
+    spent = reserved = 0.0
+    orphaned: list[str] = []
+
+    for entry in sorted(folder.glob("*.json")):
+        name = entry.name
+        if name.endswith(".intent.json"):
+            continue
+        if name.endswith(".reconciled.json"):
+            data = _read_json(entry) or {}
+            if data.get("outcome") != "charged":
+                continue
+            cost = data.get("cost_usd")
+            calls += 1
+            documented += 1
+            spent += float(cost) if isinstance(cost, (int, float)) else 0.0
+            continue
+        data = _read_json(entry) or {}
+        call_id = name[: -len(".json")]
+        calls += 1
+        documented += 1
+        cost = data.get("cost_usd")
+        if isinstance(cost, (int, float)) and not isinstance(cost, bool):
+            spent += float(cost)
+        else:
+            unknown += 1
+            reserved += rates.worst_case_usd(
+                int(data.get("prompt_tokens") or 0),
+                int(data.get("completion_tokens") or 0))
+        if state is not None and call_id not in known_units:
+            orphaned.append(call_id)
+
+    for call_id in open_intents(run_id):
+        data = load_intent(run_id, call_id) or {}
+        calls += 1
+        unknown += 1
+        reserved += float(data.get("reserved_usd") or 0.0)
+
+    return PriorCosts(calls=calls, spent_usd=spent, unknown_calls=unknown,
+                      reserved_usd=reserved, documented_calls=documented,
+                      orphaned_audits=tuple(sorted(orphaned)))
 
 
 def _write_json(target: Path, payload: object) -> Path:
@@ -400,17 +491,31 @@ class CostGuard:
         }
 
 
+#: Zuschlag der Verstossliste eines Reparaturcalls in Tokens. Der Reparaturcall
+#: traegt zusaetzlich zum Erstcall die vorherige Antwort und die Liste der
+#: Verstoesse; gerechnet wird mit einem grosszuegigen Festwert, damit die
+#: Vorabpruefung nie zu niedrig liegt.
+REPAIR_VIOLATION_TOKENS = 2_000
+
+
 def plan_cost_usd(requests: Sequence[provider_module.StructuredRequest],
                   rates: CostRates, offline: OfflineSettings) -> float:
     """Worst-Case-Kosten aller geplanten Erstcalls samt erlaubter Reparaturen.
 
-    Ein Batch darf ``max_repair_attempts`` mal nachgebessert werden; die
-    Vorabpruefung rechnet mit dem teuersten Fall, damit ein Lauf nicht auf
-    halber Strecke am Budget scheitert.
+    Ein Batch darf ``max_repair_attempts`` mal nachgebessert werden. Ein
+    Reparaturcall ist nie billiger als der Erstcall: er wiederholt dessen
+    Eingabe und legt die vorherige Antwort samt Verstossliste dazu. Die
+    Vorabpruefung rechnet deshalb je Reparatur mit Erstcall plus voller
+    Ausgabelaenge plus Verstossliste - sonst reisst das Budget mitten im Lauf.
     """
-    factor = 1 + max(0, offline.max_repair_attempts)
-    return sum(request_worst_case_usd(request, rates, offline)
-               for request in requests) * factor
+    attempts = max(0, offline.max_repair_attempts)
+    total = 0.0
+    for request in requests:
+        first = request_worst_case_usd(request, rates, offline)
+        surcharge = rates.worst_case_usd(
+            request.max_output_tokens + REPAIR_VIOLATION_TOKENS, 0)
+        total += first + attempts * (first + surcharge)
+    return total
 
 
 # ---------------------------------------------------------------------------
@@ -460,6 +565,9 @@ class AuditedProvider:
     #: Calls, deren Ausgang offen blieb. Sie halten ihre Reservierung, bis der
     #: Abgleich ueber die Generation-ID sie aufloest.
     unknown: list["UnknownCall"] = field(default_factory=list)
+    #: Bezahlte Calls ohne verwertbare Antwort; ihr Kostenstand ist geklaert,
+    #: ihre Spur ist die Klaerungsdatei statt einer Auditdatei.
+    settled: list[str] = field(default_factory=list)
 
     def complete(self, request: provider_module.StructuredRequest
                  ) -> provider_module.StructuredResponse:
@@ -519,6 +627,31 @@ class AuditedProvider:
         except OSError:
             pass
 
+    def _settle_without_audit(self, call_id: str, *, reason: str,
+                              cost_usd: float, generation_id: str | None) -> None:
+        """Haelt einen bezahlten Call ohne verwertbare Antwort als geklaert fest.
+
+        Die Klaerung tritt an die Stelle der Auditdatei: die Kosten stehen fest,
+        der Inhalt ist verloren. Die Vormerkung bleibt als Beleg liegen.
+        """
+        self.settled.append(call_id)
+        try:
+            write_reconciliation(self.run_id, call_id, {
+                "outcome": "charged",
+                "cost_usd": float(cost_usd),
+                "reserved_usd": float(cost_usd),
+                "released_usd": 0.0,
+                "generation_id": generation_id,
+                "reason": reason,
+                "source": "call_failed_with_cost",
+            })
+        except Exception:
+            # Ohne Klaerungsdatei bleibt der Call offen und faellt der
+            # Reconciliation zu; die Vormerkung benennt ihn.
+            self.settled.remove(call_id)
+            self._mark_open(call_id, reason=reason, reserved_usd=float(cost_usd),
+                            generation_id=generation_id, cost_usd=float(cost_usd))
+
     def _mark_open(self, call_id: str, *, reason: str, reserved_usd: float,
                    generation_id: str | None = None,
                    cost_usd: float | None = None) -> None:
@@ -538,6 +671,10 @@ class AuditedProvider:
             "version": CALL_INTENT_VERSION,
             "run_id": self.run_id,
             "cost_usd": cost_usd,
+            # Der Zeitpunkt entscheidet spaeter, ob eine dem Provider
+            # unbekannte Generation als 'nie ausgefuehrt' gelten darf: kurz
+            # nach dem Call ist sie moeglicherweise nur noch nicht sichtbar.
+            "created_at": _now_iso(),
         })
         try:
             _write_json(target, payload)
@@ -560,11 +697,13 @@ class AuditedProvider:
         reason = exc.findings[0].code if exc.findings else "PROV_CALL_FAILED"
         if exc.cost_usd is not None:
             # Die Antwort kam an und trug ihre Kosten; unbrauchbar war nur ihr
-            # Inhalt. Der Ausgang ist bekannt, die Spur fehlt trotzdem.
+            # Inhalt. Der Ausgang ist damit bekannt - der Call ist bezahlt und
+            # geklaert, nur ohne verwertbare Antwort. Ihn als 'offen' zu fuehren
+            # wuerde eine Reconciliation verlangen, die nichts mehr klaeren kann.
             self.guard.settle(worst_case, cost_usd=exc.cost_usd)
-            self._mark_open(request.call_id, reason=reason,
-                            reserved_usd=exc.cost_usd,
-                            generation_id=exc.generation_id, cost_usd=exc.cost_usd)
+            self._settle_without_audit(
+                request.call_id, reason=reason, cost_usd=exc.cost_usd,
+                generation_id=exc.generation_id)
             return exc
         if not exc.outcome_unknown:
             self._release(request.call_id)
@@ -907,7 +1046,12 @@ def load_manifest(run_id: str) -> dict | None:
 #: fachliche Ergebnis. Volatile Provenienz steht bewusst nicht darin.
 RESUME_BOUND_FIELDS = ("taxonomy_content_hash", "input_manifest_hash", "model",
                        "prompts", "schema", "batching", "context",
-                       "cache_key_version", "selection", "unit_count")
+                       "cache_key_version", "selection", "unit_count",
+                       # Routing traegt die Datenschutzzusage (ZDR,
+                       # data_collection) und die Preisdeckel des Laufs; ein
+                       # Wechsel mitten im Lauf hiesse, dass Teile des
+                       # Ergebnisses unter anderen Zusagen entstanden sind.
+                       "routing")
 
 
 def resume_conflicts(previous: Mapping, current: Mapping) -> tuple[str, ...]:

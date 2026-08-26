@@ -22,7 +22,6 @@ import json
 import math
 import os
 import urllib.error
-import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from typing import Callable, Protocol
@@ -33,11 +32,6 @@ from .status import ExitCode
 
 #: Oeffentlicher Katalogendpunkt; ohne Key, ohne Kosten, kein Modellaufruf.
 CATALOG_URL = "https://openrouter.ai/api/v1/models/{model}/endpoints"
-
-#: Abfrage eines einzelnen Calls ueber seine Generation-ID. Sie ist der einzige
-#: Weg, einen Call mit offenem Ausgang nachtraeglich zu klaeren; ein zweiter
-#: Modellaufruf wuerde ihn stattdessen ein zweites Mal bezahlen.
-GENERATION_URL = "https://openrouter.ai/api/v1/generation?id={generation_id}"
 
 #: Kennzeichen der Structured-Output-Faehigkeit im Katalog.
 STRUCTURED_OUTPUT_PARAMETER = "structured_outputs"
@@ -122,8 +116,9 @@ def fetch_endpoints(model: str) -> dict:
 class GenerationRecord:
     """Der beim Provider hinterlegte Stand eines Calls.
 
-    ``found=False`` heisst: der Provider kennt diese Generation nicht. Dann ist
-    der Call nicht zustande gekommen und hat nichts gekostet.
+    ``found=False`` heisst: der Provider kennt diese Generation nicht. Das ist
+    ein Hinweis, kein Beweis - eine gerade erst abgesetzte Generation kann
+    verzoegert erscheinen. Ueber die Folgerung entscheidet der Aufrufer.
     """
 
     generation_id: str
@@ -132,61 +127,52 @@ class GenerationRecord:
     model: str | None = None
     provider: str | None = None
     finish_reason: str | None = None
+    #: Provenienz, die erst der Generationabruf liefert (P7a-Luecke).
+    request_id: str | None = None
+    upstream_id: str | None = None
 
 
-def _generation_cost(payload: dict) -> float | None:
+def _generation_cost(value) -> float | None:
     """Kosten einer Generation; nur eine echte, endliche Zahl zaehlt."""
-    for key in ("total_cost", "usage"):
-        raw = payload.get(key)
-        if raw is None or isinstance(raw, bool):
-            continue
-        try:
-            value = float(raw)
-        except (TypeError, ValueError):
-            continue
-        if math.isfinite(value) and value >= 0.0:
-            return value
-    return None
-
-
-def fetch_generation(generation_id: str, api_key: str) -> GenerationRecord:
-    """Fragt einen Call ueber seine Generation-ID ab (kostenlos).
-
-    Der Abruf braucht den API-Key, weil die Generation zum Konto gehoert. Er
-    erscheint ausschliesslich im Anfrageheader - in keinem Artefakt, Manifest
-    oder Terminalbericht.
-    """
-    url = GENERATION_URL.format(generation_id=urllib.parse.quote(generation_id))
-    request = urllib.request.Request(url, headers={
-        "Authorization": f"Bearer {api_key}",
-        "User-Agent": "congress-tracker/committee-matcher",
-    })
+    if value is None or isinstance(value, bool):
+        return None
     try:
-        with urllib.request.urlopen(request, timeout=CATALOG_TIMEOUT_S) as response:
-            payload = response.read(CATALOG_MAX_BYTES + 1)
-            if len(payload) > CATALOG_MAX_BYTES:
-                raise CatalogUnavailable(
-                    f"Antwort ueberschreitet {CATALOG_MAX_BYTES} Bytes")
-            data = json.loads(payload.decode("utf-8"))
-    except CatalogUnavailable:
-        raise
-    except urllib.error.HTTPError as exc:
-        if exc.code == 404:
-            return GenerationRecord(generation_id=generation_id, found=False)
-        raise CatalogUnavailable(f"HTTP {exc.code}") from exc
-    except Exception as exc:  # Netzfehler, Timeout, unlesbares JSON
+        cost = float(value)
+    except (TypeError, ValueError):
+        return None
+    return cost if math.isfinite(cost) and cost >= 0.0 else None
+
+
+def fetch_generation(generation_id: str, api_key: str, *, client=None
+                     ) -> GenerationRecord:
+    """Fragt einen Call ueber seine Generation-ID ab (kostenlos, kein Modellaufruf).
+
+    Der Abruf laeuft ueber dasselbe gepinnte SDK wie der Mappingcall; der
+    API-Key erscheint ausschliesslich in der Anfrage, in keinem Artefakt.
+    """
+    from openrouter.errors import NotFoundResponseError
+
+    if client is None:
+        from openrouter import OpenRouter
+
+        client = OpenRouter(api_key=api_key)
+    try:
+        result = client.generations.get_generation(id=generation_id)
+    except NotFoundResponseError:
+        return GenerationRecord(generation_id=generation_id, found=False)
+    except Exception as exc:  # Netzfehler, Timeout, Vertragsbruch der Antwort
         raise CatalogUnavailable(f"{exc.__class__.__name__}: {exc}") from exc
 
-    record = data.get("data") if isinstance(data.get("data"), dict) else data
-    if not isinstance(record, dict) or not record:
-        return GenerationRecord(generation_id=generation_id, found=False)
+    data = getattr(result, "data", None) or result
     return GenerationRecord(
         generation_id=generation_id,
         found=True,
-        cost_usd=_generation_cost(record),
-        model=_text_or_none(record.get("model")),
-        provider=_provider_name(record.get("provider_name")),
-        finish_reason=_text_or_none(record.get("finish_reason")),
+        cost_usd=_generation_cost(getattr(data, "total_cost", None)),
+        model=_text_or_none(getattr(data, "model", None)),
+        provider=_text_or_none(getattr(data, "provider_name", None)),
+        finish_reason=_text_or_none(getattr(data, "finish_reason", None)),
+        request_id=_text_or_none(getattr(data, "request_id", None)),
+        upstream_id=_text_or_none(getattr(data, "upstream_id", None)),
     )
 
 

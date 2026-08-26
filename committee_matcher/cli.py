@@ -228,14 +228,28 @@ def _slug(name: str) -> str:
     return name.replace(" ", "_").replace("-", "_")
 
 
-def _persist(collector: ErrorCollector, command_name: str) -> tuple[list[str], object]:
+def _report_segments(command_name: str, run_id: str | None) -> tuple[str, ...]:
+    """Ablageort der Diagnose; mit Run-ID an den Lauf gebunden.
+
+    Ohne Bindung ueberschreibt der naechste Aufruf desselben Kommandos den
+    Bericht des vorigen Laufs - genau die Datei, die einen abgebrochenen Lauf
+    erklaert.
+    """
+    if run_id:
+        return ("runs", run_id, REPORT_DIR, _slug(command_name))
+    return (REPORT_DIR, _slug(command_name))
+
+
+def _persist(collector: ErrorCollector, command_name: str,
+             run_id: str | None = None) -> tuple[list[str], object]:
     """Schreibt den strukturierten Fehlerbericht ueber die Pfadwache.
 
     Scheitert das Schreiben, bricht der Lauf nicht ab: der Terminalbericht
     erscheint trotzdem und nennt den Fehlschlag als Warnung.
     """
+    segments = _report_segments(command_name, run_id)
     try:
-        target = paths.artifact_path(REPORT_DIR, _slug(command_name), REPORT_FILENAME)
+        target = paths.artifact_path(*segments, REPORT_FILENAME)
         collector.write_json(target)
         return [paths.relative_to_base(target)], None
     except (MatcherError, OSError) as exc:
@@ -243,7 +257,7 @@ def _persist(collector: ErrorCollector, command_name: str) -> tuple[list[str], o
             Severity.WARNUNG,
             "CLI_REPORT_NOT_PERSISTED",
             Stage.ARTIFACTS,
-            f"{REPORT_DIR}/{_slug(command_name)}/{REPORT_FILENAME}",
+            "/".join(segments) + f"/{REPORT_FILENAME}",
             f"Fehlerbericht konnte nicht persistiert werden: {exc}",
             "Schreibrecht unter data/committee_matcher_v2/ pruefen.",
         )
@@ -251,10 +265,11 @@ def _persist(collector: ErrorCollector, command_name: str) -> tuple[list[str], o
 
 
 def _write_artifact(collector: ErrorCollector, command_name: str, filename: str,
-                    payload: object) -> list[str]:
+                    payload: object, run_id: str | None = None) -> list[str]:
     """Schreibt ein Diagnoseartefakt neben den Fehlerbericht."""
     try:
-        target = paths.artifact_path(REPORT_DIR, _slug(command_name), filename)
+        target = paths.artifact_path(
+            *_report_segments(command_name, run_id), filename)
         paths.write_text_atomic(
             target, json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
         )
@@ -629,12 +644,25 @@ def _run_blocker(collector: ErrorCollector, code: str, obj: str, message: str,
     collector.blocker(code, Stage.WORKFLOW, obj, message, hint, exit_code=exit_code)
 
 
-def _selection(namespace: argparse.Namespace) -> dict[str, object]:
-    """Die Zielangabe des Laufs in der Form, in der sie im Manifest steht."""
-    return {
+def _selection(namespace: argparse.Namespace,
+               frozen: Mapping | None = None) -> dict[str, object]:
+    """Die Zielangabe des Laufs in der Form, in der sie im Manifest steht.
+
+    Ohne Zielflags gilt die im Plan eingefrorene Auswahl: ``run execute``
+    fuehrt genau den Lauf aus, der geplant wurde, statt eine erneute Eingabe zu
+    verlangen. Eine abweichende Angabe faellt spaeter als Manifestdrift auf.
+    """
+    given = {
         "chamber": getattr(namespace, "chamber", None) or None,
         "committee": getattr(namespace, "committee", None) or None,
         "unit_ids": sorted(set(getattr(namespace, "unit_id", []) or [])),
+    }
+    if any(given.values()) or not isinstance(frozen, Mapping):
+        return given
+    return {
+        "chamber": frozen.get("chamber") or None,
+        "committee": frozen.get("committee") or None,
+        "unit_ids": sorted(frozen.get("unit_ids") or []),
     }
 
 
@@ -718,7 +746,7 @@ class RunPreparation:
 def _prepare_run(command: Command, namespace: argparse.Namespace,
                  collector: ErrorCollector, settings: MatcherSettings,
                  reporter: TerminalReporter, run_id: str,
-                 ) -> RunPreparation | None:
+                 frozen: Mapping | None = None) -> RunPreparation | None:
     """Baut den vollstaendigen Laufplan; kein Providercall, kein Schreibvorgang.
 
     Gibt ``None`` zurueck, sobald ein Schritt blockiert; die Befunde stehen dann
@@ -740,7 +768,7 @@ def _prepare_run(command: Command, namespace: argparse.Namespace,
         )
         return None
 
-    selection = _selection(namespace)
+    selection = _selection(namespace, (frozen or {}).get("selection"))
     targets = _targets(collector, units, selection)
     if targets is None:
         return None
@@ -952,6 +980,7 @@ def _run_batch(collector: ErrorCollector, audited: workflow.AuditedProvider,
     base = workflow.free_call_prefix(audited.run_id, batch.batch_id)
     for attempt in range(attempts):
         prefix = base if attempt == 0 else f"{base}retry{attempt}-"
+        booked_before = audited.guard.calls
         try:
             return mapping.map_batch(
                 audited, batch, prepared.snapshot,
@@ -973,7 +1002,11 @@ def _run_batch(collector: ErrorCollector, audited: workflow.AuditedProvider,
             return None, _STOP_PROVIDER
         except provider.ProviderCallError as exc:
             last = attempt == attempts - 1
-            retryable = exc.retryable and not exc.outcome_unknown
+            # Wiederholt wird der ganze Batch. Das ist nur zulaessig, solange er
+            # nichts gekostet hat: scheitert erst ein Reparaturcall, waere der
+            # bereits bezahlte Erstcall sonst ein zweites Mal faellig.
+            free_of_charge = audited.guard.calls == booked_before
+            retryable = exc.retryable and not exc.outcome_unknown and free_of_charge
             if retryable and not last:
                 reporter.warn(Stage.PROVIDER, batch=batch.batch_id,
                               retry=f"{attempt + 1}/{attempts - 1}",
@@ -1047,6 +1080,44 @@ def _record_outcome(state: workflow.RunState, outcome: mapping.BatchOutcome,
                         industries=len(result.assignments))
 
 
+def _report_repairs(reporter: TerminalReporter, outcome) -> None:
+    """Meldet jeden Reparaturversuch eines Batches einzeln (Statusplan S4)."""
+    attempt = 0
+    for record in outcome.calls:
+        if record.kind != "repair":
+            continue
+        attempt += 1
+        reporter.warn(Stage.MAPPING, batch=outcome.batch.batch_id,
+                      repair=attempt, call=record.request.call_id,
+                      open_violations=len(record.violations))
+
+
+def _report_committees(reporter: TerminalReporter, targets: Sequence,
+                       state: workflow.RunState) -> None:
+    """Eine Zusammenfassung je Committee; Subcommittees zaehlen zum Parent."""
+    groups: dict[str, list] = {}
+    for unit in targets:
+        groups.setdefault(unit.parent_unit_id or unit.unit_id, []).append(unit)
+    for committee_id, members in sorted(groups.items()):
+        counts = {UnitStatus.MAPPED: 0, UnitStatus.NO_MAPPING: 0, UnitStatus.FAILED: 0}
+        industries: set[str] = set()
+        for unit in members:
+            record = state.units.get(unit.unit_id)
+            if record is None:
+                counts[UnitStatus.FAILED] += 1
+                continue
+            if record.status in counts:
+                counts[record.status] += 1
+            for assignment in (record.result.assignments if record.result else ()):
+                industries.add(assignment.industry_id)
+        reporter.emit(
+            StatusKind.WARN if counts[UnitStatus.FAILED] else StatusKind.INFO,
+            Stage.MAPPING, committee=committee_id, units=len(members),
+            mapped=counts[UnitStatus.MAPPED],
+            no_mapping=counts[UnitStatus.NO_MAPPING],
+            failed=counts[UnitStatus.FAILED], industries=len(industries))
+
+
 def _final_state(state: workflow.RunState, unknown: Sequence,
                  stopped: str | None) -> WorkflowState:
     """Endzustand des Laufs; ``outcome_unknown`` schlaegt jedes Mappingurteil."""
@@ -1082,7 +1153,25 @@ def handle_run_execute(
             "der Plan friert die Bedingungen ein und nennt die Kosten.")
         return [f"Run:      {run_id}", "Lauf:     nicht geplant"], [], 0.0
 
-    prepared = _prepare_run(command, namespace, collector, settings, reporter, run_id)
+    # Ein Call mit offenem Ausgang wird zuerst geklaert. Sonst liefe der Batch
+    # erneut, obwohl der erste Versuch bezahlt sein kann - und der
+    # Abschlussmarker wuerde die offene Position verschweigen.
+    still_open = workflow.open_intents(run_id)
+    if still_open:
+        collector.blocker(
+            "RUN_OUTCOME_UNKNOWN", Stage.COST, f"{len(still_open)} Call(s)",
+            "Aus einem frueheren Durchlauf ist der Ausgang einzelner Calls offen.",
+            f"Zuerst 'run reconcile --run-id {run_id}' ausfuehren; erst danach "
+            "steht fest, was bereits bezahlt wurde.",
+            exit_code=ExitCode.OUTCOME_UNKNOWN,
+        )
+        reporter.error(Stage.COST, run=run_id, open_calls=len(still_open),
+                       code="RUN_OUTCOME_UNKNOWN")
+        return [f"Run:      {run_id}",
+                f"Lauf:     angehalten ({len(still_open)} Call(s) ungeklaert)"], [], 0.0
+
+    prepared = _prepare_run(command, namespace, collector, settings, reporter,
+                            run_id, previous)
     if prepared is None:
         return [f"Run:      {run_id}", "Lauf:     blockiert (siehe Befunde)"], [], 0.0
     conflicts = workflow.resume_conflicts(previous, prepared.manifest)
@@ -1097,11 +1186,32 @@ def handle_run_execute(
     reused = len(prepared.targets) - len(pending)
     reporter.info(Stage.WORKFLOW, run=run_id, pending=len(pending), cached=reused)
 
+    # Das Budget gilt fuer den Lauf, nicht fuer den Durchlauf: was fruehere
+    # Durchlaeufe ausgegeben haben, ist bereits gebucht.
+    rates = workflow.CostRates.from_settings(prepared.provider_settings)
+    prior = workflow.prior_costs(run_id, rates, state)
     guard = workflow.CostGuard(
-        budget_usd=prepared.budget_usd,
-        rates=workflow.CostRates.from_settings(prepared.provider_settings),
+        budget_usd=prepared.budget_usd, rates=rates,
         enabled=settings.offline.cost_guard,
+        spent_usd=prior.spent_usd, reserved_usd=prior.reserved_usd,
+        calls=prior.calls, unknown_calls=prior.unknown_calls,
     )
+    if prior.calls:
+        reporter.info(Stage.COST, run=run_id, prior_calls=prior.calls,
+                      prior_spent_usd=prior.spent_usd)
+    if prior.orphaned_audits:
+        # Eine bezahlte Antwort ohne Zustandseintrag: der Prozess ist zwischen
+        # Auditschreiben und Zustandsschreiben abgebrochen. Der Batch laeuft
+        # erneut und kostet erneut - das muss sichtbar sein.
+        collector.warning(
+            "RUN_AUDIT_WITHOUT_STATE", Stage.WORKFLOW,
+            ", ".join(prior.orphaned_audits[:5]),
+            f"{len(prior.orphaned_audits)} bezahlte Antwort(en) liegen ohne "
+            "Eintrag im Laufzustand vor.",
+            "Auditdateien unter calls/ sichten; die betroffenen Units laufen "
+            "erneut und werden erneut abgerechnet.")
+        reporter.warn(Stage.WORKFLOW, run=run_id,
+                      audits_without_state=len(prior.orphaned_audits))
     audited: workflow.AuditedProvider | None = None
     stopped: str | None = None
     batches: tuple[mapping.MappingBatch, ...] = ()
@@ -1146,10 +1256,12 @@ def handle_run_execute(
             outcome, stopped = _run_batch(
                 collector, audited, batch, prepared, settings, reporter)
             if outcome is not None:
+                _report_repairs(reporter, outcome)
                 _record_outcome(state, outcome, keys, reporter)
-                reporter.ok(Stage.MAPPING, batch=batch.batch_id,
-                            repairs=outcome.repairs,
-                            cost_usd=guard.spent_usd)
+                reporter.emit(
+                    StatusKind.OK if outcome.ok else StatusKind.ERROR,
+                    Stage.MAPPING, batch=batch.batch_id,
+                    repairs=outcome.repairs, cost_usd=guard.spent_usd)
             state.write()
             if stopped is not None:
                 break
@@ -1167,10 +1279,15 @@ def handle_run_execute(
         rows, occurrences = _roster(collector, prepared.units)
         try:
             result = artifacts.write_run_artifacts(
+                # Provenienz stammt aus dem eingefrorenen Manifest des Plans,
+                # nicht aus dem neu gebauten: die Artefakte beschreiben die
+                # Bedingungen, unter denen die Calls tatsaechlich liefen.
                 run_id=run_id, units=prepared.targets, state=state,
-                snapshot=prepared.snapshot, manifest=prepared.manifest, guard=guard,
+                snapshot=prepared.snapshot, manifest=previous, guard=guard,
                 roster=rows, roster_occurrences=occurrences, unknown=unknown,
-                audited_calls=len(audited.audited) if audited is not None else 0,
+                audited_calls=prior.documented_calls + (
+                    len(audited.audited) + len(audited.settled)
+                    if audited is not None else 0),
             )
             written.extend(entry.relative for entry in result.files())
             reporter.ok(Stage.ARTIFACTS, run=run_id, files=len(result.files()))
@@ -1207,8 +1324,14 @@ def handle_run_execute(
             "gezielt mit --unit-id in einer neuen Revision wiederholen.",
             exit_code=ExitCode.FAILED_MAPPING_UNITS,
         )
+    _report_committees(reporter, prepared.targets, state)
+    if stopped is not None or state.state is not WorkflowState.AWAITING_MANUAL_REVIEW:
+        final_kind = StatusKind.ERROR
+    else:
+        # Der Lauf endet an einem Human-Gate, nicht mit einem fertigen Ergebnis.
+        final_kind = StatusKind.WAIT
     reporter.emit(
-        StatusKind.OK if not stopped else StatusKind.ERROR,
+        final_kind,
         Stage.WORKFLOW, run=run_id, state=state.state.value,
         mapped=counts[UnitStatus.MAPPED.value],
         no_mapping=counts[UnitStatus.NO_MAPPING.value],
@@ -1229,6 +1352,20 @@ def handle_run_execute(
         + f" von {prepared.budget_usd:.6f} USD Budget",
     ]
     return summary, written, guard.spent_usd
+
+
+def _intent_age_s(intent: Mapping[str, object], now: datetime) -> float | None:
+    """Alter der Vormerkung in Sekunden; None ohne brauchbaren Zeitstempel."""
+    raw = intent.get("created_at")
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    try:
+        stamp = datetime.fromisoformat(raw.strip())
+    except ValueError:
+        return None
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=timezone.utc)
+    return (now - stamp).total_seconds()
 
 
 def handle_run_reconcile(
@@ -1260,7 +1397,7 @@ def handle_run_reconcile(
             f"Umgebungsvariable {provider.API_KEY_ENV} ist leer oder nicht gesetzt.",
             f"{provider.API_KEY_ENV} in der Datei .env eintragen; der Abgleich "
             "einer Generation gehoert zum Konto und braucht den Key.",
-            exit_code=ExitCode.PROVIDER_ERROR,
+            exit_code=ExitCode.PREFLIGHT_BLOCKED,
         )
         return [f"Run:      {run_id}", f"Abgleich: blockiert ({len(open_calls)} offen)"], []
 
@@ -1268,6 +1405,9 @@ def handle_run_reconcile(
     unresolved: list[str] = []
     charged_usd = 0.0
     released_usd = 0.0
+
+    now = datetime.now(timezone.utc)
+    min_age_s = settings.offline.reconcile_min_age_s
 
     for call_id in open_calls:
         intent = workflow.load_intent(run_id, call_id)
@@ -1291,11 +1431,23 @@ def handle_run_reconcile(
             continue
 
         if not record.found:
+            age_s = _intent_age_s(intent, now)
+            if age_s is None or age_s < min_age_s:
+                unresolved.append(call_id)
+                collector.warning(
+                    "COST_RECONCILE_TOO_FRESH", Stage.COST, call_id,
+                    "Der Provider kennt die Generation nicht; der Versuch ist "
+                    "dafuer zu jung oder traegt keinen brauchbaren Zeitstempel.",
+                    f"Abgleich fruehestens {min_age_s:.0f} s nach dem Call "
+                    "wiederholen; eine frische Generation wird verzoegert "
+                    "sichtbar, ein vorschnelles 'nicht abgerechnet' wuerde "
+                    "einen zweiten kostenpflichtigen Call erlauben.")
+                reporter.warn(Stage.COST, call=call_id,
+                              reason="unbekannte Generation zu frueh abgefragt")
+                continue
             outcome = {"outcome": "not_charged", "cost_usd": 0.0,
-                       "released_usd": reserved, "generation_id": record.generation_id}
-            released_usd += reserved
-            reporter.ok(Stage.COST, call=call_id, not_charged=None,
-                        released_usd=reserved)
+                       "released_usd": reserved, "generation_id": record.generation_id,
+                       "intent_age_s": round(age_s, 3)}
         elif record.cost_usd is None:
             unresolved.append(call_id)
             collector.warning(
@@ -1310,13 +1462,8 @@ def handle_run_reconcile(
                        "generation_id": record.generation_id,
                        "provider": record.provider, "model": record.model,
                        "finish_reason": record.finish_reason}
-            charged_usd += record.cost_usd
-            released_usd += max(0.0, reserved - record.cost_usd)
-            reporter.ok(Stage.COST, call=call_id, charged=None,
-                        cost_usd=record.cost_usd)
 
         outcome["reserved_usd"] = reserved
-        settled.append({"call_id": call_id, **outcome})
         try:
             workflow.write_reconciliation(run_id, call_id, outcome)
         except (MatcherError, OSError) as exc:
@@ -1326,12 +1473,27 @@ def handle_run_reconcile(
                 f"Die Klaerung konnte nicht festgehalten werden: {exc}.",
                 "Schreibrecht unter data/committee_matcher_v2/ pruefen; ohne "
                 "Datei gilt der Call weiter als offen.")
+            reporter.warn(Stage.COST, call=call_id, reason="Klaerung nicht geschrieben")
+            continue
+
+        # Erst die Datei, dann die Buchung: eine nicht festgehaltene Klaerung
+        # darf den Kostenstand des naechsten Laufs nicht veraendern.
+        settled.append({"call_id": call_id, **outcome})
+        released_usd += float(outcome["released_usd"])
+        if outcome["outcome"] == "charged":
+            charged_usd += float(outcome["cost_usd"])
+            reporter.ok(Stage.COST, call=call_id, charged=None,
+                        cost_usd=outcome["cost_usd"])
+        else:
+            reporter.ok(Stage.COST, call=call_id, not_charged=None,
+                        released_usd=reserved)
 
     written = _write_artifact(
         collector, command.name, "reconciliation.json",
         {"run_id": run_id, "settled": settled, "unresolved": unresolved,
          "charged_usd": round(charged_usd, 6),
          "released_usd": round(released_usd, 6)},
+        run_id=run_id,
     )
     if unresolved:
         collector.blocker(
@@ -1372,6 +1534,14 @@ HANDLERS = {
 }
 
 
+def _report_run_id(command: Command, namespace: argparse.Namespace) -> str | None:
+    """Run-ID eines laufgebundenen Kommandos, sofern sie gueltig ist."""
+    if not command.requires_run_id:
+        return None
+    raw = str(getattr(namespace, "run_id", "") or "").strip()
+    return raw if raw and RUN_ID_RE.match(raw) else None
+
+
 def run_command(command: Command, namespace: argparse.Namespace) -> int:
     collector = ErrorCollector()
     # Ein Reporter je Lauf; Fachmodule geben nie selbst aus (Statusplan S2).
@@ -1409,7 +1579,8 @@ def run_command(command: Command, namespace: argparse.Namespace) -> int:
         except MatcherError as exc:
             collector.extend(exc.findings)
 
-    artifacts, persist_finding = _persist(collector, command.name)
+    artifacts, persist_finding = _persist(
+        collector, command.name, _report_run_id(command, namespace))
     if persist_finding is not None:
         collector.extend([persist_finding])
     artifacts = stage_artifacts + artifacts
