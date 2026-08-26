@@ -753,6 +753,7 @@ def build_manifest(*, run_id: str, settings: MatcherSettings,
                    taxonomy_content_hash: str, snapshot_id: str,
                    input_manifest_hash: str, unit_count: int,
                    budget_usd: float, json_schema: Mapping | None = None,
+                   selection: Mapping[str, object] | None = None,
                    ) -> dict[str, object]:
     """Friert die Laufparameter ein (Plan 2.6).
 
@@ -768,6 +769,10 @@ def build_manifest(*, run_id: str, settings: MatcherSettings,
         "input_manifest_hash": input_manifest_hash,
         "taxonomy_content_hash": taxonomy_content_hash,
         "unit_count": unit_count,
+        # Die Zielauswahl eines Entwicklungsruns gehoert ins Manifest
+        # (Plan 2.7). Sie bestimmt, welche Units der Lauf ueberhaupt umfasst,
+        # und damit auch, was die Coverage als vollstaendig ausweist.
+        "selection": dict(selection or {}),
         "model": provider_settings.model,
         "routing": {
             "require_parameters": provider_settings.require_parameters,
@@ -824,7 +829,7 @@ def load_manifest(run_id: str) -> dict | None:
 #: fachliche Ergebnis. Volatile Provenienz steht bewusst nicht darin.
 RESUME_BOUND_FIELDS = ("taxonomy_content_hash", "input_manifest_hash", "model",
                        "prompts", "schema", "batching", "context",
-                       "cache_key_version")
+                       "cache_key_version", "selection", "unit_count")
 
 
 def resume_conflicts(previous: Mapping, current: Mapping) -> tuple[str, ...]:

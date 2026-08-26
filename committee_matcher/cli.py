@@ -20,11 +20,13 @@ import re
 import sys
 from datetime import datetime, timezone
 from dataclasses import dataclass
-from typing import Sequence
+from typing import Mapping, Sequence
 
 from . import SCAFFOLD_VERSION
 from . import (
+    artifacts,
     input_corpus,
+    mapping,
     paths,
     prompts,
     provider,
@@ -32,10 +34,19 @@ from . import (
     taxonomy_snapshot,
     taxonomy_source,
     units as unit_module,
+    workflow,
 )
-from .errors import ErrorCollector, MatcherError, Severity, Stage, print_report
+from .errors import (
+    ErrorCollector,
+    MatcherError,
+    Severity,
+    Stage,
+    TerminalReporter,
+    print_report,
+)
+from .models import MatcherUnit, TaxonomySnapshot
 from .settings_view import MatcherSettings, SettingsBlocked, load_settings
-from .status import CoverageStatus, ExitCode, InputBasis
+from .status import CoverageStatus, ExitCode, InputBasis, WorkflowState
 
 PROGRAM = "committee_matcher"
 
@@ -94,11 +105,14 @@ COMMANDS: tuple[Command, ...] = (
             "Auth, Structured Output, Usage/Kosten und das tatsaechliche Routing",
             network=True),
     Command("run", "plan", Stage.WORKFLOW, "P7", True,
-            "Entwicklungsrun planen inklusive Worst-Case-Kostenschaetzung"),
+            "Entwicklungsrun planen inklusive Worst-Case-Kostenschaetzung "
+            "(kein Modellaufruf)", requires_run_id=True),
     Command("run", "execute", Stage.WORKFLOW, "P7", True,
-            "geplanten Entwicklungsrun ausfuehren"),
+            "geplanten Entwicklungsrun ausfuehren (kostenpflichtig)",
+            network=True, requires_run_id=True),
     Command("run", "reconcile", Stage.WORKFLOW, "P7", True,
-            "outcome_unknown ueber die OpenRouter-Generation-ID klaeren"),
+            "outcome_unknown ueber die OpenRouter-Generation-ID klaeren",
+            network=True, requires_run_id=True),
     Command("review", "export", Stage.REVIEW, "P8", False,
             "Review-XLSX aus einer Runrevision exportieren"),
     Command("review", "import", Stage.REVIEW, "P8", False,
@@ -248,6 +262,7 @@ def _write_artifact(collector: ErrorCollector, command_name: str, filename: str,
 def handle_input_validate(
     command: Command, namespace: argparse.Namespace,
     collector: ErrorCollector, settings: MatcherSettings,
+    reporter: TerminalReporter,
 ) -> tuple[list[str], list[str]]:
     """Corpus laden, Units bilden, Sollmenge pruefen (Plan 2.1/2.2)."""
     result = input_corpus.load_documents(collector, settings.offline)
@@ -298,6 +313,7 @@ def handle_input_validate(
 def handle_roster_validate(
     command: Command, namespace: argparse.Namespace,
     collector: ErrorCollector, settings: MatcherSettings,
+    reporter: TerminalReporter,
 ) -> tuple[list[str], list[str]]:
     """Roster-Coverage gegen die Unit-Sollmenge pruefen (Plan 2.3)."""
     result = input_corpus.load_documents(collector, settings.offline)
@@ -356,7 +372,7 @@ def _missing_run_id(
     if not command.requires_run_id or getattr(namespace, "run_id", None):
         return False
     collector.blocker(
-        "CLI_RUN_ID_REQUIRED", Stage.TAXONOMY, command.name,
+        "CLI_RUN_ID_REQUIRED", command.stage, command.name,
         f"'{command.name}' ist an genau eine Run-Revision gebunden.",
         "Lauf mit --run-id <revision> wiederholen.",
     )
@@ -392,7 +408,8 @@ def _snapshot_summary(result: taxonomy_snapshot.SnapshotResult) -> list[str]:
 
 def _snapshot_run(
     command: Command, namespace: argparse.Namespace,
-    collector: ErrorCollector, settings: MatcherSettings, *, resume: bool,
+    collector: ErrorCollector, settings: MatcherSettings,
+    reporter: TerminalReporter, *, resume: bool,
 ) -> tuple[list[str], list[str]]:
     """Gemeinsamer Ablauf von 'snapshot build' und 'snapshot resume' (Plan 2.4)."""
     if _missing_run_id(command, namespace, collector):
@@ -408,22 +425,27 @@ def _snapshot_run(
 def handle_snapshot_build(
     command: Command, namespace: argparse.Namespace,
     collector: ErrorCollector, settings: MatcherSettings,
+    reporter: TerminalReporter,
 ) -> tuple[list[str], list[str]]:
     """Frischen Snapshot abrufen, pruefen und all-or-nothing persistieren."""
-    return _snapshot_run(command, namespace, collector, settings, resume=False)
+    return _snapshot_run(command, namespace, collector, settings, reporter,
+                         resume=False)
 
 
 def handle_snapshot_resume(
     command: Command, namespace: argparse.Namespace,
     collector: ErrorCollector, settings: MatcherSettings,
+    reporter: TerminalReporter,
 ) -> tuple[list[str], list[str]]:
     """Abgebrochenen Abruf aus dem run-lokalen Checkpoint fortsetzen."""
-    return _snapshot_run(command, namespace, collector, settings, resume=True)
+    return _snapshot_run(command, namespace, collector, settings, reporter,
+                         resume=True)
 
 
 def handle_snapshot_approve(
     command: Command, namespace: argparse.Namespace,
     collector: ErrorCollector, settings: MatcherSettings,
+    reporter: TerminalReporter,
 ) -> tuple[list[str], list[str]]:
     """Snapshot eines Runs als neue Taxonomie-Baseline freigeben."""
     if _missing_run_id(command, namespace, collector):
@@ -444,6 +466,7 @@ def handle_snapshot_approve(
 def handle_provider_check(
     command: Command, namespace: argparse.Namespace,
     collector: ErrorCollector, settings: MatcherSettings,
+    reporter: TerminalReporter,
 ) -> tuple[list[str], list[str]]:
     """Prueft vor dem ersten Call, ob ein zulaessiger Endpoint existiert."""
     provider_settings = settings.require_provider()
@@ -527,6 +550,7 @@ def _smoke_schema_violations(payload: dict) -> list[str]:
 def handle_provider_smoke(
     command: Command, namespace: argparse.Namespace,
     collector: ErrorCollector, settings: MatcherSettings,
+    reporter: TerminalReporter,
 ) -> tuple[list[str], list[str]]:
     """Setzt genau einen kostenpflichtigen Minimalcall ab (Plan 2.6).
 
@@ -587,6 +611,284 @@ def handle_provider_smoke(
     ], [], response.cost_usd
 
 
+# ---------------------------------------------------------------------------
+# Entwicklungsrun (P7c)
+# ---------------------------------------------------------------------------
+
+def _run_blocker(collector: ErrorCollector, code: str, obj: str, message: str,
+                 hint: str, *, exit_code: ExitCode = ExitCode.PREFLIGHT_BLOCKED) -> None:
+    collector.blocker(code, Stage.WORKFLOW, obj, message, hint, exit_code=exit_code)
+
+
+def _selection(namespace: argparse.Namespace) -> dict[str, object]:
+    """Die Zielangabe des Laufs in der Form, in der sie im Manifest steht."""
+    return {
+        "chamber": getattr(namespace, "chamber", None) or None,
+        "committee": getattr(namespace, "committee", None) or None,
+        "unit_ids": sorted(set(getattr(namespace, "unit_id", []) or [])),
+    }
+
+
+def _targets(collector: ErrorCollector, units: Sequence[MatcherUnit],
+             selection: Mapping[str, object]) -> tuple[MatcherUnit, ...] | None:
+    """Waehlt die Units des Entwicklungsruns aus.
+
+    Ohne Zielangabe laeuft nichts: ein filterloser Lauf ueber die Sollmenge ist
+    der Full-Run und braucht die Qualifikation aus P10. Ein versehentlich
+    filterloser ``run execute`` waere der teuerste Bedienfehler des Werkzeugs.
+    """
+    chamber = selection.get("chamber")
+    committee = selection.get("committee")
+    unit_ids = tuple(selection.get("unit_ids") or ())
+    if not (chamber or committee or unit_ids):
+        _run_blocker(
+            collector, "CLI_RUN_TARGET_REQUIRED", "run",
+            "Ein Entwicklungsrun braucht eine Zielangabe.",
+            "--chamber, --committee oder --unit-id setzen; der filterlose Lauf "
+            "ueber die gesamte Sollmenge ist 'full-run' und ab P11 verfuegbar.",
+        )
+        return None
+
+    def matches(unit: MatcherUnit) -> bool:
+        if chamber and unit.chamber.casefold() != str(chamber).casefold():
+            return False
+        if committee and unit.committee_name.casefold() != str(committee).casefold():
+            return False
+        if unit_ids and unit.unit_id not in unit_ids:
+            return False
+        return True
+
+    selected = tuple(unit for unit in units if matches(unit))
+    known = {unit.unit_id for unit in units}
+    unknown = [unit_id for unit_id in unit_ids if unit_id not in known]
+    if unknown:
+        _run_blocker(
+            collector, "CLI_RUN_TARGET_UNKNOWN", ", ".join(sorted(unknown)),
+            "Diese Unit-IDs kommen in der Sollmenge nicht vor.",
+            "Unit-IDs aus 'input validate' uebernehmen; eine stillschweigend "
+            "kleinere Zielmenge waere in der Coverage nicht erkennbar.",
+        )
+        return None
+    if not selected:
+        _run_blocker(
+            collector, "CLI_RUN_TARGET_EMPTY",
+            f"chamber={chamber or '-'} committee={committee or '-'}",
+            "Die Zielangabe trifft keine einzige Unit.",
+            "Kammer- und Committee-Namen exakt wie im Corpus schreiben; "
+            "'input validate' listet sie auf.",
+        )
+        return None
+    return selected
+
+
+@dataclass(frozen=True)
+class RunPreparation:
+    """Alles, was Plan und Ausfuehrung eines Runs gemeinsam brauchen.
+
+    Sie entsteht in beiden Aktionen auf demselben Weg. Nur so ist die
+    Kostenschaetzung aus ``run plan`` fuer ``run execute`` verbindlich: ein
+    zweiter Bauweg koennte andere Batches und damit andere Kosten ergeben.
+    """
+
+    run_id: str
+    units: tuple[MatcherUnit, ...]
+    targets: tuple[MatcherUnit, ...]
+    snapshot: TaxonomySnapshot
+    mapping_prompt: prompts.SystemPrompt
+    repair_prompt: prompts.SystemPrompt
+    manifest: dict
+    batches: tuple[mapping.MappingBatch, ...]
+    requests: tuple[provider.StructuredRequest, ...]
+    plan_usd: float
+    budget_usd: float
+    provider_settings: object
+    selection: dict[str, object]
+    input_manifest_hash: str
+
+
+def _prepare_run(command: Command, namespace: argparse.Namespace,
+                 collector: ErrorCollector, settings: MatcherSettings,
+                 reporter: TerminalReporter, run_id: str,
+                 ) -> RunPreparation | None:
+    """Baut den vollstaendigen Laufplan; kein Providercall, kein Schreibvorgang.
+
+    Gibt ``None`` zurueck, sobald ein Schritt blockiert; die Befunde stehen dann
+    im Collector und tragen ihren eigenen Exit-Code.
+    """
+    provider_settings = settings.require_provider()
+    budget_usd = settings.require_budget("run")
+
+    corpus = input_corpus.load_documents(collector, settings.offline)
+    units = unit_module.build_units(collector, corpus.documents)
+    if collector.has_blockers():
+        return None
+    if not corpus.manifest_sha256:
+        _run_blocker(
+            collector, "RUN_INPUT_UNBOUND", "corpus_manifest.yaml",
+            "Der Inputstand ist nicht hashbar; ein Lauf waere an keinen "
+            "Corpus gebunden.",
+            "Corpusmanifest wiederherstellen; 'input validate' zeigt den Stand.",
+        )
+        return None
+
+    selection = _selection(namespace)
+    targets = _targets(collector, units, selection)
+    if targets is None:
+        return None
+    reporter.ok(Stage.INPUT, run=run_id, units=len(units), targets=len(targets))
+
+    snapshot = taxonomy_snapshot.approved_snapshot(collector)
+    if snapshot is None:
+        reporter.wait(Stage.TAXONOMY, run=run_id, awaiting_taxonomy_approval=None)
+        return None
+    reporter.ok(Stage.TAXONOMY, snapshot=snapshot.snapshot_id,
+                industries=len(snapshot.industries))
+
+    loaded = prompts.load_all(collector)
+    if loaded is None:
+        return None
+    mapping_prompt = loaded["mapping_system"]
+    repair_prompt = loaded["repair_system"]
+
+    batches = mapping.plan_batches(
+        collector, targets, snapshot, mapping_prompt, settings.offline,
+        provider_settings)
+    if batches is None:
+        return None
+    requests = tuple(
+        mapping.build_request(batch, snapshot, mapping_prompt, provider_settings)
+        for batch in batches
+    )
+    rates = workflow.CostRates.from_settings(provider_settings)
+    plan_usd = workflow.plan_cost_usd(requests, rates, settings.offline)
+    reporter.ok(Stage.MAPPING, run=run_id, batches=len(batches),
+                units=len(targets))
+
+    manifest = workflow.build_manifest(
+        run_id=run_id,
+        settings=settings,
+        provider_settings=provider_settings,
+        prompts_used=(mapping_prompt, repair_prompt),
+        taxonomy_content_hash=snapshot.taxonomy_content_hash,
+        snapshot_id=snapshot.snapshot_id,
+        input_manifest_hash=corpus.manifest_sha256,
+        unit_count=len(targets),
+        budget_usd=budget_usd,
+        selection=selection,
+    )
+    return RunPreparation(
+        run_id=run_id, units=tuple(units), targets=targets, snapshot=snapshot,
+        mapping_prompt=mapping_prompt, repair_prompt=repair_prompt,
+        manifest=manifest, batches=tuple(batches), requests=requests,
+        plan_usd=plan_usd, budget_usd=budget_usd,
+        provider_settings=provider_settings, selection=selection,
+        input_manifest_hash=corpus.manifest_sha256,
+    )
+
+
+def _manifest_conflict(collector: ErrorCollector, run_id: str,
+                       manifest: Mapping) -> bool:
+    """Prueft ein vorhandenes Manifest gegen den aktuellen Stand.
+
+    Ein zweiter Plan unter derselben Revision ist erlaubt, solange er dieselben
+    ergebnisbestimmenden Bedingungen hat. Weicht eine davon ab, ist es ein
+    anderer Lauf und bekommt eine eigene Revision.
+    """
+    previous = workflow.load_manifest(run_id)
+    if previous is None:
+        return False
+    conflicts = workflow.resume_conflicts(previous, manifest)
+    if not conflicts:
+        return False
+    collector.extend([workflow.resume_blocker(run_id, conflicts)])
+    return True
+
+
+def _assert_revision_open(collector: ErrorCollector, run_id: str) -> bool:
+    """Eine abgeschlossene Revision wird nie ueberschrieben (Plan 2.8)."""
+    if not artifacts.is_complete(run_id):
+        return True
+    _run_blocker(
+        collector, "RUN_REVISION_COMPLETE", run_id,
+        "Diese Revision ist bereits vollstaendig abgeschlossen.",
+        "Neue --run-id verwenden; abgeschlossene Revisionen bleiben "
+        "unveraendert.",
+    )
+    return False
+
+
+def _cost_lines(*, budget_usd: float, plan_usd: float, guard_enabled: bool) -> list[str]:
+    return [
+        f"Kosten:   Worst Case {plan_usd:.6f} USD von {budget_usd:.6f} USD Budget"
+        + ("" if guard_enabled else " | Kostenwache abgeschaltet"),
+    ]
+
+
+def handle_run_plan(
+    command: Command, namespace: argparse.Namespace,
+    collector: ErrorCollector, settings: MatcherSettings,
+    reporter: TerminalReporter,
+) -> tuple[list[str], list[str]]:
+    """Plant einen Entwicklungsrun und friert die Bedingungen ein (Plan 2.6).
+
+    Der Plan ist providerfrei: er bildet Batches, rechnet den Worst Case und
+    schreibt das Runmanifest. Erst ``run execute`` sendet einen Call.
+    """
+    if _missing_run_id(command, namespace, collector):
+        return [], []
+    run_id = _run_id(namespace)
+    reporter.start(Stage.WORKFLOW, run=run_id, action="plan")
+    if not _assert_revision_open(collector, run_id):
+        return [f"Run:      {run_id}", "Plan:     abgelehnt (Revision abgeschlossen)"], []
+
+    prepared = _prepare_run(command, namespace, collector, settings, reporter, run_id)
+    if prepared is None:
+        reporter.error(Stage.WORKFLOW, run=run_id, action="plan", blocked=None)
+        return [f"Run:      {run_id}", "Plan:     blockiert (siehe Befunde)"], []
+
+    if _manifest_conflict(collector, run_id, prepared.manifest):
+        reporter.error(Stage.WORKFLOW, run=run_id, code="RUN_MANIFEST_DRIFT")
+        return [f"Run:      {run_id}", "Plan:     abgelehnt (andere Bedingungen)"], []
+
+    guard = workflow.CostGuard(
+        budget_usd=prepared.budget_usd,
+        rates=workflow.CostRates.from_settings(prepared.provider_settings),
+        enabled=settings.offline.cost_guard,
+    )
+    blocker = guard.check(prepared.plan_usd, run_id)
+    if blocker is not None:
+        collector.extend([blocker])
+        reporter.error(Stage.COST, run=run_id, code="COST_BUDGET_EXCEEDED",
+                       plan_usd=prepared.plan_usd, budget_usd=prepared.budget_usd)
+        return [
+            f"Run:      {run_id}",
+            f"Umfang:   {len(prepared.targets)} Units in {len(prepared.batches)} Batches",
+            *_cost_lines(budget_usd=prepared.budget_usd, plan_usd=prepared.plan_usd,
+                         guard_enabled=guard.enabled),
+            "Plan:     abgelehnt (Budget)",
+        ], []
+
+    manifest_file = workflow.write_manifest(run_id, prepared.manifest)
+    reporter.ok(Stage.COST, run=run_id, plan_usd=prepared.plan_usd,
+                budget_usd=prepared.budget_usd, guard=guard.enabled)
+    reporter.ok(Stage.WORKFLOW, run=run_id, action="plan",
+                manifest=manifest_file.name)
+    return [
+        f"Run:      {run_id}",
+        f"Auswahl:  chamber={prepared.selection['chamber'] or '-'} | "
+        f"committee={prepared.selection['committee'] or '-'} | "
+        f"unit_ids={len(prepared.selection['unit_ids'])}",
+        f"Umfang:   {len(prepared.targets)} von {len(prepared.units)} Units "
+        f"in {len(prepared.batches)} Batches",
+        f"Taxonomie: Snapshot {prepared.snapshot.snapshot_id} | "
+        f"{len(prepared.snapshot.industries)} Industries",
+        *_cost_lines(budget_usd=prepared.budget_usd, plan_usd=prepared.plan_usd,
+                     guard_enabled=guard.enabled),
+        "Naechster Schritt: 'run execute --run-id " + run_id + "' sendet "
+        "kostenpflichtige Calls.",
+    ], [paths.relative_to_base(manifest_file)]
+
+
 #: Bereits implementierte Aktionen; alles andere meldet die Zielphase.
 HANDLERS = {
     "provider check": handle_provider_check,
@@ -596,11 +898,14 @@ HANDLERS = {
     "snapshot build": handle_snapshot_build,
     "snapshot resume": handle_snapshot_resume,
     "snapshot approve": handle_snapshot_approve,
+    "run plan": handle_run_plan,
 }
 
 
 def run_command(command: Command, namespace: argparse.Namespace) -> int:
     collector = ErrorCollector()
+    # Ein Reporter je Lauf; Fachmodule geben nie selbst aus (Statusplan S2).
+    reporter = TerminalReporter()
     settings = _preflight(command, collector)
     handler = HANDLERS.get(command.name)
     stage_summary: list[str] = []
@@ -628,7 +933,7 @@ def run_command(command: Command, namespace: argparse.Namespace) -> int:
             # Ein Handler liefert (Zusammenfassung, Artefakte) und optional die
             # tatsaechlich angefallenen Providerkosten. Ohne dritten Wert bleibt
             # der Lauf providerfrei - so bleiben die bestehenden Handler gueltig.
-            result = handler(command, namespace, collector, settings)
+            result = handler(command, namespace, collector, settings, reporter)
             stage_summary, stage_artifacts = result[0], result[1]
             stage_cost = result[2] if len(result) > 2 else None
         except MatcherError as exc:

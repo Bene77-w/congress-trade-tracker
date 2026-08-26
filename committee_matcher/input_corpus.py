@@ -118,6 +118,9 @@ class CorpusLoadResult:
     manifest_files: int = 0
     input_root: Path = paths.INPUT_ROOT
     skipped: tuple[str, ...] = field(default_factory=tuple)
+    #: SHA-256 des Corpusmanifests; bindet einen Lauf an genau diesen
+    #: Inputstand. Leer, solange das Manifest fehlt oder unlesbar ist.
+    manifest_sha256: str = ""
 
 
 def _relative(path: Path, root: Path) -> str:
@@ -125,6 +128,24 @@ def _relative(path: Path, root: Path) -> str:
         return path.relative_to(root).as_posix()
     except ValueError:
         return str(path)
+
+
+#: Dateiname des Corpusmanifests.
+MANIFEST_FILENAME = "corpus_manifest.yaml"
+
+
+def manifest_sha256(input_root: Path = paths.INPUT_ROOT) -> str:
+    """SHA-256 des Corpusmanifests; leer, wenn es fehlt oder unlesbar ist.
+
+    Der Wert bindet einen Lauf an den Inputstand. Er wird ueber die Bytes
+    gebildet, nicht ueber die geparste Struktur: eine geaenderte Reihenfolge
+    oder ein neuer Kommentar sind ebenfalls ein anderer Kontrollinput.
+    """
+    target = input_root / MANIFEST_FILENAME
+    try:
+        return hashlib.sha256(target.read_bytes()).hexdigest()
+    except OSError:
+        return ""
 
 
 def verify_manifest(
@@ -135,7 +156,7 @@ def verify_manifest(
     Erzeugt wird das Manifest vom P0-Werkzeug; hier wird nur verifiziert, damit
     kein Lauf auf einem verschobenen Corpus arbeitet.
     """
-    manifest_path = input_root / "corpus_manifest.yaml"
+    manifest_path = input_root / MANIFEST_FILENAME
     if not manifest_path.exists():
         collector.blocker(
             "INP_MANIFEST_MISSING", Stage.INPUT, _relative(manifest_path, input_root),
@@ -693,4 +714,5 @@ def load_documents(
         manifest_files=len(roles),
         input_root=input_root,
         skipped=tuple(skipped),
+        manifest_sha256=manifest_sha256(input_root),
     )

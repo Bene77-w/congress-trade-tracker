@@ -12,10 +12,11 @@ logik in P3 nach ``input_corpus`` wandert; danach gibt es genau einen Renderer.
 from __future__ import annotations
 
 import json
+import sys
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Iterable, Sequence, TextIO
 
 from .status import ExitCode, worst_exit_code
 
@@ -213,6 +214,117 @@ class ErrorCollector:
     def raise_if_blocked(self, message: str | None = None) -> None:
         if self.has_blockers():
             raise MatcherError(self.blockers, message)
+
+
+class StatusKind(str, Enum):
+    """Statusarten des Live-Reporters (Terminalstatusplan S1)."""
+
+    START = "START"
+    OK = "OK"
+    INFO = "INFO"
+    WARN = "WARN"
+    ERROR = "ERROR"
+    WAIT = "WAIT"
+
+
+#: Diese Statusarten gehen auf stderr, alle uebrigen auf stdout.
+STDERR_KINDS: frozenset[StatusKind] = frozenset({StatusKind.WARN, StatusKind.ERROR})
+
+#: Laengengrenze je Feldwert; verhindert, dass Prompt- oder Responsetexte
+#: versehentlich vollstaendig im Terminal landen. Kuerzung bleibt sichtbar.
+MAX_FIELD_CHARS = 60
+
+#: Feldnamen, die auf ein Geheimnis hindeuten; ihr Gebrauch ist ein
+#: Programmierfehler und scheitert sofort, statt still zu maskieren.
+SECRET_FIELD_PARTS: tuple[str, ...] = (
+    "secret",
+    "token",
+    "password",
+    "credential",
+    "authorization",
+    "apikey",
+)
+
+#: Feldnamensegmente, die fuer sich genommen ein Geheimnis benennen.
+SECRET_FIELD_SEGMENTS: frozenset[str] = frozenset({"key", "keys", "auth"})
+
+
+def _reject_secret_field(name: str) -> None:
+    flat = name.replace("_", "").replace("-", "").lower()
+    segments = set(name.lower().replace("-", "_").split("_"))
+    if segments & SECRET_FIELD_SEGMENTS or any(part in flat for part in SECRET_FIELD_PARTS):
+        raise ValueError(f"Statusfeld {name!r} darf kein Geheimnis tragen")
+
+
+def _field_value(value: object) -> str:
+    if isinstance(value, bool):
+        text = "true" if value else "false"
+    elif isinstance(value, float):
+        text = f"{value:.6f}".rstrip("0").rstrip(".") or "0"
+    else:
+        text = str(value)
+    text = " ".join(text.split())
+    if len(text) > MAX_FIELD_CHARS:
+        text = text[: MAX_FIELD_CHARS - 3] + "..."
+    return text.replace("|", "/")
+
+
+def status_line(kind: StatusKind, stage: Stage, **fields: object) -> str:
+    """Baut eine Statuszeile ``[KIND] stage | feld=wert | marker``.
+
+    Ein Feldwert ``None`` erzeugt einen Marker ohne Wert (``no_mapping``);
+    die Reihenfolge der Schluesselwortargumente bleibt erhalten.
+    """
+    parts = [f"[{kind.value}] {stage.value}"]
+    for name, value in fields.items():
+        _reject_secret_field(name)
+        parts.append(name if value is None else f"{name}={_field_value(value)}")
+    return " | ".join(parts)
+
+
+@dataclass
+class TerminalReporter:
+    """Einziger Live-Renderer; Fachmodule geben nie selbst mit ``print`` aus.
+
+    ``enabled=False`` unterdrueckt die Ausgabe, baut die Zeile aber weiter und
+    liefert sie zurueck, damit Aufrufer und Tests denselben Pfad nehmen.
+    """
+
+    enabled: bool = True
+    stdout: TextIO | None = None
+    stderr: TextIO | None = None
+
+    def emit(self, kind: StatusKind, stage: Stage, **fields: object) -> str:
+        line = status_line(kind, stage, **fields)
+        if not self.enabled:
+            return line
+        target = self.stderr if kind in STDERR_KINDS else self.stdout
+        if target is None:
+            target = sys.stderr if kind in STDERR_KINDS else sys.stdout
+        print(line, file=target, flush=True)
+        return line
+
+    def start(self, stage: Stage, **fields: object) -> str:
+        return self.emit(StatusKind.START, stage, **fields)
+
+    def ok(self, stage: Stage, **fields: object) -> str:
+        return self.emit(StatusKind.OK, stage, **fields)
+
+    def info(self, stage: Stage, **fields: object) -> str:
+        return self.emit(StatusKind.INFO, stage, **fields)
+
+    def warn(self, stage: Stage, **fields: object) -> str:
+        return self.emit(StatusKind.WARN, stage, **fields)
+
+    def error(self, stage: Stage, **fields: object) -> str:
+        return self.emit(StatusKind.ERROR, stage, **fields)
+
+    def wait(self, stage: Stage, **fields: object) -> str:
+        return self.emit(StatusKind.WAIT, stage, **fields)
+
+
+#: Stiller Reporter fuer Aufrufer ohne Terminal (Tests, Bibliotheksnutzung).
+SILENT_REPORTER = TerminalReporter(enabled=False)
 
 
 def _grouped(findings: Sequence[Finding], severity: Severity) -> dict[Stage, dict[str, list[Finding]]]:

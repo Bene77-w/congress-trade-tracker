@@ -314,8 +314,13 @@ class DriftReport:
         return self.blocking or bool(self.described)
 
 
-def load_baseline(collector: ErrorCollector) -> dict[str, dict[str, str]] | None:
-    """Liest die freigegebene Baseline; ``None`` heisst 'noch keine Freigabe'."""
+def _baseline_document(collector: ErrorCollector) -> dict | None:
+    """Liest die freigegebene Baseline vollstaendig geprueft; ``None`` = unbrauchbar.
+
+    Rueckgabe ist das Rohdokument, nicht nur die Industryliste: Freigaberun und
+    yfinance-Version gehoeren zur Provenienz und werden von ``approved_snapshot``
+    gebraucht.
+    """
     target = baseline_path()
     if not target.exists():
         return None
@@ -378,7 +383,59 @@ def load_baseline(collector: ErrorCollector) -> dict[str, dict[str, str]] | None
             "Baseline pruefen und bewusst neu freigeben.",
         )
         return None
-    return {record["industry_id"]: record for record in entries}
+    version = data.get("yfinance_version")
+    if not isinstance(version, str) or not version.strip():
+        # Die Version gehoert zur Provenienz jedes Mappingurteils; fehlt sie,
+        # ist nicht mehr belegbar, welcher Katalogstand entschieden hat.
+        collector.blocker(
+            "TAX_BASELINE_TAMPERED", Stage.TAXONOMY, paths.relative_to_base(target),
+            "Baseline nennt keine yfinance-Version.",
+            "Baseline pruefen und bewusst neu freigeben.",
+        )
+        return None
+    return data
+
+
+def load_baseline(collector: ErrorCollector) -> dict[str, dict[str, str]] | None:
+    """Freigegebene Baseline als Karte Industry-ID -> Datensatz."""
+    data = _baseline_document(collector)
+    if data is None:
+        return None
+    return {record["industry_id"]: record
+            for record in strict_records(data.get("industries")) or []}
+
+
+def approved_snapshot(collector: ErrorCollector) -> TaxonomySnapshot | None:
+    """Die freigegebene Taxonomie als Kontrollinput eines Mappinglaufs.
+
+    Gemappt wird ausschliesslich gegen einen freigegebenen Stand: der Snapshot
+    eines Runs ist erst nach ``snapshot approve`` verbindlich. Fehlt die
+    Freigabe, blockiert der Lauf mit Exit-Code 5 statt gegen eine ungepruefte
+    Taxonomie zu entscheiden.
+
+    ``snapshot_id`` ist der freigegebene Run - genau die Revision, gegen die das
+    Modell entschieden hat, und damit die Provenienz jeder Artefaktzeile.
+    """
+    if not baseline_path().exists():
+        collector.blocker(
+            "TAX_BASELINE_MISSING", Stage.TAXONOMY,
+            paths.relative_to_base(baseline_path()),
+            "Es ist keine Taxonomie freigegeben.",
+            "'snapshot build --run-id <revision>' und danach "
+            "'snapshot approve --run-id <revision>' ausfuehren.",
+            exit_code=ExitCode.AWAITING_TAXONOMY_APPROVAL,
+        )
+        return None
+    data = _baseline_document(collector)
+    if data is None:
+        return None
+    records = strict_records(data.get("industries")) or []
+    rows = tuple(IndustryRow(**record) for record in records)
+    return to_model(
+        rows,
+        snapshot_id=str(data["approved_run_id"]),
+        yfinance_version=str(data["yfinance_version"]),
+    )
 
 
 def compare_with_baseline(
