@@ -407,10 +407,14 @@ Kein Prompttext und kein Zugangsdatum: das Manifest wird versioniert abgelegt
 und ist damit so öffentlich wie das Repository; der Prompt ist über
 `prompt_sha256` eindeutig belegt.
 
-`run_state.json` (`version: run-state-v1`): `run_id`, `workflow_state` sowie je
+`run_state.json` (`version: run-state-v2`): `run_id`, `workflow_state` sowie je
 Unit `unit_id`, `status` (`not_decided | mapped | no_mapping | failed`),
-`cache_key`, das vollständig geprüfte `result` und die `violations`-Codes eines
-Fehlschlags. Workflowstatus und Unitstatus bleiben getrennt — ein Lauf in
+`cache_key`, das vollständig geprüfte `result`, die `violations`-Codes eines
+Fehlschlags und die Callprovenienz `call_id`, `provider`, `generation_id`,
+`from_repair`. Die Provenienz gehört zum Urteil, nicht zum Lauf: nur so trägt
+auch ein Cache-Treffer aus einer früheren Runde seine Herkunft in die Artefakte.
+Ein Zustand der Vorversion `run-state-v1` blockiert mit `RUN_STATE_MALFORMED`
+(Exit 4) und wird nicht überschrieben. Workflowstatus und Unitstatus bleiben getrennt — ein Lauf in
 `outcome_unknown` fällt nie in ein Mappingurteil zurück.
 
 `calls/<call_id>.json` (`version: call-audit-v1`): `call_id`, `model`,
@@ -425,7 +429,9 @@ gelöscht, sobald die Auditdatei steht oder feststeht, dass OpenRouter die
 Anfrage abgewiesen hat. Bleibt sie liegen, nimmt sie auf, was bekannt ist
 (`reason`, `generation_id`, `cost_usd`) — sie ist die einzige Spur, die einen
 bezahlten Call nach einem Prozessabsturz noch belegt. `workflow.open_intents`
-liefert diese Call-IDs.
+liefert diese Call-IDs. Eine Call-ID, die bereits eine Auditdatei trägt, wird
+nie ein zweites Mal gesendet (`CALL_ID_REUSED`, Exit 4); je physischem Versuch
+gehört eine eigene ID.
 
 Ergebnisartefakte desselben Ordners (P7b, geschrieben nach dem Lauf):
 
@@ -434,7 +440,7 @@ Ergebnisartefakte desselben Ordners (P7b, geschrieben nach dem Lauf):
 | `assignments_long.csv` | eine Zeile je Unit-Industry-Zuordnung |
 | `unit_coverage.csv` | jede erwartete Unit genau einmal mit ihrem fachlichen Stand |
 | `boundary_conflicts.csv` | gleiche Industry in Geschwister-Units; Reviewposten, kein Fehler |
-| `roster_coverage.csv` | Roster-Coverage des Laufs (nur wenn Rosterdaten übergeben werden) |
+| `roster_coverage.csv` | Roster-Coverage des Laufs; Pflicht, je Rostervorkommen genau eine Zeile |
 | `cost_report.json` | Kostenstand und die Calls mit offenem Ausgang |
 | `artifacts_manifest.json` | Abschlussmarker; erst er belegt einen vollständigen Satz |
 
@@ -444,7 +450,7 @@ gebunden): `run_id`, `revision_id`, `unit_id`, `chamber`, `committee_name`,
 `broad_scope_exception`, `industry_id`, `industry_name`, `sector_id`,
 `sector_name`, `confidence`, `evidence_excerpt`, `rationale_short`,
 `assignment_source`, `broad_scope_reason`, `call_id`, `provider`,
-`generation_id`, `model`, `taxonomy_content_hash`, `snapshot_id`, `prompt_id`,
+`generation_id`, `from_repair`, `model`, `taxonomy_content_hash`, `snapshot_id`, `prompt_id`,
 `prompt_version`, `prompt_sha256`, `schema_name`, `schema_sha256`.
 
 Industry- und Sektornamen stammen aus dem Snapshot des Laufs, Modell- und
@@ -457,7 +463,7 @@ vollzählig in der Unit-Coverage.
 `committee_name`, `unit_name`, `unit_kind`, `status`
 (`not_decided | mapped | no_mapping | failed`), `assignment_count`,
 `no_mapping_reason`, `broad_scope_exception`, `broad_scope_reason`, `call_id`,
-`provider`, `generation_id`, `violations`. Eine Unit ohne Zustandseintrag ist
+`provider`, `generation_id`, `from_repair`, `violations`. Eine Unit ohne Zustandseintrag ist
 `not_decided`; mehrere Werte in einer Zelle trennt `|`. Enthält ein Wert selbst
 ein `|`, blockiert `ART_SEPARATOR_IN_VALUE` — maskieren hieße, den Wert still zu
 ändern.
@@ -468,8 +474,9 @@ ein `|`, blockiert `ART_SEPARATOR_IN_VALUE` — maskieren hieße, den Wert still
 `committed_usd`, `remaining_usd`, `calls`, `unknown_calls`, `guard_enabled`
 sowie `unknown_calls_detail` je offenem Call.
 
-Callprovenienz (`call_id`, `provider`, `generation_id`) und `mapping_input_hash`
-sind bei jeder Zuordnungszeile Pflicht; sie stehen im Laufzustand je Unit und
+Callprovenienz (`call_id`, `provider`, `generation_id`) ist bei jeder
+entschiedenen Unit Pflicht — auch bei `no_mapping` —, `mapping_input_hash` bei
+jeder Zuordnungszeile; sie stehen im Laufzustand je Unit und
 überleben damit auch einen Cache-Treffer. `assignment_source` ist in P7b immer
 `model`.
 
@@ -486,9 +493,12 @@ Snapshotrevision oder fremder Content-Hash), `ART_UNIT_COUNT_MISMATCH` (Unitmeng
 weicht vom Manifest ab), `ART_UNEXPECTED_UNIT`, `ART_DUPLICATE_UNIT`,
 `ART_STATE_INCONSISTENT` (Status und Ergebnis widersprechen sich in einer der
 beiden Richtungen), `ART_UNKNOWN_INDUSTRY`, `ART_SEPARATOR_IN_VALUE`,
-`ART_ROSTER_MISSING`, `ART_ROSTER_DUPLICATE`, `ART_COST_INCONSISTENT` (Bericht
+`ART_ROSTER_MISSING`, `ART_ROSTER_INCOMPLETE` (weniger Zeilen als
+Rostervorkommen), `ART_ROSTER_DUPLICATE`, `ART_COST_INCONSISTENT` (Bericht
 nennt mehr Calls als die Kostenwache zählt) und `ART_REVISION_EXISTS` (die
-Runrevision trägt bereits Artefakte; sie wird nie überschrieben).
+Runrevision trägt bereits einen **vollständigen** Satz; nur der ist
+unveränderlich — Reste eines abgebrochenen Schreibvorgangs dürfen ersetzt
+werden, sonst könnte derselbe Lauf seinen bezahlten Zustand nie exportieren).
 
 #### `data/config/committee_matcher_prompts/` (P5, versionierter Kontrollinput)
 

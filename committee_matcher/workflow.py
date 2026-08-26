@@ -39,7 +39,7 @@ STATE_FILENAME = "run_state.json"
 #: Vertragsversionen der persistierten Formen. Ein fremder Wert fuehrt nie zu
 #: einer Teilinterpretation, sondern zum Neuanfang beziehungsweise Blocker.
 MANIFEST_VERSION = "run-manifest-v1"
-STATE_VERSION = "run-state-v1"
+STATE_VERSION = "run-state-v2"
 CALL_AUDIT_VERSION = "call-audit-v1"
 CALL_INTENT_VERSION = "call-intent-v1"
 CACHE_KEY_VERSION = "cache-key-v1"
@@ -403,7 +403,23 @@ class AuditedProvider:
         return response
 
     def _reserve(self, request, worst_case: float) -> None:
-        """Legt die Vormerkung an, bevor die Anfrage das Haus verlaesst."""
+        """Legt die Vormerkung an, bevor die Anfrage das Haus verlaesst.
+
+        Eine bereits belegte Call-ID blockiert: sonst wuerde die Auditdatei des
+        frueheren Versuchs ueberschrieben und der neue Call waere weder als
+        offen erkennbar noch historisch nachweisbar.
+        """
+        if call_path(self.run_id, request.call_id).exists():
+            raise CallIdReused([Finding(
+                severity=Severity.BLOCKER,
+                code="CALL_ID_REUSED",
+                stage=Stage.WORKFLOW,
+                obj=request.call_id,
+                message="Diese Call-ID traegt bereits eine Auditdatei.",
+                hint="Je physischem Versuch eine eigene Call-ID bilden; eine "
+                     "ueberschriebene Auditspur verliert einen bezahlten Call.",
+                exit_code=ExitCode.PREFLIGHT_BLOCKED,
+            )], f"CALL_ID_REUSED: {request.call_id}")
         _write_json(intent_path(self.run_id, request.call_id, create_parents=True), {
             "version": CALL_INTENT_VERSION,
             "run_id": self.run_id,
@@ -413,10 +429,17 @@ class AuditedProvider:
         })
 
     def _release(self, call_id: str) -> None:
-        """Loest die Vormerkung auf; nur nach belegter Nichtausfuehrung."""
-        target = intent_path(self.run_id, call_id)
-        if target.exists():
-            target.unlink()
+        """Loest die Vormerkung auf.
+
+        Best effort: die Auditdatei oder die belegte Ablehnung steht bereits
+        fest. Ein gescheitertes Aufraeumen darf einen bezahlten, erfolgreichen
+        Call nicht als Fehlschlag erscheinen lassen - er wuerde sonst erneut
+        gesendet.
+        """
+        try:
+            intent_path(self.run_id, call_id).unlink(missing_ok=True)
+        except OSError:
+            pass
 
     def _mark_open(self, call_id: str, *, reason: str, reserved_usd: float,
                    generation_id: str | None = None,
@@ -488,8 +511,12 @@ class AuditedProvider:
                             generation_id=response.generation_id,
                             cost_usd=response.cost_usd)
             raise
-        self._release(request.call_id)
         self.audited.append(request.call_id)
+        self._release(request.call_id)
+
+
+class CallIdReused(MatcherError):
+    """Eine Call-ID wird ein zweites Mal gesendet; der Lauf haelt an."""
 
 
 class CostBlocked(MatcherError):
@@ -521,6 +548,10 @@ class UnitRecord:
     call_id: str | None = None
     provider: str | None = None
     generation_id: str | None = None
+    #: True, wenn die finale Fassung aus einem Reparaturcall stammt. Der
+    #: Reparaturprompt darf Zuordnungen, Evidence und sogar die Entscheidung
+    #: aendern; dann hat nicht der Mappingprompt allein das Urteil erzeugt.
+    from_repair: bool = False
 
     @property
     def reusable(self) -> bool:
@@ -545,6 +576,7 @@ class UnitRecord:
             "call_id": self.call_id,
             "provider": self.provider,
             "generation_id": self.generation_id,
+            "from_repair": self.from_repair,
         }
 
     @classmethod
@@ -577,8 +609,12 @@ class UnitRecord:
             if value is not None and not isinstance(value, str):
                 return None
             provenance[field_name] = value
+        repaired = data.get("from_repair", False)
+        if not isinstance(repaired, bool):
+            return None
         return cls(unit_id=unit_id, status=status, cache_key=key,
-                   result=result, violations=tuple(violations), **provenance)
+                   result=result, violations=tuple(violations),
+                   from_repair=repaired, **provenance)
 
 
 @dataclass

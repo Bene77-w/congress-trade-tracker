@@ -44,10 +44,18 @@ Phasenreview (GPT Sol) mit sieben hohen Befunden, alle behoben:
 - Roster-Coverage ist Pflicht, Revisionen werden nie überschrieben,
   Kostenbericht muss zur Kostenwache passen.
 
+Nachprüfung mit acht weiteren hohen Befunden, ebenfalls behoben: Callprovenienz
+vollständig und auch für `no_mapping` verpflichtend, `from_repair` als eigene
+Spalte (der Reparaturprompt darf das Urteil ändern), Zustandsvertrag auf
+`run-state-v2` gehoben, Call-ID nie zweimal gesendet, `is_complete()` verlangt
+exakt den Pflichtsatz, `ART_REVISION_EXISTS` greift nur bei vollständigen
+Sätzen, Kostenzähler derselben Semantik, Roster-Coverage gegen die Zahl der
+Rostervorkommen geprüft.
+
 Offen zur Entscheidung: CSV-Formelinterpretation in Excel bei Feldern aus
 Committee-Text.
 
-Tests: 1743 grün (+60 netzwerkfrei).
+Tests: 1756 grün (+73 netzwerkfrei).
 
 Davor im selben Zug: die zweite Nachprüfung zu P7a (Commit `5efe01b`) — 4xx
 nicht mehr pauschal als belegte Ablehnung, Generation-ID und Kosten auch im

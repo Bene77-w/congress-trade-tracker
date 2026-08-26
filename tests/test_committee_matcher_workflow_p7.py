@@ -563,6 +563,42 @@ def test_a_non_string_provenance_field_makes_the_entry_unusable():
         "call_id": 7}) is None
 
 
+def test_a_call_id_is_never_sent_twice(artifact_sandbox):
+    """Sonst ueberschreibt der zweite Versuch die Spur des ersten, bezahlten."""
+    guard = workflow.CostGuard(budget_usd=1.0, rates=workflow.CostRates(1.0, 1.0))
+    inner = _Recorder([_response(), _response()])
+    audited = workflow.AuditedProvider(inner=inner, run_id="run-1", guard=guard,
+                                       offline=_offline())
+    audited.complete(_request())
+    with pytest.raises(workflow.CallIdReused) as exc:
+        audited.complete(_request())
+    assert exc.value.findings[0].code == "CALL_ID_REUSED"
+    assert inner.seen == ["call-1"]
+
+
+def test_a_failed_cleanup_never_fails_a_paid_call(artifact_sandbox, monkeypatch):
+    """Die Auditdatei steht; ein Aufraeumfehler duerfte den Call nicht wiederholen."""
+    guard = workflow.CostGuard(budget_usd=1.0, rates=workflow.CostRates(1.0, 1.0))
+    audited = workflow.AuditedProvider(
+        inner=_Recorder([_response()]), run_id="run-1", guard=guard, offline=_offline())
+    monkeypatch.setattr(workflow.Path, "unlink",
+                        lambda *a, **k: (_ for _ in ()).throw(OSError("gesperrt")))
+    response = audited.complete(_request())
+    assert response.call_id == "call-1"
+    assert audited.audited == ["call-1"]
+
+
+def test_a_state_of_the_previous_contract_version_stops_the_run(artifact_sandbox):
+    """Ein Zustand ohne Callprovenienz gilt nie als erledigt - er wuerde spaeter blockieren."""
+    target = workflow.state_path("run-1", create_parents=True)
+    workflow._write_json(target, {
+        "version": "run-state-v1", "run_id": "run-1", "workflow_state": "running",
+        "units": []})
+    with pytest.raises(workflow.RunStateUnusable) as exc:
+        workflow.load_state("run-1")
+    assert exc.value.findings[0].code == "RUN_STATE_MALFORMED"
+
+
 def test_every_call_gets_its_own_audit_file(artifact_sandbox):
     guard = workflow.CostGuard(budget_usd=1.0, rates=workflow.CostRates(1.0, 1.0))
     audited = workflow.AuditedProvider(

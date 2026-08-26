@@ -52,7 +52,7 @@ ASSIGNMENT_COLUMNS: tuple[str, ...] = (
     "broad_scope_exception", "industry_id", "industry_name", "sector_id",
     "sector_name", "confidence", "evidence_excerpt", "rationale_short",
     "assignment_source", "broad_scope_reason", "call_id", "provider",
-    "generation_id", "model", "taxonomy_content_hash", "snapshot_id",
+    "generation_id", "from_repair", "model", "taxonomy_content_hash", "snapshot_id",
     "prompt_id", "prompt_version", "prompt_sha256", "schema_name",
     "schema_sha256",
 )
@@ -60,7 +60,7 @@ UNIT_COVERAGE_COLUMNS: tuple[str, ...] = (
     "run_id", "revision_id", "unit_id", "chamber", "committee_name", "unit_name",
     "unit_kind", "status", "assignment_count", "no_mapping_reason",
     "broad_scope_exception", "broad_scope_reason", "call_id", "provider",
-    "generation_id", "violations",
+    "generation_id", "from_repair", "violations",
 )
 BOUNDARY_COLUMNS: tuple[str, ...] = (
     "run_id", "family_id", "industry_id", "industry_name", "unit_count", "unit_ids",
@@ -75,9 +75,12 @@ ROSTER_COVERAGE_COLUMNS: tuple[str, ...] = (
 #: Mehrdeutigkeit erzeugen.
 CELL_SEPARATOR = "|"
 
-#: Der Mappingprompt bestimmt das Ergebnis; der Reparaturprompt korrigiert nur
-#: die Form. Als Provenienz einer Zuordnung zaehlt deshalb der Mappingprompt.
+#: Der Mappingprompt erzeugt jedes Urteil; er steht deshalb in jeder Zeile.
 PROVENANCE_PROMPT_ID = "mapping_system"
+#: Der Reparaturprompt darf Zuordnungen, Evidence und sogar die Entscheidung
+#: aendern. Stammt die finale Fassung aus einem Reparaturcall, sagt das die
+#: Spalte ``from_repair``; der zugehoerige Hash steht im Runmanifest.
+REPAIR_PROMPT_ID = "repair_system"
 
 
 class ArtifactError(MatcherError):
@@ -231,6 +234,8 @@ def _checked_records(expected: Mapping[str, MatcherUnit],
                 "Ergebnis der Unit.",
                 "Laufzustand pruefen; ein Artefakt darf keinen Widerspruch "
                 "zwischen Status und Modellurteil festschreiben.")
+        if decided:
+            _call_provenance(record)
         if not decided and record.result is not None:
             raise _blocked(
                 "ART_STATE_INCONSISTENT", unit_id,
@@ -288,20 +293,30 @@ def _required_hash(unit: MatcherUnit) -> str:
     return unit.mapping_input_hash
 
 
+#: Felder, die ein entschiedenes Ergebnis mitbringen muss.
+CALL_PROVENANCE_FIELDS: tuple[str, ...] = ("call_id", "provider", "generation_id")
+
+
 def _call_provenance(record: workflow.UnitRecord) -> tuple[str, str, str]:
     """Herkunft eines entschiedenen Ergebnisses; sie ist Pflicht.
 
     Bei freier Providerwahl beantwortet erst sie, welcher Anbieter unter welcher
-    Generation-ID diese Zeile erzeugt hat. Eine leere Spalte waere im Abgleich
-    mit dem Provider wertlos.
+    Generation-ID dieses Urteil erzeugt hat - fuer ``no_mapping`` genauso wie
+    fuer eine Zuordnung. Eine leere Spalte waere im Abgleich mit dem Provider
+    wertlos.
     """
-    if not record.call_id:
-        raise _blocked(
-            "ART_PROVENANCE_INCOMPLETE", record.unit_id,
-            "Das Ergebnis der Unit nennt keinen Call.",
-            "Laufzustand mit Callprovenienz schreiben (call_id, provider, "
-            "generation_id); sie gehoert zum Urteil, nicht zum Lauf.")
-    return record.call_id, record.provider or "", record.generation_id or ""
+    values = []
+    for field_name in CALL_PROVENANCE_FIELDS:
+        value = getattr(record, field_name)
+        if not value:
+            raise _blocked(
+                "ART_PROVENANCE_INCOMPLETE", f"{record.unit_id}/{field_name}",
+                f"Das Ergebnis der Unit nennt kein Feld {field_name!r}.",
+                "Laufzustand mit vollstaendiger Callprovenienz schreiben "
+                "(call_id, provider, generation_id); sie gehoert zum Urteil, "
+                "nicht zum Lauf.")
+        values.append(value)
+    return values[0], values[1], values[2]
 
 
 def assignment_rows(units: Iterable[MatcherUnit], state: workflow.RunState,
@@ -349,6 +364,7 @@ def assignment_rows(units: Iterable[MatcherUnit], state: workflow.RunState,
                 "call_id": call_id,
                 "provider": provider_name,
                 "generation_id": generation_id,
+                "from_repair": _flag(record.from_repair),
                 "model": prov.model,
                 "taxonomy_content_hash": prov.taxonomy_content_hash,
                 "snapshot_id": prov.snapshot_id,
@@ -404,6 +420,7 @@ def _coverage_payload(units: Iterable[MatcherUnit], state: workflow.RunState,
             "call_id": (record.call_id or "") if record else "",
             "provider": (record.provider or "") if record else "",
             "generation_id": (record.generation_id or "") if record else "",
+            "from_repair": _flag(bool(record and record.from_repair)),
             "violations": _joined(record.violations, row.unit_id) if record else "",
         })
     return tuple(rows)
@@ -512,12 +529,14 @@ def cost_payload(run_id: str, guard: workflow.CostGuard,
     gezaehlte Calls hiesse, dass Bericht und Kostenwache verschiedene Laeufe
     beschreiben - dann ist keine der beiden Zahlen belastbar.
     """
-    if audited_calls > guard.calls or len(unknown) > guard.unknown_calls:
+    # Verglichen wird gegen die Gesamtzahl der Calls, nicht gegen
+    # ``unknown_calls``: dort zaehlen nur Calls ohne Kostenmeldung, waehrend die
+    # Detailliste auch bezahlte Calls ohne Auditdatei fuehrt.
+    if audited_calls + len(unknown) > guard.calls:
         raise _blocked(
             "ART_COST_INCONSISTENT", run_id,
             f"Der Bericht nennt {audited_calls} auditierte und {len(unknown)} "
-            f"offene Calls, die Kostenwache zaehlt {guard.calls} beziehungsweise "
-            f"{guard.unknown_calls}.",
+            f"offene Calls, die Kostenwache zaehlt {guard.calls} insgesamt.",
             "Kostenwache und Auditspur desselben Laufs uebergeben; ein "
             "gemischter Stand macht beide Zahlen wertlos.")
     return {
@@ -545,28 +564,29 @@ def write_cost_report(run_id: str, guard: workflow.CostGuard,
     return _write_json_artifact(run_id, COST_REPORT_FILENAME, payload, len(unknown))
 
 
-#: Alle Ziele eines vollstaendigen Satzes; die Reihenfolge ist die des Schreibens.
-ARTIFACT_FILENAMES: tuple[str, ...] = (
+#: Die Ergebnisdateien eines vollstaendigen Satzes, ohne den Marker selbst.
+REQUIRED_FILENAMES: tuple[str, ...] = (
     ASSIGNMENTS_FILENAME, UNIT_COVERAGE_FILENAME, BOUNDARY_FILENAME,
-    COST_REPORT_FILENAME, ROSTER_COVERAGE_FILENAME, INDEX_FILENAME,
+    COST_REPORT_FILENAME, ROSTER_COVERAGE_FILENAME,
 )
+#: Alle Ziele; die Reihenfolge ist die des Schreibens.
+ARTIFACT_FILENAMES: tuple[str, ...] = (*REQUIRED_FILENAMES, INDEX_FILENAME)
 
 
 def _assert_revision_free(run_id: str) -> None:
-    """Eine bestehende Ergebnisrevision wird nie ueberschrieben.
+    """Ein vollstaendiger Satz wird nie ueberschrieben.
 
-    Runrevisionen sind unveraenderlich (Plan 2.8). Ein zweiter Schreibvorgang
-    unter derselben Run-ID wuerde den bereits gesichteten Stand ersetzen, ohne
-    dass die Ersetzung irgendwo sichtbar waere.
+    Unveraenderlich ist die fertige Revision (Plan 2.8) - erkennbar am
+    Abschlussmarker. Reste eines abgebrochenen Schreibvorgangs sind dagegen kein
+    Ergebnis: sie duerfen ersetzt werden, sonst koennte derselbe Lauf seinen
+    bereits bezahlten Zustand nie exportieren.
     """
-    for filename in ARTIFACT_FILENAMES:
-        target = workflow.mapping_path(run_id, filename)
-        if target.exists():
-            raise _blocked(
-                "ART_REVISION_EXISTS", paths.relative_to_base(target),
-                "Diese Runrevision traegt bereits Ergebnisartefakte.",
-                "Neue --run-id verwenden oder die vorhandene Revision nach "
-                "Sichtung entfernen; ueberschrieben wird sie nicht.")
+    if is_complete(run_id):
+        raise _blocked(
+            "ART_REVISION_EXISTS", run_id,
+            "Diese Runrevision traegt bereits einen vollstaendigen Artefaktsatz.",
+            "Neue --run-id verwenden oder die vorhandene Revision nach Sichtung "
+            "entfernen; ueberschrieben wird sie nicht.")
 
 
 def _rollback(written: Sequence[ArtifactFile]) -> None:
@@ -609,19 +629,24 @@ def is_complete(run_id: str) -> bool:
     if data.get("run_id") != run_id:
         return False
     entries = data.get("files")
-    if not isinstance(entries, list) or not entries:
+    if not isinstance(entries, list):
         return False
-    return all(workflow.mapping_path(run_id, entry["name"]).exists()
-               for entry in entries
-               if isinstance(entry, dict) and isinstance(entry.get("name"), str))
+    names = [entry.get("name") for entry in entries if isinstance(entry, dict)]
+    # Exakt der Pflichtsatz: eine Teilmenge oder ein unlesbarer Eintrag darf
+    # nicht als vollstaendig durchgehen.
+    if sorted(name for name in names if isinstance(name, str)) != sorted(REQUIRED_FILENAMES):
+        return False
+    return all(workflow.mapping_path(run_id, name).exists()
+               for name in REQUIRED_FILENAMES)
 
 
-def _checked_roster(rows: Sequence[RosterCoverageRow]) -> Sequence[RosterCoverageRow]:
-    """Die Roster-Coverage ist Pflicht und muss je Vorkommen eindeutig sein.
+def _checked_roster(rows: Sequence[RosterCoverageRow],
+                    occurrences: int) -> Sequence[RosterCoverageRow]:
+    """Die Roster-Coverage ist Pflicht, vollzaehlig und je Vorkommen eindeutig.
 
-    Vollstaendig ist sie, weil ``roster_coverage.build_coverage`` sie aus dem
-    Roster erzeugt; hier wird nur ausgeschlossen, dass eine leere oder in sich
-    doppelte Menge als Coverage durchgeht.
+    ``occurrences`` ist die Zahl der gelesenen Rostervorkommen. Ohne sie waere
+    jede nichtleere Teilmenge als Coverage durchgegangen und der Abschlussmarker
+    haette einen sachlich unvollstaendigen Satz bescheinigt.
     """
     if not rows:
         raise _blocked(
@@ -629,6 +654,13 @@ def _checked_roster(rows: Sequence[RosterCoverageRow]) -> Sequence[RosterCoverag
             "Der Lauf uebergibt keine Roster-Coverage.",
             "Coverage ueber roster_coverage.build_coverage erzeugen; Plan 2.8 "
             "fuehrt sie als Pflichtartefakt.")
+    if len(rows) != occurrences:
+        raise _blocked(
+            "ART_ROSTER_INCOMPLETE", "roster_coverage",
+            f"Die Coverage traegt {len(rows)} Zeilen, das Roster nennt "
+            f"{occurrences} Vorkommen.",
+            "Vollstaendige Coverage uebergeben; je Rostervorkommen entsteht "
+            "genau eine Zeile (Plan 2.3).")
     seen: set[tuple[str, str, str]] = set()
     for row in rows:
         key = (row.chamber, row.committee_name, row.unit_name)
@@ -645,6 +677,7 @@ def write_run_artifacts(*, run_id: str, units: Iterable[MatcherUnit],
                         state: workflow.RunState, snapshot: TaxonomySnapshot,
                         manifest: Mapping, guard: workflow.CostGuard,
                         roster: Iterable[RosterCoverageRow],
+                        roster_occurrences: int,
                         unknown: Sequence[workflow.UnknownCall] = (),
                         audited_calls: int = 0) -> ArtifactSet:
     """Schreibt alle Pflichtartefakte eines Laufs (Plan 2.8).
@@ -693,7 +726,8 @@ def write_run_artifacts(*, run_id: str, units: Iterable[MatcherUnit],
     assignments = assignment_rows(units, state, snapshot, prov)
     coverage = _coverage_payload(units, state, run_id)
     conflicts = boundary_rows(units, state, snapshot, run_id)
-    roster_payload = roster_rows(_checked_roster(tuple(roster)), run_id)
+    roster_payload = roster_rows(
+        _checked_roster(tuple(roster), roster_occurrences), run_id)
     cost = cost_payload(run_id, guard, unknown, audited_calls)
 
     done: list[ArtifactFile] = []

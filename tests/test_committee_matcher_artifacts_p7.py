@@ -161,6 +161,7 @@ def _write_all(units, state, snapshot=None, **overrides) -> artifacts.ArtifactSe
                   manifest=_manifest(unit_count=len(units)), guard=_guard(),
                   roster=[_roster()])
     values.update(overrides)
+    values.setdefault("roster_occurrences", len(values["roster"]))
     return artifacts.write_run_artifacts(**values)
 
 
@@ -207,13 +208,13 @@ EXPECTED_ASSIGNMENT_HEADER = (
     "input_basis,mapping_input_hash,decision,broad_scope_exception,industry_id,"
     "industry_name,sector_id,sector_name,confidence,evidence_excerpt,"
     "rationale_short,assignment_source,broad_scope_reason,call_id,provider,"
-    "generation_id,model,taxonomy_content_hash,snapshot_id,prompt_id,"
+    "generation_id,from_repair,model,taxonomy_content_hash,snapshot_id,prompt_id,"
     "prompt_version,prompt_sha256,schema_name,schema_sha256")
 
 EXPECTED_COVERAGE_HEADER = (
     "run_id,revision_id,unit_id,chamber,committee_name,unit_name,unit_kind,"
     "status,assignment_count,no_mapping_reason,broad_scope_exception,"
-    "broad_scope_reason,call_id,provider,generation_id,violations")
+    "broad_scope_reason,call_id,provider,generation_id,from_repair,violations")
 
 
 def test_the_long_csv_keeps_its_column_contract(artifact_sandbox):
@@ -244,6 +245,37 @@ def test_a_result_without_call_provenance_blocks_the_artifact(artifact_sandbox):
     with pytest.raises(artifacts.ArtifactError) as exc:
         _write_all([unit], _state(_mapped(unit.unit_id, "industry-0", call_id=None)))
     assert exc.value.findings[0].code == "ART_PROVENANCE_INCOMPLETE"
+
+
+@pytest.mark.parametrize("field", artifacts.CALL_PROVENANCE_FIELDS)
+def test_no_decided_unit_ships_without_its_provider_trail(artifact_sandbox, field):
+    """Auch no_mapping ist ein Urteil eines Calls - und braucht dessen Herkunft."""
+    unit = _unit()
+    record = workflow.UnitRecord(
+        unit_id=unit.unit_id, status=UnitStatus.NO_MAPPING, cache_key=HASH_B,
+        result=_result(unit.unit_id, decision="no_mapping", reason="Kein Bezug."),
+        call_id="batch-1", provider="Anbieter A", generation_id="gen-1")
+    with pytest.raises(artifacts.ArtifactError) as exc:
+        _write_all([unit], _state(record.__class__(**{
+            **record.__dict__, field: None})))
+    assert exc.value.findings[0].code == "ART_PROVENANCE_INCOMPLETE"
+    assert field in exc.value.findings[0].obj
+
+
+def test_a_repaired_result_says_so(artifact_sandbox):
+    """Der Reparaturprompt darf das Urteil aendern; die Zeile muss das zeigen."""
+    unit = _unit()
+    record = _mapped(unit.unit_id, "industry-0")
+    repaired = workflow.UnitRecord(**{**record.__dict__, "from_repair": True})
+    written = _write_all([unit], _state(repaired))
+    assert _read(written.assignments.path)[0]["from_repair"] == "true"
+    assert _read(written.unit_coverage.path)[0]["from_repair"] == "true"
+
+
+def test_an_unrepaired_result_says_so_too(artifact_sandbox):
+    unit = _unit()
+    written = _write_all([unit], _state(_mapped(unit.unit_id, "industry-0")))
+    assert _read(written.assignments.path)[0]["from_repair"] == "false"
 
 
 def test_a_unit_without_input_hash_blocks_the_artifact(artifact_sandbox):
@@ -354,7 +386,7 @@ def test_a_state_contradicting_its_own_result_blocks_the_artifact(artifact_sandb
     record = workflow.UnitRecord(
         unit_id=unit.unit_id, status=UnitStatus.MAPPED, cache_key=HASH_B,
         result=_result(unit.unit_id, decision="no_mapping", reason="Kein Bezug."),
-        call_id="batch-1")
+        call_id="batch-1", provider="Anbieter A", generation_id="gen-1")
     with pytest.raises(artifacts.ArtifactError) as exc:
         _write_all([unit], _state(record))
     assert exc.value.findings[0].code == "ART_STATE_INCONSISTENT"
@@ -445,11 +477,20 @@ def test_a_run_without_roster_coverage_blocks_the_artifact(artifact_sandbox):
     assert exc.value.findings[0].code == "ART_ROSTER_MISSING"
 
 
+def test_a_partial_roster_coverage_blocks_the_artifact(artifact_sandbox):
+    """Eine Teilmenge duerfte sonst als vollstaendiges Pflichtartefakt gelten."""
+    unit = _unit()
+    with pytest.raises(artifacts.ArtifactError) as exc:
+        _write_all([unit], _state(_mapped(unit.unit_id, "industry-0")),
+                   roster=[_roster()], roster_occurrences=230)
+    assert exc.value.findings[0].code == "ART_ROSTER_INCOMPLETE"
+
+
 def test_a_duplicated_roster_occurrence_blocks_the_artifact(artifact_sandbox):
     unit = _unit()
     with pytest.raises(artifacts.ArtifactError) as exc:
         _write_all([unit], _state(_mapped(unit.unit_id, "industry-0")),
-                   roster=[_roster(), _roster()])
+                   roster=[_roster(), _roster()], roster_occurrences=2)
     assert exc.value.findings[0].code == "ART_ROSTER_DUPLICATE"
 
 
@@ -503,7 +544,7 @@ def test_a_partial_unit_set_writes_nothing(artifact_sandbox):
         artifacts.write_run_artifacts(
             run_id=RUN_ID, units=[unit], state=_state(_mapped(unit.unit_id, "industry-0")),
             snapshot=_snapshot(), manifest=_manifest(unit_count=2), guard=_guard(),
-            roster=[_roster()])
+            roster=[_roster()], roster_occurrences=1)
     assert exc.value.findings[0].code == "ART_UNIT_COUNT_MISMATCH"
 
 
@@ -550,6 +591,46 @@ def test_a_failed_write_leaves_no_half_set(artifact_sandbox, monkeypatch, failin
     assert artifacts.is_complete(RUN_ID) is False
 
 
+def test_a_marker_naming_less_than_the_full_set_counts_as_incomplete(artifact_sandbox):
+    """Sonst koennte ein gekuerzter Marker Vollstaendigkeit bescheinigen."""
+    unit = _unit()
+    _write_all([unit], _state(_mapped(unit.unit_id, "industry-0")))
+    target = workflow.mapping_path(RUN_ID, artifacts.INDEX_FILENAME)
+    target.write_text(json.dumps({
+        "version": artifacts.ARTIFACT_INDEX_VERSION, "run_id": RUN_ID,
+        "files": [{"name": artifacts.ASSIGNMENTS_FILENAME, "rows": 1}]}),
+        encoding="utf-8")
+    assert artifacts.is_complete(RUN_ID) is False
+
+
+def test_a_marker_without_readable_entries_counts_as_incomplete(artifact_sandbox):
+    unit = _unit()
+    _write_all([unit], _state(_mapped(unit.unit_id, "industry-0")))
+    target = workflow.mapping_path(RUN_ID, artifacts.INDEX_FILENAME)
+    target.write_text(json.dumps({
+        "version": artifacts.ARTIFACT_INDEX_VERSION, "run_id": RUN_ID,
+        "files": [{"rows": 1}, "kaputt"]}), encoding="utf-8")
+    assert artifacts.is_complete(RUN_ID) is False
+
+
+def test_a_missing_result_file_counts_as_incomplete(artifact_sandbox):
+    unit = _unit()
+    written = _write_all([unit], _state(_mapped(unit.unit_id, "industry-0")))
+    written.boundary_conflicts.path.unlink()
+    assert artifacts.is_complete(RUN_ID) is False
+
+
+def test_a_broken_set_may_be_written_again(artifact_sandbox):
+    """Sonst koennte derselbe Lauf seinen bereits bezahlten Zustand nie exportieren."""
+    unit = _unit()
+    state = _state(_mapped(unit.unit_id, "industry-0"))
+    _write_all([unit], state)
+    workflow.mapping_path(RUN_ID, artifacts.INDEX_FILENAME).unlink()
+    written = _write_all([unit], state)
+    assert artifacts.is_complete(RUN_ID) is True
+    assert written.assignments.rows == 1
+
+
 def test_an_incomplete_set_is_recognisable_without_the_marker(artifact_sandbox):
     """Ein Prozessabbruch laesst den Marker fehlen - genau daran haengt der Leser."""
     unit = _unit()
@@ -563,7 +644,8 @@ def test_a_not_decided_unit_carrying_a_result_blocks_the_artifact(artifact_sandb
     unit = _unit()
     record = workflow.UnitRecord(
         unit_id=unit.unit_id, status=UnitStatus.FAILED, cache_key=HASH_B,
-        result=_result(unit.unit_id, "industry-0"), call_id="batch-1")
+        result=_result(unit.unit_id, "industry-0"), call_id="batch-1",
+        provider="Anbieter A", generation_id="gen-1")
     with pytest.raises(artifacts.ArtifactError) as exc:
         _write_all([unit], _state(record))
     assert exc.value.findings[0].code == "ART_STATE_INCONSISTENT"
