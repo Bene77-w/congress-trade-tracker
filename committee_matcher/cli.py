@@ -41,12 +41,20 @@ from .errors import (
     MatcherError,
     Severity,
     Stage,
+    StatusKind,
     TerminalReporter,
     print_report,
 )
 from .models import MatcherUnit, TaxonomySnapshot
 from .settings_view import MatcherSettings, SettingsBlocked, load_settings
-from .status import CoverageStatus, ExitCode, InputBasis, WorkflowState
+from .status import (
+    CoverageStatus,
+    ExitCode,
+    InputBasis,
+    MappingDecision,
+    UnitStatus,
+    WorkflowState,
+)
 
 PROGRAM = "committee_matcher"
 
@@ -889,6 +897,335 @@ def handle_run_plan(
     ], [paths.relative_to_base(manifest_file)]
 
 
+def _roster(collector: ErrorCollector, units: Sequence[MatcherUnit],
+            ) -> tuple[tuple, int]:
+    """Roster-Coverage samt der Zahl der gelesenen Rostervorkommen.
+
+    Die Zahl kommt aus den Rostereintraegen, nicht aus den Coveragezeilen:
+    sonst waere die Vollzaehligkeitspruefung in ``artifacts`` tautologisch.
+    """
+    rules = roster_coverage.load_rules(collector)
+    entries: list = []
+    for chamber, path in sorted(roster_coverage.roster_paths().items()):
+        entries.extend(roster_coverage.read_roster(collector, chamber, path))
+    rows = roster_coverage.build_coverage(collector, units, entries, rules)
+    return rows, len(entries)
+
+
+def _unit_keys(targets: Sequence[MatcherUnit], prepared: RunPreparation,
+               ) -> dict[str, str]:
+    """Cache-Key je Unit; er entscheidet ueber Wiederverwendung beim Resume."""
+    inference = workflow.inference_fingerprint(prepared.provider_settings)
+    return {
+        unit.unit_id: workflow.unit_cache_key(
+            unit,
+            taxonomy_content_hash=prepared.snapshot.taxonomy_content_hash,
+            prompt=prepared.mapping_prompt,
+            model=prepared.provider_settings.model,
+            inference=inference,
+        )
+        for unit in targets
+    }
+
+
+#: Grund, aus dem ein Batch ohne Ergebnis blieb; er unterscheidet den
+#: geordneten Abbruch des Laufs vom Fehlschlag eines einzelnen Batches.
+_STOP_COST = "cost"
+_STOP_PROVIDER = "provider"
+
+
+def _run_batch(collector: ErrorCollector, audited: workflow.AuditedProvider,
+               batch: mapping.MappingBatch, prepared: RunPreparation,
+               settings: MatcherSettings, reporter: TerminalReporter,
+               ) -> tuple[mapping.BatchOutcome | None, str | None]:
+    """Fuehrt einen Batch aus; liefert Ergebnis und einen etwaigen Abbruchgrund.
+
+    Wiederholt wird ausschliesslich ein Call, den der Provider nachweislich vor
+    der Ausfuehrung abgelehnt hat. Bei offenem Ausgang wird nie wiederholt: der
+    Call koennte gelaufen und abgerechnet worden sein (Plan 2.6).
+    """
+    attempts = 1 + max(0, settings.offline.workflow_retries)
+    for attempt in range(attempts):
+        prefix = "" if attempt == 0 else f"retry{attempt}-"
+        try:
+            return mapping.map_batch(
+                audited, batch, prepared.snapshot,
+                mapping_prompt=prepared.mapping_prompt,
+                repair_prompt=prepared.repair_prompt,
+                offline=settings.offline,
+                provider_settings=prepared.provider_settings,
+                call_prefix=prefix,
+            ), None
+        except workflow.CostBlocked as exc:
+            collector.extend(exc.findings)
+            reporter.error(Stage.COST, batch=batch.batch_id,
+                           code="COST_BUDGET_EXCEEDED")
+            return None, _STOP_COST
+        except workflow.CallIdReused as exc:
+            collector.extend(exc.findings)
+            reporter.error(Stage.WORKFLOW, batch=batch.batch_id,
+                           code="CALL_ID_REUSED")
+            return None, _STOP_PROVIDER
+        except provider.ProviderCallError as exc:
+            last = attempt == attempts - 1
+            retryable = exc.retryable and not exc.outcome_unknown
+            if retryable and not last:
+                reporter.warn(Stage.PROVIDER, batch=batch.batch_id,
+                              retry=f"{attempt + 1}/{attempts - 1}",
+                              reason=exc.findings[0].code if exc.findings else "unbekannt")
+                continue
+            collector.extend(exc.findings)
+            if exc.routing_suspected:
+                provider.routing_failure_finding(
+                    collector, prepared.provider_settings, exc.findings[0].message)
+            reporter.error(Stage.PROVIDER, batch=batch.batch_id,
+                           code=exc.findings[0].code if exc.findings else "PROV_CALL_FAILED",
+                           outcome_unknown=exc.outcome_unknown)
+            # Ein nicht wiederholbarer Providerfehler beendet den Lauf: die
+            # naechsten Batches liefen in denselben Fehler und kosteten erneut.
+            return None, _STOP_PROVIDER
+    return None, _STOP_PROVIDER
+
+
+def _record_outcome(state: workflow.RunState, outcome: mapping.BatchOutcome,
+                    keys: Mapping[str, str], reporter: TerminalReporter) -> None:
+    """Schreibt das Batchergebnis in den Laufzustand.
+
+    Ohne vollstaendige Callprovenienz gilt eine Unit als fehlgeschlagen statt
+    als entschieden: ein Urteil, das sich nicht auf einen Call zurueckfuehren
+    laesst, ist beim Provider nicht abgleichbar. Die Antwort selbst bleibt in
+    der Auditdatei erhalten.
+    """
+    by_call = {record.request.call_id: record for record in outcome.calls}
+    if outcome.result is None:
+        reasons = tuple(violation.rendered() for violation in outcome.violations)
+        for unit in outcome.batch.units:
+            state.record(workflow.UnitRecord(
+                unit_id=unit.unit_id, status=UnitStatus.FAILED,
+                cache_key=keys.get(unit.unit_id, ""), violations=reasons))
+            reporter.error(Stage.MAPPING, unit=unit.unit_id, failed=None,
+                           reasons=len(reasons))
+        return
+
+    for result in outcome.result.units:
+        call_id = outcome.unit_calls.get(result.unit_id)
+        record = by_call.get(call_id or "")
+        response = record.response if record is not None else None
+        missing = [name for name, value in (
+            ("call_id", call_id),
+            ("provider", getattr(response, "provider", None)),
+            ("generation_id", getattr(response, "generation_id", None)),
+        ) if not value]
+        if missing:
+            state.record(workflow.UnitRecord(
+                unit_id=result.unit_id, status=UnitStatus.FAILED,
+                cache_key=keys.get(result.unit_id, ""),
+                violations=(f"Callprovenienz unvollstaendig: {', '.join(missing)}",)))
+            reporter.error(Stage.MAPPING, unit=result.unit_id,
+                           code="RUN_PROVENANCE_MISSING")
+            continue
+        state.record(workflow.UnitRecord(
+            unit_id=result.unit_id,
+            status=workflow.STATUS_FOR_DECISION[result.decision],
+            cache_key=keys.get(result.unit_id, ""),
+            result=result,
+            call_id=call_id,
+            provider=response.provider,
+            generation_id=response.generation_id,
+            from_repair=record.kind == "repair",
+        ))
+        if result.decision is MappingDecision.NO_MAPPING:
+            reporter.info(Stage.MAPPING, unit=result.unit_id, no_mapping=None,
+                          reason=result.no_mapping_reason or "-")
+        else:
+            reporter.ok(Stage.MAPPING, unit=result.unit_id,
+                        industries=len(result.assignments))
+
+
+def _final_state(state: workflow.RunState, unknown: Sequence,
+                 stopped: str | None) -> WorkflowState:
+    """Endzustand des Laufs; ``outcome_unknown`` schlaegt jedes Mappingurteil."""
+    if unknown:
+        return WorkflowState.OUTCOME_UNKNOWN
+    counts = state.counts()
+    if stopped is not None or counts[UnitStatus.FAILED.value]:
+        return WorkflowState.FAILED
+    if counts[UnitStatus.NOT_DECIDED.value]:
+        return WorkflowState.FAILED
+    return WorkflowState.AWAITING_MANUAL_REVIEW
+
+
+def handle_run_execute(
+    command: Command, namespace: argparse.Namespace,
+    collector: ErrorCollector, settings: MatcherSettings,
+    reporter: TerminalReporter,
+) -> tuple[list[str], list[str], float]:
+    """Fuehrt den geplanten Entwicklungsrun aus (Plan 2.6); kostenpflichtig."""
+    if _missing_run_id(command, namespace, collector):
+        return [], [], 0.0
+    run_id = _run_id(namespace)
+    reporter.start(Stage.WORKFLOW, run=run_id, action="execute")
+    if not _assert_revision_open(collector, run_id):
+        return [f"Run:      {run_id}", "Lauf:     abgelehnt (Revision abgeschlossen)"], [], 0.0
+
+    previous = workflow.load_manifest(run_id)
+    if previous is None:
+        _run_blocker(
+            collector, "RUN_NOT_PLANNED", run_id,
+            "Zu dieser Revision existiert kein Runmanifest.",
+            f"Zuerst 'run plan --run-id {run_id} --committee ...' ausfuehren; "
+            "der Plan friert die Bedingungen ein und nennt die Kosten.")
+        return [f"Run:      {run_id}", "Lauf:     nicht geplant"], [], 0.0
+
+    prepared = _prepare_run(command, namespace, collector, settings, reporter, run_id)
+    if prepared is None:
+        return [f"Run:      {run_id}", "Lauf:     blockiert (siehe Befunde)"], [], 0.0
+    conflicts = workflow.resume_conflicts(previous, prepared.manifest)
+    if conflicts:
+        collector.extend([workflow.resume_blocker(run_id, conflicts)])
+        reporter.error(Stage.WORKFLOW, run=run_id, code="RUN_MANIFEST_DRIFT")
+        return [f"Run:      {run_id}", "Lauf:     abgelehnt (andere Bedingungen)"], [], 0.0
+
+    state = workflow.load_state(run_id)
+    keys = _unit_keys(prepared.targets, prepared)
+    pending = state.pending(prepared.targets, keys)
+    reused = len(prepared.targets) - len(pending)
+    reporter.info(Stage.WORKFLOW, run=run_id, pending=len(pending), cached=reused)
+
+    guard = workflow.CostGuard(
+        budget_usd=prepared.budget_usd,
+        rates=workflow.CostRates.from_settings(prepared.provider_settings),
+        enabled=settings.offline.cost_guard,
+    )
+    audited: workflow.AuditedProvider | None = None
+    stopped: str | None = None
+    batches: tuple[mapping.MappingBatch, ...] = ()
+
+    if pending:
+        planned = mapping.plan_batches(
+            collector, pending, prepared.snapshot, prepared.mapping_prompt,
+            settings.offline, prepared.provider_settings)
+        if planned is None:
+            return [f"Run:      {run_id}", "Lauf:     blockiert (Kontextbudget)"], [], 0.0
+        batches = tuple(planned)
+        requests = tuple(
+            mapping.build_request(batch, prepared.snapshot, prepared.mapping_prompt,
+                                  prepared.provider_settings)
+            for batch in batches
+        )
+        plan_usd = workflow.plan_cost_usd(requests, guard.rates, settings.offline)
+        blocker = guard.check(plan_usd, run_id)
+        if blocker is not None:
+            collector.extend([blocker])
+            reporter.error(Stage.COST, run=run_id, code="COST_BUDGET_EXCEEDED",
+                           plan_usd=plan_usd, budget_usd=prepared.budget_usd)
+            return [
+                f"Run:      {run_id}",
+                f"Umfang:   {len(pending)} offene Units in {len(batches)} Batches",
+                *_cost_lines(budget_usd=prepared.budget_usd, plan_usd=plan_usd,
+                             guard_enabled=guard.enabled),
+                "Lauf:     abgelehnt (Budget), kein Call gesendet",
+            ], [], 0.0
+
+        adapter = provider.OpenRouterProvider.create(collector, prepared.provider_settings)
+        if adapter is None:
+            return [f"Run:      {run_id}", "Lauf:     blockiert (Providerrand)"], [], 0.0
+        audited = workflow.AuditedProvider(
+            inner=adapter, run_id=run_id, guard=guard, offline=settings.offline)
+        state.state = WorkflowState.RUNNING
+        state.write()
+
+        for index, batch in enumerate(batches, start=1):
+            reporter.start(Stage.MAPPING, run=run_id, batch=batch.batch_id,
+                           units=len(batch.units), position=f"{index}/{len(batches)}")
+            outcome, stopped = _run_batch(
+                collector, audited, batch, prepared, settings, reporter)
+            if outcome is not None:
+                _record_outcome(state, outcome, keys, reporter)
+                reporter.ok(Stage.MAPPING, batch=batch.batch_id,
+                            repairs=outcome.repairs,
+                            cost_usd=guard.spent_usd)
+            state.write()
+            if stopped is not None:
+                break
+
+    unknown = tuple(audited.unknown) if audited is not None else ()
+    state.state = _final_state(state, unknown, stopped)
+    state.write()
+
+    written: list[str] = [paths.relative_to_base(workflow.state_path(run_id))]
+    # Der Artefaktsatz schliesst die Revision ab und macht sie unveraenderlich.
+    # Ein abgebrochener oder ungeklaerter Lauf bekommt ihn deshalb nicht: sonst
+    # koennte derselbe Run seine offenen Units nie zu Ende bringen.
+    covered = all(unit.unit_id in state.units for unit in prepared.targets)
+    if stopped is None and not unknown and covered:
+        rows, occurrences = _roster(collector, prepared.units)
+        try:
+            result = artifacts.write_run_artifacts(
+                run_id=run_id, units=prepared.targets, state=state,
+                snapshot=prepared.snapshot, manifest=prepared.manifest, guard=guard,
+                roster=rows, roster_occurrences=occurrences, unknown=unknown,
+                audited_calls=len(audited.audited) if audited is not None else 0,
+            )
+            written.extend(entry.relative for entry in result.files())
+            reporter.ok(Stage.ARTIFACTS, run=run_id, files=len(result.files()))
+        except MatcherError as exc:
+            collector.extend(exc.findings)
+            reporter.error(Stage.ARTIFACTS, run=run_id,
+                           code=exc.findings[0].code if exc.findings else "ART_WRITE_FAILED")
+    else:
+        reporter.warn(Stage.ARTIFACTS, run=run_id, skipped=None,
+                      reason="Lauf nicht abgeschlossen")
+        collector.warning(
+            "RUN_ARTIFACTS_DEFERRED", Stage.ARTIFACTS, run_id,
+            "Der Lauf ist nicht abgeschlossen; die Ergebnisartefakte entstehen "
+            "erst mit dem abschliessenden Durchlauf.",
+            f"Offene Punkte klaeren und 'run execute --run-id {run_id}' "
+            "wiederholen; bereits bezahlte Units kommen aus dem Cache.")
+
+    if guard.unknown_calls > len(unknown):
+        collector.warning(
+            "COST_UNKNOWN_REPORTED", Stage.COST,
+            f"{guard.unknown_calls - len(unknown)} Call(s)",
+            "Einzelne Calls haben eine gueltige Antwort, aber keine Kosten "
+            "gemeldet; fuer sie bleibt der Worst Case reserviert.",
+            "cost_report.json weist die Reservierung aus; ueber die "
+            "Generation-ID laesst sie sich beim Provider aufloesen.")
+    if unknown:
+        collector.extend([workflow.outcome_unknown_finding(unknown)])
+    counts = state.counts()
+    if counts[UnitStatus.FAILED.value]:
+        collector.blocker(
+            "RUN_UNITS_FAILED", Stage.MAPPING, f"{counts[UnitStatus.FAILED.value]} Unit(s)",
+            "Einzelne Units haben kein gueltiges Ergebnis erhalten.",
+            "unit_coverage.csv nennt Status und Grund je Unit; betroffene Units "
+            "gezielt mit --unit-id in einer neuen Revision wiederholen.",
+            exit_code=ExitCode.FAILED_MAPPING_UNITS,
+        )
+    reporter.emit(
+        StatusKind.OK if not stopped else StatusKind.ERROR,
+        Stage.WORKFLOW, run=run_id, state=state.state.value,
+        mapped=counts[UnitStatus.MAPPED.value],
+        no_mapping=counts[UnitStatus.NO_MAPPING.value],
+        failed=counts[UnitStatus.FAILED.value],
+        cost_usd=guard.spent_usd,
+    )
+    summary = [
+        f"Run:      {run_id}",
+        f"Umfang:   {len(prepared.targets)} Units | {reused} aus dem Cache | "
+        f"{len(batches)} Batches gesendet",
+        "Ergebnis: "
+        + " | ".join(f"{status}={counts[status]}" for status in sorted(counts)),
+        f"Zustand:  {state.state.value}"
+        + (f" (Abbruch: {stopped})" if stopped else ""),
+        f"Kosten:   {guard.spent_usd:.6f} USD gebucht"
+        + (f" | {guard.reserved_usd:.6f} USD reserviert fuer "
+           f"{guard.unknown_calls} ungeklaerte Call(s)" if guard.unknown_calls else "")
+        + f" von {prepared.budget_usd:.6f} USD Budget",
+    ]
+    return summary, written, guard.spent_usd
+
+
 #: Bereits implementierte Aktionen; alles andere meldet die Zielphase.
 HANDLERS = {
     "provider check": handle_provider_check,
@@ -899,6 +1236,7 @@ HANDLERS = {
     "snapshot resume": handle_snapshot_resume,
     "snapshot approve": handle_snapshot_approve,
     "run plan": handle_run_plan,
+    "run execute": handle_run_execute,
 }
 
 

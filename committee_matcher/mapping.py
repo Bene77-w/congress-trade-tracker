@@ -35,7 +35,8 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Mapping
 
 from .errors import ErrorCollector, Stage
 from .models import (
@@ -422,10 +423,16 @@ def _split_to_fit(collector: ErrorCollector, batch: MappingBatch,
 # -- Requests --------------------------------------------------------------
 def build_request(batch: MappingBatch, snapshot: TaxonomySnapshot,
                   prompt: SystemPrompt,
-                  provider_settings: ProviderSettings) -> StructuredRequest:
-    """Mappingcall eines Batches."""
+                  provider_settings: ProviderSettings,
+                  *, call_prefix: str = "") -> StructuredRequest:
+    """Mappingcall eines Batches.
+
+    ``call_prefix`` trennt physische Wiederholungen desselben Batches. Ohne ihn
+    truege der zweite Versuch dieselbe Call-ID und wuerde die Auditspur des
+    ersten ueberschreiben.
+    """
     return StructuredRequest(
-        call_id=batch.batch_id,
+        call_id=f"{call_prefix}{batch.batch_id}",
         system_prompt=prompt.text,
         user_content=build_user_content(batch, snapshot),
         schema_name=SCHEMA_NAME,
@@ -437,14 +444,15 @@ def build_request(batch: MappingBatch, snapshot: TaxonomySnapshot,
 def build_repair_request(batch: MappingBatch, snapshot: TaxonomySnapshot,
                          prompt: SystemPrompt, provider_settings: ProviderSettings,
                          *, attempt: int, previous_payload: str,
-                         violations_text: str) -> StructuredRequest:
+                         violations_text: str,
+                         call_prefix: str = "") -> StructuredRequest:
     """Reparaturcall eines Batches.
 
     Die ``call_id`` traegt den Versuch, damit Auditartefakte Erstantwort und
     Reparatur nicht vermischen.
     """
     return StructuredRequest(
-        call_id=f"{batch.batch_id}-repair-{attempt}",
+        call_id=f"{call_prefix}{batch.batch_id}-repair-{attempt}",
         system_prompt=prompt.text,
         user_content=build_repair_content(
             batch, snapshot, previous_payload, violations_text),
@@ -497,6 +505,10 @@ class BatchOutcome:
     violations: tuple[Violation, ...]
     calls: tuple[CallRecord, ...] = ()
     blocked: bool = False
+    #: Unit-ID -> Call-ID der Antwort, die ihre finale Fassung geliefert hat.
+    #: Nach einem Teilrepair stammen die Units eines Batches aus verschiedenen
+    #: Calls; nur diese Zuordnung macht eine Artefaktzeile rueckverfolgbar.
+    unit_calls: Mapping[str, str] = field(default_factory=dict)
 
     @property
     def ok(self) -> bool:
@@ -624,13 +636,16 @@ def map_batch(provider: StructuredOutputProvider,
               mapping_prompt: SystemPrompt,
               repair_prompt: SystemPrompt,
               offline: OfflineSettings,
-              provider_settings: ProviderSettings) -> BatchOutcome:
+              provider_settings: ProviderSettings,
+              call_prefix: str = "") -> BatchOutcome:
     """Fuehrt einen Batch aus und repariert ihn bei formalen Verstoessen.
 
     Wirft ``ProviderCallError`` weiter; ueber Wiederholung entscheidet der
-    Workflow.
+    Workflow. ``call_prefix`` kennzeichnet eine solche Wiederholung, damit jede
+    physische Anfrage ihre eigene Call-ID und Auditdatei behaelt.
     """
-    request = build_request(batch, snapshot, mapping_prompt, provider_settings)
+    request = build_request(batch, snapshot, mapping_prompt, provider_settings,
+                            call_prefix=call_prefix)
     fits, estimated, available = fits_context(request, offline, provider_settings)
     if not fits:
         return BatchOutcome(
@@ -640,8 +655,10 @@ def map_batch(provider: StructuredOutputProvider,
     response = provider.complete(request)
     outcome = validate_payload(response.payload, batch, snapshot)
     calls = [CallRecord("mapping", request, response, outcome.violations)]
+    first_calls = {unit_id: request.call_id for unit_id in batch.unit_ids}
     if outcome.ok:
-        return BatchOutcome(batch, outcome.result, (), tuple(calls))
+        return BatchOutcome(batch, outcome.result, (), tuple(calls),
+                            unit_calls=first_calls)
 
     # Der Reparaturauftrag wird einmal festgelegt und aendert sich ueber alle
     # Versuche nicht mehr. Sonst koennte ein gescheiterter Teil-Repair den
@@ -659,6 +676,7 @@ def map_batch(provider: StructuredOutputProvider,
             previous_payload=_payload_text(
                 _previous_stand(scope, outcome, response.payload)),
             violations_text=format_violations(outcome.violations),
+            call_prefix=call_prefix,
         )
         fits, estimated, available = fits_context(
             repair_request, offline, provider_settings)
@@ -682,7 +700,15 @@ def map_batch(provider: StructuredOutputProvider,
             outcome = merged if merged is not None else repaired
         calls.append(CallRecord("repair", repair_request, response, outcome.violations))
         if outcome.ok:
-            return BatchOutcome(batch, outcome.result, (), tuple(calls))
+            # Nur die Units des Reparaturauftrags stammen aus dem Repaircall;
+            # die uebrigen tragen weiterhin die Provenienz des Erstcalls.
+            unit_calls = {
+                unit_id: (repair_request.call_id if unit_id in scope.unit_ids
+                          else first_calls[unit_id])
+                for unit_id in batch.unit_ids
+            }
+            return BatchOutcome(batch, outcome.result, (), tuple(calls),
+                                unit_calls=unit_calls)
 
     return BatchOutcome(batch, None, outcome.violations, tuple(calls))
 
