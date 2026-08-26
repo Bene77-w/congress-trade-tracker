@@ -381,6 +381,53 @@ def test_a_cost_free_answer_still_reserves_when_the_audit_fails(artifact_sandbox
     assert guard.unknown_calls == 1
 
 
+def test_a_paid_call_without_audit_file_is_marked_for_reconciliation(artifact_sandbox,
+                                                                     monkeypatch):
+    """Der Call ist bezahlt, seine Spur fehlt - nur die Generation-ID rettet ihn.
+
+    Ohne Vormerkung waere nach einem Abbruch nicht erkennbar, dass dieser Call
+    bereits gesendet wurde; ein Wiederaufsetzen wuerde ihn erneut bezahlen.
+    """
+    guard = workflow.CostGuard(budget_usd=1.0, rates=workflow.CostRates(1.0, 1.0))
+    audited = workflow.AuditedProvider(
+        inner=_Recorder([_response(cost=0.25, generation_id="gen-77")]),
+        run_id="run-1", guard=guard, offline=_offline())
+    monkeypatch.setattr(workflow, "_write_json",
+                        lambda *a, **k: (_ for _ in ()).throw(OSError("Platte voll")))
+    with pytest.raises(OSError):
+        audited.complete(_request())
+    assert [(c.generation_id, c.reason) for c in audited.unknown] == [
+        ("gen-77", "AUDIT_WRITE_FAILED")]
+    assert audited.unknown[0].reconcilable is True
+    assert audited.unknown[0].reserved_usd == pytest.approx(0.25)
+    assert audited.audited == []
+
+
+def test_an_unusable_answer_is_booked_with_its_reported_cost(artifact_sandbox):
+    """Kam die Antwort samt Kostenmeldung an, ist nichts offen - nur unbrauchbar."""
+    guard = workflow.CostGuard(budget_usd=1.0, rates=workflow.CostRates(1.0, 1.0))
+    failure = _call_error("PROV_INVALID_JSON", retryable=True)
+    failure.generation_id, failure.cost_usd = "gen-9", 0.0007
+    audited = workflow.AuditedProvider(inner=_Recorder([failure]), run_id="run-1",
+                                       guard=guard, offline=_offline())
+    with pytest.raises(provider.ProviderCallError):
+        audited.complete(_request())
+    assert guard.spent_usd == pytest.approx(0.0007)
+    assert guard.reserved_usd == 0.0
+    assert audited.unknown == []
+
+
+def test_an_open_call_keeps_the_generation_id_it_knows(artifact_sandbox):
+    guard = workflow.CostGuard(budget_usd=1.0, rates=workflow.CostRates(1.0, 1.0))
+    failure = _call_error("PROV_EMPTY_RESPONSE")
+    failure.generation_id = "gen-4"
+    audited = workflow.AuditedProvider(inner=_Recorder([failure]), run_id="run-1",
+                                       guard=guard, offline=_offline())
+    with pytest.raises(provider.ProviderCallError):
+        audited.complete(_request())
+    assert audited.unknown[0].reconcilable is True
+
+
 def test_every_call_gets_its_own_audit_file(artifact_sandbox):
     guard = workflow.CostGuard(budget_usd=1.0, rates=workflow.CostRates(1.0, 1.0))
     audited = workflow.AuditedProvider(

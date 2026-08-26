@@ -350,9 +350,15 @@ class ProviderCallError(MatcherError):
     """
 
     def __init__(self, findings, message=None, *, retryable: bool = False,
-                 routing_suspected: bool = False, outcome_unknown: bool = True):
+                 routing_suspected: bool = False, outcome_unknown: bool = True,
+                 generation_id: str | None = None, cost_usd: float | None = None):
         super().__init__(findings, message)
         self.retryable = retryable
+        #: Provenienz einer bereits erhaltenen, aber fachlich unbrauchbaren
+        #: Antwort. Ohne sie waere ein abgerechneter Call nach dem Fehlschlag
+        #: weder buchbar noch abgleichbar.
+        self.generation_id = generation_id
+        self.cost_usd = cost_usd
         #: True, solange nicht feststeht, dass der Provider den Call **nicht**
         #: ausgefuehrt hat. Fail closed: nur ein belegter Abbruch vor der
         #: Ausfuehrung - abgelehnte Anfrage, fehlender Schluessel, fehlendes
@@ -364,6 +370,15 @@ class ProviderCallError(MatcherError):
         #: aussieht - der Aufrufer haengt dann den ZDR-Befund an, statt den
         #: Fehlertext erneut nach Stichworten zu durchsuchen.
         self.routing_suspected = routing_suspected
+
+
+#: HTTP-Status, die belegen, dass OpenRouter die Anfrage vor dem Modelllauf
+#: abgewiesen hat: Validierung, Authentifizierung, Guthaben, Groesse,
+#: Drosselung. Bewusst eine Allowlist und kein Bereich - 408 und 499 melden
+#: einen Abbruch, dessen Providerannahme gerade nicht ausgeschlossen ist, und
+#: fielen in einen 4xx-Bereich hinein.
+REJECTED_BEFORE_EXECUTION: frozenset[int] = frozenset(
+    {400, 401, 402, 403, 404, 405, 413, 415, 422, 429})
 
 
 #: Formulierungen, mit denen OpenRouter eine leere Endpointmenge meldet.
@@ -421,7 +436,8 @@ def _status_code(exc: Exception) -> int | None:
 
 def _call_failure(code: str, obj: str, message: str, hint: str, *,
                   retryable: bool, routing_suspected: bool = False,
-                  outcome_unknown: bool = True) -> ProviderCallError:
+                  outcome_unknown: bool = True, generation_id: str | None = None,
+                  cost_usd: float | None = None) -> ProviderCallError:
     finding = Finding(
         severity=Severity.BLOCKER,
         code=code,
@@ -433,7 +449,8 @@ def _call_failure(code: str, obj: str, message: str, hint: str, *,
     )
     return ProviderCallError([finding], f"{code}: {obj}", retryable=retryable,
                              routing_suspected=routing_suspected,
-                             outcome_unknown=outcome_unknown)
+                             outcome_unknown=outcome_unknown,
+                             generation_id=generation_id, cost_usd=cost_usd)
 
 
 def _token_count(value) -> int:
@@ -692,11 +709,7 @@ class OpenRouterProvider:
                 retryable=False,
                 outcome_unknown=False,
             )
-        # Eine HTTP-Antwort unterhalb 500 kommt von OpenRouter selbst und
-        # belegt, dass die Anfrage vor dem Modelllauf abgewiesen wurde
-        # (Drosselung, Validierung). Ohne Statuscode - Zeitueberschreitung,
-        # Verbindungsabbruch - und bei 5xx bleibt der Ausgang offen.
-        rejected = status is not None and 400 <= status < 500
+        rejected = status in REJECTED_BEFORE_EXECUTION
         return _call_failure(
             "PROV_CALL_FAILED", request.call_id,
             f"Providercall fehlgeschlagen ({origin}): {detail}.",
@@ -709,6 +722,14 @@ class OpenRouterProvider:
         )
 
     def _to_response(self, request: StructuredRequest, result) -> StructuredResponse:
+        # Zuerst die Provenienz sichern: die folgenden Pruefungen koennen die
+        # Antwort verwerfen, abgerechnet wurde sie trotzdem. Ohne Generation-ID
+        # und Kostenmeldung waere so ein Call weder buchbar noch abgleichbar.
+        usage = getattr(result, "usage", None)
+        generation_id = getattr(result, "id", None)
+        reported_cost = _reported_cost(getattr(usage, "cost", None))
+        received = {"generation_id": generation_id, "cost_usd": reported_cost,
+                    "outcome_unknown": reported_cost is None}
         choices = getattr(result, "choices", None) or []
         if not choices:
             raise _call_failure(
@@ -716,6 +737,7 @@ class OpenRouterProvider:
                 "Antwort enthaelt keine Auswahl (choices leer).",
                 "Wiederholbar; bleibt der Zustand, Modell oder Endpoint pruefen.",
                 retryable=True,
+                **received,
             )
         choice = choices[0]
         message = getattr(choice, "message", None)
@@ -727,6 +749,7 @@ class OpenRouterProvider:
                 "Prompt und Eingabetext pruefen; eine Wiederholung liefert "
                 "dasselbe Ergebnis.",
                 retryable=False,
+                **received,
             )
 
         finish_reason = getattr(choice, "finish_reason", None)
@@ -739,6 +762,7 @@ class OpenRouterProvider:
                 "Batchgroesse senken; eine abgeschnittene Antwort wird nie "
                 "still repariert.",
                 retryable=False,
+                **received,
             )
 
         content = getattr(message, "content", None)
@@ -753,6 +777,7 @@ class OpenRouterProvider:
                 "Endpoint Structured Output nur nominell - 'provider check' "
                 "zeigt die zulaessigen Endpoints.",
                 retryable=True,
+                **received,
             ) from exc
         if not isinstance(payload, dict):
             raise _call_failure(
@@ -761,9 +786,9 @@ class OpenRouterProvider:
                 "JSON-Objekt.",
                 "Wiederholbar; Schema und Prompt pruefen, falls es bleibt.",
                 retryable=True,
+                **received,
             )
 
-        usage = getattr(result, "usage", None)
         return StructuredResponse(
             call_id=request.call_id,
             payload=payload,
@@ -771,9 +796,9 @@ class OpenRouterProvider:
             provider=self._routed_provider(result),
             prompt_tokens=_token_count(getattr(usage, "prompt_tokens", None)),
             completion_tokens=_token_count(getattr(usage, "completion_tokens", None)),
-            cost_usd=_reported_cost(getattr(usage, "cost", None)),
+            cost_usd=reported_cost,
             finish_reason=finish_reason,
-            generation_id=getattr(result, "id", None),
+            generation_id=generation_id,
         )
 
     @staticmethod

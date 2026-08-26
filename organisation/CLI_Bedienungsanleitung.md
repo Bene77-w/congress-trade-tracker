@@ -1629,10 +1629,14 @@ ausgeführt haben kann:
 
 | Fall | Buchung | Wiederholung |
 |---|---|---|
-| Anfrage belegt abgewiesen (Auth, Guthaben, Validierung, HTTP 4xx) | keine | erlaubt |
-| Ausgang offen (Timeout, Verbindungsabbruch, HTTP 5xx, Antwort kam an, war aber unbrauchbar) | Worst Case reserviert | **nie automatisch** |
+| Anfrage belegt abgewiesen (HTTP 400, 401, 402, 403, 404, 405, 413, 415, 422, 429) | keine | erlaubt |
+| Antwort kam an und meldete ihre Kosten, war aber unbrauchbar | gemeldete Kosten gebucht | erlaubt |
+| Ausgang offen (Timeout HTTP 408, Abbruch 499, HTTP 5xx, kein Status, Antwort ohne Kostenmeldung) | Worst Case reserviert | **nie automatisch** |
 
-Fail closed: ohne belegte Nichtausführung gilt der Ausgang als offen.
+Fail closed: ohne belegte Nichtausführung gilt der Ausgang als offen. Deshalb
+zählt eine Allowlist einzelner Statuscodes, kein 4xx-Bereich — HTTP 408 und 499
+melden das Ende der Verbindung, nicht die Ablehnung der Anfrage; das Modell kann
+gelaufen und abgerechnet worden sein.
 `COMMITTEE_MATCHER_COST_GUARD = False` schaltet allein das Blockieren ab, nicht
 die Buchführung — der Kostenbericht bleibt vollständig.
 
@@ -1645,6 +1649,13 @@ Runzustand.
 ausschließlich über eine vorhandene OpenRouter-`generation_id`; fehlt sie,
 bleibt der Call dauerhaft offen. Erneutes Senden ist eine Entscheidung von Bene
 — es kann doppelt abgerechnet werden.
+
+Scheitert eine Antwort erst bei der Auswertung (leere Antwort, Verweigerung,
+Abschneidung, ungültiges JSON), trägt der Fehler Generation-ID und gemeldete
+Kosten mit; nur so bleibt ein bezahlter Call abgleichbar. Lässt sich die
+Auditdatei nicht schreiben, wird der Call als `AUDIT_WRITE_FAILED` mit seiner
+Generation-ID vorgemerkt — sonst wäre nach einem Abbruch nicht erkennbar, dass
+er bereits gesendet und bezahlt wurde.
 
 ## 16. Ausgelagerter Analyse-Workflow
 

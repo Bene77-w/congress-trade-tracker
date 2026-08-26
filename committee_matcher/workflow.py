@@ -261,16 +261,19 @@ class CostGuard:
         return self._blocker(obj, amount_usd)
 
     def settle(self, worst_case_usd: float,
-               response: provider_module.StructuredResponse | None) -> None:
+               response: provider_module.StructuredResponse | None = None,
+               *, cost_usd: float | None = None) -> None:
         """Verbucht einen ausgefuehrten Call.
 
-        Meldet der Provider keine Kosten - oder kam gar keine Antwort -, wird
-        der Worst Case reserviert. Reservierungen loest erst die Reconciliation
+        Die Kosten stammen aus der Antwort oder - wenn ein Call zwar scheiterte,
+        die Antwort aber eine Kostenmeldung trug - aus ``cost_usd``. Fehlt beides,
+        wird der Worst Case reserviert. Reservierungen loest erst die Reconciliation
         ueber die Generation-ID auf, nie eine Schaetzung.
         """
         self.calls += 1
-        if response is not None and response.cost_usd is not None:
-            self.spent_usd += float(response.cost_usd)
+        reported = cost_usd if cost_usd is not None else getattr(response, "cost_usd", None)
+        if reported is not None:
+            self.spent_usd += float(reported)
             return
         self.reserved_usd += worst_case_usd
         self.unknown_calls += 1
@@ -365,34 +368,60 @@ class AuditedProvider:
         # bliebe ein bezahlter Call bei einem Schreibfehler ungebucht, und das
         # Budget haette Luft, die es nicht mehr hat.
         self.guard.settle(worst_case, response)
-        self._persist(request, response)
+        self._persist(request, response, worst_case)
         return response
+
+    def _audit_write_failed(self, request, response, worst_case: float) -> None:
+        """Merkt einen bezahlten Call vor, dessen Auditdatei nicht geschrieben wurde.
+
+        Der Call ist abgerechnet, seine Spur fehlt aber. Ohne Vormerkung waere er
+        nach einem Abbruch weder rekonstruierbar noch vom Wiederaufsetzen als
+        bereits gesendet erkennbar - und wuerde ein zweites Mal bezahlt.
+        """
+        self.unknown.append(UnknownCall(
+            call_id=request.call_id,
+            generation_id=response.generation_id,
+            reserved_usd=float(response.cost_usd if response.cost_usd is not None
+                               else worst_case),
+            reason="AUDIT_WRITE_FAILED",
+        ))
 
     def _failed(self, request, worst_case: float,
                 exc: provider_module.ProviderCallError
                 ) -> provider_module.ProviderCallError:
         """Verbucht einen gescheiterten Call und entscheidet ueber die Wiederholung.
 
-        Steht fest, dass der Provider die Anfrage abgewiesen hat, kostet sie
-        nichts und darf wiederholt werden. Bleibt der Ausgang offen, gilt der
-        Worst Case als reserviert, der Call wird als ungeklaert vorgemerkt und
-        nie automatisch wiederholt (Plan 2.6).
+        Drei Faelle: meldet die Antwort ihre Kosten, wird gebucht und der Ausgang
+        gilt als geklaert. Steht fest, dass der Provider die Anfrage abgewiesen
+        hat, kostet sie nichts und darf wiederholt werden. Bleibt der Ausgang
+        offen, gilt der Worst Case als reserviert, der Call wird als ungeklaert
+        vorgemerkt und nie automatisch wiederholt (Plan 2.6).
         """
+        reason = exc.findings[0].code if exc.findings else "PROV_CALL_FAILED"
+        if exc.cost_usd is not None:
+            # Die Antwort kam an und trug ihre Kosten; unbrauchbar war nur ihr
+            # Inhalt. Damit ist der Ausgang bekannt und nichts bleibt offen.
+            self.guard.settle(worst_case, cost_usd=exc.cost_usd)
+            return exc
         if not exc.outcome_unknown:
             return exc
         self.guard.settle(worst_case, None)
         self.unknown.append(UnknownCall(
             call_id=request.call_id,
-            generation_id=None,
+            generation_id=exc.generation_id,
             reserved_usd=worst_case,
-            reason=exc.findings[0].code if exc.findings else "PROV_CALL_FAILED",
+            reason=reason,
         ))
         exc.retryable = False
         return exc
 
-    def _persist(self, request, response) -> None:
+    def _persist(self, request, response, worst_case: float = 0.0) -> None:
         target = call_path(self.run_id, request.call_id, create_parents=True)
-        _write_json(target, audit_record(request, response))
+        try:
+            _write_json(target, audit_record(request, response))
+        except OSError:
+            self._audit_write_failed(request, response, worst_case)
+            raise
         self.audited.append(request.call_id)
 
 
@@ -534,8 +563,10 @@ def _state_blocker(target: Path, detail: str) -> Finding:
         obj=paths.relative_to_base(target),
         message=f"Laufzustand ist nicht verwendbar: {detail}",
         hint=("Nicht ueberschreiben: die Auditdateien unter calls/ zeigen, welche "
-              "Calls bereits bezahlt wurden. Lauf mit neuer --run-id starten oder "
-              "den Zustand nach Sichtung entfernen."),
+              "Calls bereits bezahlt wurden. Ein Neustart unter derselben Run-ID "
+              "sendet diese Calls erneut und rechnet sie ein zweites Mal ab. "
+              "Regelweg ist eine neue --run-id; den Zustand zu entfernen ist eine "
+              "Entscheidung von Bene nach Sichtung der Auditdateien."),
         exit_code=ExitCode.PREFLIGHT_BLOCKED,
     )
 

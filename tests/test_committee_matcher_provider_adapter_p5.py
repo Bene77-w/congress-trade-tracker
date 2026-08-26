@@ -709,3 +709,69 @@ def test_cli_smoke_appends_the_zdr_finding_on_a_routing_failure(capsys, artifact
     assert "PROV_REQUEST_REJECTED" in out
     assert "PROV_NO_ENDPOINT" in out, "der ZDR-Befund muss angehaengt werden"
     assert "zdr=True" in out
+
+
+# -- Ausgangslage eines gescheiterten Calls ---------------------------------
+@pytest.mark.parametrize("name,status", [
+    ("RequestTimeoutResponseError", 408),
+    ("EdgeNetworkTimeoutResponseError", 524),
+    ("UnknownResponseError", 499),
+    ("InternalServerResponseError", 500),
+    ("NoResponseError", None),
+])
+def test_an_aborted_call_keeps_its_outcome_open(name, status):
+    """Ein Abbruch belegt nicht, dass der Provider nichts ausgefuehrt hat.
+
+    HTTP 408 und 499 melden das Ende der Verbindung, nicht die Ablehnung der
+    Anfrage; das Modell kann bereits gelaufen und abgerechnet worden sein. Ein
+    Statusbereich 4xx wuerde beide faelschlich als kostenfrei einstufen.
+    """
+    with pytest.raises(provider.ProviderCallError) as exc:
+        _failing("egal", name, status_code=status).complete(_request())
+    assert exc.value.outcome_unknown is True
+
+
+@pytest.mark.parametrize("status", [400, 401, 402, 403, 413, 422, 429])
+def test_a_documented_rejection_costs_nothing(status):
+    with pytest.raises(provider.ProviderCallError) as exc:
+        _failing("egal", "TooManyRequestsResponseError",
+                 status_code=status).complete(_request())
+    assert exc.value.outcome_unknown is False
+
+
+def test_an_unusable_answer_carries_its_provenance():
+    """Eine angekommene, aber unbrauchbare Antwort ist trotzdem bezahlt.
+
+    Ohne Generation-ID und Kostenmeldung im Fehler waere der Call weder buchbar
+    noch beim Provider abgleichbar.
+    """
+    adapter, _ = _provider(_Result(content="kein json"))
+    with pytest.raises(provider.ProviderCallError) as exc:
+        adapter.complete(_request())
+    assert exc.value.generation_id == "gen-123"
+    assert exc.value.cost_usd == pytest.approx(0.0004)
+    assert exc.value.outcome_unknown is False
+
+
+@pytest.mark.parametrize("result,code", [
+    (_Result(choices=[]), "PROV_EMPTY_RESPONSE"),
+    (_Result(content=None, refusal="nein"), "PROV_REFUSED"),
+    (_Result(finish_reason="length"), "PROV_TRUNCATED"),
+    (_Result(content="{"), "PROV_INVALID_JSON"),
+])
+def test_every_answer_side_failure_reports_its_generation(result, code):
+    adapter, _ = _provider(result)
+    with pytest.raises(provider.ProviderCallError) as exc:
+        adapter.complete(_request())
+    assert exc.value.findings[0].code == code
+    assert exc.value.generation_id == "gen-123"
+
+
+def test_an_unusable_answer_without_cost_stays_open():
+    """Ohne Kostenmeldung bleibt offen, was der Call gekostet hat."""
+    adapter, _ = _provider(_Result(content="kein json", usage=_Usage(cost=None)))
+    with pytest.raises(provider.ProviderCallError) as exc:
+        adapter.complete(_request())
+    assert exc.value.cost_usd is None
+    assert exc.value.outcome_unknown is True
+    assert exc.value.generation_id == "gen-123"

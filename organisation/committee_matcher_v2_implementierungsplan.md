@@ -230,13 +230,17 @@ Lokale Call-ID, OpenRouter-Generation-ID, Request-ID und Upstream-ID werden
 getrennt gespeichert; nur die Generation-ID ist für den Generation-Lookup
 zulässig.
 
-**Offen seit P7a (2026-08-22):** Das gepinnte SDK `openrouter==1.1.71` liefert
-weder eine Request- noch eine Upstream-ID als typisiertes Antwortfeld;
-`openrouter_metadata` trägt nur `attempt`, `endpoints`, `region`, `strategy`
-und `pipeline`. Gespeichert werden deshalb die lokale Call-ID und die
-Generation-ID; der Lookup nutzt ausschließlich die Generation-ID. Die beiden
-übrigen IDs kämen nur über die HTTP-Antwortkopfzeilen, an die der Adapterrand
-nicht herankommt.
+**Offen bis P7c-Reconciliation (Stand 2026-08-26):** Die Antwort des
+Chat-Endpoints trägt im gepinnten SDK `openrouter==1.1.71` weder Request- noch
+Upstream-ID; `openrouter_metadata` liefert nur `attempt`, `endpoints`, `region`,
+`strategy` und `pipeline`. P7a speichert deshalb lokale Call-ID und
+Generation-ID, der Lookup nutzt ausschließlich die Generation-ID. Zwei Quellen
+bleiben ungenutzt und werden mit der Reconciliation in P7c bewertet:
+`GenerationResponse.upstream_id` aus dem Generation-Lookup selbst
+(`openrouter/components/generationresponse.py:119`) und die
+HTTP-Antwortkopfzeilen, die den SDK-Fehlerobjekten als `raw_response` anhängen.
+Beide werden dann nullable und getrennt gespeichert; für den Lookup bleibt die
+Generation-ID die einzige zulässige Kennung.
 
 Responses werden vor Fachvalidierung atomar als bereinigte Auditdaten
 persistiert. Cache/Resume verwenden nur vollständig validierte Ergebnisse mit
