@@ -385,6 +385,7 @@ Marktgröße.
 | `run_manifest.json` | eingefrorene Laufbedingungen; Grundlage der Resume-Prüfung |
 | `run_state.json` | Workflowstatus plus Stand je Unit; Grundlage von Cache und Resume |
 | `calls/<call_id>.json` | Provenienz und rohe Antwortnutzlast eines Providercalls |
+| `calls/<call_id>.intent.json` | Vormerkung vor dem Senden; bleibt liegen, solange der Call keine Auditdatei hat |
 
 `run_manifest.json` (`version: run-manifest-v1`):
 
@@ -418,8 +419,13 @@ Fehlschlags. Workflowstatus und Unitstatus bleiben getrennt — ein Lauf in
 Geschrieben **vor** der fachlichen Prüfung. Systemprompt und Nutzdaten stehen
 bewusst nicht darin.
 
-Fehlt die Auditdatei eines bezahlten Calls, führt der Kostenbericht ihn als
-`AUDIT_WRITE_FAILED` samt Generation-ID.
+`calls/<call_id>.intent.json` (`version: call-intent-v1`) entsteht **vor** dem
+Netzaufruf mit `run_id`, `call_id`, `schema_name` und `worst_case_usd`. Sie wird
+gelöscht, sobald die Auditdatei steht oder feststeht, dass OpenRouter die
+Anfrage abgewiesen hat. Bleibt sie liegen, nimmt sie auf, was bekannt ist
+(`reason`, `generation_id`, `cost_usd`) — sie ist die einzige Spur, die einen
+bezahlten Call nach einem Prozessabsturz noch belegt. `workflow.open_intents`
+liefert diese Call-IDs.
 
 Ergebnisartefakte desselben Ordners (P7b, geschrieben nach dem Lauf):
 
@@ -430,14 +436,16 @@ Ergebnisartefakte desselben Ordners (P7b, geschrieben nach dem Lauf):
 | `boundary_conflicts.csv` | gleiche Industry in Geschwister-Units; Reviewposten, kein Fehler |
 | `roster_coverage.csv` | Roster-Coverage des Laufs (nur wenn Rosterdaten übergeben werden) |
 | `cost_report.json` | Kostenstand und die Calls mit offenem Ausgang |
+| `artifacts_manifest.json` | Abschlussmarker; erst er belegt einen vollständigen Satz |
 
 `assignments_long.csv` (Spalten in dieser Reihenfolge, durch Golden Test
 gebunden): `run_id`, `revision_id`, `unit_id`, `chamber`, `committee_name`,
 `unit_name`, `unit_kind`, `input_basis`, `mapping_input_hash`, `decision`,
 `broad_scope_exception`, `industry_id`, `industry_name`, `sector_id`,
 `sector_name`, `confidence`, `evidence_excerpt`, `rationale_short`,
-`assignment_source`, `model`, `taxonomy_content_hash`, `snapshot_id`,
-`prompt_id`, `prompt_version`, `prompt_sha256`, `schema_name`, `schema_sha256`.
+`assignment_source`, `broad_scope_reason`, `call_id`, `provider`,
+`generation_id`, `model`, `taxonomy_content_hash`, `snapshot_id`, `prompt_id`,
+`prompt_version`, `prompt_sha256`, `schema_name`, `schema_sha256`.
 
 Industry- und Sektornamen stammen aus dem Snapshot des Laufs, Modell- und
 Promptangaben aus dem Runmanifest; das Modell liefert nur die `industry_id`.
@@ -448,8 +456,11 @@ vollzählig in der Unit-Coverage.
 `unit_coverage.csv`: `run_id`, `revision_id`, `unit_id`, `chamber`,
 `committee_name`, `unit_name`, `unit_kind`, `status`
 (`not_decided | mapped | no_mapping | failed`), `assignment_count`,
-`no_mapping_reason`, `broad_scope_exception`, `violations`. Eine Unit ohne
-Zustandseintrag ist `not_decided`; mehrere Werte in einer Zelle trennt `|`.
+`no_mapping_reason`, `broad_scope_exception`, `broad_scope_reason`, `call_id`,
+`provider`, `generation_id`, `violations`. Eine Unit ohne Zustandseintrag ist
+`not_decided`; mehrere Werte in einer Zelle trennt `|`. Enthält ein Wert selbst
+ein `|`, blockiert `ART_SEPARATOR_IN_VALUE` — maskieren hieße, den Wert still zu
+ändern.
 
 `boundary_conflicts.csv`: `run_id`, `family_id`, `industry_id`, `industry_name`,
 `unit_count`, `unit_ids`. `cost_report.json` (`version: cost-report-v1`):
@@ -457,13 +468,27 @@ Zustandseintrag ist `not_decided`; mehrere Werte in einer Zelle trennt `|`.
 `committed_usd`, `remaining_usd`, `calls`, `unknown_calls`, `guard_enabled`
 sowie `unknown_calls_detail` je offenem Call.
 
-Das Schreiben ist ein Alles-oder-nichts: Provenienz, Snapshotbindung,
-Sollmenge, Zustandskonsistenz und Industryidentität werden vor der ersten Datei
-geprüft. Blockiert eine Prüfung (`ART_PROVENANCE_INCOMPLETE`,
-`ART_RUN_MISMATCH`, `ART_SNAPSHOT_MISMATCH`, `ART_UNEXPECTED_UNIT`,
-`ART_DUPLICATE_UNIT`, `ART_STATE_INCONSISTENT`, `ART_UNKNOWN_INDUSTRY`, jeweils
-Exit 4), entsteht keine einzige Datei — ein halber Satz wäre im Review nicht als
-unvollständig erkennbar.
+Callprovenienz (`call_id`, `provider`, `generation_id`) und `mapping_input_hash`
+sind bei jeder Zuordnungszeile Pflicht; sie stehen im Laufzustand je Unit und
+überleben damit auch einen Cache-Treffer. `assignment_source` ist in P7b immer
+`model`.
+
+Das Schreiben ist ein Alles-oder-nichts. Alle Prüfungen und alle Zeilen entstehen
+vor dem ersten Schreibvorgang; scheitert danach ein Schreibvorgang, werden die
+bereits geschriebenen Dateien entfernt. Ein Prozessabbruch dazwischen lässt den
+Abschlussmarker `artifacts_manifest.json` (`version: artifact-index-v1`) fehlen —
+`artifacts.is_complete(run_id)` ist die einzige zulässige Vollständigkeitsprobe.
+
+Blockierende Prüfungen, jeweils Exit 4: `ART_PROVENANCE_INCOMPLETE` (Manifest,
+Inputhash oder Callprovenienz unvollständig), `ART_RUN_MISMATCH` (Manifest oder
+Laufzustand gehört zu einem anderen Run), `ART_SNAPSHOT_MISMATCH` (fremde
+Snapshotrevision oder fremder Content-Hash), `ART_UNIT_COUNT_MISMATCH` (Unitmenge
+weicht vom Manifest ab), `ART_UNEXPECTED_UNIT`, `ART_DUPLICATE_UNIT`,
+`ART_STATE_INCONSISTENT` (Status und Ergebnis widersprechen sich in einer der
+beiden Richtungen), `ART_UNKNOWN_INDUSTRY`, `ART_SEPARATOR_IN_VALUE`,
+`ART_ROSTER_MISSING`, `ART_ROSTER_DUPLICATE`, `ART_COST_INCONSISTENT` (Bericht
+nennt mehr Calls als die Kostenwache zählt) und `ART_REVISION_EXISTS` (die
+Runrevision trägt bereits Artefakte; sie wird nie überschrieben).
 
 #### `data/config/committee_matcher_prompts/` (P5, versionierter Kontrollinput)
 

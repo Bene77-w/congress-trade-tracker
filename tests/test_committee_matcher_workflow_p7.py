@@ -351,6 +351,18 @@ def test_a_rejected_call_costs_nothing_and_stays_retryable(artifact_sandbox):
     assert audited.unknown == []
 
 
+def _break_audit_write(monkeypatch):
+    """Laesst nur das Schreiben der Auditdatei scheitern, nicht die Vormerkung."""
+    original = workflow._write_json
+
+    def _guarded(target, payload):
+        if ".intent." in target.name:
+            return original(target, payload)
+        raise OSError("Platte voll")
+
+    monkeypatch.setattr(workflow, "_write_json", _guarded)
+
+
 def test_a_paid_call_is_booked_even_if_the_audit_cannot_be_written(artifact_sandbox,
                                                                    monkeypatch):
     """Sonst haette das Budget Luft, die es nicht mehr hat."""
@@ -359,10 +371,7 @@ def test_a_paid_call_is_booked_even_if_the_audit_cannot_be_written(artifact_sand
         inner=_Recorder([_response(cost=0.25)]), run_id="run-1", guard=guard,
         offline=_offline())
 
-    def _explode(*args, **kwargs):
-        raise OSError("Platte voll")
-
-    monkeypatch.setattr(workflow, "_write_json", _explode)
+    _break_audit_write(monkeypatch)
     with pytest.raises(OSError):
         audited.complete(_request())
     assert guard.spent_usd == pytest.approx(0.25)
@@ -374,8 +383,7 @@ def test_a_cost_free_answer_still_reserves_when_the_audit_fails(artifact_sandbox
     audited = workflow.AuditedProvider(
         inner=_Recorder([_response(cost=None)]), run_id="run-1", guard=guard,
         offline=_offline())
-    monkeypatch.setattr(workflow, "_write_json",
-                        lambda *a, **k: (_ for _ in ()).throw(OSError("Platte voll")))
+    _break_audit_write(monkeypatch)
     with pytest.raises(OSError):
         audited.complete(_request())
     assert guard.unknown_calls == 1
@@ -392,8 +400,7 @@ def test_a_paid_call_without_audit_file_is_marked_for_reconciliation(artifact_sa
     audited = workflow.AuditedProvider(
         inner=_Recorder([_response(cost=0.25, generation_id="gen-77")]),
         run_id="run-1", guard=guard, offline=_offline())
-    monkeypatch.setattr(workflow, "_write_json",
-                        lambda *a, **k: (_ for _ in ()).throw(OSError("Platte voll")))
+    _break_audit_write(monkeypatch)
     with pytest.raises(OSError):
         audited.complete(_request())
     assert [(c.generation_id, c.reason) for c in audited.unknown] == [
@@ -414,7 +421,9 @@ def test_an_unusable_answer_is_booked_with_its_reported_cost(artifact_sandbox):
         audited.complete(_request())
     assert guard.spent_usd == pytest.approx(0.0007)
     assert guard.reserved_usd == 0.0
-    assert audited.unknown == []
+    # Bezahlt, aber ohne Auditdatei: die Vormerkung bleibt als einzige Spur.
+    assert [(c.generation_id, c.reason) for c in audited.unknown] == [
+        ("gen-9", "PROV_INVALID_JSON")]
 
 
 def test_an_open_call_keeps_the_generation_id_it_knows(artifact_sandbox):
@@ -426,6 +435,132 @@ def test_an_open_call_keeps_the_generation_id_it_knows(artifact_sandbox):
     with pytest.raises(provider.ProviderCallError):
         audited.complete(_request())
     assert audited.unknown[0].reconcilable is True
+
+
+class _IntentWatcher:
+    """Provider, der beim Senden prueft, ob die Vormerkung schon liegt."""
+
+    def __init__(self, run_id, script):
+        self.run_id = run_id
+        self.script = list(script)
+        self.reserved: list[bool] = []
+
+    def complete(self, request):
+        self.reserved.append(workflow.intent_path(self.run_id, request.call_id).exists())
+        item = self.script.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+
+def test_a_call_is_written_down_before_it_is_sent(artifact_sandbox):
+    """Ein Call, der beim Senden nicht vorgemerkt ist, waere nach einem Absturz spurlos."""
+    inner = _IntentWatcher("run-1", [_response()])
+    audited = workflow.AuditedProvider(
+        inner=inner, run_id="run-1", guard=workflow.CostGuard(
+            budget_usd=1.0, rates=workflow.CostRates(1.0, 1.0)), offline=_offline())
+    audited.complete(_request())
+    assert inner.reserved == [True]
+
+
+def test_a_finished_call_leaves_no_open_intent(artifact_sandbox):
+    guard = workflow.CostGuard(budget_usd=1.0, rates=workflow.CostRates(1.0, 1.0))
+    audited = workflow.AuditedProvider(
+        inner=_Recorder([_response()]), run_id="run-1", guard=guard, offline=_offline())
+    audited.complete(_request())
+    assert workflow.open_intents("run-1") == ()
+    assert not workflow.intent_path("run-1", "call-1").exists()
+
+
+def test_a_rejected_call_leaves_no_open_intent(artifact_sandbox):
+    """Abgewiesen heisst nicht ausgefuehrt - da ist nichts abzugleichen."""
+    guard = workflow.CostGuard(budget_usd=1.0, rates=workflow.CostRates(1.0, 1.0))
+    audited = workflow.AuditedProvider(
+        inner=_Recorder([_call_error(outcome_unknown=False)]), run_id="run-1",
+        guard=guard, offline=_offline())
+    with pytest.raises(provider.ProviderCallError):
+        audited.complete(_request())
+    assert workflow.open_intents("run-1") == ()
+
+
+def test_an_open_outcome_survives_a_crash_on_disk(artifact_sandbox):
+    """Der Nachweis muss auf der Platte stehen, nicht im Speicher des Laufs."""
+    guard = workflow.CostGuard(budget_usd=1.0, rates=workflow.CostRates(1.0, 1.0))
+    failure = _call_error("PROV_CALL_FAILED")
+    failure.generation_id = "gen-5"
+    audited = workflow.AuditedProvider(inner=_Recorder([failure]), run_id="run-1",
+                                       guard=guard, offline=_offline())
+    with pytest.raises(provider.ProviderCallError):
+        audited.complete(_request())
+    assert workflow.open_intents("run-1") == ("call-1",)
+    payload = json.loads(
+        workflow.intent_path("run-1", "call-1").read_text(encoding="utf-8"))
+    assert payload["generation_id"] == "gen-5"
+    assert payload["reason"] == "PROV_CALL_FAILED"
+
+
+def test_a_paid_call_without_audit_survives_a_crash_on_disk(artifact_sandbox, monkeypatch):
+    guard = workflow.CostGuard(budget_usd=1.0, rates=workflow.CostRates(1.0, 1.0))
+    audited = workflow.AuditedProvider(
+        inner=_Recorder([_response(cost=0.25, generation_id="gen-77")]),
+        run_id="run-1", guard=guard, offline=_offline())
+    _break_audit_write(monkeypatch)
+    with pytest.raises(OSError):
+        audited.complete(_request())
+    assert workflow.open_intents("run-1") == ("call-1",)
+    payload = json.loads(
+        workflow.intent_path("run-1", "call-1").read_text(encoding="utf-8"))
+    assert payload["generation_id"] == "gen-77"
+    assert payload["cost_usd"] == pytest.approx(0.25)
+    assert payload["reason"] == "AUDIT_WRITE_FAILED"
+
+
+def test_a_path_guard_error_is_marked_like_any_other_write_failure(artifact_sandbox,
+                                                                   monkeypatch):
+    """Nicht nur OSError: jede Ausnahme nach bezahlter Antwort laesst dieselbe Luecke."""
+    guard = workflow.CostGuard(budget_usd=1.0, rates=workflow.CostRates(1.0, 1.0))
+    audited = workflow.AuditedProvider(
+        inner=_Recorder([_response(cost=0.25)]), run_id="run-1", guard=guard,
+        offline=_offline())
+    original = workflow._write_json
+
+    def _guarded(target, payload):
+        if ".intent." in target.name:
+            return original(target, payload)
+        raise paths.PathGuardError([], "Schreibziel abgewiesen")
+
+    monkeypatch.setattr(workflow, "_write_json", _guarded)
+    with pytest.raises(paths.PathGuardError):
+        audited.complete(_request())
+    assert workflow.open_intents("run-1") == ("call-1",)
+
+
+def test_a_unit_carries_the_call_that_produced_it(artifact_sandbox):
+    """Die Herkunft ueberlebt Speichern und Laden - sonst fehlt sie im Artefakt."""
+    record = workflow.UnitRecord(
+        unit_id="house--banking", status=UnitStatus.MAPPED, cache_key="k",
+        result=_result("house--banking"), call_id="batch-1", provider="Anbieter A",
+        generation_id="gen-1")
+    state = workflow.RunState(run_id="run-1")
+    state.record(record)
+    state.write()
+    loaded = workflow.load_state("run-1").units["house--banking"]
+    assert (loaded.call_id, loaded.provider, loaded.generation_id) == (
+        "batch-1", "Anbieter A", "gen-1")
+
+
+def test_a_result_for_another_unit_is_never_reusable():
+    """Ein fremdes Ergebnis unter fremder Unit-ID darf nichts festschreiben."""
+    record = workflow.UnitRecord(
+        unit_id="house--banking", status=UnitStatus.MAPPED, cache_key="k",
+        result=_result("senate--fremd"))
+    assert record.reusable is False
+
+
+def test_a_non_string_provenance_field_makes_the_entry_unusable():
+    assert workflow.UnitRecord.from_payload({
+        "unit_id": "house--banking", "status": "not_decided", "cache_key": "k",
+        "call_id": 7}) is None
 
 
 def test_every_call_gets_its_own_audit_file(artifact_sandbox):

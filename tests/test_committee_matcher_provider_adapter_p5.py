@@ -731,12 +731,19 @@ def test_an_aborted_call_keeps_its_outcome_open(name, status):
     assert exc.value.outcome_unknown is True
 
 
-@pytest.mark.parametrize("status", [400, 401, 402, 403, 413, 422, 429])
+@pytest.mark.parametrize("status", sorted(provider.REJECTED_BEFORE_EXECUTION))
 def test_a_documented_rejection_costs_nothing(status):
+    """Jeder Status der Allowlist gilt als belegt nicht ausgefuehrt."""
     with pytest.raises(provider.ProviderCallError) as exc:
         _failing("egal", "TooManyRequestsResponseError",
                  status_code=status).complete(_request())
     assert exc.value.outcome_unknown is False
+
+
+def test_the_rejection_allowlist_holds_only_documented_refusals():
+    """Golden Test: kein Timeout- oder Abbruchstatus darf hineinrutschen."""
+    assert provider.REJECTED_BEFORE_EXECUTION == frozenset(
+        {400, 401, 402, 403, 404, 405, 413, 415, 422, 429})
 
 
 def test_an_unusable_answer_carries_its_provenance():

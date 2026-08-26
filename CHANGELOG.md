@@ -28,11 +28,30 @@ ersten Datei — unvollständige Provenienz, fremdes Manifest, fremder Snapshot,
 unerwartete oder doppelte Unit, Zustand im Widerspruch zum eigenen Ergebnis,
 Industry außerhalb des Snapshots.
 
-Tests: 1710 grün (+27 netzwerkfrei).
+Phasenreview (GPT Sol) mit sieben hohen Befunden, alle behoben:
+
+- Write-Ahead statt RAM-Vormerkung — `calls/<call_id>.intent.json` entsteht vor
+  dem Netzaufruf und bleibt liegen, bis die Auditdatei steht; ein bezahlter Call
+  überlebt damit einen Prozessabsturz.
+- Callprovenienz im Laufzustand (`call_id`, `provider`, `generation_id`) und als
+  Pflichtspalten der Long-CSV; `mapping_input_hash` blockiert statt still leer.
+- Vollständige Runbindung: Laufzustand, Snapshotrevision und Unitzahl des
+  Manifests werden geprüft.
+- Zustandsinvariante in beide Richtungen — auch `failed` mit gespeichertem
+  Ergebnis blockiert.
+- Rollback nach fehlgeschlagenem Schreibvorgang plus Abschlussmarker
+  `artifacts_manifest.json`; `is_complete()` ist die Vollständigkeitsprobe.
+- Roster-Coverage ist Pflicht, Revisionen werden nie überschrieben,
+  Kostenbericht muss zur Kostenwache passen.
+
+Offen zur Entscheidung: CSV-Formelinterpretation in Excel bei Feldern aus
+Committee-Text.
+
+Tests: 1743 grün (+60 netzwerkfrei).
 
 Davor im selben Zug: die zweite Nachprüfung zu P7a (Commit `5efe01b`) — 4xx
 nicht mehr pauschal als belegte Ablehnung, Generation-ID und Kosten auch im
-Fehlerfall, Auditschreibfehler als `AUDIT_WRITE_FAILED` vorgemerkt.
+Fehlerfall.
 
 ---
 

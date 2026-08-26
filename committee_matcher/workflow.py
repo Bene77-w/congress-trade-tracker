@@ -41,6 +41,7 @@ STATE_FILENAME = "run_state.json"
 MANIFEST_VERSION = "run-manifest-v1"
 STATE_VERSION = "run-state-v1"
 CALL_AUDIT_VERSION = "call-audit-v1"
+CALL_INTENT_VERSION = "call-intent-v1"
 CACHE_KEY_VERSION = "cache-key-v1"
 
 #: Inferenzparameter, die in den Cache-Key eingehen. Bewusst eine feste Liste:
@@ -81,6 +82,35 @@ def call_path(run_id: str, call_id: str, *, create_parents: bool = False) -> Pat
     """
     return mapping_path(run_id, CALLS_DIRNAME, f"{call_id}.json",
                         create_parents=create_parents)
+
+
+def intent_path(run_id: str, call_id: str, *, create_parents: bool = False) -> Path:
+    """Vormerkung eines Calls, der gleich gesendet wird.
+
+    Sie entsteht **vor** dem Netzaufruf und verschwindet erst, wenn die
+    Auditdatei steht oder feststeht, dass der Provider die Anfrage abgewiesen
+    hat. Eine liegengebliebene Vormerkung ist damit die einzige Spur, die einen
+    bezahlten Call nach einem Prozessabsturz noch belegt.
+    """
+    return mapping_path(run_id, CALLS_DIRNAME, f"{call_id}.intent.json",
+                        create_parents=create_parents)
+
+
+def open_intents(run_id: str) -> tuple[str, ...]:
+    """Call-IDs, deren Vormerkung ohne Auditdatei liegengeblieben ist.
+
+    Jede davon ist ein Call mit offenem Ausgang: gesendet, moeglicherweise
+    bezahlt, ohne verwertbare Antwort auf der Platte.
+    """
+    folder = mapping_path(run_id, CALLS_DIRNAME)
+    if not folder.is_dir():
+        return ()
+    open_calls = []
+    for entry in sorted(folder.glob("*.intent.json")):
+        call_id = entry.name[: -len(".intent.json")]
+        if not call_path(run_id, call_id).exists():
+            open_calls.append(call_id)
+    return tuple(open_calls)
 
 
 def _write_json(target: Path, payload: object) -> Path:
@@ -360,6 +390,7 @@ class AuditedProvider:
         if blocker is not None:
             self.blockers.append(blocker)
             raise CostBlocked([blocker], "Kostenbudget erschoepft")
+        self._reserve(request, worst_case)
         try:
             response = self.inner.complete(request)
         except provider_module.ProviderCallError as exc:
@@ -371,20 +402,48 @@ class AuditedProvider:
         self._persist(request, response, worst_case)
         return response
 
-    def _audit_write_failed(self, request, response, worst_case: float) -> None:
-        """Merkt einen bezahlten Call vor, dessen Auditdatei nicht geschrieben wurde.
+    def _reserve(self, request, worst_case: float) -> None:
+        """Legt die Vormerkung an, bevor die Anfrage das Haus verlaesst."""
+        _write_json(intent_path(self.run_id, request.call_id, create_parents=True), {
+            "version": CALL_INTENT_VERSION,
+            "run_id": self.run_id,
+            "call_id": request.call_id,
+            "schema_name": request.schema_name,
+            "worst_case_usd": round(worst_case, 6),
+        })
 
-        Der Call ist abgerechnet, seine Spur fehlt aber. Ohne Vormerkung waere er
-        nach einem Abbruch weder rekonstruierbar noch vom Wiederaufsetzen als
-        bereits gesendet erkennbar - und wuerde ein zweites Mal bezahlt.
+    def _release(self, call_id: str) -> None:
+        """Loest die Vormerkung auf; nur nach belegter Nichtausfuehrung."""
+        target = intent_path(self.run_id, call_id)
+        if target.exists():
+            target.unlink()
+
+    def _mark_open(self, call_id: str, *, reason: str, reserved_usd: float,
+                   generation_id: str | None = None,
+                   cost_usd: float | None = None) -> None:
+        """Schreibt fest, was ueber einen Call ohne Auditdatei bekannt ist.
+
+        Die Vormerkung bleibt liegen und nimmt auf, was die Antwort noch
+        hergab. Ohne sie waere ein bezahlter Call nach einem Prozessabbruch
+        weder rekonstruierbar noch vom Wiederaufsetzen als bereits gesendet
+        erkennbar - und wuerde ein zweites Mal bezahlt.
         """
-        self.unknown.append(UnknownCall(
-            call_id=request.call_id,
-            generation_id=response.generation_id,
-            reserved_usd=float(response.cost_usd if response.cost_usd is not None
-                               else worst_case),
-            reason="AUDIT_WRITE_FAILED",
-        ))
+        entry = UnknownCall(call_id=call_id, generation_id=generation_id,
+                            reserved_usd=float(reserved_usd), reason=reason)
+        self.unknown.append(entry)
+        target = intent_path(self.run_id, call_id, create_parents=True)
+        payload = dict(entry.as_payload())
+        payload.update({
+            "version": CALL_INTENT_VERSION,
+            "run_id": self.run_id,
+            "cost_usd": cost_usd,
+        })
+        try:
+            _write_json(target, payload)
+        except Exception:
+            # Die Vormerkung aus ``_reserve`` liegt bereits und benennt den
+            # Call; mehr ist an dieser Stelle nicht zu retten.
+            pass
 
     def _failed(self, request, worst_case: float,
                 exc: provider_module.ProviderCallError
@@ -400,18 +459,18 @@ class AuditedProvider:
         reason = exc.findings[0].code if exc.findings else "PROV_CALL_FAILED"
         if exc.cost_usd is not None:
             # Die Antwort kam an und trug ihre Kosten; unbrauchbar war nur ihr
-            # Inhalt. Damit ist der Ausgang bekannt und nichts bleibt offen.
+            # Inhalt. Der Ausgang ist bekannt, die Spur fehlt trotzdem.
             self.guard.settle(worst_case, cost_usd=exc.cost_usd)
+            self._mark_open(request.call_id, reason=reason,
+                            reserved_usd=exc.cost_usd,
+                            generation_id=exc.generation_id, cost_usd=exc.cost_usd)
             return exc
         if not exc.outcome_unknown:
+            self._release(request.call_id)
             return exc
         self.guard.settle(worst_case, None)
-        self.unknown.append(UnknownCall(
-            call_id=request.call_id,
-            generation_id=exc.generation_id,
-            reserved_usd=worst_case,
-            reason=reason,
-        ))
+        self._mark_open(request.call_id, reason=reason, reserved_usd=worst_case,
+                        generation_id=exc.generation_id)
         exc.retryable = False
         return exc
 
@@ -419,9 +478,17 @@ class AuditedProvider:
         target = call_path(self.run_id, request.call_id, create_parents=True)
         try:
             _write_json(target, audit_record(request, response))
-        except OSError:
-            self._audit_write_failed(request, response, worst_case)
+        except Exception:
+            # Jede Ausnahme nach bezahlter Antwort hat dieselbe Folge, nicht nur
+            # ein OSError: die Pfadwache, ein Serialisierungsfehler oder ein
+            # voller Datentraeger lassen denselben unbelegten Call zurueck.
+            self._mark_open(request.call_id, reason="AUDIT_WRITE_FAILED",
+                            reserved_usd=(response.cost_usd if response.cost_usd
+                                          is not None else worst_case),
+                            generation_id=response.generation_id,
+                            cost_usd=response.cost_usd)
             raise
+        self._release(request.call_id)
         self.audited.append(request.call_id)
 
 
@@ -447,6 +514,13 @@ class UnitRecord:
     cache_key: str
     result: MappingUnitResult | None = None
     violations: tuple[str, ...] = ()
+    #: Herkunft des Ergebnisses. Sie gehoert zum Urteil, nicht zum Lauf: erst
+    #: sie erlaubt es, eine Zeile der Long-CSV auf den Call zurueckzufuehren,
+    #: der sie erzeugt hat - auch wenn der Cache sie Runden spaeter wieder
+    #: hervorholt.
+    call_id: str | None = None
+    provider: str | None = None
+    generation_id: str | None = None
 
     @property
     def reusable(self) -> bool:
@@ -456,7 +530,7 @@ class UnitRecord:
         ``mapped`` und Entscheidung ``no_mapping`` ist in sich widerspruechlich
         und wird nie uebernommen, egal wie er entstanden ist.
         """
-        if self.result is None:
+        if self.result is None or self.result.unit_id != self.unit_id:
             return False
         expected = STATUS_FOR_DECISION.get(self.result.decision)
         return expected is not None and expected is self.status
@@ -468,6 +542,9 @@ class UnitRecord:
             "cache_key": self.cache_key,
             "result": self.result.model_dump(mode="json") if self.result else None,
             "violations": list(self.violations),
+            "call_id": self.call_id,
+            "provider": self.provider,
+            "generation_id": self.generation_id,
         }
 
     @classmethod
@@ -494,8 +571,14 @@ class UnitRecord:
         if not isinstance(violations, list) or any(
                 not isinstance(item, str) for item in violations):
             return None
+        provenance = {}
+        for field_name in ("call_id", "provider", "generation_id"):
+            value = data.get(field_name)
+            if value is not None and not isinstance(value, str):
+                return None
+            provenance[field_name] = value
         return cls(unit_id=unit_id, status=status, cache_key=key,
-                   result=result, violations=tuple(violations))
+                   result=result, violations=tuple(violations), **provenance)
 
 
 @dataclass
