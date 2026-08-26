@@ -609,7 +609,9 @@ class UnitRecord:
             if value is not None and not isinstance(value, str):
                 return None
             provenance[field_name] = value
-        repaired = data.get("from_repair", False)
+        # ``run-state-v2`` verlangt das Feld: ein fehlendes still als ``False``
+        # zu lesen hiesse, einen reparierten Stand als unrepariert auszuweisen.
+        repaired = data.get("from_repair")
         if not isinstance(repaired, bool):
             return None
         return cls(unit_id=unit_id, status=status, cache_key=key,

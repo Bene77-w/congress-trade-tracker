@@ -181,6 +181,39 @@ def provenance(manifest: Mapping) -> Provenance:
             f"Das Runmanifest nennt keinen Prompt {PROVENANCE_PROMPT_ID!r}.",
             "Lauf mit vollstaendigem Manifest wiederholen; der Mappingprompt "
             "ist die Provenienz jeder Zuordnung.")
+    return _provenance_of(manifest, prompt, schema, required)
+
+
+def repair_prompt_entry(manifest: Mapping) -> Mapping:
+    """Der Reparaturprompt aus dem Manifest; er ist Pflicht, sobald repariert wurde.
+
+    Ein repariertes Ergebnis entstand unter beiden Prompts. Ohne Version und
+    Hash des Reparaturprompts waere die Zeile nicht reproduzierbar.
+    """
+    entries = manifest.get("prompts")
+    entries = entries if isinstance(entries, Sequence) else ()
+    for entry in entries:
+        if isinstance(entry, Mapping) and entry.get("prompt_id") == REPAIR_PROMPT_ID:
+            for field_name in ("prompt_version", "prompt_sha256"):
+                value = entry.get(field_name)
+                if not isinstance(value, str) or not value.strip():
+                    raise _blocked(
+                        "ART_PROVENANCE_INCOMPLETE",
+                        f"{REPAIR_PROMPT_ID}.{field_name}",
+                        f"Der Reparaturprompt im Manifest traegt kein Feld "
+                        f"{field_name!r}.",
+                        "Lauf mit vollstaendigem Manifest wiederholen; ein "
+                        "repariertes Ergebnis ist sonst nicht reproduzierbar.")
+            return entry
+    raise _blocked(
+        "ART_PROVENANCE_INCOMPLETE", REPAIR_PROMPT_ID,
+        "Der Lauf hat repariert, das Manifest nennt aber keinen Prompt "
+        f"{REPAIR_PROMPT_ID!r}.",
+        "Lauf mit vollstaendigem Manifest wiederholen; reparierte Ergebnisse "
+        "entstehen unter beiden Prompts.")
+
+
+def _provenance_of(manifest, prompt, schema, required) -> Provenance:
     return Provenance(
         run_id=required(manifest.get("run_id"), "run_id"),
         snapshot_id=required(manifest.get("snapshot_id"), "snapshot_id"),
@@ -532,13 +565,13 @@ def cost_payload(run_id: str, guard: workflow.CostGuard,
     # Verglichen wird gegen die Gesamtzahl der Calls, nicht gegen
     # ``unknown_calls``: dort zaehlen nur Calls ohne Kostenmeldung, waehrend die
     # Detailliste auch bezahlte Calls ohne Auditdatei fuehrt.
-    if audited_calls + len(unknown) > guard.calls:
+    if audited_calls + len(unknown) != guard.calls:
         raise _blocked(
             "ART_COST_INCONSISTENT", run_id,
             f"Der Bericht nennt {audited_calls} auditierte und {len(unknown)} "
             f"offene Calls, die Kostenwache zaehlt {guard.calls} insgesamt.",
-            "Kostenwache und Auditspur desselben Laufs uebergeben; ein "
-            "gemischter Stand macht beide Zahlen wertlos.")
+            "Kostenwache und Auditspur desselben Laufs uebergeben; jeder "
+            "gebuchte Call ist entweder auditiert oder vorgemerkt.")
     return {
         "version": COST_REPORT_VERSION,
         "run_id": run_id,
@@ -631,10 +664,12 @@ def is_complete(run_id: str) -> bool:
     entries = data.get("files")
     if not isinstance(entries, list):
         return False
-    names = [entry.get("name") for entry in entries if isinstance(entry, dict)]
-    # Exakt der Pflichtsatz: eine Teilmenge oder ein unlesbarer Eintrag darf
-    # nicht als vollstaendig durchgehen.
-    if sorted(name for name in names if isinstance(name, str)) != sorted(REQUIRED_FILENAMES):
+    if any(not isinstance(entry, dict) or not isinstance(entry.get("name"), str)
+           for entry in entries):
+        return False
+    # Exakt der Pflichtsatz: weder eine Teilmenge noch ein Zusatzeintrag darf
+    # als vollstaendig durchgehen.
+    if sorted(entry["name"] for entry in entries) != sorted(REQUIRED_FILENAMES):
         return False
     return all(workflow.mapping_path(run_id, name).exists()
                for name in REQUIRED_FILENAMES)
@@ -713,6 +748,8 @@ def write_run_artifacts(*, run_id: str, units: Iterable[MatcherUnit],
             "Snapshot des Runs laden; Industry- und Sektornamen muessen aus "
             "genau der Taxonomie stammen, gegen die das Modell entschieden hat.")
     units = tuple(units)
+    if any(record.from_repair for record in state.units.values()):
+        repair_prompt_entry(manifest)
     expected_count = manifest.get("unit_count")
     if expected_count != len(units):
         raise _blocked(
@@ -722,6 +759,9 @@ def write_run_artifacts(*, run_id: str, units: Iterable[MatcherUnit],
             "Vollstaendige Unitmenge des Laufs uebergeben; eine Teilmenge waere "
             "in der Coverage nicht von Vollstaendigkeit zu unterscheiden.")
     _assert_revision_free(run_id)
+    # Der Marker eines abgebrochenen Vorlaufs faellt zuerst: sonst wuerde er
+    # waehrend des Ersatzschreibens einen gemischten Alt-/Neusatz bestaetigen.
+    workflow.mapping_path(run_id, INDEX_FILENAME).unlink(missing_ok=True)
 
     assignments = assignment_rows(units, state, snapshot, prov)
     coverage = _coverage_payload(units, state, run_id)

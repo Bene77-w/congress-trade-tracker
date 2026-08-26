@@ -52,10 +52,16 @@ exakt den Pflichtsatz, `ART_REVISION_EXISTS` greift nur bei vollständigen
 Sätzen, Kostenzähler derselben Semantik, Roster-Coverage gegen die Zahl der
 Rostervorkommen geprüft.
 
-Offen zur Entscheidung: CSV-Formelinterpretation in Excel bei Feldern aus
-Committee-Text.
+Zweite Nachprüfung mit drei weiteren hohen Befunden, ebenfalls behoben: Marker
+eines abgebrochenen Vorlaufs fällt vor dem Ersatzschreiben, Kostenbericht
+verlangt Gleichheit statt Obergrenze, `from_repair` ist Pflichtfeld und
+erzwingt den `repair_system`-Eintrag im Manifest.
 
-Tests: 1756 grün (+73 netzwerkfrei).
+Offen zur Entscheidung: CSV-Formelinterpretation in Excel bei Feldern aus
+Committee-Text. Der Reviewer sieht keine Lösung, die weder Werte still ändert
+noch legitime Läufe blockiert.
+
+Tests: 1762 grün (+79 netzwerkfrei).
 
 Davor im selben Zug: die zweite Nachprüfung zu P7a (Commit `5efe01b`) — 4xx
 nicht mehr pauschal als belegte Ablehnung, Generation-ID und Kosten auch im

@@ -495,7 +495,8 @@ weicht vom Manifest ab), `ART_UNEXPECTED_UNIT`, `ART_DUPLICATE_UNIT`,
 beiden Richtungen), `ART_UNKNOWN_INDUSTRY`, `ART_SEPARATOR_IN_VALUE`,
 `ART_ROSTER_MISSING`, `ART_ROSTER_INCOMPLETE` (weniger Zeilen als
 Rostervorkommen), `ART_ROSTER_DUPLICATE`, `ART_COST_INCONSISTENT` (Bericht
-nennt mehr Calls als die Kostenwache zählt) und `ART_REVISION_EXISTS` (die
+und Kostenwache zählen verschieden viele Calls; jeder gebuchte Call ist
+entweder auditiert oder vorgemerkt) und `ART_REVISION_EXISTS` (die
 Runrevision trägt bereits einen **vollständigen** Satz; nur der ist
 unveränderlich — Reste eines abgebrochenen Schreibvorgangs dürfen ersetzt
 werden, sonst könnte derselbe Lauf seinen bezahlten Zustand nie exportieren).

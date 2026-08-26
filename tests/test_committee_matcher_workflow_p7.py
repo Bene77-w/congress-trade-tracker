@@ -599,6 +599,13 @@ def test_a_state_of_the_previous_contract_version_stops_the_run(artifact_sandbox
     assert exc.value.findings[0].code == "RUN_STATE_MALFORMED"
 
 
+def test_a_state_entry_without_the_repair_flag_is_unusable():
+    """Fehlend still als ``false`` zu lesen wuerde einen reparierten Stand verschleiern."""
+    assert workflow.UnitRecord.from_payload({
+        "unit_id": "house--banking", "status": "not_decided", "cache_key": "k",
+        "call_id": None, "provider": None, "generation_id": None}) is None
+
+
 def test_every_call_gets_its_own_audit_file(artifact_sandbox):
     guard = workflow.CostGuard(budget_usd=1.0, rates=workflow.CostRates(1.0, 1.0))
     audited = workflow.AuditedProvider(

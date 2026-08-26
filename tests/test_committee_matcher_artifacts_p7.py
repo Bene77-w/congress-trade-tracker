@@ -661,6 +661,67 @@ def test_a_value_containing_the_cell_separator_blocks_the_artifact(artifact_sand
     assert exc.value.findings[0].code == "ART_SEPARATOR_IN_VALUE"
 
 
+def test_a_stale_marker_never_certifies_a_mixed_set(artifact_sandbox, monkeypatch):
+    """Waehrend des Ersatzschreibens darf kein Altmarker Vollstaendigkeit belegen."""
+    unit = _unit()
+    state = _state(_mapped(unit.unit_id, "industry-0"))
+    _write_all([unit], state)
+    workflow.mapping_path(RUN_ID, artifacts.BOUNDARY_FILENAME).unlink()
+    original = paths.write_text_atomic
+    calls = {"n": 0}
+
+    def _guarded(target, text):
+        if calls["n"] == 2:
+            raise OSError("Platte voll")
+        calls["n"] += 1
+        return original(target, text)
+
+    monkeypatch.setattr(paths, "write_text_atomic", _guarded)
+    with pytest.raises(OSError):
+        _write_all([unit], state)
+    assert artifacts.is_complete(RUN_ID) is False
+
+
+def test_a_marker_with_an_extra_entry_counts_as_incomplete(artifact_sandbox):
+    unit = _unit()
+    _write_all([unit], _state(_mapped(unit.unit_id, "industry-0")))
+    target = workflow.mapping_path(RUN_ID, artifacts.INDEX_FILENAME)
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    payload["files"].append({"name": "fremd.csv", "rows": 0})
+    target.write_text(json.dumps(payload), encoding="utf-8")
+    assert artifacts.is_complete(RUN_ID) is False
+
+
+def test_every_booked_call_appears_in_the_cost_report(artifact_sandbox):
+    """Jeder gebuchte Call ist entweder auditiert oder vorgemerkt - nie keines von beidem."""
+    guard = _guard()
+    guard.settle(0.5, cost_usd=0.002)
+    guard.settle(0.4, None)
+    with pytest.raises(artifacts.ArtifactError) as exc:
+        _write_all([_unit()], _state(), guard=guard, audited_calls=1)
+    assert exc.value.findings[0].code == "ART_COST_INCONSISTENT"
+
+
+def test_a_repaired_result_demands_the_repair_prompt(artifact_sandbox):
+    """Ein repariertes Ergebnis entstand unter beiden Prompts."""
+    unit = _unit()
+    record = workflow.UnitRecord(**{**_mapped(unit.unit_id, "industry-0").__dict__,
+                                    "from_repair": True})
+    manifest = _manifest(unit_count=1, prompts=[_prompt().manifest_entry()])
+    with pytest.raises(artifacts.ArtifactError) as exc:
+        _write_all([unit], _state(record), manifest=manifest)
+    assert exc.value.findings[0].code == "ART_PROVENANCE_INCOMPLETE"
+    assert "repair_system" in exc.value.findings[0].obj
+
+
+def test_an_unrepaired_run_does_not_need_the_repair_prompt(artifact_sandbox):
+    unit = _unit()
+    manifest = _manifest(unit_count=1, prompts=[_prompt().manifest_entry()])
+    written = _write_all([unit], _state(_mapped(unit.unit_id, "industry-0")),
+                         manifest=manifest)
+    assert written.assignments.rows == 1
+
+
 def test_artifacts_stay_inside_the_run_directory(artifact_sandbox):
     unit = _unit()
     written = _write_all([unit], _state(_mapped(unit.unit_id, "industry-0")))
