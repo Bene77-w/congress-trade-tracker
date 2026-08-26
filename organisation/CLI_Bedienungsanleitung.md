@@ -1581,14 +1581,25 @@ nennt ihn noch, das stammt aber aus der Zeit vor dem Gate-B-Beschluss vom
 Endpoint des nächsten Calls im Voraus unbekannt, ein Schlüssel mit Endpoint
 wäre nie wieder treffbar. Der Endpoint bleibt Auditprovenienz je Call.
 
-Wiederverwendet wird nur ein entschiedenes, vollständig geprüftes Ergebnis.
-Ein beschädigter `run_state.json` führt nie zu einem teilweise übernommenen
-Lauf: er wird mit `RUN_STATE_MALFORMED` verworfen, der Lauf beginnt von vorn.
+Wiederverwendet wird nur ein entschiedenes, vollständig geprüftes Ergebnis,
+dessen Unitstatus zum Modellurteil passt — `mapped` zu `mapped`, `no_mapping`
+zu `no_mapping`.
+
+Ein vorhandener, aber unbrauchbarer `run_state.json` **hält den Lauf an**
+(`RUN_STATE_MALFORMED`, Exit 4) und wird nicht überschrieben: die Datei belegt,
+dass bereits gelaufen ist, und ein stiller Neustart würde bezahlte Calls ein
+zweites Mal senden. Was bezahlt wurde, zeigen die Dateien unter `calls/`.
+Teilweise übernommen wird nie — auch ein einzelner kaputter oder doppelter
+Uniteintrag stoppt den ganzen Zustand. Fehlt die Datei dagegen ganz, beginnt
+der Lauf frisch; dann ist auch nichts bezahlt worden.
 
 Ein Resume gegen ein vorhandenes Manifest ist nur zulässig, solange
 `taxonomy_content_hash`, `input_manifest_hash`, `model`, `prompts`, `schema`,
-`batching` und `cache_key_version` unverändert sind; sonst blockiert
-`RUN_MANIFEST_DRIFT` mit Exit 4. Ein anderes Budget oder eine andere
+`batching`, `context` und `cache_key_version` unverändert sind; sonst blockiert
+`RUN_MANIFEST_DRIFT` mit Exit 4. `context` gehört dazu, weil
+`max_output_tokens` und `reasoning_reserve_tokens` auch im Cache-Key stehen —
+sonst gäbe es einen Parameter, der den Cache verschiebt, einen Resume aber
+durchließe. Ein anderes Budget oder eine andere
 Snapshot-ID sind ausdrücklich kein Grund, bezahlte Ergebnisse wegzuwerfen.
 
 **Kostenwache.** Gerechnet wird mit dem Preisdeckel
@@ -1607,6 +1618,21 @@ pessimistische Schätzung wie im Context-Gate), die Ausgabe mit
 Ein Call ohne Kostenmeldung ist nicht kostenlos, nur ungeklärt. Passt der
 nächste Call nicht mehr in `COMMITTEE_MATCHER_MAX_RUN_COST_USD`, wird er gar
 nicht erst gesendet: `COST_BUDGET_EXCEEDED`, Exit 6.
+
+Reihenfolge je Call: **prüfen, senden, buchen, persistieren.** Gebucht wird,
+sobald die Antwort vorliegt — vor dem Schreiben der Auditdatei. Sonst bliebe
+ein bezahlter Call bei einem Schreibfehler ungebucht, und das Budget hätte Luft,
+die es nicht mehr hat.
+
+Ein gescheiterter Call wird danach unterschieden, ob der Provider ihn
+ausgeführt haben kann:
+
+| Fall | Buchung | Wiederholung |
+|---|---|---|
+| Anfrage belegt abgewiesen (Auth, Guthaben, Validierung, HTTP 4xx) | keine | erlaubt |
+| Ausgang offen (Timeout, Verbindungsabbruch, HTTP 5xx, Antwort kam an, war aber unbrauchbar) | Worst Case reserviert | **nie automatisch** |
+
+Fail closed: ohne belegte Nichtausführung gilt der Ausgang als offen.
 `COMMITTEE_MATCHER_COST_GUARD = False` schaltet allein das Blockieren ab, nicht
 die Buchführung — der Kostenbericht bleibt vollständig.
 

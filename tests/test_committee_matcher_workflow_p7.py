@@ -21,6 +21,7 @@ from committee_matcher.status import ExitCode, UnitStatus, WorkflowState
 
 HASH_A = "a" * 64
 HASH_B = "b" * 64
+INFERENCE = {"max_output_tokens": 4_000, "reasoning_reserve_tokens": 2_000}
 
 
 @pytest.fixture()
@@ -126,7 +127,7 @@ class _Recorder:
 def test_the_same_facts_yield_the_same_key():
     keys = {workflow.unit_cache_key(
         _unit(), taxonomy_content_hash=HASH_B, prompt=_prompt(),
-        model="m", inference={"max_output_tokens": 4_000}) for _ in range(3)}
+        model="m", inference=dict(INFERENCE)) for _ in range(3)}
     assert len(keys) == 1
 
 
@@ -135,11 +136,11 @@ def test_the_same_facts_yield_the_same_key():
     {"taxonomy_content_hash": "c" * 64},
     {"prompt": _prompt(sha="d" * 64)},
     {"model": "anderes/modell"},
-    {"inference": {"max_output_tokens": 8_000}},
+    {"inference": {**INFERENCE, "max_output_tokens": 8_000}},
 ])
 def test_every_contract_relevant_change_moves_the_key(change):
     base = dict(unit=_unit(), taxonomy_content_hash=HASH_B, prompt=_prompt(),
-                model="m", inference={"max_output_tokens": 4_000})
+                model="m", inference=dict(INFERENCE))
     changed = {**base, **change}
     unit = changed.pop("unit")
     original = base.pop("unit")
@@ -165,7 +166,21 @@ def test_a_unit_without_input_hash_has_no_key():
     bare = unit.model_copy(update={"mapping_input_hash": None})
     with pytest.raises(ValueError):
         workflow.unit_cache_key(bare, taxonomy_content_hash=HASH_B,
-                                prompt=_prompt(), model="m", inference={})
+                                prompt=_prompt(), model="m",
+                                inference=dict(INFERENCE))
+
+
+@pytest.mark.parametrize("inference", [
+    {},
+    {"max_output_tokens": 4_000},
+    {**INFERENCE, "temperature": 0.0},
+])
+def test_an_incomplete_inference_set_is_a_programming_error(inference):
+    """Sonst waere der Schluessel gegenueber einem ergebnisrelevanten Parameter
+    blind, ohne dass es jemandem auffaellt."""
+    with pytest.raises(ValueError):
+        workflow.unit_cache_key(_unit(), taxonomy_content_hash=HASH_B,
+                                prompt=_prompt(), model="m", inference=inference)
 
 
 def test_the_schema_hash_reacts_to_the_schema():
@@ -291,20 +306,79 @@ def test_a_call_over_budget_is_never_sent(artifact_sandbox):
     assert audited.blockers[0].exit_code is ExitCode.COST_BLOCKED
 
 
-def test_a_failed_call_is_booked_as_reserved(artifact_sandbox):
-    """Ob der Provider ihn abgerechnet hat, ist von hier aus nicht feststellbar."""
-    error = provider.ProviderCallError(
-        [ErrorCollector().blocker("PROV_CALL_TIMEOUT", Stage.PROVIDER, "call-1",
+def _call_error(code="PROV_CALL_FAILED", *, retryable=True, outcome_unknown=True):
+    return provider.ProviderCallError(
+        [ErrorCollector().blocker(code, Stage.PROVIDER, "call-1",
                                   "Zeitueberschreitung.", "Spaeter abgleichen.")],
-        retryable=True)
+        retryable=retryable, outcome_unknown=outcome_unknown)
+
+
+def test_a_call_with_an_open_outcome_is_booked_as_reserved(artifact_sandbox):
+    """Ob der Provider ihn abgerechnet hat, ist von hier aus nicht feststellbar."""
     guard = workflow.CostGuard(budget_usd=1.0, rates=workflow.CostRates(1.0, 1.0))
-    audited = workflow.AuditedProvider(inner=_Recorder([error]), run_id="run-1",
+    audited = workflow.AuditedProvider(inner=_Recorder([_call_error()]), run_id="run-1",
                                        guard=guard, offline=_offline())
     with pytest.raises(provider.ProviderCallError):
         audited.complete(_request())
     assert guard.unknown_calls == 1
     assert guard.reserved_usd > 0.0
     assert not workflow.call_path("run-1", "call-1").exists()
+
+
+def test_an_open_outcome_is_never_retried_automatically(artifact_sandbox):
+    """Plan 2.6: ein Timeout mit unbekannter Providerannahme wird nie wiederholt."""
+    guard = workflow.CostGuard(budget_usd=1.0, rates=workflow.CostRates(1.0, 1.0))
+    audited = workflow.AuditedProvider(inner=_Recorder([_call_error()]), run_id="run-1",
+                                       guard=guard, offline=_offline())
+    with pytest.raises(provider.ProviderCallError) as caught:
+        audited.complete(_request())
+    assert caught.value.retryable is False
+    assert [call.call_id for call in audited.unknown] == ["call-1"]
+    assert audited.unknown[0].reconcilable is False
+
+
+def test_a_rejected_call_costs_nothing_and_stays_retryable(artifact_sandbox):
+    """Eine abgewiesene Anfrage hat den Provider nie beschaeftigt."""
+    guard = workflow.CostGuard(budget_usd=1.0, rates=workflow.CostRates(1.0, 1.0))
+    audited = workflow.AuditedProvider(
+        inner=_Recorder([_call_error(outcome_unknown=False)]), run_id="run-1",
+        guard=guard, offline=_offline())
+    with pytest.raises(provider.ProviderCallError) as caught:
+        audited.complete(_request())
+    assert caught.value.retryable is True
+    assert guard.reserved_usd == 0.0
+    assert guard.unknown_calls == 0
+    assert audited.unknown == []
+
+
+def test_a_paid_call_is_booked_even_if_the_audit_cannot_be_written(artifact_sandbox,
+                                                                   monkeypatch):
+    """Sonst haette das Budget Luft, die es nicht mehr hat."""
+    guard = workflow.CostGuard(budget_usd=1.0, rates=workflow.CostRates(1.0, 1.0))
+    audited = workflow.AuditedProvider(
+        inner=_Recorder([_response(cost=0.25)]), run_id="run-1", guard=guard,
+        offline=_offline())
+
+    def _explode(*args, **kwargs):
+        raise OSError("Platte voll")
+
+    monkeypatch.setattr(workflow, "_write_json", _explode)
+    with pytest.raises(OSError):
+        audited.complete(_request())
+    assert guard.spent_usd == pytest.approx(0.25)
+
+
+def test_a_cost_free_answer_still_reserves_when_the_audit_fails(artifact_sandbox,
+                                                                monkeypatch):
+    guard = workflow.CostGuard(budget_usd=1.0, rates=workflow.CostRates(1.0, 1.0))
+    audited = workflow.AuditedProvider(
+        inner=_Recorder([_response(cost=None)]), run_id="run-1", guard=guard,
+        offline=_offline())
+    monkeypatch.setattr(workflow, "_write_json",
+                        lambda *a, **k: (_ for _ in ()).throw(OSError("Platte voll")))
+    with pytest.raises(OSError):
+        audited.complete(_request())
+    assert guard.unknown_calls == 1
 
 
 def test_every_call_gets_its_own_audit_file(artifact_sandbox):
@@ -329,15 +403,14 @@ def test_a_written_state_reads_back_identically(artifact_sandbox):
     state.record(workflow.UnitRecord(
         unit_id="u-1", status=UnitStatus.MAPPED, cache_key=HASH_A, result=_result("u-1")))
     state.write()
-    loaded = workflow.load_state(ErrorCollector(), "run-1")
+    loaded = workflow.load_state("run-1")
     assert loaded.state is WorkflowState.RUNNING
     assert loaded.units["u-1"].result.assignments[0].industry_id == "industry-0"
 
 
 def test_a_missing_state_is_a_fresh_run(artifact_sandbox):
-    collector = ErrorCollector()
-    assert workflow.load_state(collector, "run-1").units == {}
-    assert collector.findings == []
+    """Ohne Datei ist auch nichts bezahlt worden."""
+    assert workflow.load_state("run-1").units == {}
 
 
 @pytest.mark.parametrize("text", [
@@ -347,16 +420,29 @@ def test_a_missing_state_is_a_fresh_run(artifact_sandbox):
     '{"version": "run-state-v1", "run_id": "fremd", "workflow_state": "running", "units": []}',
     '{"version": "run-state-v1", "run_id": "run-1", "workflow_state": "erfunden", "units": []}',
     '{"version": "run-state-v1", "run_id": "run-1", "workflow_state": "running", "units": {}}',
+    '{"version": "run-state-v1", "run_id": "run-1", "workflow_state": "running", "units": [7]}',
 ])
-def test_an_unusable_state_restarts_the_run_with_a_warning(artifact_sandbox, text):
+def test_an_unusable_state_stops_the_run_instead_of_restarting(artifact_sandbox, text):
+    """Ein stiller Neustart wuerde bereits bezahlte Calls erneut senden."""
     paths.write_text_atomic(workflow.state_path("run-1", create_parents=True), text)
-    collector = ErrorCollector()
-    state = workflow.load_state(collector, "run-1")
-    assert state.units == {}
-    assert [f.code for f in collector.findings] == ["RUN_STATE_MALFORMED"]
+    with pytest.raises(workflow.RunStateUnusable) as caught:
+        workflow.load_state("run-1")
+    blocker = caught.value.findings[0]
+    assert blocker.code == "RUN_STATE_MALFORMED"
+    assert blocker.exit_code is ExitCode.PREFLIGHT_BLOCKED
+    assert "calls/" in blocker.hint
 
 
-def test_a_single_bad_unit_discards_the_whole_state(artifact_sandbox):
+def test_the_broken_state_file_is_not_overwritten(artifact_sandbox):
+    """Sie ist der einzige Beleg dafuer, was der Lauf bereits getan hat."""
+    target = workflow.state_path("run-1", create_parents=True)
+    paths.write_text_atomic(target, "kaputt")
+    with pytest.raises(workflow.RunStateUnusable):
+        workflow.load_state("run-1")
+    assert target.read_text(encoding="utf-8") == "kaputt"
+
+
+def test_a_single_bad_unit_stops_the_whole_state(artifact_sandbox):
     """Sonst wuerden einzelne Units aus einer kaputten Datei geglaubt."""
     good = workflow.UnitRecord(unit_id="u-1", status=UnitStatus.MAPPED,
                                cache_key=HASH_A, result=_result("u-1")).as_payload()
@@ -366,11 +452,26 @@ def test_a_single_bad_unit_discards_the_whole_state(artifact_sandbox):
                                 "cache_key": HASH_A}]}
     paths.write_text_atomic(workflow.state_path("run-1", create_parents=True),
                             json.dumps(payload))
-    state = workflow.load_state(ErrorCollector(), "run-1")
-    assert state.units == {}
+    with pytest.raises(workflow.RunStateUnusable):
+        workflow.load_state("run-1")
 
 
-def test_a_result_belonging_to_another_unit_is_rejected(artifact_sandbox):
+def test_a_duplicate_unit_stops_the_state(artifact_sandbox):
+    """Ein Duplikat wuerde den frueheren Eintrag still ueberschreiben."""
+    entry = workflow.UnitRecord(unit_id="u-1", status=UnitStatus.MAPPED,
+                                cache_key=HASH_A, result=_result("u-1")).as_payload()
+    other = workflow.UnitRecord(unit_id="u-1", status=UnitStatus.NO_MAPPING,
+                                cache_key=HASH_B).as_payload()
+    payload = {"version": workflow.STATE_VERSION, "run_id": "run-1",
+               "workflow_state": "running", "units": [entry, other]}
+    paths.write_text_atomic(workflow.state_path("run-1", create_parents=True),
+                            json.dumps(payload))
+    with pytest.raises(workflow.RunStateUnusable) as caught:
+        workflow.load_state("run-1")
+    assert "mehrfach" in caught.value.findings[0].message
+
+
+def test_a_result_belonging_to_another_unit_stops_the_state(artifact_sandbox):
     payload = {"version": workflow.STATE_VERSION, "run_id": "run-1",
                "workflow_state": "running",
                "units": [{"unit_id": "u-1", "status": "mapped", "cache_key": HASH_A,
@@ -378,7 +479,8 @@ def test_a_result_belonging_to_another_unit_is_rejected(artifact_sandbox):
                           "violations": []}]}
     paths.write_text_atomic(workflow.state_path("run-1", create_parents=True),
                             json.dumps(payload))
-    assert workflow.load_state(ErrorCollector(), "run-1").units == {}
+    with pytest.raises(workflow.RunStateUnusable):
+        workflow.load_state("run-1")
 
 
 def test_only_a_decided_and_checked_unit_is_reusable():
@@ -390,6 +492,25 @@ def test_only_a_decided_and_checked_unit_is_reusable():
     assert decided.reusable
     assert not failed.reusable
     assert not empty.reusable
+
+
+def test_a_status_that_contradicts_the_decision_is_never_reused():
+    """Sonst uebernaehme der Cache ein in sich widerspruechliches Urteil."""
+    contradiction = workflow.UnitRecord(
+        unit_id="u-1", status=UnitStatus.MAPPED, cache_key=HASH_A,
+        result=MappingUnitResult(unit_id="u-1", decision="no_mapping",
+                                 no_mapping_reason="Keine direkte Zustaendigkeit.",
+                                 assignments=[]))
+    assert not contradiction.reusable
+
+
+def test_a_no_mapping_unit_is_reusable_under_its_own_status():
+    entry = workflow.UnitRecord(
+        unit_id="u-1", status=UnitStatus.NO_MAPPING, cache_key=HASH_A,
+        result=MappingUnitResult(unit_id="u-1", decision="no_mapping",
+                                 no_mapping_reason="Keine direkte Zustaendigkeit.",
+                                 assignments=[]))
+    assert entry.reusable
 
 
 def test_a_changed_key_invalidates_the_cached_unit():
@@ -433,7 +554,7 @@ def test_workflow_state_and_unit_status_stay_separate(artifact_sandbox):
     state.record(workflow.UnitRecord(unit_id="u-1", status=UnitStatus.MAPPED,
                                      cache_key=HASH_A, result=_result("u-1")))
     state.write()
-    loaded = workflow.load_state(ErrorCollector(), "run-1")
+    loaded = workflow.load_state("run-1")
     assert loaded.state is WorkflowState.OUTCOME_UNKNOWN
     assert loaded.units["u-1"].status is UnitStatus.MAPPED
 
@@ -486,6 +607,8 @@ def test_an_unchanged_manifest_permits_a_resume():
     ({"prompts_used": [_prompt(sha="c" * 64)]}, "prompts"),
     ({"provider_settings": _provider_settings(model="anderes/modell")}, "model"),
     ({"settings": _settings(offline={"batch_size": 1})}, "batching"),
+    ({"provider_settings": _provider_settings(max_output_tokens=8_000)}, "context"),
+    ({"provider_settings": _provider_settings(reasoning_reserve_tokens=4_000)}, "context"),
 ])
 def test_a_changed_condition_forbids_a_resume(change, expected):
     conflicts = workflow.resume_conflicts(_manifest(), _manifest(**change))
@@ -575,3 +698,21 @@ def test_an_exhausted_budget_stops_the_batch_before_the_call(artifact_sandbox):
                           repair_prompt=_prompt("repair_system"), offline=_offline(),
                           provider_settings=_provider_settings())
     assert inner.seen == []
+
+
+def test_every_cache_relevant_inference_field_also_binds_the_resume():
+    """Sonst gaebe es einen Parameter, der den Cache verschiebt, aber einen
+    Resume durchliesse - der Lauf mischte dann zwei Inferenzstaende."""
+    base = _manifest()
+    for name in workflow.CACHE_INFERENCE_FIELDS:
+        changed = _manifest(provider_settings=_provider_settings(
+            **{name: getattr(_provider_settings(), name) * 2}))
+        assert workflow.resume_conflicts(base, changed), name
+
+
+def test_the_audit_keeps_the_endpoint_the_key_leaves_out():
+    """Der Endpoint ist bewusst kein Schluesselbestandteil - dann muss er
+    wenigstens je Call belegt sein."""
+    record = workflow.audit_record(_request(), _response())
+    assert record["provider"] == "Anbieter A"
+    assert record["generation_id"] == "gen-1"

@@ -230,6 +230,14 @@ Lokale Call-ID, OpenRouter-Generation-ID, Request-ID und Upstream-ID werden
 getrennt gespeichert; nur die Generation-ID ist für den Generation-Lookup
 zulässig.
 
+**Offen seit P7a (2026-08-22):** Das gepinnte SDK `openrouter==1.1.71` liefert
+weder eine Request- noch eine Upstream-ID als typisiertes Antwortfeld;
+`openrouter_metadata` trägt nur `attempt`, `endpoints`, `region`, `strategy`
+und `pipeline`. Gespeichert werden deshalb die lokale Call-ID und die
+Generation-ID; der Lookup nutzt ausschließlich die Generation-ID. Die beiden
+übrigen IDs kämen nur über die HTTP-Antwortkopfzeilen, an die der Adapterrand
+nicht herankommt.
+
 Responses werden vor Fachvalidierung atomar als bereinigte Auditdaten
 persistiert. Cache/Resume verwenden nur vollständig validierte Ergebnisse mit
 identischem Input, Taxonomie-Content-Hash, Prompt, Schema, Modell, Endpoint und
@@ -342,7 +350,7 @@ Die XLSX trennt unveränderliche `model_*`-Felder von editierbaren
 | Routing-Preflight | abgeschlossen | `provider.py` + `provider check`; prüft den öffentlichen Endpointkatalog ohne Key, Kosten und Modellaufruf und blockiert mit Exit 4, wenn kein Endpoint zur Konfiguration passt; live am 2026-08-22 7 von 30 Endpoints zulässig; 25 netzwerkfreie Tests |
 | P5 Prompts und Provideradapter | implementiert, Contract-Smoke offen |  `prompts.py` (Frontmatter, Schemabindung `mapping-output-v1`, Inhaltshash, Datenblockabgrenzung) + beide Systemprompts unter `data/config/committee_matcher_prompts/`; `provider.py` um providerneutrales Interface, `FakeProvider` und `OpenRouterProvider` erweitert; `provider smoke` implementiert, aber noch nicht live ausgefuehrt (Gate: kostenpflichtiger Call); 60 netzwerkfreie Tests |
 | P6 Mappingkern | abgeschlossen | `mapping.py` (Ausgabeschema als Golden Test, Batching mit Context-Split 3→2→1, Requestbau mit Datenblockabgrenzung, gezielter Repair) + `validation.py` (formale Prüfung gegen Vertrag/Unit/Snapshot, Verstoßliste, Boundary-Erkennung); neue Settings `MAX_REPAIR_ATTEMPTS` und `CHARS_PER_TOKEN`; 95 netzwerkfreie Tests; Phasenreview + zwei Nachprüfungen (GPT Sol) mit acht hohen Befunden, alle behoben: keine Fremdwerte mehr in der Verstoßliste (nur Vertragspositionen), Repair auf die beanstandeten Units begrenzt und der Auftrag über alle Versuche stabil, Kontextschätzung über UTF-8-Bytes inklusive gemessenem Schema mit Obergrenze 4.0 Zeichen/Token, Boundary-Mitglieder deterministisch sortiert |
-| P7a Runzustand | abgeschlossen | `workflow.py`: Runmanifest, Laufzustand (Workflow-/Unitstatus getrennt), Auditspur und Kostenwache als Providerdekorator, Cache-Key ohne gerouteten Endpoint (Gate-B-Folge), Resume-Bindung an die ergebnisbestimmenden Manifestfelder; 60 netzwerkfreie Tests |
+| P7a Runzustand | abgeschlossen | `workflow.py`: Runmanifest, Laufzustand (Workflow-/Unitstatus getrennt), Auditspur und Kostenwache als Providerdekorator, Cache-Key ohne gerouteten Endpoint (Gate-B-Folge), Resume-Bindung an die ergebnisbestimmenden Manifestfelder; 72 netzwerkfreie Tests; Phasenreview (GPT Sol) mit fünf hohen Befunden, drei behoben (Kostenbuchung vor der Persistenz, offener Callausgang ohne Autoretry, beschädigter Laufzustand hält an statt neu zu starten), einer abgelehnt (Redaktion der Modellantwort im Audit), einer als SDK-Grenze dokumentiert (Request-/Upstream-ID) |
 | P7b/P7c und alles danach | offen | Artefakte (Long-CSV, Coverage, Berichte), `map run`, XLSX-Roundtrip, Terminalreporter S4, Evaluation |
 
 P1 wurde vor P0.4–P0.6 ausgeführt, da der Rückbau ausschließlich Altcode und

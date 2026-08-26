@@ -71,10 +71,38 @@ Datei zu glauben. Ein Resume gegen ein vorhandenes Manifest ist nur zulässig,
 solange die ergebnisbestimmenden Felder unverändert sind; ein anderes Budget
 oder eine andere Snapshot-ID werfen keine bezahlten Ergebnisse weg.
 
+**Phasenreview (GPT Sol).** Fünf hohe und fünf mittlere Befunde; sieben
+behoben, zwei abgelehnt, einer als nicht erfüllbar dokumentiert:
+
+- Die Kosten wurden erst nach dem Schreiben der Auditdatei gebucht. Ein
+  Schreibfehler hätte einen bezahlten Call ungebucht gelassen. Gebucht wird
+  jetzt, sobald die Antwort vorliegt.
+- Jeder gescheiterte Call reservierte pauschal seinen Worst Case und blieb
+  wiederholbar. Beides war falsch herum: eine belegt abgewiesene Anfrage kostet
+  nichts und darf wiederholt werden, ein offener Ausgang kostet und wird nie
+  automatisch wiederholt. Der Adapter markiert das je Fehlerpfad
+  (`ProviderCallError.outcome_unknown`, fail closed).
+- Ein beschädigter Laufzustand führte zu einem stillen Neustart — und damit zum
+  erneuten Senden bereits bezahlter Calls. Er hält den Lauf jetzt an, ohne die
+  Datei zu überschreiben.
+- Ein doppelter Uniteintrag überschrieb still den früheren.
+- `UnitRecord.reusable` prüfte nicht, ob Unitstatus und Modellurteil dasselbe
+  sagen.
+- Der Cache-Key nahm beliebige Inferenzmappings an und wäre bei einem
+  unvollständigen gegenüber einem ergebnisrelevanten Parameter blind gewesen.
+- Die Resume-Bindung ignorierte `context`, obwohl `max_output_tokens` im
+  Cache-Key steht.
+
+Nicht übernommen: die Modellantwort im Audit zu redigieren. Das Audit soll
+belegen, was zurückkam; spiegelt das Modell den Prompt, ist genau das der
+Befund. Ein Geheimnis kann es nicht spiegeln — der API-Key steht in keinem
+Prompt. Ebenfalls nicht übernommen: getrennte Request- und Upstream-IDs; das
+gepinnte SDK liefert sie nicht (im Plan als offener Punkt vermerkt).
+
 Noch kein Kommando: `map run` entsteht am Ende von P7 zusammen mit den
 Artefakten.
 
-Tests: 1631 grün, davon 60 neu und netzwerkfrei.
+Tests: 1662 grün, davon 72 neu und netzwerkfrei.
 
 ---
 

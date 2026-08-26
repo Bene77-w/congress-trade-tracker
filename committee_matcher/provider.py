@@ -350,9 +350,16 @@ class ProviderCallError(MatcherError):
     """
 
     def __init__(self, findings, message=None, *, retryable: bool = False,
-                 routing_suspected: bool = False):
+                 routing_suspected: bool = False, outcome_unknown: bool = True):
         super().__init__(findings, message)
         self.retryable = retryable
+        #: True, solange nicht feststeht, dass der Provider den Call **nicht**
+        #: ausgefuehrt hat. Fail closed: nur ein belegter Abbruch vor der
+        #: Ausfuehrung - abgelehnte Anfrage, fehlender Schluessel, fehlendes
+        #: Guthaben, Drosselung - setzt das Feld auf False. Ein solcher Call
+        #: darf nie automatisch wiederholt werden und kostet bis zum Abgleich
+        #: seinen Worst Case (Plan 2.6).
+        self.outcome_unknown = outcome_unknown
         #: True, wenn der Providerfehler nach einer leeren Endpointmenge
         #: aussieht - der Aufrufer haengt dann den ZDR-Befund an, statt den
         #: Fehlertext erneut nach Stichworten zu durchsuchen.
@@ -413,7 +420,8 @@ def _status_code(exc: Exception) -> int | None:
 
 
 def _call_failure(code: str, obj: str, message: str, hint: str, *,
-                  retryable: bool, routing_suspected: bool = False) -> ProviderCallError:
+                  retryable: bool, routing_suspected: bool = False,
+                  outcome_unknown: bool = True) -> ProviderCallError:
     finding = Finding(
         severity=Severity.BLOCKER,
         code=code,
@@ -424,7 +432,8 @@ def _call_failure(code: str, obj: str, message: str, hint: str, *,
         exit_code=ExitCode.PROVIDER_ERROR,
     )
     return ProviderCallError([finding], f"{code}: {obj}", retryable=retryable,
-                             routing_suspected=routing_suspected)
+                             routing_suspected=routing_suspected,
+                             outcome_unknown=outcome_unknown)
 
 
 def _token_count(value) -> int:
@@ -653,6 +662,7 @@ class OpenRouterProvider:
                 f"{API_KEY_ENV} in .env pruefen; Guthaben und Berechtigung des "
                 "Schluessels ebenfalls.",
                 retryable=False,
+                outcome_unknown=False,
             )
         if name == "PaymentRequiredResponseError":
             return _call_failure(
@@ -660,6 +670,7 @@ class OpenRouterProvider:
                 "OpenRouter meldet fehlendes Guthaben.",
                 "Guthaben aufladen; der Lauf laesst sich danach fortsetzen.",
                 retryable=False,
+                outcome_unknown=False,
             )
         if name in ("BadRequestResponseError", "UnprocessableEntityResponseError"):
             return _call_failure(
@@ -670,6 +681,7 @@ class OpenRouterProvider:
                 f"{ADJUSTMENT_HINT}",
                 retryable=False,
                 routing_suspected=routing,
+                outcome_unknown=False,
             )
         if name == "PayloadTooLargeResponseError":
             return _call_failure(
@@ -678,7 +690,13 @@ class OpenRouterProvider:
                 "Batchgroesse senken (COMMITTEE_MATCHER_BATCH_SIZE) oder den "
                 "Context-Split nutzen; Texte werden nie still gekuerzt.",
                 retryable=False,
+                outcome_unknown=False,
             )
+        # Eine HTTP-Antwort unterhalb 500 kommt von OpenRouter selbst und
+        # belegt, dass die Anfrage vor dem Modelllauf abgewiesen wurde
+        # (Drosselung, Validierung). Ohne Statuscode - Zeitueberschreitung,
+        # Verbindungsabbruch - und bei 5xx bleibt der Ausgang offen.
+        rejected = status is not None and 400 <= status < 500
         return _call_failure(
             "PROV_CALL_FAILED", request.call_id,
             f"Providercall fehlgeschlagen ({origin}): {detail}.",
@@ -687,6 +705,7 @@ class OpenRouterProvider:
             "Nicht wiederholbarer Providerfehler; Ursache oben pruefen.",
             retryable=retryable,
             routing_suspected=routing,
+            outcome_unknown=not rejected,
         )
 
     def _to_response(self, request: StructuredRequest, result) -> StructuredResponse:

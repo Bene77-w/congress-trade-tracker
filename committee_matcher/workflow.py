@@ -22,11 +22,11 @@ from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
 from . import mapping, paths, provider as provider_module
-from .errors import ErrorCollector, Finding, MatcherError, Severity, Stage
+from .errors import Finding, MatcherError, Severity, Stage
 from .models import MappingUnitResult, MatcherUnit
 from .prompts import SystemPrompt
 from .settings_view import MatcherSettings, OfflineSettings, ProviderSettings
-from .status import ExitCode, UnitStatus, WorkflowState
+from .status import ExitCode, MappingDecision, UnitStatus, WorkflowState
 
 #: Verzeichnis der Runrevisionen; identisch mit dem der Taxonomiephase, damit
 #: Snapshot, Calls und Ergebnisse eines Laufs beieinander liegen.
@@ -47,6 +47,13 @@ CACHE_KEY_VERSION = "cache-key-v1"
 #: ein spaeter hinzugefuegter Parameter darf nicht stillschweigend aus dem
 #: Schluessel fallen.
 CACHE_INFERENCE_FIELDS = ("max_output_tokens", "reasoning_reserve_tokens")
+
+#: Welcher Unitstatus zu welchem Modellurteil gehoert. Andere Kombinationen
+#: gibt es nicht; ``not_decided`` und ``failed`` tragen nie ein Ergebnis.
+STATUS_FOR_DECISION: dict[MappingDecision, UnitStatus] = {
+    MappingDecision.MAPPED: UnitStatus.MAPPED,
+    MappingDecision.NO_MAPPING: UnitStatus.NO_MAPPING,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -133,9 +140,19 @@ def unit_cache_key(unit: MatcherUnit, *, taxonomy_content_hash: str,
                    prompt: SystemPrompt, model: str,
                    inference: Mapping[str, object],
                    json_schema: Mapping | None = None) -> str:
-    """Cache-Key einer Unit; ohne fachlichen Inputhash nicht bildbar."""
+    """Cache-Key einer Unit; ohne fachlichen Inputhash nicht bildbar.
+
+    ``inference`` muss genau ``CACHE_INFERENCE_FIELDS`` enthalten. Ein
+    unvollstaendiges Mapping wuerde den Schluessel gegenueber einem
+    ergebnisrelevanten Parameter blind machen - ein Fehler des Aufrufers, kein
+    Laufzustand, deshalb ``ValueError``.
+    """
     if not unit.mapping_input_hash:
         raise ValueError(f"Unit {unit.unit_id} hat keinen mapping_input_hash")
+    if set(inference) != set(CACHE_INFERENCE_FIELDS):
+        raise ValueError(
+            f"inference muss genau {set(CACHE_INFERENCE_FIELDS)} enthalten, "
+            f"erhalten: {sorted(inference)}")
     schema = json_schema if json_schema is not None else mapping.batch_schema()
     return cache_key(
         mapping_input_hash=unit.mapping_input_hash,
@@ -329,6 +346,9 @@ class AuditedProvider:
     #: Befunde der Kostenwache; der Lauf wertet sie nach dem Batch aus.
     blockers: list[Finding] = field(default_factory=list)
     audited: list[str] = field(default_factory=list)
+    #: Calls, deren Ausgang offen blieb. Sie halten ihre Reservierung, bis der
+    #: Abgleich ueber die Generation-ID sie aufloest.
+    unknown: list["UnknownCall"] = field(default_factory=list)
 
     def complete(self, request: provider_module.StructuredRequest
                  ) -> provider_module.StructuredResponse:
@@ -339,13 +359,36 @@ class AuditedProvider:
             raise CostBlocked([blocker], "Kostenbudget erschoepft")
         try:
             response = self.inner.complete(request)
-        except provider_module.ProviderCallError:
-            # Auch ein gescheiterter Call kann abgerechnet worden sein.
-            self.guard.settle(worst_case, None)
-            raise
-        self._persist(request, response)
+        except provider_module.ProviderCallError as exc:
+            raise self._failed(request, worst_case, exc) from None
+        # Gebucht wird, sobald die Antwort vorliegt - vor der Persistenz. Sonst
+        # bliebe ein bezahlter Call bei einem Schreibfehler ungebucht, und das
+        # Budget haette Luft, die es nicht mehr hat.
         self.guard.settle(worst_case, response)
+        self._persist(request, response)
         return response
+
+    def _failed(self, request, worst_case: float,
+                exc: provider_module.ProviderCallError
+                ) -> provider_module.ProviderCallError:
+        """Verbucht einen gescheiterten Call und entscheidet ueber die Wiederholung.
+
+        Steht fest, dass der Provider die Anfrage abgewiesen hat, kostet sie
+        nichts und darf wiederholt werden. Bleibt der Ausgang offen, gilt der
+        Worst Case als reserviert, der Call wird als ungeklaert vorgemerkt und
+        nie automatisch wiederholt (Plan 2.6).
+        """
+        if not exc.outcome_unknown:
+            return exc
+        self.guard.settle(worst_case, None)
+        self.unknown.append(UnknownCall(
+            call_id=request.call_id,
+            generation_id=None,
+            reserved_usd=worst_case,
+            reason=exc.findings[0].code if exc.findings else "PROV_CALL_FAILED",
+        ))
+        exc.retryable = False
+        return exc
 
     def _persist(self, request, response) -> None:
         target = call_path(self.run_id, request.call_id, create_parents=True)
@@ -378,9 +421,16 @@ class UnitRecord:
 
     @property
     def reusable(self) -> bool:
-        """Nur ein entschiedenes, geprueftes Ergebnis darf wiederverwendet werden."""
-        return self.result is not None and self.status in {
-            UnitStatus.MAPPED, UnitStatus.NO_MAPPING}
+        """Nur ein entschiedenes, geprueftes Ergebnis darf wiederverwendet werden.
+
+        Status und Modellurteil muessen dasselbe sagen. Ein Eintrag mit Status
+        ``mapped`` und Entscheidung ``no_mapping`` ist in sich widerspruechlich
+        und wird nie uebernommen, egal wie er entstanden ist.
+        """
+        if self.result is None:
+            return False
+        expected = STATUS_FOR_DECISION.get(self.result.decision)
+        return expected is not None and expected is self.status
 
     def as_payload(self) -> dict[str, object]:
         return {
@@ -472,49 +522,71 @@ class RunState:
                            self.as_payload())
 
 
-def load_state(collector: ErrorCollector, run_id: str) -> RunState:
-    """Laedt den Laufzustand; alles Unlesbare fuehrt zu einem leeren Lauf.
+class RunStateUnusable(MatcherError):
+    """Der vorhandene Laufzustand ist nicht verwendbar; der Lauf haelt an."""
 
-    Ein beschaedigter Zustand darf nie zu einem teilweise uebernommenen Lauf
-    fuehren: die Alternative waere, einzelne Units aus einer kaputten Datei zu
-    glauben. Der Lauf beginnt dann von vorn - das kostet Calls, aber keine
-    Nachvollziehbarkeit.
+
+def _state_blocker(target: Path, detail: str) -> Finding:
+    return Finding(
+        severity=Severity.BLOCKER,
+        code="RUN_STATE_MALFORMED",
+        stage=Stage.WORKFLOW,
+        obj=paths.relative_to_base(target),
+        message=f"Laufzustand ist nicht verwendbar: {detail}",
+        hint=("Nicht ueberschreiben: die Auditdateien unter calls/ zeigen, welche "
+              "Calls bereits bezahlt wurden. Lauf mit neuer --run-id starten oder "
+              "den Zustand nach Sichtung entfernen."),
+        exit_code=ExitCode.PREFLIGHT_BLOCKED,
+    )
+
+
+def load_state(run_id: str) -> RunState:
+    """Laedt den Laufzustand; ein vorhandener, unbrauchbarer Zustand blockiert.
+
+    Fehlt die Datei, beginnt der Lauf frisch - dann ist auch nichts bezahlt
+    worden. Ist sie vorhanden, aber unlesbar oder vertragswidrig, wird der Lauf
+    angehalten statt neu begonnen: die Datei belegt, dass bereits gelaufen ist,
+    und ein stiller Neustart wuerde bezahlte Calls ein zweites Mal senden. Ein
+    teilweises Uebernehmen kommt ebenso wenig in Frage - dann wuerden einzelne
+    Units aus einer kaputten Datei geglaubt.
     """
     target = state_path(run_id)
     if not target.exists():
         return RunState(run_id=run_id)
 
-    def restart(message: str) -> RunState:
-        collector.warning(
-            "RUN_STATE_MALFORMED", Stage.WORKFLOW, paths.relative_to_base(target),
-            message, "Lauf beginnt von vorn; der Zustand wird ueberschrieben.")
-        return RunState(run_id=run_id)
+    def stop(detail: str) -> "RunState":
+        raise RunStateUnusable([_state_blocker(target, detail)],
+                               f"Laufzustand unbrauchbar: {detail}")
 
     try:
         data = json.loads(target.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
-        return restart("Laufzustand ist kein gueltiges JSON.")
+        stop("kein gueltiges JSON.")
     if not isinstance(data, dict):
-        return restart("Laufzustand ist kein JSON-Objekt.")
+        stop("kein JSON-Objekt.")
     if data.get("version") != STATE_VERSION:
-        return restart(f"Laufzustand traegt {data.get('version')!r} statt "
-                       f"{STATE_VERSION!r}.")
+        stop(f"Version {data.get('version')!r} statt {STATE_VERSION!r}.")
     if data.get("run_id") != run_id:
-        return restart(f"Laufzustand gehoert zu Run {data.get('run_id')!r}.")
+        stop(f"gehoert zu Run {data.get('run_id')!r}.")
     try:
         state = WorkflowState(data.get("workflow_state"))
     except ValueError:
-        return restart(f"Unbekannter Workflowstatus {data.get('workflow_state')!r}.")
+        stop(f"unbekannter Workflowstatus {data.get('workflow_state')!r}.")
     entries = data.get("units")
     if not isinstance(entries, list):
-        return restart("Unitliste fehlt oder ist keine Liste.")
+        stop("Unitliste fehlt oder ist keine Liste.")
     records: dict[str, UnitRecord] = {}
     for item in entries:
         if not isinstance(item, dict):
-            return restart("Uniteintrag ist kein JSON-Objekt.")
+            stop("Uniteintrag ist kein JSON-Objekt.")
         entry = UnitRecord.from_payload(item)
         if entry is None:
-            return restart("Uniteintrag verletzt den Zustandsvertrag.")
+            stop("Uniteintrag verletzt den Zustandsvertrag.")
+        if entry.unit_id in records:
+            # Ein Duplikat wuerde beim Einlesen still den frueheren Eintrag
+            # ueberschreiben - also genau die teilweise Interpretation, die
+            # ausgeschlossen sein soll.
+            stop(f"Unit {entry.unit_id} kommt mehrfach vor.")
         records[entry.unit_id] = entry
     return RunState(run_id=run_id, state=state, units=records)
 
@@ -599,7 +671,8 @@ def load_manifest(run_id: str) -> dict | None:
 #: Manifestfelder, deren Aenderung einen Resume verbietet: sie bestimmen das
 #: fachliche Ergebnis. Volatile Provenienz steht bewusst nicht darin.
 RESUME_BOUND_FIELDS = ("taxonomy_content_hash", "input_manifest_hash", "model",
-                       "prompts", "schema", "batching", "cache_key_version")
+                       "prompts", "schema", "batching", "context",
+                       "cache_key_version")
 
 
 def resume_conflicts(previous: Mapping, current: Mapping) -> tuple[str, ...]:
