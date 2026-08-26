@@ -340,7 +340,7 @@ Die XLSX trennt unveränderliche `model_*`-Felder von editierbaren
 
 ## 3. Implementierungsphasen und Gates
 
-### Umsetzungsstand (2026-08-22)
+### Umsetzungsstand (2026-08-27)
 
 | Schritt | Status | Nachweis / Bedingung |
 |---|---|---|
@@ -355,7 +355,8 @@ Die XLSX trennt unveränderliche `model_*`-Felder von editierbaren
 | P5 Prompts und Provideradapter | implementiert, Contract-Smoke offen |  `prompts.py` (Frontmatter, Schemabindung `mapping-output-v1`, Inhaltshash, Datenblockabgrenzung) + beide Systemprompts unter `data/config/committee_matcher_prompts/`; `provider.py` um providerneutrales Interface, `FakeProvider` und `OpenRouterProvider` erweitert; `provider smoke` implementiert, aber noch nicht live ausgefuehrt (Gate: kostenpflichtiger Call); 60 netzwerkfreie Tests |
 | P6 Mappingkern | abgeschlossen | `mapping.py` (Ausgabeschema als Golden Test, Batching mit Context-Split 3→2→1, Requestbau mit Datenblockabgrenzung, gezielter Repair) + `validation.py` (formale Prüfung gegen Vertrag/Unit/Snapshot, Verstoßliste, Boundary-Erkennung); neue Settings `MAX_REPAIR_ATTEMPTS` und `CHARS_PER_TOKEN`; 95 netzwerkfreie Tests; Phasenreview + zwei Nachprüfungen (GPT Sol) mit acht hohen Befunden, alle behoben: keine Fremdwerte mehr in der Verstoßliste (nur Vertragspositionen), Repair auf die beanstandeten Units begrenzt und der Auftrag über alle Versuche stabil, Kontextschätzung über UTF-8-Bytes inklusive gemessenem Schema mit Obergrenze 4.0 Zeichen/Token, Boundary-Mitglieder deterministisch sortiert |
 | P7a Runzustand | abgeschlossen | `workflow.py`: Runmanifest, Laufzustand (Workflow-/Unitstatus getrennt), Auditspur und Kostenwache als Providerdekorator, Cache-Key ohne gerouteten Endpoint (Gate-B-Folge), Resume-Bindung an die ergebnisbestimmenden Manifestfelder; 72 netzwerkfreie Tests; Phasenreview (GPT Sol) mit fünf hohen Befunden, drei behoben (Kostenbuchung vor der Persistenz, offener Callausgang ohne Autoretry, beschädigter Laufzustand hält an statt neu zu starten), einer abgelehnt (Redaktion der Modellantwort im Audit), einer als SDK-Grenze dokumentiert (Request-/Upstream-ID) |
-| P7b/P7c und alles danach | offen | Artefakte (Long-CSV, Coverage, Berichte), `map run`, XLSX-Roundtrip, Terminalreporter S4, Evaluation |
+| P7b Ergebnisartefakte | implementiert, Review offen | `artifacts.py`: Long-CSV je Unit-Industry-Zuordnung, Unit-Coverage über die volle Sollmenge, Boundary-Konflikte, Roster-Coverage und Kostenbericht; Provenienz ausschließlich aus Runmanifest und Snapshot, Schreiben als Alles-oder-nichts mit sieben Blockerprüfungen; 27 netzwerkfreie Tests |
+| P7c/P7d und alles danach | offen | `map run`, Terminalreporter S4, XLSX-Roundtrip, Evaluation |
 
 P1 wurde vor P0.4–P0.6 ausgeführt, da der Rückbau ausschließlich Altcode und
 Altdoku betrifft und den Inputroot nicht berührt. Der Schutzbezug bleibt

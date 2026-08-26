@@ -11,6 +11,31 @@ Historie abgeschlossener Module/Phasen. **Aktiver WIP-Modul-Stand** steht im „
 
 ---
 
+## 2026-08-27 — Committee Matcher V2: P7b Ergebnisartefakte
+
+`committee_matcher/artifacts.py`: die einzige Stelle, die Laufergebnisse in
+Dateien gießt. Long-CSV je Unit-Industry-Zuordnung, Unit-Coverage über die
+gesamte erwartete Unitmenge, Boundary-Konflikte, Roster-Coverage und
+Kostenbericht — alle unter `runs/<run_id>/mapping/`.
+
+Zwei Regeln bestimmen den Zuschnitt: keine Zeile weniger als der Lauf hergab
+(fehlende Unit ist `not_decided`, nicht abwesend) und kein Fremdwert als
+Provenienz (Industry- und Sektornamen aus dem Snapshot, Modell- und
+Promptangaben aus dem Runmanifest; das Modell liefert nur die `industry_id`).
+
+Geschrieben wird alles oder nichts: sieben Blockerprüfungen laufen vor der
+ersten Datei — unvollständige Provenienz, fremdes Manifest, fremder Snapshot,
+unerwartete oder doppelte Unit, Zustand im Widerspruch zum eigenen Ergebnis,
+Industry außerhalb des Snapshots.
+
+Tests: 1710 grün (+27 netzwerkfrei).
+
+Davor im selben Zug: die zweite Nachprüfung zu P7a (Commit `5efe01b`) — 4xx
+nicht mehr pauschal als belegte Ablehnung, Generation-ID und Kosten auch im
+Fehlerfall, Auditschreibfehler als `AUDIT_WRITE_FAILED` vorgemerkt.
+
+---
+
 ## 2026-08-22 — Committee Matcher V2: Contract-Smoke live bestanden
 
 Erster kostenpflichtiger Call nach Freigabe durch Bene. Antwort vertragsgemäß,

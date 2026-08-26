@@ -49,5 +49,6 @@ git merge --no-ff agent/<name> -m "Merge agent/<name>: ..."
 - Providersettings gesetzt + Routing-Preflight `provider check` live
 - P5 implementiert + Contract-Smoke am 2026-08-22 live bestanden (Routing `Morph`, 0,000018 USD, Exit 0)
 - P6 implementiert: Mappingkern `mapping.py` + `validation.py` (Schema, Batching mit Context-Split, Repair ohne Silent-Fix, Boundary-Erkennung)
-- P7a implementiert: `workflow.py` (Runmanifest, Laufzustand, Auditspur + Kostenwache als Providerdekorator, Cache/Resume); offen P7b/P7c: Artefakte, `map run`, XLSX-Roundtrip, Terminalreporter
+- P7a implementiert + nachgeprüft: `workflow.py` (Runmanifest, Laufzustand, Auditspur + Kostenwache als Providerdekorator, Cache/Resume)
+- P7b implementiert: `artifacts.py` (Long-CSV, Unit-/Roster-Coverage, Boundary-Konflikte, Kostenbericht; Alles-oder-nichts-Schreiben); offen P7c/P7d: `map run`, Terminalreporter S4, XLSX-Roundtrip
 - Detailstand + History; `CHANGELOG.md`; laufende Entscheidungen + Pläne; `organisation/` und `~/.claude/plans/`

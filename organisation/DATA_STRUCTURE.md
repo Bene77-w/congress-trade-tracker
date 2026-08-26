@@ -418,6 +418,53 @@ Fehlschlags. Workflowstatus und Unitstatus bleiben getrennt — ein Lauf in
 Geschrieben **vor** der fachlichen Prüfung. Systemprompt und Nutzdaten stehen
 bewusst nicht darin.
 
+Fehlt die Auditdatei eines bezahlten Calls, führt der Kostenbericht ihn als
+`AUDIT_WRITE_FAILED` samt Generation-ID.
+
+Ergebnisartefakte desselben Ordners (P7b, geschrieben nach dem Lauf):
+
+| Datei | Zweck |
+|---|---|
+| `assignments_long.csv` | eine Zeile je Unit-Industry-Zuordnung |
+| `unit_coverage.csv` | jede erwartete Unit genau einmal mit ihrem fachlichen Stand |
+| `boundary_conflicts.csv` | gleiche Industry in Geschwister-Units; Reviewposten, kein Fehler |
+| `roster_coverage.csv` | Roster-Coverage des Laufs (nur wenn Rosterdaten übergeben werden) |
+| `cost_report.json` | Kostenstand und die Calls mit offenem Ausgang |
+
+`assignments_long.csv` (Spalten in dieser Reihenfolge, durch Golden Test
+gebunden): `run_id`, `revision_id`, `unit_id`, `chamber`, `committee_name`,
+`unit_name`, `unit_kind`, `input_basis`, `mapping_input_hash`, `decision`,
+`broad_scope_exception`, `industry_id`, `industry_name`, `sector_id`,
+`sector_name`, `confidence`, `evidence_excerpt`, `rationale_short`,
+`assignment_source`, `model`, `taxonomy_content_hash`, `snapshot_id`,
+`prompt_id`, `prompt_version`, `prompt_sha256`, `schema_name`, `schema_sha256`.
+
+Industry- und Sektornamen stammen aus dem Snapshot des Laufs, Modell- und
+Promptangaben aus dem Runmanifest; das Modell liefert nur die `industry_id`.
+`assignment_source` ist in P7b immer `model` — `manual` entsteht erst beim
+Reviewimport. `no_mapping`-Units erzeugen hier keine Zeile und stehen
+vollzählig in der Unit-Coverage.
+
+`unit_coverage.csv`: `run_id`, `revision_id`, `unit_id`, `chamber`,
+`committee_name`, `unit_name`, `unit_kind`, `status`
+(`not_decided | mapped | no_mapping | failed`), `assignment_count`,
+`no_mapping_reason`, `broad_scope_exception`, `violations`. Eine Unit ohne
+Zustandseintrag ist `not_decided`; mehrere Werte in einer Zelle trennt `|`.
+
+`boundary_conflicts.csv`: `run_id`, `family_id`, `industry_id`, `industry_name`,
+`unit_count`, `unit_ids`. `cost_report.json` (`version: cost-report-v1`):
+`run_id`, `audited_calls`, `budget_usd`, `spent_usd`, `reserved_usd`,
+`committed_usd`, `remaining_usd`, `calls`, `unknown_calls`, `guard_enabled`
+sowie `unknown_calls_detail` je offenem Call.
+
+Das Schreiben ist ein Alles-oder-nichts: Provenienz, Snapshotbindung,
+Sollmenge, Zustandskonsistenz und Industryidentität werden vor der ersten Datei
+geprüft. Blockiert eine Prüfung (`ART_PROVENANCE_INCOMPLETE`,
+`ART_RUN_MISMATCH`, `ART_SNAPSHOT_MISMATCH`, `ART_UNEXPECTED_UNIT`,
+`ART_DUPLICATE_UNIT`, `ART_STATE_INCONSISTENT`, `ART_UNKNOWN_INDUSTRY`, jeweils
+Exit 4), entsteht keine einzige Datei — ein halber Satz wäre im Review nicht als
+unvollständig erkennbar.
+
 #### `data/config/committee_matcher_prompts/` (P5, versionierter Kontrollinput)
 
 Die beiden editierbaren Systemprompts `mapping_system.md` und
