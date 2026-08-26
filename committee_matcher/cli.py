@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from datetime import datetime, timezone
@@ -945,8 +946,12 @@ def _run_batch(collector: ErrorCollector, audited: workflow.AuditedProvider,
     Call koennte gelaufen und abgerechnet worden sein (Plan 2.6).
     """
     attempts = 1 + max(0, settings.offline.workflow_retries)
+    # Ein Batch, der in diesem Lauf schon einmal gesendet wurde, bekommt einen
+    # eigenen Durchlaufpraefix: seine alte Call-ID gehoert zu einem Call, der
+    # bezahlt worden sein kann.
+    base = workflow.free_call_prefix(audited.run_id, batch.batch_id)
     for attempt in range(attempts):
-        prefix = "" if attempt == 0 else f"retry{attempt}-"
+        prefix = base if attempt == 0 else f"{base}retry{attempt}-"
         try:
             return mapping.map_batch(
                 audited, batch, prepared.snapshot,
@@ -1226,6 +1231,132 @@ def handle_run_execute(
     return summary, written, guard.spent_usd
 
 
+def handle_run_reconcile(
+    command: Command, namespace: argparse.Namespace,
+    collector: ErrorCollector, settings: MatcherSettings,
+    reporter: TerminalReporter,
+) -> tuple[list[str], list[str]]:
+    """Klaert Calls mit offenem Ausgang ueber die Generation-ID (Plan 2.6).
+
+    Der Abgleich ist kostenlos und sendet keinen Modellaufruf. Geklaert wird der
+    Kostenstand, nicht der Inhalt: die Antwort ist verloren, die betroffenen
+    Units laufen im naechsten ``run execute`` erneut.
+    """
+    if _missing_run_id(command, namespace, collector):
+        return [], []
+    run_id = _run_id(namespace)
+    reporter.start(Stage.WORKFLOW, run=run_id, action="reconcile")
+    provider_settings = settings.require_provider()
+
+    open_calls = workflow.open_intents(run_id)
+    if not open_calls:
+        reporter.ok(Stage.WORKFLOW, run=run_id, action="reconcile", open_calls=0)
+        return [f"Run:      {run_id}", "Abgleich: kein Call mit offenem Ausgang"], []
+
+    api_key = os.getenv(provider.API_KEY_ENV, "").strip()
+    if not api_key:
+        collector.blocker(
+            "PROV_NO_API_KEY", Stage.PROVIDER, provider.API_KEY_ENV,
+            f"Umgebungsvariable {provider.API_KEY_ENV} ist leer oder nicht gesetzt.",
+            f"{provider.API_KEY_ENV} in der Datei .env eintragen; der Abgleich "
+            "einer Generation gehoert zum Konto und braucht den Key.",
+            exit_code=ExitCode.PROVIDER_ERROR,
+        )
+        return [f"Run:      {run_id}", f"Abgleich: blockiert ({len(open_calls)} offen)"], []
+
+    settled: list[dict] = []
+    unresolved: list[str] = []
+    charged_usd = 0.0
+    released_usd = 0.0
+
+    for call_id in open_calls:
+        intent = workflow.load_intent(run_id, call_id)
+        reserved = float(intent.get("reserved_usd") or 0.0) if intent else 0.0
+        generation_id = (intent or {}).get("generation_id")
+        if intent is None or not generation_id:
+            unresolved.append(call_id)
+            reporter.warn(Stage.COST, call=call_id,
+                          reason="ohne Generation-ID nicht abgleichbar")
+            continue
+        try:
+            record = provider.fetch_generation(str(generation_id), api_key)
+        except provider.CatalogUnavailable as exc:
+            unresolved.append(call_id)
+            collector.warning(
+                "COST_RECONCILE_UNAVAILABLE", Stage.COST, call_id,
+                f"Der Abgleich war nicht moeglich: {exc}.",
+                "Abgleich spaeter wiederholen; die Reservierung bleibt bis dahin "
+                "bestehen.")
+            reporter.warn(Stage.COST, call=call_id, reason=str(exc))
+            continue
+
+        if not record.found:
+            outcome = {"outcome": "not_charged", "cost_usd": 0.0,
+                       "released_usd": reserved, "generation_id": record.generation_id}
+            released_usd += reserved
+            reporter.ok(Stage.COST, call=call_id, not_charged=None,
+                        released_usd=reserved)
+        elif record.cost_usd is None:
+            unresolved.append(call_id)
+            collector.warning(
+                "COST_RECONCILE_INCOMPLETE", Stage.COST, call_id,
+                "Der Provider kennt die Generation, nennt aber keine Kosten.",
+                "Abgleich spaeter wiederholen; ein Betrag wird nicht geschaetzt.")
+            reporter.warn(Stage.COST, call=call_id, reason="Provider nennt keine Kosten")
+            continue
+        else:
+            outcome = {"outcome": "charged", "cost_usd": record.cost_usd,
+                       "released_usd": max(0.0, reserved - record.cost_usd),
+                       "generation_id": record.generation_id,
+                       "provider": record.provider, "model": record.model,
+                       "finish_reason": record.finish_reason}
+            charged_usd += record.cost_usd
+            released_usd += max(0.0, reserved - record.cost_usd)
+            reporter.ok(Stage.COST, call=call_id, charged=None,
+                        cost_usd=record.cost_usd)
+
+        outcome["reserved_usd"] = reserved
+        settled.append({"call_id": call_id, **outcome})
+        try:
+            workflow.write_reconciliation(run_id, call_id, outcome)
+        except (MatcherError, OSError) as exc:
+            unresolved.append(call_id)
+            collector.warning(
+                "COST_RECONCILE_NOT_PERSISTED", Stage.COST, call_id,
+                f"Die Klaerung konnte nicht festgehalten werden: {exc}.",
+                "Schreibrecht unter data/committee_matcher_v2/ pruefen; ohne "
+                "Datei gilt der Call weiter als offen.")
+
+    written = _write_artifact(
+        collector, command.name, "reconciliation.json",
+        {"run_id": run_id, "settled": settled, "unresolved": unresolved,
+         "charged_usd": round(charged_usd, 6),
+         "released_usd": round(released_usd, 6)},
+    )
+    if unresolved:
+        collector.blocker(
+            "RUN_OUTCOME_UNKNOWN", Stage.COST, f"{len(unresolved)} Call(s)",
+            "Der Ausgang dieser Calls ist weiterhin offen; ihre Reservierung "
+            "bleibt gebucht.",
+            "Abgleich wiederholen, sobald der Provider antwortet; ohne "
+            "Generation-ID nur ueber die Abrechnung des Kontos klaerbar.",
+            exit_code=ExitCode.OUTCOME_UNKNOWN,
+        )
+    reporter.emit(
+        StatusKind.ERROR if unresolved else StatusKind.OK,
+        Stage.WORKFLOW, run=run_id, action="reconcile",
+        settled=len(settled), unresolved=len(unresolved), charged_usd=charged_usd)
+    return [
+        f"Run:      {run_id}",
+        f"Abgleich: {len(settled)} von {len(open_calls)} Call(s) geklaert"
+        + (f" | {len(unresolved)} weiterhin offen" if unresolved else ""),
+        f"Kosten:   {charged_usd:.6f} USD tatsaechlich abgerechnet | "
+        f"{released_usd:.6f} USD Reservierung aufgeloest",
+        "Hinweis:  der Inhalt der Antworten ist nicht wiederherstellbar; die "
+        "betroffenen Units laufen im naechsten 'run execute' erneut.",
+    ], written
+
+
 #: Bereits implementierte Aktionen; alles andere meldet die Zielphase.
 HANDLERS = {
     "provider check": handle_provider_check,
@@ -1237,6 +1368,7 @@ HANDLERS = {
     "snapshot approve": handle_snapshot_approve,
     "run plan": handle_run_plan,
     "run execute": handle_run_execute,
+    "run reconcile": handle_run_reconcile,
 }
 
 

@@ -42,6 +42,9 @@ MANIFEST_VERSION = "run-manifest-v1"
 STATE_VERSION = "run-state-v2"
 CALL_AUDIT_VERSION = "call-audit-v1"
 CALL_INTENT_VERSION = "call-intent-v1"
+
+#: Version der Klaerung eines Calls mit offenem Ausgang.
+CALL_RECONCILIATION_VERSION = "call-reconciliation-v1"
 CACHE_KEY_VERSION = "cache-key-v1"
 
 #: Inferenzparameter, die in den Cache-Key eingehen. Bewusst eine feste Liste:
@@ -96,11 +99,23 @@ def intent_path(run_id: str, call_id: str, *, create_parents: bool = False) -> P
                         create_parents=create_parents)
 
 
+def reconciled_path(run_id: str, call_id: str, *, create_parents: bool = False) -> Path:
+    """Klaerung eines Calls, dessen Ausgang offen war.
+
+    Sie tritt neben die Vormerkung und ersetzt keine Auditdatei: geklaert ist
+    der Kostenstand, nicht der Inhalt der Antwort. Der Inhalt bleibt verloren,
+    die betroffene Unit laeuft erneut.
+    """
+    return mapping_path(run_id, CALLS_DIRNAME, f"{call_id}.reconciled.json",
+                        create_parents=create_parents)
+
+
 def open_intents(run_id: str) -> tuple[str, ...]:
     """Call-IDs, deren Vormerkung ohne Auditdatei liegengeblieben ist.
 
     Jede davon ist ein Call mit offenem Ausgang: gesendet, moeglicherweise
-    bezahlt, ohne verwertbare Antwort auf der Platte.
+    bezahlt, ohne verwertbare Antwort auf der Platte. Eine vorhandene Klaerung
+    schliesst den Call ab, auch wenn die Vormerkung als Beleg liegen bleibt.
     """
     folder = mapping_path(run_id, CALLS_DIRNAME)
     if not folder.is_dir():
@@ -108,9 +123,72 @@ def open_intents(run_id: str) -> tuple[str, ...]:
     open_calls = []
     for entry in sorted(folder.glob("*.intent.json")):
         call_id = entry.name[: -len(".intent.json")]
-        if not call_path(run_id, call_id).exists():
+        if (not call_path(run_id, call_id).exists()
+                and not reconciled_path(run_id, call_id).exists()):
             open_calls.append(call_id)
     return tuple(open_calls)
+
+
+def load_intent(run_id: str, call_id: str) -> dict | None:
+    """Liest eine Vormerkung; alles Unstimmige gilt als nicht vorhanden.
+
+    Eine unlesbare Vormerkung darf nicht als 'nichts passiert' durchgehen: der
+    Aufrufer meldet sie als ungeklaert, statt sie zu ignorieren.
+    """
+    target = intent_path(run_id, call_id)
+    try:
+        data = json.loads(target.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    if not isinstance(data, dict) or data.get("version") != CALL_INTENT_VERSION:
+        return None
+    if data.get("run_id") != run_id or data.get("call_id") != call_id:
+        return None
+    return data
+
+
+def write_reconciliation(run_id: str, call_id: str,
+                         payload: Mapping[str, object]) -> Path:
+    """Haelt das Ergebnis einer Klaerung neben der Vormerkung fest."""
+    entry = dict(payload)
+    entry.update({
+        "version": CALL_RECONCILIATION_VERSION,
+        "run_id": run_id,
+        "call_id": call_id,
+    })
+    return _write_json(reconciled_path(run_id, call_id, create_parents=True), entry)
+
+
+def call_taken(run_id: str, call_id: str) -> bool:
+    """Ist diese Call-ID im Lauf bereits belegt?
+
+    Belegt ist sie durch jede Spur: Auditdatei, liegengebliebene Vormerkung
+    oder Klaerung. Eine zweite Anfrage unter derselben ID wuerde die Zuordnung
+    zwischen bezahltem Call und Spur zerstoeren.
+    """
+    return (call_path(run_id, call_id).exists()
+            or intent_path(run_id, call_id).exists()
+            or reconciled_path(run_id, call_id).exists())
+
+
+#: Obergrenze der Durchlaufpraefixe; sie greift nur, wenn derselbe Batch
+#: hundertmal gesendet wurde - dann ist der Lauf ohnehin zu pruefen.
+MAX_CALL_PASSES = 99
+
+
+def free_call_prefix(run_id: str, batch_id: str) -> str:
+    """Praefix, unter dem ``batch_id`` in diesem Lauf noch frei ist.
+
+    Ein Batch, der nach einer Klaerung erneut laeuft, braucht eine neue
+    Call-ID: die alte gehoert zu einem moeglicherweise bezahlten Call.
+    """
+    if not call_taken(run_id, batch_id):
+        return ""
+    for number in range(2, MAX_CALL_PASSES + 1):
+        prefix = f"pass{number}-"
+        if not call_taken(run_id, f"{prefix}{batch_id}"):
+            return prefix
+    return f"pass{MAX_CALL_PASSES + 1}-"
 
 
 def _write_json(target: Path, payload: object) -> Path:
@@ -409,13 +487,13 @@ class AuditedProvider:
         frueheren Versuchs ueberschrieben und der neue Call waere weder als
         offen erkennbar noch historisch nachweisbar.
         """
-        if call_path(self.run_id, request.call_id).exists():
+        if call_taken(self.run_id, request.call_id):
             raise CallIdReused([Finding(
                 severity=Severity.BLOCKER,
                 code="CALL_ID_REUSED",
                 stage=Stage.WORKFLOW,
                 obj=request.call_id,
-                message="Diese Call-ID traegt bereits eine Auditdatei.",
+                message="Diese Call-ID traegt bereits eine Spur im Lauf.",
                 hint="Je physischem Versuch eine eigene Call-ID bilden; eine "
                      "ueberschriebene Auditspur verliert einen bezahlten Call.",
                 exit_code=ExitCode.PREFLIGHT_BLOCKED,

@@ -262,9 +262,8 @@ def unit_result(unit_id: str, *, decision: str = "mapped",
 
 def batch_payload(request, *, decision: str = "mapped") -> dict:
     """Baut die Antwort zu einem Request aus den Unit-IDs seines Batches."""
-    batch_id = request.call_id.split("-repair-")[0]
-    if "-" in batch_id and batch_id.startswith("retry"):
-        batch_id = batch_id.split("-", 1)[1]
+    # Durchlauf- und Retrypraefixe gehoeren zur Call-ID, nicht zum Batch.
+    batch_id = "batch-" + request.call_id.split("-repair-")[0].split("batch-", 1)[1]
     reason = "keine direkte Zustaendigkeit" if decision == "no_mapping" else None
     return {
         "requested_batch_id": batch_id,
@@ -495,3 +494,126 @@ def test_an_open_outcome_is_never_repeated(scripted, capsys):
     state = workflow.load_state("run-test")
     assert state.state.value == "outcome_unknown"
     assert len(workflow.open_intents("run-test")) == 1
+
+
+# ---------------------------------------------------------------------------
+# run reconcile
+# ---------------------------------------------------------------------------
+
+def reconcile_argv(run_id: str = "run-test") -> list[str]:
+    return ["run", "reconcile", "--run-id", run_id]
+
+
+def _leave_one_open(scripted, capsys, *, generation_id="gen-offen"):
+    """Erzeugt genau einen Call mit offenem Ausgang."""
+    scripted.install(errors=[cli.provider._call_failure(
+        "PROV_TEST", "call", "Testfehler.", "Testhinweis.",
+        retryable=False, outcome_unknown=True, generation_id=generation_id)])
+    cli.main(plan_argv())
+    cli.main(execute_argv())
+    capsys.readouterr()
+    open_calls = workflow.open_intents("run-test")
+    assert len(open_calls) == 1
+    return open_calls[0]
+
+
+@pytest.fixture
+def api_key(monkeypatch):
+    monkeypatch.setenv(cli.provider.API_KEY_ENV, "sk-test")
+
+
+def test_reconcile_without_open_calls_does_nothing(scripted, capsys, api_key,
+                                                   monkeypatch):
+    scripted.install()
+    cli.main(plan_argv())
+    cli.main(execute_argv())
+    capsys.readouterr()
+    monkeypatch.setattr(cli.provider, "fetch_generation", _forbidden_fetch)
+    assert cli.main(reconcile_argv()) in (0, 2)
+    assert "kein Call mit offenem Ausgang" in capsys.readouterr().out
+
+
+def _forbidden_fetch(*args, **kwargs):
+    raise AssertionError("ohne offenen Call wird nichts abgefragt")
+
+
+def test_a_generation_the_provider_does_not_know_was_never_charged(
+        scripted, capsys, api_key, monkeypatch):
+    call_id = _leave_one_open(scripted, capsys)
+    monkeypatch.setattr(
+        cli.provider, "fetch_generation",
+        lambda generation_id, key: cli.provider.GenerationRecord(
+            generation_id=generation_id, found=False))
+    assert cli.main(reconcile_argv()) in (0, 2)
+    out = capsys.readouterr().out
+    assert "1 von 1 Call(s) geklaert" in out
+    assert workflow.open_intents("run-test") == ()
+    payload = json.loads(
+        workflow.reconciled_path("run-test", call_id).read_text(encoding="utf-8"))
+    assert payload["outcome"] == "not_charged"
+    assert payload["released_usd"] > 0
+
+
+def test_a_charged_generation_settles_the_reservation(scripted, capsys, api_key,
+                                                      monkeypatch):
+    call_id = _leave_one_open(scripted, capsys)
+    monkeypatch.setattr(
+        cli.provider, "fetch_generation",
+        lambda generation_id, key: cli.provider.GenerationRecord(
+            generation_id=generation_id, found=True, cost_usd=0.000021,
+            provider="fake", model="anbieter/modell"))
+    assert cli.main(reconcile_argv()) in (0, 2)
+    out = capsys.readouterr().out
+    assert "0.000021 USD tatsaechlich abgerechnet" in out
+    payload = json.loads(
+        workflow.reconciled_path("run-test", call_id).read_text(encoding="utf-8"))
+    assert payload["outcome"] == "charged"
+    assert payload["cost_usd"] == 0.000021
+
+
+def test_a_call_without_a_generation_id_stays_open(scripted, capsys, api_key,
+                                                   monkeypatch):
+    _leave_one_open(scripted, capsys, generation_id=None)
+    monkeypatch.setattr(cli.provider, "fetch_generation", _forbidden_fetch)
+    assert cli.main(reconcile_argv()) == int(ExitCode.OUTCOME_UNKNOWN)
+    out = capsys.readouterr().out
+    assert "RUN_OUTCOME_UNKNOWN" in out
+    assert len(workflow.open_intents("run-test")) == 1
+
+
+def test_an_unreachable_provider_keeps_the_reservation(scripted, capsys, api_key,
+                                                       monkeypatch):
+    _leave_one_open(scripted, capsys)
+
+    def unavailable(generation_id, key):
+        raise cli.provider.CatalogUnavailable("HTTP 503")
+
+    monkeypatch.setattr(cli.provider, "fetch_generation", unavailable)
+    assert cli.main(reconcile_argv()) == int(ExitCode.OUTCOME_UNKNOWN)
+    out = capsys.readouterr().out
+    assert "COST_RECONCILE_UNAVAILABLE" in out
+    assert len(workflow.open_intents("run-test")) == 1
+
+
+def test_reconcile_without_an_api_key_blocks(scripted, capsys, monkeypatch):
+    _leave_one_open(scripted, capsys)
+    monkeypatch.delenv(cli.provider.API_KEY_ENV, raising=False)
+    monkeypatch.setattr(cli.provider, "fetch_generation", _forbidden_fetch)
+    assert cli.main(reconcile_argv()) == int(ExitCode.PROVIDER_ERROR)
+    assert "PROV_NO_API_KEY" in capsys.readouterr().out
+
+
+def test_a_cleared_batch_runs_again_under_a_new_call_id(scripted, capsys, api_key,
+                                                        monkeypatch):
+    call_id = _leave_one_open(scripted, capsys)
+    monkeypatch.setattr(
+        cli.provider, "fetch_generation",
+        lambda generation_id, key: cli.provider.GenerationRecord(
+            generation_id=generation_id, found=False))
+    cli.main(reconcile_argv())
+    capsys.readouterr()
+    adapter = scripted.install()
+    assert cli.main(execute_argv()) in (0, 2)
+    assert len(adapter.calls) == 1
+    assert adapter.calls[0].call_id == f"pass2-{call_id}"
+    assert workflow.mapping_path("run-test", "artifacts_manifest.json").exists()

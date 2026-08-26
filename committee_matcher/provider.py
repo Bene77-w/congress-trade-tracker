@@ -22,6 +22,7 @@ import json
 import math
 import os
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from typing import Callable, Protocol
@@ -32,6 +33,11 @@ from .status import ExitCode
 
 #: Oeffentlicher Katalogendpunkt; ohne Key, ohne Kosten, kein Modellaufruf.
 CATALOG_URL = "https://openrouter.ai/api/v1/models/{model}/endpoints"
+
+#: Abfrage eines einzelnen Calls ueber seine Generation-ID. Sie ist der einzige
+#: Weg, einen Call mit offenem Ausgang nachtraeglich zu klaeren; ein zweiter
+#: Modellaufruf wuerde ihn stattdessen ein zweites Mal bezahlen.
+GENERATION_URL = "https://openrouter.ai/api/v1/generation?id={generation_id}"
 
 #: Kennzeichen der Structured-Output-Faehigkeit im Katalog.
 STRUCTURED_OUTPUT_PARAMETER = "structured_outputs"
@@ -110,6 +116,82 @@ def fetch_endpoints(model: str) -> dict:
         raise CatalogUnavailable(f"HTTP {exc.code}") from exc
     except Exception as exc:  # Netzfehler, Timeout, unlesbares JSON
         raise CatalogUnavailable(f"{exc.__class__.__name__}: {exc}") from exc
+
+
+@dataclass(frozen=True)
+class GenerationRecord:
+    """Der beim Provider hinterlegte Stand eines Calls.
+
+    ``found=False`` heisst: der Provider kennt diese Generation nicht. Dann ist
+    der Call nicht zustande gekommen und hat nichts gekostet.
+    """
+
+    generation_id: str
+    found: bool
+    cost_usd: float | None = None
+    model: str | None = None
+    provider: str | None = None
+    finish_reason: str | None = None
+
+
+def _generation_cost(payload: dict) -> float | None:
+    """Kosten einer Generation; nur eine echte, endliche Zahl zaehlt."""
+    for key in ("total_cost", "usage"):
+        raw = payload.get(key)
+        if raw is None or isinstance(raw, bool):
+            continue
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(value) and value >= 0.0:
+            return value
+    return None
+
+
+def fetch_generation(generation_id: str, api_key: str) -> GenerationRecord:
+    """Fragt einen Call ueber seine Generation-ID ab (kostenlos).
+
+    Der Abruf braucht den API-Key, weil die Generation zum Konto gehoert. Er
+    erscheint ausschliesslich im Anfrageheader - in keinem Artefakt, Manifest
+    oder Terminalbericht.
+    """
+    url = GENERATION_URL.format(generation_id=urllib.parse.quote(generation_id))
+    request = urllib.request.Request(url, headers={
+        "Authorization": f"Bearer {api_key}",
+        "User-Agent": "congress-tracker/committee-matcher",
+    })
+    try:
+        with urllib.request.urlopen(request, timeout=CATALOG_TIMEOUT_S) as response:
+            payload = response.read(CATALOG_MAX_BYTES + 1)
+            if len(payload) > CATALOG_MAX_BYTES:
+                raise CatalogUnavailable(
+                    f"Antwort ueberschreitet {CATALOG_MAX_BYTES} Bytes")
+            data = json.loads(payload.decode("utf-8"))
+    except CatalogUnavailable:
+        raise
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return GenerationRecord(generation_id=generation_id, found=False)
+        raise CatalogUnavailable(f"HTTP {exc.code}") from exc
+    except Exception as exc:  # Netzfehler, Timeout, unlesbares JSON
+        raise CatalogUnavailable(f"{exc.__class__.__name__}: {exc}") from exc
+
+    record = data.get("data") if isinstance(data.get("data"), dict) else data
+    if not isinstance(record, dict) or not record:
+        return GenerationRecord(generation_id=generation_id, found=False)
+    return GenerationRecord(
+        generation_id=generation_id,
+        found=True,
+        cost_usd=_generation_cost(record),
+        model=_text_or_none(record.get("model")),
+        provider=_provider_name(record.get("provider_name")),
+        finish_reason=_text_or_none(record.get("finish_reason")),
+    )
+
+
+def _text_or_none(value) -> str | None:
+    return value.strip() or None if isinstance(value, str) else None
 
 
 def _price(pricing: dict, key: str) -> float:
