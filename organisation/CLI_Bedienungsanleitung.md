@@ -1738,7 +1738,8 @@ Import überschreibt eine bestehende Reviewrevision.
 | Neue Zuordnung | neue Zeile ohne `row_id`, nur `model_unit_id` und die `review_*`-Felder |
 | `mapped → no_mapping` | `review_decision=no_mapping` plus `review_no_mapping_reason`, übrige Reviewfelder leer |
 | `no_mapping → mapped` | `review_decision=mapped` plus Industry, Confidence, Evidence und Rationale |
-| Boundary-Konflikt | im Blatt `boundary` `review_action` setzen |
+| Boundary-Konflikt: Überlappung ist richtig | nichts eintragen (Default) |
+| Boundary-Konflikt: Zuordnung fällt weg | im Blatt `boundary` `review_action` setzen |
 
 Belegpflichten: eine neue oder geänderte Industry verlangt
 `review_evidence_excerpt` **und** `review_rationale_short`; eine allein
@@ -1759,11 +1760,17 @@ schon dokumentiert.
 | `REV_UNIT_DECISION_CONFLICT` | Unit trägt `no_mapping` und zugleich Zuordnungen |
 | `REV_TOO_MANY_ASSIGNMENTS` / `REV_BROAD_SCOPE_NOT_ALLOWED` | 0/2/5- oder Broad-Scope-Regel verletzt |
 | `REV_UNKNOWN_INDUSTRY` / `REV_INDUSTRY_DUPLICATE` | Industry unbekannt oder doppelt |
-| `REV_BOUNDARY_OPEN` / `REV_BOUNDARY_ACTION_*` | Konflikt offen, unzulässig oder nicht deckungsgleich mit den bearbeiteten Slots |
+| `REV_BOUNDARY_ACTION_*` | Konfliktaktion unzulässig oder nicht deckungsgleich mit den bearbeiteten Slots |
 
-`keep_a`/`keep_b` sind nur bei genau zwei beteiligten Units eindeutig; bei mehr
-Units meldet der Import `REV_BOUNDARY_ACTION_AMBIGUOUS` und verlangt
-`remove_both` oder `legitimate_overlap`.
+Das Blatt `boundary` ist eine Übersicht, keine Pflichtliste: Berühren mehrere
+Einheiten derselben Committee-Familie dieselbe Industry, bleibt das ohne
+Eintrag bestehen — getrennte Zuständigkeiten überschneiden sich häufig zu
+Recht. Eine Aktion trägst du nur ein, wenn tatsächlich etwas wegfällt
+(`keep_a`, `keep_b`, `remove_both`) oder du die Überlappung ausdrücklich
+festhalten willst (`legitimate_overlap`, Notiz optional). `keep_a`/`keep_b`
+sind nur bei genau zwei beteiligten Units eindeutig; bei mehr Units meldet der
+Import `REV_BOUNDARY_ACTION_AMBIGUOUS` und verlangt `remove_both` oder das
+Löschen der einzelnen Zeilen im Blatt `assignments`.
 
 Angenommen entstehen `reviewed_assignments.csv`, `reviewed_unit_coverage.csv`
 und `import_manifest.json`. Sektor- und Industrienamen leitet der Import aus dem

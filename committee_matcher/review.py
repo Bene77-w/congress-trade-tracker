@@ -822,6 +822,11 @@ def check_boundary(rows: Sequence[Mapping[str, str]],
                    collector: ErrorCollector) -> set[tuple[str, str]]:
     """Prueft die Konfliktaktionen gegen die tatsaechlich bearbeiteten Slots.
 
+    Eine leere Aktion ist der Regelfall und kein Befund: getrennte
+    Zustaendigkeiten derselben Committee-Familie beruehren dieselbe Industry
+    haeufig zu Recht. Das Konfliktblatt ist damit eine Uebersicht, keine
+    Pflichtliste - entschieden werden muss nur, wo tatsaechlich etwas wegfaellt.
+
     Liefert die Paare (Unit, Industry), deren Loeschung durch eine
     Konfliktaktion bereits dokumentiert ist; sie brauchen keine Notiz.
     """
@@ -833,10 +838,7 @@ def check_boundary(rows: Sequence[Mapping[str, str]],
         obj = f"{row['family_id']}/{industry_id}"
         action = row["review_action"].strip().lower()
         if not action:
-            _reject(collector, "REV_BOUNDARY_OPEN", obj,
-                    "Der Konflikt ist nicht entschieden.",
-                    f"review_action setzen: {', '.join(BOUNDARY_ACTIONS)}.")
-            continue
+            continue  # Default: Ueberlappung bleibt, siehe Docstring
         if action not in BOUNDARY_ACTIONS:
             _reject(collector, "REV_BOUNDARY_ACTION_INVALID", obj,
                     f"'{action}' ist keine zulaessige Konfliktaktion.",
@@ -854,10 +856,6 @@ def check_boundary(rows: Sequence[Mapping[str, str]],
                         "die Industry behaelt.",
                         "Entweder alle Zuordnungen behalten oder eine andere "
                         "Aktion waehlen.")
-            if not row["review_note"]:
-                _reject(collector, "REV_BOUNDARY_NOTE_REQUIRED", obj,
-                        "'legitimate_overlap' verlangt eine Notiz.",
-                        "review_note im Konfliktblatt eintragen.")
             continue
         if action == "remove_both":
             if holders:

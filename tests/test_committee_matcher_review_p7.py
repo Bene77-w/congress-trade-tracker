@@ -513,15 +513,18 @@ def test_the_export_lists_the_conflict(conflicted):
     assert not rows[0]["review_action"]
 
 
-def test_an_open_conflict_blocks_the_import(conflicted, capsys):
-    assert cli.main(import_argv()) == int(ExitCode.REVIEW_IMPORT_REJECTED)
-    assert "REV_BOUNDARY_OPEN" in capsys.readouterr().out
+def test_an_untouched_conflict_is_accepted(conflicted, capsys):
+    """Ueberlappende Zustaendigkeiten sind der Regelfall, keine Rueckfrage."""
+    assert cli.main(import_argv()) in (0, 2)
+    capsys.readouterr()
+    assert len(reviewed_rows()) == 3
 
 
-def test_legitimate_overlap_needs_a_note(conflicted, capsys):
+def test_legitimate_overlap_needs_no_note(conflicted, capsys):
     boundary(conflicted, review_action="legitimate_overlap")
-    assert cli.main(import_argv()) == int(ExitCode.REVIEW_IMPORT_REJECTED)
-    assert "REV_BOUNDARY_NOTE_REQUIRED" in capsys.readouterr().out
+    assert cli.main(import_argv()) in (0, 2)
+    capsys.readouterr()
+    assert len(reviewed_rows()) == 3
 
 
 def test_legitimate_overlap_with_a_note_is_accepted(conflicted, capsys):
