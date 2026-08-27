@@ -318,8 +318,7 @@ Die XLSX trennt unveränderliche `model_*`-Felder von editierbaren
   Evidence-, Rationale- und Broad-Scope-Reviewfelder;
 - neue/geänderte Industry verlangt Review-Evidence und -Rationale; reine
   Confidenceänderung verlangt Review-Rationale;
-- gelöschte Zuordnungen benötigen eine Reviewnotiz, sofern eine konsistente
-  Boundary-Aktion den Grund nicht bereits dokumentiert;
+- eine gelöschte Zuordnung verlangt immer eine `review_note`;
 - jede manuelle Feldänderung setzt die effektive Assignment-Provenienz auf
   `manual`, während der Modelldraft erhalten bleibt;
 - Sektorwerte werden beim Import aus dem Snapshot abgeleitet und nicht aus
@@ -327,14 +326,13 @@ Die XLSX trennt unveränderliche `model_*`-Felder von editierbaren
 - stale Input-, Snapshot- oder Exportbindung blockiert den gesamten Import;
 - read-only Felder werden gegen das Exportmanifest geprüft, nicht nur durch
   Excel-Zellschutz;
-- Boundary-Aktionen `keep_a`, `keep_b`, `remove_both` und
-  `legitimate_overlap` müssen mit den tatsächlich bearbeiteten Slots
-  übereinstimmen; neue Konflikte erzeugen eine neue Reconciliation-XLSX. Offen
-  bis P8: die Abbildung eines Konflikts mit mehr als zwei beteiligten Units auf
-  `keep_a`/`keep_b`; die Erkennung liefert seit P6 eine sortierte Unitliste
-  beliebiger Länge;
-- reviewed Artefakte entstehen erst ohne offene Konflikte, `not_decided`,
-  `failed` oder `needs_followup`. Drafts und alte Revisionen bleiben erhalten.
+- Boundary-Konflikte sind reine Information: Das Blatt `boundary` trägt kein
+  Eingabefeld und wird beim Import nicht gelesen, da eine Überlappung
+  getrennter Zuständigkeiten der Regelfall ist. Wer eine der Zuordnungen nicht
+  will, löscht sie im Blatt `assignments` — ein zweiter Entscheidungsweg für
+  denselben Sachverhalt entfällt (Entscheidung 2026-08-27);
+- reviewed Artefakte entstehen erst ohne `not_decided`, `failed` oder
+  `needs_followup`. Drafts und alte Revisionen bleiben erhalten.
 - Der Import erzwingt dieselben 0/2/5- und Broad-Scope-Regeln wie das
   Modellresultat; jede Unit benötigt den finalen Reviewstatus `reviewed`.
 

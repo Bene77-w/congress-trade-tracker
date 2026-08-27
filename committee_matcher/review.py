@@ -59,16 +59,17 @@ REVIEW_COLUMNS: tuple[str, ...] = (
 )
 ASSIGNMENT_SHEET_COLUMNS: tuple[str, ...] = ("row_id",) + MODEL_COLUMNS + REVIEW_COLUMNS
 
-#: Konfliktblatt; ``review_action`` ist die einzige editierbare Spalte.
+#: Konfliktblatt; reine Uebersicht ohne Eingabefeld. Beruehren mehrere Units
+#: derselben Committee-Familie dieselbe Industry, ist das haeufig richtig; wo
+#: es das nicht ist, wird die betroffene Zeile im Blatt ``assignments``
+#: bearbeitet. Ein zweiter Entscheidungsweg fuer denselben Sachverhalt waere
+#: nur eine weitere Fehlerquelle.
 BOUNDARY_SHEET_COLUMNS: tuple[str, ...] = (
     "family_id", "industry_id", "industry_name", "unit_count", "unit_ids",
-    "review_action", "review_note",
 )
 
-#: Erlaubte Werte der Aktionsspalten (Plan 2.8).
+#: Erlaubte Werte der Aktionsspalte (Plan 2.8).
 ROW_ACTIONS: tuple[str, ...] = ("keep", "edit", "delete", "add")
-BOUNDARY_ACTIONS: tuple[str, ...] = ("keep_a", "keep_b", "remove_both",
-                                     "legitimate_overlap")
 
 #: Unitstatus, die kein Reviewurteil tragen und deshalb keine Zeile bekommen.
 UNDECIDED_STATUS: frozenset[str] = frozenset({"failed", "not_decided"})
@@ -302,8 +303,7 @@ def export_review(run_id: str, review_id: str) -> ExportedReview:
         artifacts.BOUNDARY_COLUMNS)
 
     rows, incomplete = workbook_rows(assignments, coverage)
-    boundary = tuple({**row, "review_action": "", "review_note": ""}
-                     for row in conflicts)
+    boundary = tuple(dict(row) for row in conflicts)
     payload = export_manifest(review_id=review_id, run_id=run_id, manifest=manifest,
                               rows=rows, boundary=boundary, incomplete=incomplete)
     info = {
@@ -453,11 +453,13 @@ def load_export_manifest(review_id: str) -> Mapping[str, object]:
 
 
 def read_workbook(path: Path, collector: ErrorCollector
-                  ) -> tuple[tuple[dict[str, str], ...], tuple[dict[str, str], ...]]:
-    """Liest beide Blaetter als Text und lehnt jede Formelzelle ab.
+                  ) -> tuple[dict[str, str], ...]:
+    """Liest das Blatt ``assignments`` als Text und lehnt jede Formelzelle ab.
 
     Eine Formel liefert beim Lesen ihren Ausdruck statt eines Werts. Sie still
     als Text zu uebernehmen wuerde einen Ausdruck zum Reviewurteil machen.
+
+    Das Blatt ``boundary`` traegt kein Urteil und wird deshalb nicht gelesen.
     """
     try:
         book = load_workbook(path, data_only=False)
@@ -467,16 +469,12 @@ def read_workbook(path: Path, collector: ErrorCollector
             f"Das Workbook ist nicht lesbar: {exc}.",
             "Datei aus 'review export' verwenden und als .xlsx speichern.")
 
-    sheets: dict[str, tuple[dict[str, str], ...]] = {}
-    for name, columns in ((SHEET_ASSIGNMENTS, ASSIGNMENT_SHEET_COLUMNS),
-                          (SHEET_BOUNDARY, BOUNDARY_SHEET_COLUMNS)):
-        if name not in book.sheetnames:
-            raise _blocked(
-                "REV_WORKBOOK_CONTRACT", name,
-                f"Dem Workbook fehlt das Blatt '{name}'.",
-                "Blaetter weder umbenennen noch entfernen.")
-        sheets[name] = _sheet_rows(book[name], columns, collector)
-    return sheets[SHEET_ASSIGNMENTS], sheets[SHEET_BOUNDARY]
+    if SHEET_ASSIGNMENTS not in book.sheetnames:
+        raise _blocked(
+            "REV_WORKBOOK_CONTRACT", SHEET_ASSIGNMENTS,
+            f"Dem Workbook fehlt das Blatt '{SHEET_ASSIGNMENTS}'.",
+            "Blaetter weder umbenennen noch entfernen.")
+    return _sheet_rows(book[SHEET_ASSIGNMENTS], ASSIGNMENT_SHEET_COLUMNS, collector)
 
 
 def _sheet_rows(sheet, columns: Sequence[str],
@@ -817,88 +815,17 @@ def check_units(units: Mapping[str, EffectiveUnit], corpus: Mapping[str, object]
                         "und Namen leitet der Import selbst ab.")
 
 
-def check_boundary(rows: Sequence[Mapping[str, str]],
-                   units: Mapping[str, EffectiveUnit],
-                   collector: ErrorCollector) -> set[tuple[str, str]]:
-    """Prueft die Konfliktaktionen gegen die tatsaechlich bearbeiteten Slots.
-
-    Eine leere Aktion ist der Regelfall und kein Befund: getrennte
-    Zustaendigkeiten derselben Committee-Familie beruehren dieselbe Industry
-    haeufig zu Recht. Das Konfliktblatt ist damit eine Uebersicht, keine
-    Pflichtliste - entschieden werden muss nur, wo tatsaechlich etwas wegfaellt.
-
-    Liefert die Paare (Unit, Industry), deren Loeschung durch eine
-    Konfliktaktion bereits dokumentiert ist; sie brauchen keine Notiz.
-    """
-    documented: set[tuple[str, str]] = set()
-    for row in rows:
-        industry_id = row["industry_id"]
-        members = [part for part in row["unit_ids"].split(artifacts.CELL_SEPARATOR)
-                   if part]
-        obj = f"{row['family_id']}/{industry_id}"
-        action = row["review_action"].strip().lower()
-        if not action:
-            continue  # Default: Ueberlappung bleibt, siehe Docstring
-        if action not in BOUNDARY_ACTIONS:
-            _reject(collector, "REV_BOUNDARY_ACTION_INVALID", obj,
-                    f"'{action}' ist keine zulaessige Konfliktaktion.",
-                    f"Zulaessig: {', '.join(BOUNDARY_ACTIONS)}.")
-            continue
-
-        holders = {unit_id for unit_id in members
-                   if any(entry.industry_id == industry_id
-                          for entry in units.get(unit_id, EffectiveUnit(
-                              unit_id, "no_mapping", "", False, "", ())).assignments)}
-        if action == "legitimate_overlap":
-            if set(members) != holders:
-                _reject(collector, "REV_BOUNDARY_ACTION_MISMATCH", obj,
-                        "'legitimate_overlap' verlangt, dass jede beteiligte Unit "
-                        "die Industry behaelt.",
-                        "Entweder alle Zuordnungen behalten oder eine andere "
-                        "Aktion waehlen.")
-            continue
-        if action == "remove_both":
-            if holders:
-                _reject(collector, "REV_BOUNDARY_ACTION_MISMATCH", obj,
-                        "'remove_both' verlangt, dass keine beteiligte Unit die "
-                        f"Industry behaelt; sie steht noch bei: "
-                        f"{', '.join(sorted(holders))}.",
-                        "Zuordnungen mit review_action=delete entfernen.")
-            documented.update((unit_id, industry_id) for unit_id in members)
-            continue
-        if len(members) != 2:
-            _reject(collector, "REV_BOUNDARY_ACTION_AMBIGUOUS", obj,
-                    f"'{action}' ist nur bei genau zwei beteiligten Units "
-                    f"eindeutig; hier sind es {len(members)}.",
-                    "'remove_both' oder 'legitimate_overlap' waehlen und die "
-                    "verbleibenden Slots direkt bearbeiten.")
-            continue
-        keeper = members[0] if action == "keep_a" else members[1]
-        loser = members[1] if action == "keep_a" else members[0]
-        if holders != {keeper}:
-            _reject(collector, "REV_BOUNDARY_ACTION_MISMATCH", obj,
-                    f"'{action}' verlangt die Industry genau bei {keeper}; "
-                    f"vorhanden bei: {', '.join(sorted(holders)) or 'keiner Unit'}.",
-                    f"Zuordnung bei {loser} mit review_action=delete entfernen "
-                    f"und bei {keeper} behalten.")
-        documented.add((loser, industry_id))
-    return documented
-
-
 def check_delete_notes(rows: Sequence[Mapping[str, str]],
-                       documented: set[tuple[str, str]],
                        collector: ErrorCollector) -> None:
     """Eine geloeschte Zuordnung braucht einen Grund (Plan 2.8)."""
     for row in rows:
         if row["review_action"].strip().lower() != "delete":
             continue
-        key = (row["model_unit_id"], row["model_industry_id"])
-        if row["review_note"] or key in documented:
+        if row["review_note"]:
             continue
         _reject(collector, "REV_DELETE_NOTE_REQUIRED", row["row_id"],
                 "Die geloeschte Zuordnung hat keine Notiz.",
-                "review_note eintragen oder den Grund ueber eine Boundary-Aktion "
-                "dokumentieren.")
+                "review_note eintragen.")
 
 
 def _industry_record(snapshot, industry_id: str):
@@ -1017,7 +944,7 @@ def import_review(review_id: str, *, corpus: Mapping[str, object], snapshot,
             "Eine reviewte Revision wird nie ueberschrieben; neue Review-ID "
             "exportieren und dort importieren.")
 
-    rows, boundary = read_workbook(target, collector)
+    rows = read_workbook(target, collector)
     check_binding(manifest, run_manifest, snapshot, input_manifest_hash, collector)
     check_read_only(rows, manifest, collector)
 
@@ -1026,8 +953,7 @@ def import_review(review_id: str, *, corpus: Mapping[str, object], snapshot,
     known = {unit_id: corpus[unit_id] for unit_id in exported_units if unit_id in corpus}
     units = effective_units(rows, known, collector)
     check_units(units, known, snapshot, collector)
-    documented = check_boundary(boundary, units, collector)
-    check_delete_notes(rows, documented, collector)
+    check_delete_notes(rows, collector)
     if collector.has_blockers():
         return None
 

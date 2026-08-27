@@ -494,23 +494,17 @@ def conflicted(scripted, capsys):
     return review.review_path("review-run-test", review.WORKBOOK_FILENAME)
 
 
-def boundary(path, row_index: int = 0, **values) -> None:
-    book = load_workbook(path)
-    sheet = book[review.SHEET_BOUNDARY]
-    header = [cell.value for cell in sheet[1]]
-    for name, value in values.items():
-        cell = sheet.cell(row=row_index + 2, column=header.index(name) + 1,
-                          value=value)
-        cell.data_type = "s"
-    book.save(path)
-
-
 def test_the_export_lists_the_conflict(conflicted):
     rows = rows_of(load_workbook(conflicted)[review.SHEET_BOUNDARY])
     assert len(rows) == 1
     assert rows[0]["industry_id"] == "farm-products"
     assert rows[0]["unit_count"] == "3"
-    assert not rows[0]["review_action"]
+
+
+def test_the_conflict_sheet_has_no_input_column(conflicted):
+    header = [cell.value for cell in load_workbook(conflicted)[review.SHEET_BOUNDARY][1]]
+    assert header == list(review.BOUNDARY_SHEET_COLUMNS)
+    assert not [name for name in header if name.startswith("review_")]
 
 
 def test_an_untouched_conflict_is_accepted(conflicted, capsys):
@@ -520,46 +514,13 @@ def test_an_untouched_conflict_is_accepted(conflicted, capsys):
     assert len(reviewed_rows()) == 3
 
 
-def test_legitimate_overlap_needs_no_note(conflicted, capsys):
-    boundary(conflicted, review_action="legitimate_overlap")
-    assert cli.main(import_argv()) in (0, 2)
-    capsys.readouterr()
-    assert len(reviewed_rows()) == 3
-
-
-def test_legitimate_overlap_with_a_note_is_accepted(conflicted, capsys):
-    boundary(conflicted, review_action="legitimate_overlap",
-             review_note="Zustaendigkeit besteht tatsaechlich mehrfach.")
-    assert cli.main(import_argv()) in (0, 2)
-    capsys.readouterr()
-    assert len(reviewed_rows()) == 3
-
-
-def test_keep_a_is_ambiguous_with_more_than_two_units(conflicted, capsys):
-    boundary(conflicted, review_action="keep_a")
-    assert cli.main(import_argv()) == int(ExitCode.REVIEW_IMPORT_REJECTED)
-    assert "REV_BOUNDARY_ACTION_AMBIGUOUS" in capsys.readouterr().out
-
-
-def test_remove_both_must_match_the_edited_slots(conflicted, capsys):
-    boundary(conflicted, review_action="remove_both")
-    assert cli.main(import_argv()) == int(ExitCode.REVIEW_IMPORT_REJECTED)
-    assert "REV_BOUNDARY_ACTION_MISMATCH" in capsys.readouterr().out
-
-
-def test_an_unknown_conflict_action_is_rejected(conflicted, capsys):
-    boundary(conflicted, review_action="vielleicht")
-    assert cli.main(import_argv()) == int(ExitCode.REVIEW_IMPORT_REJECTED)
-    assert "REV_BOUNDARY_ACTION_INVALID" in capsys.readouterr().out
-
-
-def test_a_conflict_action_documents_the_deletion(conflicted, capsys):
-    """Eine durch die Konfliktaktion gedeckte Loeschung braucht keine Notiz."""
+def test_a_conflict_is_resolved_in_the_assignment_sheet(conflicted, capsys):
+    """Wer die Ueberlappung nicht will, loescht die Zeilen mit Notiz."""
     for index in range(3):
         edit(conflicted, index, review_action="delete",
              review_decision="no_mapping",
+             review_note="Zustaendigkeit liegt beim Parent",
              review_no_mapping_reason="Konflikt zugunsten keiner Unit geloest")
-    boundary(conflicted, review_action="remove_both")
     assert cli.main(import_argv()) in (0, 2)
     capsys.readouterr()
     assert reviewed_rows() == []

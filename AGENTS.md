@@ -50,5 +50,5 @@ git merge --no-ff agent/<name> -m "Merge agent/<name>: ..."
 - Kern vollstaendig: `mapping.py` + `validation.py` (P6), `workflow.py` (P7a), `artifacts.py` (P7b), Laufkommandos `run plan|execute|reconcile` (P7c), Review-Roundtrip `review export|import` (P7d)
 - Ablauf: Mapping -> Review in Excel -> `reviewed_assignments.csv` -> Uebernahme in `import_trades`
 - Offen: Terminalstatus S4 (Fortschritt waehrend `run execute`, Statusmeldungen fuer `review`), P8 Entwicklungsrun mit vollem Roundtrip live, Phasenreviews (GPT Sol) fuer P7c-Nachpruefung, P7d und S3
-- Offene Entscheidungen: CSV-Formelinterpretation in Excel bei Feldern aus Committee-Text; Confidence-Rubrik im Systemprompt; Boundary-Konflikt mit mehr als zwei Units auf `keep_a`/`keep_b`
+- Entschieden 2026-08-27: CSV-Formelinterpretation bleibt unveraendert (Review laeuft ausschliesslich ueber die Excel), Confidence-Rubrik bleibt vierstufig, `unit_id` bleibt Modellfeld (Fehler faellt ueber Anzahl- und Evidenzpruefung auf), Boundary-Konflikte sind reine Information ohne Eingabefeld
 - Detailstand + History; `CHANGELOG.md`; laufende Entscheidungen + Plaene; `organisation/` und `~/.claude/plans/`

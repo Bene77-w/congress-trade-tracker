@@ -330,10 +330,11 @@ def find_boundary_conflicts(
         results: "tuple | list") -> tuple[BoundaryConflict, ...]:
     """Findet gleiche Industries in Geschwister-Units (Plan 2.8).
 
-    Ein Konflikt ist kein Fehler: getrennte Zustaendigkeiten koennen dieselbe
-    Industry legitim beruehren. Er ist ein Reviewposten, der spaeter mit
-    ``keep_a``, ``keep_b``, ``remove_both`` oder ``legitimate_overlap``
-    entschieden wird - deshalb wird hier nur erkannt und nichts entfernt.
+    Ein Konflikt ist kein Fehler, sondern der Regelfall: getrennte
+    Zustaendigkeiten beruehren dieselbe Industry haeufig zu Recht. Er wird
+    deshalb nur erkannt, im Review als Information ausgewiesen und nie
+    entfernt; wer eine der Zuordnungen nicht will, loescht sie im Blatt
+    ``assignments``.
     """
     by_id = {unit.unit_id: unit for unit in units}
     seen: dict[tuple[str, str], list[str]] = {}

@@ -1553,13 +1553,12 @@ mit `MAP_REPAIR_CONTEXT_EXCEEDED`; er wird bewusst nicht noch einmal geteilt.
 Der Fall setzt voraus, dass bereits der Erstcall am Limit lag.
 
 **Boundary-Konflikte.** Dieselbe Industry in mehreren Units derselben
-Committee-Familie (Parent-Core plus seine Subcommittees) wird als Konflikt
-gemeldet, nicht entfernt: eine Überlappung kann legitim sein. Entschieden wird
-sie im Review mit `keep_a`, `keep_b`, `remove_both` oder `legitimate_overlap`.
-Die Mitglieder eines Konflikts sind nach Unit-ID sortiert, damit die
-Antwortreihenfolge des Providers nicht bestimmt, welche Unit als „a" gilt.
-Offen für P8: wie ein Konflikt mit mehr als zwei Units auf `keep_a`/`keep_b`
-abgebildet wird.
+Committee-Familie (Parent-Core plus seine Subcommittees) wird gemeldet, nicht
+entfernt: eine Überlappung ist der Regelfall, da getrennte Zuständigkeiten
+dieselbe Branche berühren dürfen. Der Konflikt ist damit reine Information für
+den Review; eine Entscheidung verlangt er nicht. Die Mitglieder eines Konflikts
+sind nach Unit-ID sortiert, damit die Antwortreihenfolge des Providers die
+Zeilenfolge nicht bestimmt.
 
 ### 15h. Runzustand, Auditspur und Kostenwache (P7a)
 
@@ -1738,14 +1737,12 @@ Import überschreibt eine bestehende Reviewrevision.
 | Neue Zuordnung | neue Zeile ohne `row_id`, nur `model_unit_id` und die `review_*`-Felder |
 | `mapped → no_mapping` | `review_decision=no_mapping` plus `review_no_mapping_reason`, übrige Reviewfelder leer |
 | `no_mapping → mapped` | `review_decision=mapped` plus Industry, Confidence, Evidence und Rationale |
-| Boundary-Konflikt: Überlappung ist richtig | nichts eintragen (Default) |
-| Boundary-Konflikt: Zuordnung fällt weg | im Blatt `boundary` `review_action` setzen |
+| Boundary-Konflikt | nichts zu tun; Blatt `boundary` ist reine Information |
 
 Belegpflichten: eine neue oder geänderte Industry verlangt
 `review_evidence_excerpt` **und** `review_rationale_short`; eine allein
 geänderte Confidence verlangt `review_rationale_short`; eine gelöschte
-Zuordnung verlangt `review_note`, sofern nicht eine Konfliktaktion den Grund
-schon dokumentiert.
+Zuordnung verlangt `review_note`.
 
 **Was der Import ablehnt** (Exit 7, keine Datei wird geschrieben):
 
@@ -1760,17 +1757,13 @@ schon dokumentiert.
 | `REV_UNIT_DECISION_CONFLICT` | Unit trägt `no_mapping` und zugleich Zuordnungen |
 | `REV_TOO_MANY_ASSIGNMENTS` / `REV_BROAD_SCOPE_NOT_ALLOWED` | 0/2/5- oder Broad-Scope-Regel verletzt |
 | `REV_UNKNOWN_INDUSTRY` / `REV_INDUSTRY_DUPLICATE` | Industry unbekannt oder doppelt |
-| `REV_BOUNDARY_ACTION_*` | Konfliktaktion unzulässig oder nicht deckungsgleich mit den bearbeiteten Slots |
 
-Das Blatt `boundary` ist eine Übersicht, keine Pflichtliste: Berühren mehrere
-Einheiten derselben Committee-Familie dieselbe Industry, bleibt das ohne
-Eintrag bestehen — getrennte Zuständigkeiten überschneiden sich häufig zu
-Recht. Eine Aktion trägst du nur ein, wenn tatsächlich etwas wegfällt
-(`keep_a`, `keep_b`, `remove_both`) oder du die Überlappung ausdrücklich
-festhalten willst (`legitimate_overlap`, Notiz optional). `keep_a`/`keep_b`
-sind nur bei genau zwei beteiligten Units eindeutig; bei mehr Units meldet der
-Import `REV_BOUNDARY_ACTION_AMBIGUOUS` und verlangt `remove_both` oder das
-Löschen der einzelnen Zeilen im Blatt `assignments`.
+Das Blatt `boundary` trägt kein Eingabefeld und wird beim Import nicht
+gelesen. Es zeigt nur, wo mehrere Einheiten derselben Committee-Familie
+dieselbe Industry tragen — meist zu Recht. Willst du eine dieser Zuordnungen
+doch nicht, löschst du sie im Blatt `assignments` mit `review_action=delete`
+und einer `review_note`; ein zweiter Entscheidungsweg für denselben Sachverhalt
+existiert bewusst nicht.
 
 Angenommen entstehen `reviewed_assignments.csv`, `reviewed_unit_coverage.csv`
 und `import_manifest.json`. Sektor- und Industrienamen leitet der Import aus dem

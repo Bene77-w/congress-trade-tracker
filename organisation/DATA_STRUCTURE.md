@@ -548,8 +548,8 @@ Urteil (`failed`, `not_decided`) stehen nicht im Workbook und werden im
 Exportmanifest unter `incomplete_units` benannt.
 
 Blatt `boundary`: `family_id`, `industry_id`, `industry_name`, `unit_count`,
-`unit_ids` sowie `review_action` und `review_note`. Blatt `info` nennt die
-Bindung im Klartext.
+`unit_ids`. Reine Information ohne Eingabefeld; der Import liest das Blatt
+nicht. Blatt `info` nennt die Bindung im Klartext.
 
 Jede Zelle ist eine Textzelle. Ohne den erzwungenen Zelltyp typisierte openpyxl
 einen Wert mit führendem `=` als Formel; Excel zeigte dann ein Rechenergebnis,
