@@ -1884,6 +1884,8 @@ Was der Mappinglauf meldet (`run execute`):
 [INFO] mapping | unit=house--agriculture--nutrition | no_mapping | reason=...
 [WARN] mapping | batch=batch-003 | repair=1 | call=... | open_violations=2
 [OK] mapping | batch=batch-003 | repairs=1 | cost_usd=0.000212
+[ERROR] mapping | batch=batch-004 | aborted | reason=provider | open_units=3 | cost_usd=0.000212
+[WARN] mapping | unit=house--armed-services--seapower | not_decided | reason=provider
 [INFO] mapping | committee=house--agriculture | units=6 | mapped=5 | no_mapping=1 | failed=0 | industries=8
 [OK] artifacts | run=run-2026-08-27 | files=7
 ```
@@ -1893,6 +1895,19 @@ markiert einen Call mit offenem Ausgang, dessen Worst Case reserviert bleibt.
 Ein vom Provider abgewiesener Call kostet nichts und bekommt keine Zeile. Die
 Committee-Zusammenfassung erscheint als `WARN`, sobald eine Einheit der Familie
 fehlgeschlagen ist.
+
+Der Reparaturversuch wird gemeldet, bevor er gesendet wird — scheitert der
+Call, bliebe der Versuch sonst unsichtbar. Jeder `START` eines Batches bekommt
+ein Gegenstück: bricht der Batch ab, nennt die `ERROR`-Zeile den Grund und die
+Zahl der offen gebliebenen Einheiten, und jede dieser Einheiten erscheint als
+`WARN … not_decided`. Offen heißt nicht gescheitert; der nächste Durchlauf
+holt sie nach.
+
+Bricht der Lauf nach einem gebuchten Call ab — Benutzerabbruch oder
+unerwarteter Fehler —, endet er trotzdem mit genau einem Abschlussbericht, der
+den tatsächlichen Kostenstand nennt (`RUN_ABORTED_BY_USER`,
+`RUN_ABORTED_AFTER_CALL`). Ein bezahlter Lauf wird nie als providerfrei
+ausgewiesen.
 
 `review export|import` melden Start, Zeilen- beziehungsweise Einheitenzahl und
 die Änderungsbilanz; eine abgelehnte Übernahme erscheint als `ERROR` mit der

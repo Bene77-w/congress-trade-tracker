@@ -38,7 +38,7 @@ import math
 from dataclasses import dataclass, field
 from typing import Mapping
 
-from .errors import ErrorCollector, Stage
+from .errors import ErrorCollector, SILENT_REPORTER, Stage, TerminalReporter
 from .models import (
     MAX_CONFIDENCE,
     MAX_UNITS_PER_BATCH,
@@ -637,12 +637,16 @@ def map_batch(provider: StructuredOutputProvider,
               repair_prompt: SystemPrompt,
               offline: OfflineSettings,
               provider_settings: ProviderSettings,
-              call_prefix: str = "") -> BatchOutcome:
+              call_prefix: str = "",
+              reporter: TerminalReporter = SILENT_REPORTER) -> BatchOutcome:
     """Fuehrt einen Batch aus und repariert ihn bei formalen Verstoessen.
 
     Wirft ``ProviderCallError`` weiter; ueber Wiederholung entscheidet der
     Workflow. ``call_prefix`` kennzeichnet eine solche Wiederholung, damit jede
     physische Anfrage ihre eigene Call-ID und Auditdatei behaelt.
+
+    Der Reparaturversuch wird gemeldet, bevor er gesendet wird: scheitert der
+    Call, gaebe es sonst keine Spur davon, dass ueberhaupt repariert wurde.
     """
     request = build_request(batch, snapshot, mapping_prompt, provider_settings,
                             call_prefix=call_prefix)
@@ -686,6 +690,9 @@ def map_batch(provider: StructuredOutputProvider,
                 violations=outcome.violations + (
                     _context_violation(estimated, available, repair=True),))
 
+        reporter.warn(Stage.MAPPING, batch=batch.batch_id, repair=attempt,
+                      call=repair_request.call_id,
+                      open_violations=len(outcome.violations))
         response = provider.complete(repair_request)
         repaired = validate_payload(response.payload, scope, snapshot)
         if scope.unit_ids == batch.unit_ids:

@@ -1018,6 +1018,7 @@ def _run_batch(collector: ErrorCollector, audited: workflow.AuditedProvider,
                 offline=settings.offline,
                 provider_settings=prepared.provider_settings,
                 call_prefix=prefix,
+                reporter=reporter,
             ), None
         except workflow.CostBlocked as exc:
             collector.extend(exc.findings)
@@ -1054,6 +1055,24 @@ def _run_batch(collector: ErrorCollector, audited: workflow.AuditedProvider,
     return None, _STOP_PROVIDER
 
 
+def _report_abort(reporter: TerminalReporter, batch: mapping.MappingBatch,
+                  state: workflow.RunState, guard: workflow.CostGuard,
+                  stopped: str | None) -> None:
+    """Schliesst einen abgebrochenen Batch ab (Statusplan S4).
+
+    Ohne diese Meldung bliebe der ``START`` des Batches ohne Gegenstueck, und
+    seine Units verschwaenden aus der Ausgabe, obwohl sie offen sind. Offen
+    heisst nicht gescheitert: der Batch laeuft im naechsten Durchlauf erneut.
+    """
+    open_units = [unit for unit in batch.units if unit.unit_id not in state.units]
+    reporter.error(Stage.MAPPING, batch=batch.batch_id, aborted=None,
+                   reason=stopped or "unbekannt", open_units=len(open_units),
+                   cost_usd=guard.spent_usd)
+    for unit in open_units:
+        reporter.warn(Stage.MAPPING, unit=unit.unit_id, not_decided=None,
+                      reason=stopped or "unbekannt")
+
+
 def _record_outcome(state: workflow.RunState, outcome: mapping.BatchOutcome,
                     keys: Mapping[str, str], reporter: TerminalReporter) -> None:
     """Schreibt das Batchergebnis in den Laufzustand.
@@ -1070,8 +1089,8 @@ def _record_outcome(state: workflow.RunState, outcome: mapping.BatchOutcome,
             state.record(workflow.UnitRecord(
                 unit_id=unit.unit_id, status=UnitStatus.FAILED,
                 cache_key=keys.get(unit.unit_id, ""), violations=reasons))
-            reporter.error(Stage.MAPPING, unit=unit.unit_id, failed=None,
-                           reasons=len(reasons))
+            reporter.error(Stage.MAPPING, unit=unit.unit_id,
+                           code="RUN_UNIT_INVALID", reasons=len(reasons))
         return
 
     for result in outcome.result.units:
@@ -1109,18 +1128,6 @@ def _record_outcome(state: workflow.RunState, outcome: mapping.BatchOutcome,
                         industries=len(result.assignments))
 
 
-def _report_repairs(reporter: TerminalReporter, outcome) -> None:
-    """Meldet jeden Reparaturversuch eines Batches einzeln (Statusplan S4)."""
-    attempt = 0
-    for record in outcome.calls:
-        if record.kind != "repair":
-            continue
-        attempt += 1
-        reporter.warn(Stage.MAPPING, batch=outcome.batch.batch_id,
-                      repair=attempt, call=record.request.call_id,
-                      open_violations=len(record.violations))
-
-
 def _report_committees(reporter: TerminalReporter, targets: Sequence,
                        state: workflow.RunState) -> None:
     """Eine Zusammenfassung je Committee; Subcommittees zaehlen zum Parent."""
@@ -1145,6 +1152,35 @@ def _report_committees(reporter: TerminalReporter, targets: Sequence,
             mapped=counts[UnitStatus.MAPPED],
             no_mapping=counts[UnitStatus.NO_MAPPING],
             failed=counts[UnitStatus.FAILED], industries=len(industries))
+
+
+def _report_run_abort(collector: ErrorCollector, reporter: TerminalReporter,
+                      run_id: str, exc: BaseException) -> str:
+    """Haelt einen Abbruch mitten im Lauf als Befund fest.
+
+    Der Benutzerabbruch ist kein Implementierungsfehler und behaelt seinen
+    eigenen Exit-Code; jede andere Ausnahme ist einer.
+    """
+    if isinstance(exc, KeyboardInterrupt):
+        collector.blocker(
+            "RUN_ABORTED_BY_USER", Stage.WORKFLOW, run_id,
+            "Der Lauf wurde nach einem gebuchten Call abgebrochen.",
+            f"'run reconcile --run-id {run_id}' klaert offene Calls; danach "
+            "'run execute' wiederholen - bezahlte Units kommen aus dem Cache.",
+            exit_code=ExitCode.USER_ABORT)
+        reporter.error(Stage.WORKFLOW, run=run_id, code="RUN_ABORTED_BY_USER")
+        return _STOP_PROVIDER
+    if isinstance(exc, MatcherError):
+        collector.extend(exc.findings)
+    collector.blocker(
+        "RUN_ABORTED_AFTER_CALL", Stage.WORKFLOW, run_id,
+        f"Der Lauf brach nach einem gebuchten Call ab: "
+        f"{exc.__class__.__name__}: {exc}",
+        f"'run reconcile --run-id {run_id}' klaert offene Calls; danach "
+        "'run execute' wiederholen - bezahlte Units kommen aus dem Cache.",
+        exit_code=ExitCode.INTERNAL_ERROR)
+    reporter.error(Stage.WORKFLOW, run=run_id, code="RUN_ABORTED_AFTER_CALL")
+    return _STOP_PROVIDER
 
 
 def _final_state(state: workflow.RunState, unknown: Sequence,
@@ -1280,21 +1316,30 @@ def handle_run_execute(
         state.state = WorkflowState.RUNNING
         state.write()
 
-        for index, batch in enumerate(batches, start=1):
-            reporter.start(Stage.MAPPING, run=run_id, batch=batch.batch_id,
-                           units=len(batch.units), position=f"{index}/{len(batches)}")
-            outcome, stopped = _run_batch(
-                collector, audited, batch, prepared, settings, reporter)
-            if outcome is not None:
-                _report_repairs(reporter, outcome)
-                _record_outcome(state, outcome, keys, reporter)
-                reporter.emit(
-                    StatusKind.OK if outcome.ok else StatusKind.ERROR,
-                    Stage.MAPPING, batch=batch.batch_id,
-                    repairs=outcome.repairs, cost_usd=guard.spent_usd)
+        try:
+            for index, batch in enumerate(batches, start=1):
+                reporter.start(
+                    Stage.MAPPING, run=run_id, batch=batch.batch_id,
+                    units=len(batch.units), position=f"{index}/{len(batches)}")
+                outcome, stopped = _run_batch(
+                    collector, audited, batch, prepared, settings, reporter)
+                if outcome is not None:
+                    _record_outcome(state, outcome, keys, reporter)
+                    reporter.emit(
+                        StatusKind.OK if outcome.ok else StatusKind.ERROR,
+                        Stage.MAPPING, batch=batch.batch_id,
+                        repairs=outcome.repairs, cost_usd=guard.spent_usd)
+                else:
+                    _report_abort(reporter, batch, state, guard, stopped)
+                state.write()
+                if stopped is not None:
+                    break
+        except (Exception, KeyboardInterrupt) as exc:
+            # Ab dem ersten gebuchten Call darf keine Ausnahme mehr am
+            # Abschlussbericht vorbeilaufen: er wuerde den Lauf sonst als
+            # providerfrei ausweisen, obwohl Geld gebunden ist.
+            stopped = _report_run_abort(collector, reporter, run_id, exc)
             state.write()
-            if stopped is not None:
-                break
 
     unknown = tuple(audited.unknown) if audited is not None else ()
     state.state = _final_state(state, unknown, stopped)

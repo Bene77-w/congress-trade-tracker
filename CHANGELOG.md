@@ -24,10 +24,18 @@ nimmt einen optionalen Reporter und meldet Einzelbetrag und Gesamtstand,
 kostet nichts und bekommt keine Zeile. Ohne sie verschwand ein teurer
 Reparaturcall in der Batchsumme.
 
-Dreizehn Terminaltests fuer Mappinglauf und Review ergaenzt; Doku in
+Aus dem Phasenreview nachgezogen: ein abgebrochener Batch schliesst seinen
+`START` mit einer `ERROR`-Zeile und benennt jede offen gebliebene Einheit als
+`not_decided`; der Reparaturversuch wird gemeldet, bevor er gesendet wird, und
+ist damit auch bei scheiterndem Reparaturcall sichtbar; eine Ausnahme nach dem
+ersten gebuchten Call fuehrt nicht mehr an der Kostenangabe des
+Abschlussberichts vorbei (`RUN_ABORTED_AFTER_CALL`, `RUN_ABORTED_BY_USER`);
+endgueltige Unit-Fehlschlaege nennen ihren Code.
+
+18 Terminaltests fuer Mappinglauf, Repair, Abbruch und Review ergaenzt; Doku in
 `CLI_Bedienungsanleitung.md` Abschnitt 15k.
 
-Tests: 1877 passed.
+Tests: 1882 passed (38 im Terminalstatus).
 
 ---
 

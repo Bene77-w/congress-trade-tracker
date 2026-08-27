@@ -149,6 +149,8 @@ def test_snapshot_approve_without_a_snapshot_reports_an_error(sandbox, capsys):
 
 from dataclasses import replace  # noqa: E402
 
+from committee_matcher import workflow  # noqa: E402
+
 from tests.test_committee_matcher_run_cli_p7 import (  # noqa: E402,F401
     ScriptedProvider, _assignment, _provider_error, execute_argv, plan_argv,
     scripted, unit_result,
@@ -156,6 +158,27 @@ from tests.test_committee_matcher_run_cli_p7 import (  # noqa: E402,F401
 from tests.test_committee_matcher_review_p7 import (  # noqa: E402,F401
     DistinctProvider, export_argv, import_argv, mapped_run, write_wide_baseline,
 )
+
+#: Kosten je Call im Skriptprovider; der Kostentest rechnet damit nach.
+CALL_USD = 0.000012
+
+
+def status_lines(text: str, prefix: str) -> list[str]:
+    """Alle vollstaendigen Statuszeilen mit diesem Kopf.
+
+    Geprueft wird zeilenweise, damit ein Feld nicht aus einer anderen Zeile
+    stammen kann und die Anzahl der Meldungen mitgeprueft wird.
+    """
+    return [line for line in text.splitlines() if line.startswith(prefix)]
+
+
+def fields_of(line: str) -> dict[str, str]:
+    """Die Felder einer Statuszeile; ein Marker ohne Wert wird zu ``''``."""
+    values: dict[str, str] = {}
+    for part in line.split(" | ")[1:]:
+        name, _, value = part.partition("=")
+        values[name] = value
+    return values
 
 
 def run_scripted(scripted, capsys, **kwargs) -> tuple[str, str]:
@@ -170,60 +193,108 @@ def run_scripted(scripted, capsys, **kwargs) -> tuple[str, str]:
 
 def test_each_batch_reports_start_and_finish(scripted, capsys):
     out, _ = run_scripted(scripted, capsys)
-    assert "[START] mapping | run=run-test | batch=" in out
-    assert "position=1/" in out, "der Batch nennt seine Stelle im Lauf"
-    assert "[OK] mapping | batch=" in out
-    assert "repairs=0" in out
+    starts = status_lines(out, "[START] mapping")
+    finished = status_lines(out, "[OK] mapping | batch=")
+    assert len(starts) == 1 and len(finished) == 1, "je Batch genau ein Paar"
+    start, finish = fields_of(starts[0]), fields_of(finished[0])
+    assert start["position"] == "1/1"
+    assert start["units"] == "3"
+    assert finish["batch"] == start["batch"], "der Abschluss nennt denselben Batch"
+    assert finish["repairs"] == "0"
+    assert float(finish["cost_usd"]) == pytest.approx(CALL_USD)
 
 
 def test_each_unit_reports_its_industry_count(scripted, capsys):
     out, _ = run_scripted(scripted, capsys)
-    assert "[OK] mapping | unit=" in out
-    assert "industries=1" in out
+    units = status_lines(out, "[OK] mapping | unit=")
+    assert len(units) == 3, "jede Einheit des Laufs bekommt genau eine Zeile"
+    assert {fields_of(line)["industries"] for line in units} == {"1"}
 
 
 def test_no_mapping_is_an_info_not_an_error(scripted, capsys):
     """Eine Einheit ohne Zuordnung ist eine Entscheidung, kein Fehlschlag."""
     out, err = run_scripted(scripted, capsys, decision="no_mapping")
-    assert "[INFO] mapping | unit=" in out
-    assert "no_mapping" in out
-    assert "[ERROR] mapping" not in out + err
+    infos = status_lines(out, "[INFO] mapping | unit=")
+    assert len(infos) == 3
+    assert all("no_mapping" in fields_of(line) for line in infos)
+    assert all(fields_of(line)["reason"] for line in infos)
+    assert not status_lines(out + err, "[ERROR] mapping")
 
 
 def test_the_run_closes_with_a_committee_summary(scripted, capsys):
     out, _ = run_scripted(scripted, capsys)
-    assert "[INFO] mapping | committee=" in out
-    for field in ("units=", "mapped=", "no_mapping=", "failed=", "industries="):
-        assert field in out
+    summaries = status_lines(out, "[INFO] mapping | committee=")
+    assert len(summaries) == 1, "eine Zusammenfassung je Committee"
+    fields = fields_of(summaries[0])
+    assert fields["units"] == "3"
+    assert fields["mapped"] == "3"
+    assert fields["no_mapping"] == "0"
+    assert fields["failed"] == "0"
+    assert fields["industries"] == "1"
 
 
-def test_every_call_reports_the_cost(scripted, capsys):
-    """Ohne die Zeile waere die Kostenentwicklung erst nach dem Batch sichtbar."""
+def test_every_booked_call_reports_its_cost(scripted, capsys):
+    """Ohne die Zeile verschwaende ein teurer Reparaturcall in der Batchsumme."""
     out, _ = run_scripted(scripted, capsys)
-    assert "[INFO] cost | call=" in out
-    assert "outcome=charged" in out
-    assert "committed_usd=" in out
+    costs = status_lines(out, "[INFO] cost | call=")
+    assert len(costs) == 1, "je gebuchtem Call genau eine Zeile"
+    fields = fields_of(costs[0])
+    assert fields["outcome"] == "charged"
+    assert float(fields["call_usd"]) == pytest.approx(CALL_USD)
+    assert float(fields["committed_usd"]) == pytest.approx(CALL_USD)
+
+
+def test_a_free_call_gets_no_cost_line(scripted, capsys):
+    """Ein vom Provider abgewiesener Call kostet nichts und meldet nichts."""
+    out, _ = run_scripted(scripted, capsys, errors=[
+        _provider_error(retryable=True, outcome_unknown=False)])
+    costs = status_lines(out, "[INFO] cost | call=")
+    assert len(costs) == 1, "nur der erfolgreiche zweite Call ist gebucht"
+    assert fields_of(costs[0])["call"].startswith("retry1-")
 
 
 def test_an_open_outcome_reports_its_reservation(scripted, capsys):
     out, _ = run_scripted(scripted, capsys, errors=[
         _provider_error(retryable=True, outcome_unknown=True)])
-    assert "outcome=unknown" in out
-    assert "[INFO] cost | call=" in out
+    costs = status_lines(out, "[INFO] cost | call=")
+    assert len(costs) == 1
+    fields = fields_of(costs[0])
+    assert fields["outcome"] == "unknown"
+    assert float(fields["call_usd"]) > 0, "der Worst Case bleibt reserviert"
+    assert float(fields["committed_usd"]) == pytest.approx(float(fields["call_usd"]))
 
 
 def test_a_rejected_call_reports_its_retry_on_stderr(scripted, capsys):
     _, err = run_scripted(scripted, capsys, errors=[
         _provider_error(retryable=True, outcome_unknown=False)])
-    assert "[WARN] provider | batch=" in err
-    assert "retry=1/" in err
+    retries = status_lines(err, "[WARN] provider | batch=")
+    assert len(retries) == 1
+    fields = fields_of(retries[0])
+    assert fields["retry"].startswith("1/")
+    assert fields["reason"] == "PROV_TEST"
 
 
 def test_a_final_provider_error_names_its_code(scripted, capsys):
     _, err = run_scripted(scripted, capsys, errors=[
         _provider_error(retryable=False, outcome_unknown=False)])
-    assert "[ERROR] provider | batch=" in err
-    assert "code=PROV_TEST" in err
+    errors = status_lines(err, "[ERROR] provider | batch=")
+    assert len(errors) == 1
+    assert fields_of(errors[0])["code"] == "PROV_TEST"
+
+
+def test_an_aborted_batch_closes_its_frame(scripted, capsys):
+    """Ohne Abschlusszeile bliebe der START ohne Gegenstueck."""
+    out, err = run_scripted(scripted, capsys, errors=[
+        _provider_error(retryable=False, outcome_unknown=False)])
+    assert len(status_lines(out, "[START] mapping | run=")) == 1
+    aborted = status_lines(err, "[ERROR] mapping | batch=")
+    assert len(aborted) == 1
+    fields = fields_of(aborted[0])
+    assert "aborted" in fields
+    assert fields["open_units"] == "3"
+    open_units = status_lines(err, "[WARN] mapping | unit=")
+    assert len(open_units) == 3, "jede offene Einheit wird benannt"
+    assert all("not_decided" in fields_of(line) for line in open_units)
 
 
 class RepairedProvider(ScriptedProvider):
@@ -241,25 +312,92 @@ class RepairedProvider(ScriptedProvider):
         return replace(response, payload=payload)
 
 
-def test_a_repair_attempt_is_reported(scripted, capsys):
-    adapter = RepairedProvider()
+class FailingRepairProvider(ScriptedProvider):
+    """Erster Call verletzt den Vertrag, der Reparaturcall scheitert."""
+
+    def complete(self, request):
+        if "-repair-" in request.call_id:
+            self.calls.append(request)
+            raise _provider_error(retryable=True, outcome_unknown=False)
+        response = super().complete(request)
+        payload = dict(response.payload)
+        payload["units"] = [
+            unit_result(unit["unit_id"], assignments=[_assignment("gibt-es-nicht")])
+            for unit in payload["units"]
+        ]
+        return replace(response, payload=payload)
+
+
+def install(scripted, adapter):
     scripted.monkeypatch.setattr(
         cli.provider.OpenRouterProvider, "create",
         classmethod(lambda cls, collector, settings: adapter))
     assert cli.main(plan_argv()) in (0, 2)
+    return adapter
+
+
+def test_a_repair_attempt_is_reported(scripted, capsys):
+    install(scripted, RepairedProvider())
     capsys.readouterr()
     cli.main(execute_argv())
     captured = capsys.readouterr()
-    assert "[WARN] mapping | batch=" in captured.err
-    assert "repair=1" in captured.err
-    assert "open_violations=" in captured.err
+    repairs = status_lines(captured.err, "[WARN] mapping | batch=")
+    assert len(repairs) == 1
+    fields = fields_of(repairs[0])
+    assert fields["repair"] == "1"
+    assert "-repair-1" in fields["call"]
+    assert int(fields["open_violations"]) >= 1
+    assert fields_of(status_lines(captured.out, "[OK] mapping | batch=")[0])[
+        "repairs"] == "1"
+
+
+def test_a_failing_repair_is_still_reported(scripted, capsys):
+    """Scheitert der Reparaturcall, gaebe es sonst keine Spur des Versuchs."""
+    install(scripted, FailingRepairProvider())
+    capsys.readouterr()
+    cli.main(execute_argv())
+    captured = capsys.readouterr()
+    repairs = status_lines(captured.err, "[WARN] mapping | batch=")
+    assert len(repairs) == 1, "der Versuch wird vor dem Senden gemeldet"
+    assert "-repair-1" in fields_of(repairs[0])["call"]
+    assert status_lines(captured.err, "[ERROR] provider | batch=")
+
+
+def test_an_exception_after_a_paid_call_keeps_the_cost_visible(
+        scripted, capsys, monkeypatch):
+    """Der Abschlussbericht darf einen bezahlten Lauf nie providerfrei nennen."""
+    scripted.install()
+    assert cli.main(plan_argv()) in (0, 2)
+    capsys.readouterr()
+
+    def failing(self, *args, **kwargs):
+        raise OSError("Datentraeger voll")
+
+    monkeypatch.setattr(workflow.AuditedProvider, "_persist", failing)
+    assert cli.main(execute_argv()) == int(ExitCode.INTERNAL_ERROR)
+    captured = capsys.readouterr()
+    assert "RUN_ABORTED_AFTER_CALL" in captured.out
+    assert "providerfreie Phase" not in captured.out
+    assert f"Kosten: {CALL_USD:.6f} USD" in captured.out
+    assert "[ERROR] workflow" in captured.err
+
+
+def test_the_run_ends_at_a_human_gate_as_wait(scripted, capsys):
+    out, _ = run_scripted(scripted, capsys)
+    gates = status_lines(out, "[WAIT] workflow")
+    assert len(gates) == 1
+    fields = fields_of(gates[0])
+    assert fields["state"] == "awaiting_manual_review"
+    assert fields["mapped"] == "3"
 
 
 def test_review_export_reports_start_and_result(mapped_run, capsys):
     assert cli.main(export_argv()) in (0, 2)
     out = capsys.readouterr().out
-    assert "[START] review | run=run-test | review=review-run-test" in out
-    assert "[OK] review | review=review-run-test | rows=" in out
+    assert status_lines(out, "[START] review | run=run-test | review=review-run-test")
+    results = status_lines(out, "[OK] review | review=review-run-test")
+    assert len(results) == 1
+    assert int(fields_of(results[0])["rows"]) > 0
 
 
 def test_review_import_reports_start_and_balance(mapped_run, capsys):
@@ -267,7 +405,11 @@ def test_review_import_reports_start_and_balance(mapped_run, capsys):
     capsys.readouterr()
     assert cli.main(import_argv()) in (0, 2)
     out = capsys.readouterr().out
-    assert "[START] review | run=run-test | review=review-run-test | action=import" in out
-    assert "[OK] review | review=review-run-test | units=" in out
-    for field in ("assignments=", "manual=", "removed=", "added=", "changed="):
-        assert field in out
+    starts = status_lines(out, "[START] review | run=run-test")
+    assert len(starts) == 1 and fields_of(starts[0])["action"] == "import"
+    results = status_lines(out, "[OK] review | review=review-run-test")
+    assert len(results) == 1
+    fields = fields_of(results[0])
+    assert int(fields["units"]) > 0
+    assert fields["manual"] == "0"
+    assert (fields["removed"], fields["added"], fields["changed"]) == ("0", "0", "0")
