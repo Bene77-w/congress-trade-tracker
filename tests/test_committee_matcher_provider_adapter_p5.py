@@ -28,7 +28,7 @@ def _settings(**overrides) -> ProviderSettings:
         max_price_usd_per_mtok={"prompt": 0.30, "completion": 0.90},
         endpoint_context_tokens=200_000,
         max_output_tokens=8_000,
-        reasoning_reserve_tokens=24_000,
+        reasoning_reserve_tokens=24_000, reasoning_effort="low",
         request_timeout_s=300.0,
         quantizations=("fp8",),
     )
@@ -172,6 +172,9 @@ def test_request_carries_the_gate_b_routing_conditions():
     assert sent["stream"] is False
     assert sent["timeout_ms"] == 300_000
     assert sent["max_tokens"] == 4_000
+    # Ohne Begrenzung verbraucht ein denkendes Modell das gesamte
+    # Ausgabebudget im Reasoning und die Antwort wird abgeschnitten.
+    assert sent["reasoning_effort"] == "low"
     assert sent["retries"] is not None, "SDK-Retries werden ausdruecklich abgeschaltet"
 
 

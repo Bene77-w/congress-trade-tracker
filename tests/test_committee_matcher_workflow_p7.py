@@ -21,7 +21,8 @@ from committee_matcher.status import ExitCode, UnitStatus, WorkflowState
 
 HASH_A = "a" * 64
 HASH_B = "b" * 64
-INFERENCE = {"max_output_tokens": 4_000, "reasoning_reserve_tokens": 2_000}
+INFERENCE = {"max_output_tokens": 4_000, "reasoning_reserve_tokens": 2_000,
+             "reasoning_effort": "low"}
 
 
 @pytest.fixture()
@@ -70,7 +71,8 @@ def _provider_settings(**overrides) -> ProviderSettings:
         model="deepseek/deepseek-v4-flash-0731", data_collection="deny", zdr=True,
         max_price_usd_per_mtok={"prompt": 0.30, "completion": 0.90},
         endpoint_context_tokens=64_000, max_output_tokens=4_000,
-        reasoning_reserve_tokens=2_000, request_timeout_s=90.0,
+        reasoning_reserve_tokens=2_000, reasoning_effort="low",
+        request_timeout_s=90.0,
         quantizations=("fp8",),
     )
     values.update(overrides)
@@ -138,6 +140,9 @@ def test_the_same_facts_yield_the_same_key():
     {"prompt": _prompt(sha="d" * 64)},
     {"model": "anderes/modell"},
     {"inference": {**INFERENCE, "max_output_tokens": 8_000}},
+    # Die Denktiefe bestimmt das Ergebnis mit; ein Lauf mit anderer Tiefe darf
+    # nicht auf den Cache des vorherigen greifen.
+    {"inference": {**INFERENCE, "reasoning_effort": "high"}},
 ])
 def test_every_contract_relevant_change_moves_the_key(change):
     base = dict(unit=_unit(), taxonomy_content_hash=HASH_B, prompt=_prompt(),

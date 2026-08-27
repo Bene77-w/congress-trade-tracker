@@ -795,6 +795,12 @@ COMMITTEE_MATCHER_MAX_PRICE_USD_PER_MTOK = {"prompt": 0.30, "completion": 0.90}
 COMMITTEE_MATCHER_ENDPOINT_CONTEXT_TOKENS = 200_000  # int|None, bewusst unter dem Modellfenster
 COMMITTEE_MATCHER_MAX_OUTPUT_TOKENS = 8_000         # int|None
 COMMITTEE_MATCHER_REASONING_RESERVE_TOKENS = 24_000  # int|None, Reserve im Context-Gate
+# Denktiefe des Modells. Ohne Begrenzung verbraucht das Modell auf der
+# Mappingaufgabe das gesamte Ausgabebudget im Reasoning und liefert keine
+# Antwort (PROV_TRUNCATED). Reasoning zaehlt beim Endpoint gegen dieselbe
+# Grenze wie die Antwort, deshalb ist der Wert Teil des Cache-Keys.
+# 'none' schaltet das Reasoning ab.
+COMMITTEE_MATCHER_REASONING_EFFORT = "low"          # 'none'|'minimal'|'low'|'medium'|'high'
 COMMITTEE_MATCHER_REQUEST_TIMEOUT_S = 300.0         # float|None, Sekunden
 
 # --- provider: Kostengrenzen (Verbraucher: workflow.py) --------------------

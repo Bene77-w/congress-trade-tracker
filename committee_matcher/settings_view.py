@@ -41,6 +41,8 @@ PROVIDER_MAX_CONCURRENT_CALLS = 1
 ALLOWED_BATCH_SIZES = (1, 3)
 #: Zulaessige Datenschutzmodi des Providerroutings.
 ALLOWED_DATA_COLLECTION = ("deny", "allow")
+#: Denktiefe eines Calls; 'none' schaltet das Reasoning ab.
+ALLOWED_REASONING_EFFORT = ("none", "minimal", "low", "medium", "high")
 #: Quantisierungsliterale des gepinnten OpenRouter-SDK.
 ALLOWED_QUANTIZATIONS = (
     "int4", "int8", "fp4", "mxfp4", "nvfp4", "fp6", "fp8", "mxfp8",
@@ -249,6 +251,8 @@ class ProviderSettings:
     endpoint_context_tokens: int
     max_output_tokens: int
     reasoning_reserve_tokens: int
+    #: Denktiefe eines Calls; begrenzt den Reasoninganteil des Ausgabestroms.
+    reasoning_effort: str
     request_timeout_s: float
     #: Zulaessige Rechenpraezisionen; None laesst jede Quantisierung zu.
     quantizations: tuple[str, ...] | None = None
@@ -258,6 +262,18 @@ class ProviderSettings:
     allow_fallbacks: bool = PROVIDER_ALLOW_FALLBACKS
     sdk_retries: int = PROVIDER_SDK_RETRIES
     max_concurrent_calls: int = PROVIDER_MAX_CONCURRENT_CALLS
+
+    @property
+    def call_token_ceiling(self) -> int:
+        """Obergrenze des Ausgabestroms eines Calls.
+
+        Der Endpoint zaehlt Reasoningtokens gegen dieselbe Grenze wie die
+        Antwort. Wird nur ``max_output_tokens`` gesendet, verbraucht ein
+        denkendes Modell das Budget vor dem ersten Antwortzeichen und der
+        Call endet mit ``PROV_TRUNCATED``. Die Reasoningreserve ist im
+        Kontextfenster ohnehin freigehalten, also wird sie mitgesendet.
+        """
+        return self.max_output_tokens + self.reasoning_reserve_tokens
 
 
 #: Budgetarten und ihr Setting.
@@ -388,6 +404,9 @@ def load_settings(module: ModuleType | None = None) -> MatcherSettings:
         "reasoning_reserve_tokens": provider_reader.optional(
             f"{_PREFIX}REASONING_RESERVE_TOKENS", _int_in(0, 1_000_000),
             "int 0..1000000"),
+        "reasoning_effort": provider_reader.optional(
+            f"{_PREFIX}REASONING_EFFORT", _choice(ALLOWED_REASONING_EFFORT),
+            f"eines aus {ALLOWED_REASONING_EFFORT}"),
         "request_timeout_s": provider_reader.optional(
             f"{_PREFIX}REQUEST_TIMEOUT_S", _float_in(1.0, 3_600.0),
             "float 1..3600"),

@@ -118,7 +118,8 @@ def _provider_settings() -> ProviderSettings:
         model="deepseek/deepseek-v4-flash-0731", data_collection="deny", zdr=True,
         max_price_usd_per_mtok={"prompt": 0.30, "completion": 0.90},
         endpoint_context_tokens=64_000, max_output_tokens=4_000,
-        reasoning_reserve_tokens=2_000, request_timeout_s=90.0,
+        reasoning_reserve_tokens=2_000, reasoning_effort="low",
+        request_timeout_s=90.0,
         quantizations=("fp8",))
 
 

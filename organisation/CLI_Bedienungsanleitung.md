@@ -1198,6 +1198,7 @@ ist ausschließlich `committee_matcher/settings_view.py`):
 | `COMMITTEE_MATCHER_ENDPOINT_CONTEXT_TOKENS` | int 1.000–10.000.000 | 200000 | Context-Gate (P6) |
 | `COMMITTEE_MATCHER_MAX_OUTPUT_TOKENS` | int 256–1.000.000 | 8000 | Context-Gate (P6) |
 | `COMMITTEE_MATCHER_REASONING_RESERVE_TOKENS` | int 0–1.000.000 | 24000 | Context-Gate (P6) |
+| `COMMITTEE_MATCHER_REASONING_EFFORT` | `none`/`minimal`/`low`/`medium`/`high` | `low` | Denktiefe je Call (P5) |
 | `COMMITTEE_MATCHER_REQUEST_TIMEOUT_S` | float 1–3600 | 300.0 | Provider (P5) |
 | `COMMITTEE_MATCHER_MAX_RUN_COST_USD` | float 0 < x ≤ 10.000 | 25.0 | Kostenstop (P7) |
 | `COMMITTEE_MATCHER_MAX_EVALUATION_COST_USD` | float 0 < x ≤ 10.000 | 40.0 | Kostenstop (P7) |
@@ -1550,6 +1551,17 @@ deshalb nicht die Schätzung, sondern die Ablehnung durch den Endpoint — ein
 benannter Abbruch mit `PROVIDER_ERROR`, keine stille Kürzung. Sicherheit lässt
 sich über einen kleineren `CHARS_PER_TOKEN` oder eine höhere
 `REASONING_RESERVE_TOKENS` erkaufen, beides zulasten der Batchgröße.
+
+**Ausgabegrenze und Denktiefe.** Der Endpoint zählt Reasoningtokens gegen
+dieselbe Grenze wie die Antwort. Gesendet wird deshalb
+`MAX_OUTPUT_TOKENS + REASONING_RESERVE_TOKENS`; die Reasoningreserve ist im
+Kontextfenster ohnehin freigehalten. Zusätzlich begrenzt
+`COMMITTEE_MATCHER_REASONING_EFFORT` die Denktiefe. Ohne diese Begrenzung
+verbraucht ein denkendes Modell auf der Mappingaufgabe das gesamte
+Ausgabebudget im Reasoning und liefert keine Antwort — der Call endet mit
+`PROV_TRUNCATED` und ist trotzdem zu bezahlen. Der Wert geht in den Cache-Key
+ein: ein Lauf mit anderer Denktiefe greift nicht auf Ergebnisse des vorherigen
+zu.
 
 Gekürzt wird nie. Passt eine einzelne Unit nicht, blockiert der Lauf:
 

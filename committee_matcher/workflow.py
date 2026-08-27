@@ -52,7 +52,8 @@ CACHE_KEY_VERSION = "cache-key-v1"
 #: Inferenzparameter, die in den Cache-Key eingehen. Bewusst eine feste Liste:
 #: ein spaeter hinzugefuegter Parameter darf nicht stillschweigend aus dem
 #: Schluessel fallen.
-CACHE_INFERENCE_FIELDS = ("max_output_tokens", "reasoning_reserve_tokens")
+CACHE_INFERENCE_FIELDS = ("max_output_tokens", "reasoning_reserve_tokens",
+                          "reasoning_effort")
 
 #: Welcher Unitstatus zu welchem Modellurteil gehoert. Andere Kombinationen
 #: gibt es nicht; ``not_decided`` und ``failed`` tragen nie ein Ergebnis.
@@ -1042,6 +1043,7 @@ def build_manifest(*, run_id: str, settings: MatcherSettings,
             "endpoint_context_tokens": provider_settings.endpoint_context_tokens,
             "max_output_tokens": provider_settings.max_output_tokens,
             "reasoning_reserve_tokens": provider_settings.reasoning_reserve_tokens,
+            "reasoning_effort": provider_settings.reasoning_effort,
             "request_timeout_s": provider_settings.request_timeout_s,
         },
         "batching": {

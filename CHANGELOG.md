@@ -11,6 +11,27 @@ Historie abgeschlossener Module/Phasen. **Aktiver WIP-Modul-Stand** steht im „
 
 ---
 
+## 2026-08-28 — Committee Matcher V2: Denktiefe begrenzt (P8-Befund)
+
+Der erste Live-Run scheiterte zweimal an `PROV_TRUNCATED`, ohne ein Zeichen
+Antwort zu liefern: das Modell verbrauchte erst 9.592, dann 32.000 Tokens im
+Reasoning. Zwei Ursachen, beide behoben:
+
+- Der Endpoint zaehlt Reasoningtokens gegen dieselbe Grenze wie die Antwort,
+  gesendet wurde aber nur `MAX_OUTPUT_TOKENS`. Die Reasoningreserve war im
+  Kontextfenster freigehalten, dem Endpoint aber nie eingeraeumt. Gesendet wird
+  jetzt `max_output_tokens + reasoning_reserve_tokens`; die Worst-Case-Rechnung
+  der Kostenwache zieht automatisch mit, weil sie an derselben Zahl haengt.
+- Neu ist `COMMITTEE_MATCHER_REASONING_EFFORT` (Standard `low`), das die
+  Denktiefe je Call begrenzt. Der Wert geht in den Cache-Key ein: ein Lauf mit
+  anderer Denktiefe greift nicht auf Ergebnisse des vorherigen zu.
+
+Kosten der beiden Fehlversuche: 0,010106 USD.
+
+Tests: 1894 passed.
+
+---
+
 ## 2026-08-28 — Committee Matcher V2: Abnahme des Statusvertrags (S5)
 
 Der Statusplan verlangt mindestens zwoelf deterministische Terminaltests; es

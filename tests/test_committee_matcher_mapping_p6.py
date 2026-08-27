@@ -99,7 +99,8 @@ def _provider_settings(**overrides) -> ProviderSettings:
         model="anbieter/modell", data_collection="deny", zdr=True,
         max_price_usd_per_mtok={"prompt": 0.30, "completion": 0.90},
         endpoint_context_tokens=200_000, max_output_tokens=8_000,
-        reasoning_reserve_tokens=24_000, request_timeout_s=300.0,
+        reasoning_reserve_tokens=24_000, reasoning_effort="low",
+        request_timeout_s=300.0,
     )
     values.update(overrides)
     return ProviderSettings(**values)
@@ -313,7 +314,9 @@ def test_request_carries_schema_and_batch_id():
     assert request.call_id == batch.batch_id
     assert request.schema_name == mapping.SCHEMA_NAME
     assert request.json_schema == mapping.batch_schema()
-    assert request.max_output_tokens == 8_000
+    # Reasoning zaehlt beim Endpoint gegen dieselbe Grenze wie die Antwort;
+    # gesendet wird deshalb Ausgabelimit plus Reasoningreserve.
+    assert request.max_output_tokens == 8_000 + 24_000
 
 
 def test_taxonomy_is_rendered_completely():

@@ -437,7 +437,7 @@ def build_request(batch: MappingBatch, snapshot: TaxonomySnapshot,
         user_content=build_user_content(batch, snapshot),
         schema_name=SCHEMA_NAME,
         json_schema=batch_schema(),
-        max_output_tokens=provider_settings.max_output_tokens,
+        max_output_tokens=provider_settings.call_token_ceiling,
     )
 
 
@@ -458,7 +458,7 @@ def build_repair_request(batch: MappingBatch, snapshot: TaxonomySnapshot,
             batch, snapshot, previous_payload, violations_text),
         schema_name=SCHEMA_NAME,
         json_schema=batch_schema(),
-        max_output_tokens=provider_settings.max_output_tokens,
+        max_output_tokens=provider_settings.call_token_ceiling,
     )
 
 

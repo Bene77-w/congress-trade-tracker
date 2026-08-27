@@ -30,7 +30,7 @@ def _settings(**overrides) -> ProviderSettings:
         max_price_usd_per_mtok={"prompt": 0.30, "completion": 0.90},
         endpoint_context_tokens=200_000,
         max_output_tokens=8_000,
-        reasoning_reserve_tokens=24_000,
+        reasoning_reserve_tokens=24_000, reasoning_effort="low",
         request_timeout_s=300.0,
         quantizations=("fp8", "bf16", "fp16"),
     )

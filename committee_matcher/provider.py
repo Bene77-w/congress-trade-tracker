@@ -369,6 +369,7 @@ class StructuredRequest:
     user_content: str
     schema_name: str
     json_schema: dict
+    #: Obergrenze des gesamten Ausgabestroms, Reasoning eingeschlossen.
     max_output_tokens: int
 
 
@@ -722,6 +723,9 @@ class OpenRouterProvider:
                 provider=self._preferences(),
                 response_format=self._response_format(request),
                 max_tokens=request.max_output_tokens,
+                # Ohne Begrenzung verbraucht ein denkendes Modell das gesamte
+                # Ausgabebudget im Reasoning und liefert keine Antwort.
+                reasoning_effort=self._settings.reasoning_effort,
                 temperature=0.0,
                 stream=False,
                 timeout_ms=int(self._settings.request_timeout_s * 1000),
@@ -826,7 +830,8 @@ class OpenRouterProvider:
                 "PROV_TRUNCATED", request.call_id,
                 "Antwort wurde am Ausgabelimit abgeschnitten "
                 f"({request.max_output_tokens} Tokens).",
-                "COMMITTEE_MATCHER_MAX_OUTPUT_TOKENS anheben oder die "
+                "COMMITTEE_MATCHER_MAX_OUTPUT_TOKENS oder "
+                "COMMITTEE_MATCHER_REASONING_RESERVE_TOKENS anheben oder die "
                 "Batchgroesse senken; eine abgeschnittene Antwort wird nie "
                 "still repariert.",
                 retryable=False,
