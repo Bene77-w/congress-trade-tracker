@@ -1059,12 +1059,16 @@ python -m committee_matcher --help
 python -m committee_matcher input validate      # Corpus + Units + Sollmenge
 python -m committee_matcher roster validate     # Roster-Coverage gegen die Units
 python -m committee_matcher provider check      # Endpointverfügbarkeit, kostenlos
-python -m committee_matcher run execute         # Providerpfad: blockiert mit Exit 4
+python -m committee_matcher run plan --run-id run-1 --committee "Committee on Agriculture"
+python -m committee_matcher run execute --run-id run-1   # kostenpflichtig
+python -m committee_matcher review export --run-id run-1 # Workbook für den Review
 ```
 
 `input validate` und `roster validate` sind seit P3 implementiert, die
-`snapshot`-Familie seit P4, `provider check` seit dem Gate-B-Beschluss; alle
-übrigen Familien melden weiterhin `CLI_STAGE_NOT_IMPLEMENTED` mit ihrer Phase.
+`snapshot`-Familie seit P4, `provider check` und `provider smoke` seit dem
+Gate-B-Beschluss, `run plan|execute|reconcile` seit P7c und
+`review export|import` seit P7d; `evaluate`, `qualify`, `full-run` und `report`
+melden weiterhin `CLI_STAGE_NOT_IMPLEMENTED` mit ihrer Phase.
 
 **Familien** (vollständig, Plan 2.7 — es gibt kein `promote`, `finalize`,
 `research` oder LLM-`review`):
@@ -1077,7 +1081,7 @@ python -m committee_matcher run execute         # Providerpfad: blockiert mit Ex
 | `provider check` | P5 | ja | Endpointverfügbarkeit prüfen (kostenlos, kein Modellaufruf) |
 | `provider smoke` | P5 | ja | Contract-Smoke: ein kostenpflichtiger Minimalcall |
 | `run plan\|execute\|reconcile` | P7 | ja | Entwicklungsrun planen, ausführen, `outcome_unknown` klären |
-| `review export\|import` | P8 | nein | Review-XLSX exportieren und validiert zurückimportieren |
+| `review export\|import` | P7 | nein | Review-XLSX exportieren und validiert zurückimportieren |
 | `evaluate goldset` | P9 | ja | Entwicklungs-Gold-Set auswerten |
 | `qualify holdout` | P10 | ja | unabhängiges Holdout qualifizieren |
 | `full-run` | P11 | ja | qualifizierter, filterloser Full-Run |
@@ -1102,9 +1106,16 @@ sie entstehen.
 
 Zusätzlich persistiert jeder Lauf die Befunde strukturiert nach
 `data/committee_matcher_v2/reports/<kommando>/errors.json` (Bedienfehler unter
-`reports/usage/`). Der Schreibweg läuft über die Pfadwache und ist atomar; ab P7
-tritt die Run-Revision an die Stelle des Kommandonamens. Diese volatilen
-Berichte sind gitignoriert, Run-Revisionen bleiben versioniert.
+`reports/usage/`). Ein laufgebundenes Kommando schreibt stattdessen nach
+`runs/<run_id>/reports/<kommando>/errors.json`; sonst überschriebe der nächste
+Aufruf desselben Kommandos genau den Bericht, der den vorigen Lauf erklärt. Der
+Schreibweg läuft über die Pfadwache und ist atomar. Diese volatilen Berichte
+sind gitignoriert, Run-Revisionen bleiben versioniert.
+
+Parallel zum Abschlussbericht meldet jeder Vorgang seinen Stand live:
+`[START|OK|INFO|WARN|ERROR|WAIT] <stage> | feld=wert`, Status auf `stdout`,
+Warnungen und Fehler auf `stderr`. `no_mapping` ist eine gültige Entscheidung
+und erscheint als `INFO`; ein Human-Gate erscheint als `WAIT`.
 
 **Settings** (`config/settings.py`, Block „COMMITTEE MATCHER V2"; Verbraucher
 ist ausschließlich `committee_matcher/settings_view.py`):
@@ -1121,6 +1132,7 @@ ist ausschließlich `committee_matcher/settings_view.py`):
 | `COMMITTEE_MATCHER_WORKFLOW_RETRIES` | int 0–5 | 2 | Workflow (P7) |
 | `COMMITTEE_MATCHER_MAX_REPAIR_ATTEMPTS` | int 0–3 | 1 | Repair (P6) |
 | `COMMITTEE_MATCHER_CHARS_PER_TOKEN` | float 1–4 | 3.0 | Context-Gate (P6) |
+| `COMMITTEE_MATCHER_RECONCILE_MIN_AGE_S` | float 0–86.400 | 300.0 | `run reconcile` (P7) |
 | `COMMITTEE_MATCHER_COST_GUARD` | bool | True | Kostenwache (P7) |
 | `COMMITTEE_MATCHER_MODEL` | str oder None | `deepseek/deepseek-v4-flash-0731` | Provider (P5) |
 | `COMMITTEE_MATCHER_QUANTIZATIONS` | Tupel aus `int4`,`int8`,`fp4`,`mxfp4`,`nvfp4`,`fp6`,`fp8`,`mxfp8`,`fp16`,`bf16`,`fp32`,`unknown` oder None | `("fp8","bf16","fp16")` | Routingfilter (P5) |
@@ -1656,6 +1668,107 @@ Kosten mit; nur so bleibt ein bezahlter Call abgleichbar. Lässt sich die
 Auditdatei nicht schreiben, wird der Call als `AUDIT_WRITE_FAILED` mit seiner
 Generation-ID vorgemerkt — sonst wäre nach einem Abbruch nicht erkennbar, dass
 er bereits gesendet und bezahlt wurde.
+
+### 15i. `run plan|execute|reconcile` — Entwicklungsrun (P7c)
+
+Drei Kommandos, eine Runrevision. `--run-id` ist bei allen dreien Pflicht.
+
+```bash
+python -m committee_matcher run plan --run-id run-1 --committee "Committee on Agriculture"
+python -m committee_matcher run execute --run-id run-1
+python -m committee_matcher run reconcile --run-id run-1   # nur nach Exit 8
+```
+
+| Kommando | Netzwerk | Ergebnis |
+|---|---|---|
+| `run plan` | nein | Runmanifest, Zielauswahl, Batchzahl und Worst-Case-Kosten; kein Modellaufruf |
+| `run execute` | ja, kostenpflichtig | Mapping der geplanten Units, Laufzustand, Auditspur, Artefaktsatz |
+| `run reconcile` | ja, kostenlos | klärt über die Generation-ID, was ein Call mit offenem Ausgang gekostet hat |
+
+`run plan` friert die Zielauswahl (`--chamber`, `--committee`, `--unit-id`) im
+Manifest ein. `run execute` übernimmt sie ohne Zielflags; abweichende Flags
+verlangen eine neue Revision (`RUN_MANIFEST_DRIFT`, Exit 4). Eine Revision mit
+vollständigem Artefaktsatz wird nie überschrieben (`RUN_REVISION_COMPLETE`).
+
+**Wiederaufnahme.** `run execute` darf beliebig oft laufen: bezahlte Units
+kommen aus dem Cache, nur offene Batches gehen erneut an das Modell. Kosten,
+Reservierungen und Callzahlen früherer Durchläufe belasten die Kostenwache des
+nächsten vor — das Budget gilt je Run, nicht je Durchlauf. Ein wiederholter
+Batch bekommt ein eigenes Call-Präfix (`pass2-`, `retry1-`), damit keine
+Call-ID zweimal gesendet wird.
+
+Ein Providerfehler wird nur dann wiederholt, wenn er retrybar ist, der Ausgang
+belegt feststeht **und** der Versuch nichts gekostet hat. Ist der Erstcall
+bezahlt und scheitert erst der Reparaturcall, endet der Batch — ein Retry würde
+den bezahlten Erstcall erneut senden.
+
+**Offener Ausgang.** Solange ein Call weder Auditdatei noch Klärung trägt,
+blockiert `run execute` mit `RUN_OUTCOME_UNKNOWN` (Exit 8) und sendet nichts.
+`run reconcile` fragt die Generation ab und schreibt
+`calls/<call_id>.reconciled.json`. Eine dem Provider unbekannte Generation gilt
+erst nach `COMMITTEE_MATCHER_RECONCILE_MIN_AGE_S` Sekunden als „nicht
+abgerechnet"; vorher bleibt sie offen. Ohne `OPENROUTER_API_KEY` blockiert der
+Abgleich als Preflight (Exit 4), da kein Providercall stattgefunden hat.
+
+Der Artefaktsatz entsteht erst, wenn der Lauf abgeschlossen ist: kein Abbruch,
+kein offener Ausgang, jede Zielunit im Zustand. Sonst meldet der Lauf
+`RUN_ARTIFACTS_DEFERRED` als Warnung — der Abschlussmarker würde die Revision
+unveränderlich machen und den Resume verhindern.
+
+### 15j. `review export|import` — XLSX-Roundtrip (P7d)
+
+```bash
+python -m committee_matcher review export --run-id run-1
+# Workbook in Excel bearbeiten
+python -m committee_matcher review import --run-id run-1
+python -m committee_matcher review import --run-id run-1 --workbook ~/Downloads/review.xlsx
+```
+
+Ohne `--review-id` heißt die Revision `review-<run_id>`; sie liegt unter
+`data/committee_matcher_v2/reviews/<review_id>/`. Weder ein Export noch ein
+Import überschreibt eine bestehende Reviewrevision.
+
+**Bearbeitungsregeln im Workbook.**
+
+| Vorgang | Eintrag |
+|---|---|
+| Zuordnung unverändert übernehmen | nichts eintragen |
+| Industry, Confidence, Evidence oder Rationale ändern | `review_*`-Feld füllen (`review_action=edit` optional) |
+| Zuordnung entfernen | `review_action=delete` plus `review_note` |
+| Neue Zuordnung | neue Zeile ohne `row_id`, nur `model_unit_id` und die `review_*`-Felder |
+| `mapped → no_mapping` | `review_decision=no_mapping` plus `review_no_mapping_reason`, übrige Reviewfelder leer |
+| `no_mapping → mapped` | `review_decision=mapped` plus Industry, Confidence, Evidence und Rationale |
+| Boundary-Konflikt | im Blatt `boundary` `review_action` setzen |
+
+Belegpflichten: eine neue oder geänderte Industry verlangt
+`review_evidence_excerpt` **und** `review_rationale_short`; eine allein
+geänderte Confidence verlangt `review_rationale_short`; eine gelöschte
+Zuordnung verlangt `review_note`, sofern nicht eine Konfliktaktion den Grund
+schon dokumentiert.
+
+**Was der Import ablehnt** (Exit 7, keine Datei wird geschrieben):
+
+| Code | Bedeutung |
+|---|---|
+| `REV_STALE_BINDING` | Snapshot, Taxonomiehash, Inputmanifest oder Modell weichen vom Export ab |
+| `REV_MODEL_FIELD_CHANGED` | eine `model_*`-Spalte wurde verändert |
+| `REV_ROW_MISSING` / `REV_ROW_DUPLICATE` / `REV_ROW_UNKNOWN` | Zeile gelöscht, kopiert oder mit eigener ID versehen |
+| `REV_FORMULA_CELL` | eine Zelle enthält eine Formel statt eines Werts |
+| `REV_EVIDENCE_REQUIRED` / `REV_RATIONALE_REQUIRED` / `REV_DELETE_NOTE_REQUIRED` | Belegpflicht verletzt |
+| `REV_NO_MAPPING_NOT_EMPTY` / `REV_NO_MAPPING_REASON_REQUIRED` | `no_mapping` ohne Grund oder mit gefüllten Feldern |
+| `REV_UNIT_DECISION_CONFLICT` | Unit trägt `no_mapping` und zugleich Zuordnungen |
+| `REV_TOO_MANY_ASSIGNMENTS` / `REV_BROAD_SCOPE_NOT_ALLOWED` | 0/2/5- oder Broad-Scope-Regel verletzt |
+| `REV_UNKNOWN_INDUSTRY` / `REV_INDUSTRY_DUPLICATE` | Industry unbekannt oder doppelt |
+| `REV_BOUNDARY_OPEN` / `REV_BOUNDARY_ACTION_*` | Konflikt offen, unzulässig oder nicht deckungsgleich mit den bearbeiteten Slots |
+
+`keep_a`/`keep_b` sind nur bei genau zwei beteiligten Units eindeutig; bei mehr
+Units meldet der Import `REV_BOUNDARY_ACTION_AMBIGUOUS` und verlangt
+`remove_both` oder `legitimate_overlap`.
+
+Angenommen entstehen `reviewed_assignments.csv`, `reviewed_unit_coverage.csv`
+und `import_manifest.json`. Sektor- und Industrienamen leitet der Import aus dem
+Snapshot ab; eine manuell erzeugte oder geänderte Zeile trägt
+`assignment_source=manual` und erbt keine Callprovenienz.
 
 ## 16. Ausgelagerter Analyse-Workflow
 

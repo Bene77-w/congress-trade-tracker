@@ -11,6 +11,34 @@ Historie abgeschlossener Module/Phasen. **Aktiver WIP-Modul-Stand** steht im „
 
 ---
 
+## 2026-08-27 — Committee Matcher V2: P7c/P7d Laufkommandos und Review-Roundtrip
+
+Der Ablauf steht jetzt durchgehend: Mapping, Review in Excel, Rueckuebernahme
+in CSV.
+
+`run plan` zeigt den Lauf providerfrei vorab, `run execute` fuehrt ihn mit
+Resume, Kostenwache und Alles-oder-nichts-Artefakten aus, `run reconcile`
+klaert Calls, deren Ausgang offen blieb, gegen die Providerhistorie. Eine
+unbekannte Generation gilt erst nach `COMMITTEE_MATCHER_RECONCILE_MIN_AGE_S`
+als nicht abgerechnet, da der Provider frische Generationen verzoegert zeigt
+und ein zu frueher Abgleich einen zweiten kostenpflichtigen Call erlauben
+wuerde. Fehlerberichte liegen ab jetzt beim Lauf (`runs/<run_id>/reports/`).
+
+`committee_matcher/review.py` traegt den Roundtrip. Der Export baut ein
+XLSX-Workbook aus den Laufartefakten und haengt an jede Modellzeile einen
+Zeilenhash; der Import prueft die Bindung an Lauf und Export, weist Formeln ab
+und erzwingt dieselben 0/2/5- und Broad-Scope-Regeln wie beim Modellresultat.
+Ergebnis sind `reviewed_assignments.csv` und `reviewed_unit_coverage.csv` unter
+`reviews/<review_id>/`.
+
+Terminalstatus S3 ergaenzt: `input validate`, `roster validate` und
+`snapshot approve` melden nach dem Statusvertrag, inklusive Retryhinweis je
+yfinance-Fetch und Driftgate als `WAIT`.
+
+Tests: 1851 netzwerkfrei, gruen.
+
+---
+
 ## 2026-08-27 — Committee Matcher V2: P7b Ergebnisartefakte
 
 `committee_matcher/artifacts.py`: die einzige Stelle, die Laufergebnisse in

@@ -386,6 +386,8 @@ Marktgröße.
 | `run_state.json` | Workflowstatus plus Stand je Unit; Grundlage von Cache und Resume |
 | `calls/<call_id>.json` | Provenienz und rohe Antwortnutzlast eines Providercalls |
 | `calls/<call_id>.intent.json` | Vormerkung vor dem Senden; bleibt liegen, solange der Call keine Auditdatei hat |
+| `calls/<call_id>.reconciled.json` | Klärung eines Calls ohne Auditdatei: was er tatsächlich gekostet hat |
+| `reports/<kommando>/errors.json` | Fehlerbericht des laufgebundenen Kommandos; je Revision eigener Ordner |
 
 `run_manifest.json` (`version: run-manifest-v1`):
 
@@ -424,14 +426,29 @@ Geschrieben **vor** der fachlichen Prüfung. Systemprompt und Nutzdaten stehen
 bewusst nicht darin.
 
 `calls/<call_id>.intent.json` (`version: call-intent-v1`) entsteht **vor** dem
-Netzaufruf mit `run_id`, `call_id`, `schema_name` und `worst_case_usd`. Sie wird
+Netzaufruf mit `run_id`, `call_id`, `schema_name`, `worst_case_usd` und
+`created_at` (UTC). Sie wird
 gelöscht, sobald die Auditdatei steht oder feststeht, dass OpenRouter die
 Anfrage abgewiesen hat. Bleibt sie liegen, nimmt sie auf, was bekannt ist
 (`reason`, `generation_id`, `cost_usd`) — sie ist die einzige Spur, die einen
 bezahlten Call nach einem Prozessabsturz noch belegt. `workflow.open_intents`
-liefert diese Call-IDs. Eine Call-ID, die bereits eine Auditdatei trägt, wird
+liefert genau die Call-IDs, die weder eine Auditdatei noch eine Klärung tragen;
+solange einer davon offen ist, blockiert `run execute` mit
+`RUN_OUTCOME_UNKNOWN` (Exit 8). Eine Call-ID, die bereits eine Auditdatei trägt, wird
 nie ein zweites Mal gesendet (`CALL_ID_REUSED`, Exit 4); je physischem Versuch
 gehört eine eigene ID.
+
+`calls/<call_id>.reconciled.json` (`version: call-reconciliation-v1`) entsteht
+aus `run reconcile` oder direkt aus einem Fehlercall mit bekannten Kosten:
+`outcome` (`charged | not_charged`), `cost_usd`, `reserved_usd`, `released_usd`,
+`generation_id` sowie bei `charged` zusätzlich `provider`, `model` und
+`finish_reason`. `not_charged` setzt voraus, dass der Versuch mindestens
+`COMMITTEE_MATCHER_RECONCILE_MIN_AGE_S` Sekunden alt ist: eine frische
+Generation ist beim Provider teils verzögert sichtbar, und ein vorschnelles
+„nicht abgerechnet" würde die Reservierung auflösen und einen zweiten
+kostenpflichtigen Call erlauben. Über `prior_costs` gehen Klärungen und Audits
+früherer Durchläufe als Vorbelastung in die Kostenwache des nächsten ein — das
+Budget gilt je Run, nicht je Durchlauf.
 
 Ergebnisartefakte desselben Ordners (P7b, geschrieben nach dem Lauf):
 
@@ -500,6 +517,67 @@ entweder auditiert oder vorgemerkt) und `ART_REVISION_EXISTS` (die
 Runrevision trägt bereits einen **vollständigen** Satz; nur der ist
 unveränderlich — Reste eines abgebrochenen Schreibvorgangs dürfen ersetzt
 werden, sonst könnte derselbe Lauf seinen bezahlten Zustand nie exportieren).
+
+#### `data/committee_matcher_v2/reviews/<review_id>/` (P7d, je Reviewrevision)
+
+Eine Reviewrevision liegt neben den Runrevisionen, nie in ihnen: ein Review darf
+die Artefakte des Laufs nicht berühren. Ohne `--review-id` lautet sie
+`review-<run_id>`.
+
+| Datei | Zweck |
+|---|---|
+| `review.xlsx` | Workbook für den manuellen Review; Blätter `assignments`, `boundary`, `info` |
+| `export_manifest.json` | Bindung des Exports und Zeilenhashes der Modellwerte |
+| `reviewed_assignments.csv` | Long-CSV des angenommenen Reviewstands |
+| `reviewed_unit_coverage.csv` | Stand je Unit nach dem Review |
+| `import_manifest.json` | Zusammenfassung des angenommenen Imports |
+
+`review.xlsx`, Blatt `assignments`: `row_id`, danach die unveränderlichen
+`model_*`-Spalten (`model_unit_id`, `model_chamber`, `model_committee_name`,
+`model_unit_name`, `model_unit_kind`, `model_decision`, `model_industry_id`,
+`model_industry_name`, `model_sector_id`, `model_sector_name`,
+`model_confidence`, `model_evidence_excerpt`, `model_rationale_short`,
+`model_broad_scope_exception`, `model_broad_scope_reason`,
+`model_no_mapping_reason`, `model_assignment_source`) und die editierbaren
+`review_*`-Spalten (`review_action`, `review_decision`, `review_industry_id`,
+`review_confidence`, `review_evidence_excerpt`, `review_rationale_short`,
+`review_broad_scope_exception`, `review_broad_scope_reason`,
+`review_no_mapping_reason`, `review_note`). Eine `mapped`-Unit hat eine Zeile je
+Zuordnung, eine `no_mapping`-Unit genau eine Zeile ohne Industry; Units ohne
+Urteil (`failed`, `not_decided`) stehen nicht im Workbook und werden im
+Exportmanifest unter `incomplete_units` benannt.
+
+Blatt `boundary`: `family_id`, `industry_id`, `industry_name`, `unit_count`,
+`unit_ids` sowie `review_action` und `review_note`. Blatt `info` nennt die
+Bindung im Klartext.
+
+Jede Zelle ist eine Textzelle. Ohne den erzwungenen Zelltyp typisierte openpyxl
+einen Wert mit führendem `=` als Formel; Excel zeigte dann ein Rechenergebnis,
+und der Rückimport läse einen anderen Wert als den exportierten. Umgekehrt
+lehnt der Import jede Formelzelle ab (`REV_FORMULA_CELL`).
+
+`export_manifest.json` (`version: review-export-v1`): `review_id`, `run_id`,
+`revision_id`, `snapshot_id`, `taxonomy_content_hash`, `input_manifest_hash`,
+`model`, `unit_count`, `row_count`, `boundary_count`, `incomplete_units`,
+`columns` und `rows` (Zeilen-ID → SHA-256 über die Modellwerte in
+Spaltenreihenfolge). Der Hash ist die Read-only-Prüfung des Rückimports; der
+Zellschutz von Excel wird nicht als Beleg akzeptiert.
+
+`reviewed_assignments.csv`: die Spalten von `assignments_long.csv`, ergänzt um
+`review_id`, `review_action` und `review_note`. `assignment_source` ist
+`manual`, sobald der Review den Wert erzeugt oder geändert hat; eine manuelle
+Zeile erbt keine Callprovenienz und keine Promptangaben, da kein Modellaufruf
+hinter ihr steht. Industrie- und Sektornamen leitet der Import aus dem Snapshot
+ab, nie aus Excel.
+
+`reviewed_unit_coverage.csv`: `review_id`, `run_id`, `unit_id`, `chamber`,
+`committee_name`, `unit_name`, `unit_kind`, `decision`, `assignment_count`,
+`no_mapping_reason`, `broad_scope_exception`, `broad_scope_reason`,
+`manual_assignments`, `review_status`. `import_manifest.json`
+(`version: review-import-v1`) fasst `unit_count`, `assignment_count`,
+`manual_assignment_count`, `no_mapping_units` und die geschriebenen Dateien
+zusammen; seine Existenz macht die Reviewrevision unveränderlich
+(`REV_IMPORT_EXISTS`).
 
 #### `data/config/committee_matcher_prompts/` (P5, versionierter Kontrollinput)
 
