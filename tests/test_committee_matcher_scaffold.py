@@ -910,14 +910,15 @@ def test_provider_families_name_the_missing_settings(capsys, artifact_sandbox, m
 
 
 def test_provider_free_families_do_not_mention_the_provider_gate(capsys, artifact_sandbox):
-    assert cli.main(["review", "export"]) == int(ExitCode.PREFLIGHT_BLOCKED)
+    # 'report' steht stellvertretend fuer eine providerfreie, noch offene Aktion.
+    assert cli.main(["report"]) == int(ExitCode.PREFLIGHT_BLOCKED)
     out = capsys.readouterr().out
     assert "CLI_PROVIDER_GATE_CLOSED" not in out
-    assert "Phase:    P8" in out
+    assert "Phase:    P7" in out
 
 
 def test_report_is_printed_for_every_command(capsys, artifact_sandbox):
-    cli.main(["review", "export"])
+    cli.main(["report"])
     out = capsys.readouterr().out
     assert "Kosten: 0.00 USD" in out
     assert "Exit-Code: 4" in out
@@ -948,11 +949,11 @@ def test_development_target_flags_only_exist_for_development_runs():
 
 def test_every_run_persists_its_findings(artifact_sandbox, capsys):
     """Plan 2.7: jeder CLI-Lauf persistiert die Fehler strukturiert."""
-    assert cli.main(["review", "export"]) == int(ExitCode.PREFLIGHT_BLOCKED)
-    target = artifact_sandbox / "reports" / "review_export" / "errors.json"
+    assert cli.main(["report"]) == int(ExitCode.PREFLIGHT_BLOCKED)
+    target = artifact_sandbox / "reports" / "report" / "errors.json"
     payload = json.loads(target.read_text(encoding="utf-8"))
     assert [f["code"] for f in payload["findings"]] == ["CLI_STAGE_NOT_IMPLEMENTED"]
-    assert "reports/review_export/errors.json" in capsys.readouterr().out
+    assert "reports/report/errors.json" in capsys.readouterr().out
 
 
 def test_usage_error_still_produces_a_report(artifact_sandbox, capsys):
@@ -967,7 +968,7 @@ def test_failing_persistence_warns_but_does_not_break_the_run(monkeypatch, capsy
         raise OSError("Dateisystem voll")
 
     monkeypatch.setattr(paths, "artifact_path", refuse)
-    assert cli.main(["review", "export"]) == int(ExitCode.PREFLIGHT_BLOCKED)
+    assert cli.main(["report"]) == int(ExitCode.PREFLIGHT_BLOCKED)
     out = capsys.readouterr().out
     assert "CLI_REPORT_NOT_PERSISTED" in out
     assert "CLI_STAGE_NOT_IMPLEMENTED" in out

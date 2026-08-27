@@ -31,6 +31,7 @@ from . import (
     paths,
     prompts,
     provider,
+    review as review_module,
     roster_coverage,
     taxonomy_snapshot,
     taxonomy_source,
@@ -122,8 +123,9 @@ COMMANDS: tuple[Command, ...] = (
     Command("run", "reconcile", Stage.WORKFLOW, "P7", True,
             "outcome_unknown ueber die OpenRouter-Generation-ID klaeren",
             network=True, requires_run_id=True),
-    Command("review", "export", Stage.REVIEW, "P8", False,
-            "Review-XLSX aus einer Runrevision exportieren"),
+    Command("review", "export", Stage.REVIEW, "P7", False,
+            "Review-XLSX aus einer abgeschlossenen Runrevision exportieren",
+            requires_run_id=True),
     Command("review", "import", Stage.REVIEW, "P8", False,
             "bearbeitete Review-XLSX validiert zurueckimportieren"),
     Command("evaluate", "goldset", Stage.EVALUATION, "P9", True,
@@ -191,6 +193,11 @@ def _add_common_flags(parser: argparse.ArgumentParser, command: Command) -> None
         "--run-id",
         help="bestehende Run-Revision; Snapshotfreigabe und Resume sind daran gebunden",
     )
+    if command.family == "review":
+        parser.add_argument(
+            "--review-id",
+            help="Reviewrevision; ohne Angabe 'review-<run-id>'",
+        )
     if command.family in ("run", "evaluate"):
         parser.add_argument("--chamber", help="nur Entwicklungsruns: Kammerfilter")
         parser.add_argument("--committee", help="nur Entwicklungsruns: Committee-Filter")
@@ -1519,6 +1526,46 @@ def handle_run_reconcile(
     ], written
 
 
+def handle_review_export(
+    command: Command, namespace: argparse.Namespace,
+    collector: ErrorCollector, settings: MatcherSettings,
+    reporter: TerminalReporter,
+) -> tuple[list[str], list[str]]:
+    """Exportiert das Review-Workbook einer abgeschlossenen Revision (Plan 2.8)."""
+    if _missing_run_id(command, namespace, collector):
+        return [], []
+    run_id = _run_id(namespace)
+    review_id = str(getattr(namespace, "review_id", None) or f"review-{run_id}").strip()
+    reporter.start(Stage.REVIEW, run=run_id, review=review_id)
+    try:
+        exported = review_module.export_review(run_id, review_id)
+    except MatcherError as exc:
+        collector.extend(exc.findings)
+        reporter.error(Stage.REVIEW, run=run_id, review=review_id,
+                       code=exc.findings[0].code if exc.findings else "REV_EXPORT_FAILED")
+        return [f"Run:      {run_id}", "Export:   blockiert"], []
+
+    if exported.incomplete_units:
+        collector.warning(
+            "REV_UNITS_WITHOUT_DECISION", Stage.REVIEW,
+            f"{len(exported.incomplete_units)} Unit(s)",
+            "Einzelne Units des Laufs tragen kein Urteil und stehen deshalb "
+            "nicht im Workbook.",
+            "unit_coverage.csv nennt Status und Grund; betroffene Units in "
+            "einer neuen Revision wiederholen und danach erneut exportieren.")
+        reporter.warn(Stage.REVIEW, review=review_id,
+                      without_decision=len(exported.incomplete_units))
+    reporter.ok(Stage.REVIEW, review=review_id, rows=exported.rows,
+                boundary=exported.boundary_rows)
+    return [
+        f"Run:      {run_id}",
+        f"Review:   {review_id} | {exported.rows} Zeile(n) | "
+        f"{exported.boundary_rows} Boundary-Konflikt(e)",
+        "Hinweis:  model_*-Spalten bleiben unveraendert; Zeilen weder loeschen "
+        "noch umsortieren; neue Zuordnung als neue Zeile ohne row_id.",
+    ], list(exported.files())
+
+
 #: Bereits implementierte Aktionen; alles andere meldet die Zielphase.
 HANDLERS = {
     "provider check": handle_provider_check,
@@ -1531,6 +1578,7 @@ HANDLERS = {
     "run plan": handle_run_plan,
     "run execute": handle_run_execute,
     "run reconcile": handle_run_reconcile,
+    "review export": handle_review_export,
 }
 
 
