@@ -21,6 +21,7 @@ import re
 import sys
 from datetime import datetime, timezone
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Mapping, Sequence
 
 from . import SCAFFOLD_VERSION
@@ -126,8 +127,9 @@ COMMANDS: tuple[Command, ...] = (
     Command("review", "export", Stage.REVIEW, "P7", False,
             "Review-XLSX aus einer abgeschlossenen Runrevision exportieren",
             requires_run_id=True),
-    Command("review", "import", Stage.REVIEW, "P8", False,
-            "bearbeitete Review-XLSX validiert zurueckimportieren"),
+    Command("review", "import", Stage.REVIEW, "P7", False,
+            "bearbeitete Review-XLSX validiert zurueckimportieren",
+            requires_run_id=True),
     Command("evaluate", "goldset", Stage.EVALUATION, "P9", True,
             "Entwicklungs-Gold-Set auswerten"),
     Command("qualify", "holdout", Stage.EVALUATION, "P10", True,
@@ -197,6 +199,10 @@ def _add_common_flags(parser: argparse.ArgumentParser, command: Command) -> None
         parser.add_argument(
             "--review-id",
             help="Reviewrevision; ohne Angabe 'review-<run-id>'",
+        )
+        parser.add_argument(
+            "--workbook",
+            help="bearbeitete XLSX; ohne Angabe die Datei der Reviewrevision",
         )
     if command.family in ("run", "evaluate"):
         parser.add_argument("--chamber", help="nur Entwicklungsruns: Kammerfilter")
@@ -1566,6 +1572,70 @@ def handle_review_export(
     ], list(exported.files())
 
 
+def handle_review_import(
+    command: Command, namespace: argparse.Namespace,
+    collector: ErrorCollector, settings: MatcherSettings,
+    reporter: TerminalReporter,
+) -> tuple[list[str], list[str]]:
+    """Importiert das bearbeitete Workbook einer Reviewrevision (Plan 2.8)."""
+    if _missing_run_id(command, namespace, collector):
+        return [], []
+    run_id = _run_id(namespace)
+    review_id = str(getattr(namespace, "review_id", None) or f"review-{run_id}").strip()
+    reporter.start(Stage.REVIEW, run=run_id, review=review_id, action="import")
+
+    run_manifest = workflow.load_manifest(run_id)
+    if run_manifest is None:
+        collector.blocker(
+            "REV_MANIFEST_MISSING", Stage.REVIEW, run_id,
+            "Zur Revision fehlt das Runmanifest.",
+            "Ohne Manifest ist die Bindung des Reviews nicht pruefbar.")
+        reporter.error(Stage.REVIEW, run=run_id, code="REV_MANIFEST_MISSING")
+        return [f"Run:      {run_id}", "Import:   blockiert"], []
+
+    corpus = input_corpus.load_documents(collector, settings.offline)
+    units = unit_module.build_units(collector, corpus.documents)
+    snapshot = taxonomy_snapshot.approved_snapshot(collector)
+    if collector.has_blockers() or snapshot is None:
+        reporter.error(Stage.REVIEW, run=run_id, code="REV_PREFLIGHT")
+        return [f"Run:      {run_id}", "Import:   blockiert"], []
+
+    given = getattr(namespace, "workbook", None)
+    workbook = Path(str(given)).expanduser().resolve() if given else None
+    try:
+        imported = review_module.import_review(
+            review_id, corpus={unit.unit_id: unit for unit in units},
+            snapshot=snapshot, run_manifest=run_manifest,
+            input_manifest_hash=corpus.manifest_sha256,
+            collector=collector, workbook=workbook)
+    except MatcherError as exc:
+        collector.extend(exc.findings)
+        reporter.error(Stage.REVIEW, run=run_id, review=review_id,
+                       code=exc.findings[0].code if exc.findings else "REV_IMPORT_FAILED")
+        return [f"Run:      {run_id}", "Import:   blockiert"], []
+
+    if imported is None:
+        reporter.error(Stage.REVIEW, review=review_id, rejected=None,
+                       findings=len(collector.blockers))
+        return [
+            f"Run:      {run_id}",
+            f"Review:   {review_id}",
+            "Import:   abgelehnt; keine Datei geschrieben",
+        ], []
+
+    reporter.ok(Stage.REVIEW, review=review_id, units=imported.units,
+                assignments=imported.assignments,
+                manual=imported.manual_assignments)
+    return [
+        f"Run:      {run_id}",
+        f"Review:   {review_id} | {imported.units} Unit(s) | "
+        f"{imported.assignments} Zuordnung(en) | {imported.manual_assignments} manuell | "
+        f"{imported.no_mapping_units} no_mapping",
+        "Ergebnis: reviewed_assignments.csv und reviewed_unit_coverage.csv "
+        "geschrieben",
+    ], list(imported.files)
+
+
 #: Bereits implementierte Aktionen; alles andere meldet die Zielphase.
 HANDLERS = {
     "provider check": handle_provider_check,
@@ -1579,6 +1649,7 @@ HANDLERS = {
     "run execute": handle_run_execute,
     "run reconcile": handle_run_reconcile,
     "review export": handle_review_export,
+    "review import": handle_review_import,
 }
 
 
