@@ -1054,6 +1054,62 @@ Der frühere Aufruf `python -m scripts.committee_mapping_agent.run ...` ist nach
 dem V1-Rückbau nicht mehr verfügbar; der produktive Mapping-Master bleibt
 unverändert.
 
+### Kompaktablauf — Entwicklungsrun bis reviewed CSV
+
+Ein Run-ID bleibt vom Snapshot bis zum Review unverändert; Beispiel:
+`RUN_ID=dev-agriculture-20260827`.
+
+```text
+Input + Roster prüfen
+  -> Taxonomie abrufen + prüfen + freigeben
+  -> Providerroute prüfen
+  -> kleinen Entwicklungsrun planen
+  -> Kosten prüfen
+  -> kostenpflichtig ausführen
+  -> bei Exit 8: abgleichen, dann fortsetzen
+  -> Excel-Workbook exportieren
+  -> in Excel reviewen
+  -> validiert importieren
+  -> reviewed_assignments.csv an import_trades übergeben
+```
+
+```bash
+# 1. Lokale Vorprüfungen; keine Modellkosten
+RUN_ID=dev-agriculture-20260827
+venv/bin/python -m committee_matcher input validate --run-id "$RUN_ID"
+venv/bin/python -m committee_matcher roster validate --run-id "$RUN_ID"
+
+# 2. Aktuelle Industry-Taxonomie; Netzwerk, keine Modellkosten
+venv/bin/python -m committee_matcher snapshot build --run-id "$RUN_ID"
+# Bei Unterbrechung: snapshot resume statt build
+venv/bin/python -m committee_matcher snapshot approve --run-id "$RUN_ID"
+
+# 3. Routing kostenlos prüfen; danach kleinen Run ohne Modellcall planen
+venv/bin/python -m committee_matcher provider check --run-id "$RUN_ID"
+venv/bin/python -m committee_matcher run plan --run-id "$RUN_ID" \
+  --committee "Committee on Agriculture"
+
+# 4. Plan + Worst-Case-Kosten prüfen; erst dann Modellcall starten
+venv/bin/python -m committee_matcher run execute --run-id "$RUN_ID"
+
+# Nur bei Exit 8 (outcome_unknown): Providerausgang klären, danach execute erneut
+venv/bin/python -m committee_matcher run reconcile --run-id "$RUN_ID"
+venv/bin/python -m committee_matcher run execute --run-id "$RUN_ID"
+
+# 5. Review; Werte im Blatt 'assignments' direkt ändern
+venv/bin/python -m committee_matcher review export --run-id "$RUN_ID"
+venv/bin/python -m committee_matcher review import --run-id "$RUN_ID"
+```
+
+Ergebnis nach erfolgreichem Import:
+`data/committee_matcher_v2/reviews/review-<RUN_ID>/reviewed_assignments.csv`.
+Diese Datei ist die vorgesehene Übergabe an `import_trades`; der genaue
+Aufruf für diese Übernahme bleibt offen.
+
+Offen: P8-Live-Roundtrip; `evaluate goldset`, `qualify holdout`, `full-run`,
+`report` + ihr Bedienablauf. Diese Kommandos bis zur Implementierung nicht
+ausführen; sie enden derzeit mit Exit 4.
+
 ```bash
 python -m committee_matcher --help
 python -m committee_matcher input validate      # Corpus + Units + Sollmenge
@@ -1727,48 +1783,61 @@ Ohne `--review-id` heißt die Revision `review-<run_id>`; sie liegt unter
 `data/committee_matcher_v2/reviews/<review_id>/`. Weder ein Export noch ein
 Import überschreibt eine bestehende Reviewrevision.
 
-**Bearbeitungsregeln im Workbook.**
+**Blätter des Workbooks.**
 
-| Vorgang | Eintrag |
+| Blatt | Zweck |
 |---|---|
-| Zuordnung unverändert übernehmen | nichts eintragen |
-| Industry, Confidence, Evidence oder Rationale ändern | `review_*`-Feld füllen (`review_action=edit` optional) |
-| Zuordnung entfernen | `review_action=delete` plus `review_note` |
-| Neue Zuordnung | neue Zeile ohne `row_id`, nur `model_unit_id` und die `review_*`-Felder |
-| `mapped → no_mapping` | `review_decision=no_mapping` plus `review_no_mapping_reason`, übrige Reviewfelder leer |
-| `no_mapping → mapped` | `review_decision=mapped` plus Industry, Confidence, Evidence und Rationale |
+| `assignments` | die Arbeitstabelle; hier wird geändert |
+| `boundary` | Übersicht doppelter Industries in einer Committee-Familie; kein Eingabefeld |
+| `taxonomy` | alle zulässigen `industry_id` des Laufsnapshots; speist die Auswahlliste |
+| `info` | Bindung an Lauf, Snapshot und Modell im Klartext |
+
+Spalten des Blatts `assignments`: `unit_id`, `chamber`, `committee_name`,
+`unit_name`, `unit_kind`, `industry_id`, `confidence`, `evidence_excerpt`,
+`rationale_short`, `no_mapping_reason`.
+
+**Bearbeitung.** Werte direkt ändern, sonst nichts. Es gibt keine Aktions-,
+Entscheidungs- oder Notizspalte; was geschehen ist, rechnet der Import selbst
+aus, indem er jede Zeile gegen die Artefakte des Laufs hält.
+
+| Vorgang | Handgriff |
+|---|---|
+| Zuordnung übernehmen | nichts tun |
+| Industry, Confidence, Evidence oder Rationale ändern | Zelle überschreiben |
+| Zuordnung entfernen | Zeile löschen |
+| Einheit ohne jede Zuordnung | `industry_id` leeren, `no_mapping_reason` optional |
+| Neue Zuordnung | Zeile anhängen, `unit_id` und `industry_id` füllen |
 | Boundary-Konflikt | nichts zu tun; Blatt `boundary` ist reine Information |
 
-Belegpflichten: eine neue oder geänderte Industry verlangt
-`review_evidence_excerpt` **und** `review_rationale_short`; eine allein
-geänderte Confidence verlangt `review_rationale_short`; eine gelöschte
-Zuordnung verlangt `review_note`.
+Keine Belegpflicht: Evidence, Rationale und Grund sind Textfelder, keine
+Bedingungen. Eine geänderte oder neue Zeile bekommt automatisch
+`assignment_source=manual` und keine Callprovenienz; eine unveränderte Zeile
+behält beides.
+
+Der Import meldet nach dem Schreiben die Änderungsbilanz gegen den Lauf
+(`geändert | neu | entfernt`). Sie ist der Ersatz für die frühere
+Löschbestätigung: Eine versehentlich gelöschte Zeile fällt an der Zahl auf.
 
 **Was der Import ablehnt** (Exit 7, keine Datei wird geschrieben):
 
 | Code | Bedeutung |
 |---|---|
 | `REV_STALE_BINDING` | Snapshot, Taxonomiehash, Inputmanifest oder Modell weichen vom Export ab |
-| `REV_MODEL_FIELD_CHANGED` | eine `model_*`-Spalte wurde verändert |
-| `REV_ROW_MISSING` / `REV_ROW_DUPLICATE` / `REV_ROW_UNKNOWN` | Zeile gelöscht, kopiert oder mit eigener ID versehen |
+| `REV_WORKBOOK_CONTRACT` | Blatt oder Spaltenkopf umbenannt, verschoben oder entfernt |
 | `REV_FORMULA_CELL` | eine Zelle enthält eine Formel statt eines Werts |
-| `REV_EVIDENCE_REQUIRED` / `REV_RATIONALE_REQUIRED` / `REV_DELETE_NOTE_REQUIRED` | Belegpflicht verletzt |
-| `REV_NO_MAPPING_NOT_EMPTY` / `REV_NO_MAPPING_REASON_REQUIRED` | `no_mapping` ohne Grund oder mit gefüllten Feldern |
-| `REV_UNIT_DECISION_CONFLICT` | Unit trägt `no_mapping` und zugleich Zuordnungen |
-| `REV_TOO_MANY_ASSIGNMENTS` / `REV_BROAD_SCOPE_NOT_ALLOWED` | 0/2/5- oder Broad-Scope-Regel verletzt |
-| `REV_UNKNOWN_INDUSTRY` / `REV_INDUSTRY_DUPLICATE` | Industry unbekannt oder doppelt |
+| `REV_UNIT_MISSING` / `REV_UNIT_UNKNOWN` | Zeile ohne `unit_id` oder mit einer, die es nicht gibt |
+| `REV_UNKNOWN_INDUSTRY` | `industry_id` steht nicht im Snapshot des Laufs |
+| `REV_INDUSTRY_DUPLICATE` | dieselbe Industry zweimal bei derselben Einheit |
+| `REV_CONFIDENCE_INVALID` | Confidence ist keine ganze Zahl 1..5 |
 
-Das Blatt `boundary` trägt kein Eingabefeld und wird beim Import nicht
-gelesen. Es zeigt nur, wo mehrere Einheiten derselben Committee-Familie
-dieselbe Industry tragen — meist zu Recht. Willst du eine dieser Zuordnungen
-doch nicht, löschst du sie im Blatt `assignments` mit `review_action=delete`
-und einer `review_note`; ein zweiter Entscheidungsweg für denselben Sachverhalt
-existiert bewusst nicht.
+Nur als Warnung (Exit 2, Datei wird geschrieben): `REV_ASSIGNMENTS_ABOVE_LIMIT`
+— mehr Zuordnungen als der Modellvertrag erlaubt. Die 0/2/5-Regel diszipliniert
+das Modell; über den Einzelfall entscheidet der Review.
 
 Angenommen entstehen `reviewed_assignments.csv`, `reviewed_unit_coverage.csv`
 und `import_manifest.json`. Sektor- und Industrienamen leitet der Import aus dem
-Snapshot ab; eine manuell erzeugte oder geänderte Zeile trägt
-`assignment_source=manual` und erbt keine Callprovenienz.
+Snapshot ab, damit ein Tippfehler im Namen nicht ins Ergebnis wandert; die
+`industry_id` ist die Wahrheit.
 
 ## 16. Ausgelagerter Analyse-Workflow
 

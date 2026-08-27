@@ -318,14 +318,19 @@ Die XLSX trennt unveränderliche `model_*`-Felder von editierbaren
   Evidence-, Rationale- und Broad-Scope-Reviewfelder;
 - neue/geänderte Industry verlangt Review-Evidence und -Rationale; reine
   Confidenceänderung verlangt Review-Rationale;
-- eine gelöschte Zuordnung verlangt immer eine `review_note`;
-- jede manuelle Feldänderung setzt die effektive Assignment-Provenienz auf
-  `manual`, während der Modelldraft erhalten bleibt;
+- der Review trägt keine Aktionen, Entscheidungen oder Begründungen ein: er
+  ändert Werte, löscht Zeilen oder hängt welche an. Was geschehen ist, rechnet
+  der Import aus dem Vergleich gegen die Laufartefakte aus
+  (Entscheidung 2026-08-27);
+- jede Wertabweichung gegenüber dem Lauf setzt die Assignment-Provenienz auf
+  `manual`; der Modelldraft bleibt in den Laufartefakten erhalten;
 - Sektorwerte werden beim Import aus dem Snapshot abgeleitet und nicht aus
   Excel vertraut; Unitzeilen dürfen weder fehlen noch hinzukommen;
 - stale Input-, Snapshot- oder Exportbindung blockiert den gesamten Import;
-- read-only Felder werden gegen das Exportmanifest geprüft, nicht nur durch
-  Excel-Zellschutz;
+- geprüft wird nur, was das Ergebnis unbrauchbar machen würde: unbekannte
+  Unit, unbekannte Industry, doppelte Industry, unlesbare Confidence, Formel,
+  stale Bindung. Die 0/2/5- und Broad-Scope-Regeln gelten für den Review als
+  Warnung, nicht als Sperre — sie disziplinieren das Modell;
 - Boundary-Konflikte sind reine Information: Das Blatt `boundary` trägt kein
   Eingabefeld und wird beim Import nicht gelesen, da eine Überlappung
   getrennter Zuständigkeiten der Regelfall ist. Wer eine der Zuordnungen nicht
@@ -333,8 +338,8 @@ Die XLSX trennt unveränderliche `model_*`-Felder von editierbaren
   denselben Sachverhalt entfällt (Entscheidung 2026-08-27);
 - reviewed Artefakte entstehen erst ohne `not_decided`, `failed` oder
   `needs_followup`. Drafts und alte Revisionen bleiben erhalten.
-- Der Import erzwingt dieselben 0/2/5- und Broad-Scope-Regeln wie das
-  Modellresultat; jede Unit benötigt den finalen Reviewstatus `reviewed`.
+- jede Unit bekommt den finalen Reviewstatus `reviewed`; die Änderungsbilanz
+  (geändert, neu, entfernt) steht im Terminalbericht und im Importmanifest.
 
 ## 3. Implementierungsphasen und Gates
 
@@ -355,7 +360,7 @@ Die XLSX trennt unveränderliche `model_*`-Felder von editierbaren
 | P7a Runzustand | abgeschlossen | `workflow.py`: Runmanifest, Laufzustand (Workflow-/Unitstatus getrennt), Auditspur und Kostenwache als Providerdekorator, Cache-Key ohne gerouteten Endpoint (Gate-B-Folge), Resume-Bindung an die ergebnisbestimmenden Manifestfelder; 72 netzwerkfreie Tests; Phasenreview (GPT Sol) mit fünf hohen Befunden, drei behoben (Kostenbuchung vor der Persistenz, offener Callausgang ohne Autoretry, beschädigter Laufzustand hält an statt neu zu starten), einer abgelehnt (Redaktion der Modellantwort im Audit), einer als SDK-Grenze dokumentiert (Request-/Upstream-ID) |
 | P7b Ergebnisartefakte | abgeschlossen | `artifacts.py`: Long-CSV je Unit-Industry-Zuordnung, Unit-Coverage über die volle Sollmenge, Boundary-Konflikte, Roster-Coverage und Kostenbericht; Provenienz ausschließlich aus Runmanifest und Snapshot, Schreiben als Alles-oder-nichts mit sieben Blockerprüfungen; 66 netzwerkfreie Tests; Phasenreview (GPT Sol) + zwei Nachpruefungen mit 18 hohen Befunden, alle behoben: Write-Ahead-Vormerkung je Call (`calls/<call_id>.intent.json`, `open_intents`), vollstaendige Callprovenienz je entschiedener Unit inklusive `from_repair`, Zustandsvertrag `run-state-v2`, keine Call-ID zweimal, vollstaendige Runbindung (Laufzustand, Snapshotrevision, Unitzahl), Zustandsinvariante in beide Richtungen, Rollback + Abschlussmarker als einzige Vollstaendigkeitsprobe, Roster-Coverage gegen die Zahl der Rostervorkommen, Kostenbericht deckungsgleich mit der Kostenwache; abgelehnt: Run-Lock (serieller Workflow), Praefix-Neutralisierung der CSV (stille Wertaenderung) - offen zur Entscheidung: CSV-Formelinterpretation in Excel |
 | P7c Laufkommandos | abgeschlossen | Commits `0a70931` + `7580f76`; `run plan` (providerfreie Vorschau), `run execute` (Mappinglauf mit Resume, Kostenwache, Artefaktschreiben) und `run reconcile` (Klaerung offener Calls gegen die Providerhistorie, Ergebnis in `calls/<call_id>.reconciled.json`); neues Setting `RECONCILE_MIN_AGE_S` (Frischeschutz gegen verzoegerte Generationen); Fehlerberichte an den Lauf gebunden (`runs/<run_id>/reports/`); Phasenreview (GPT Sol) mit 13 Befunden, alle bearbeitet, zwei begruendet abgelehnt (Bestaetigungsflag nach `charged`, `snapshot_id` in der Resume-Bindung) |
-| P7d Review-Roundtrip | abgeschlossen | Commits `f081bf5` + `215a5b7`; `review.py` mit `review export` (XLSX-Workbook aus den Laufartefakten, Zeilenhash je Modellzeile, Exportmanifest) und `review import` (Bindungspruefung, Formelabwehr, Aktionen `keep|edit|delete|add`, Boundary-Entscheid, 0/2/5- und Broad-Scope-Regeln erneut erzwungen); Ergebnis `reviewed_assignments.csv` + `reviewed_unit_coverage.csv` unter `reviews/<review_id>/`; 38 netzwerkfreie Tests |
+| P7d Review-Roundtrip | abgeschlossen | Commits `f081bf5`, `215a5b7`, `5904eca`, `14660fb` + Vereinfachung 2026-08-27; `review.py` mit `review export` (XLSX aus den Laufartefakten; Blätter `assignments`, `boundary`, `taxonomy`, `info`; Auswahlliste der Industries) und `review import` (Bindungsprüfung, Formelabwehr, Provenienz aus dem Wertevergleich gegen den Lauf, Änderungsbilanz); Workbook ohne Steuerspalten: Wert ändern, Zeile löschen, Zeile anhängen; Ergebnis `reviewed_assignments.csv` + `reviewed_unit_coverage.csv` unter `reviews/<review_id>/`; 39 netzwerkfreie Tests |
 | S3 Terminalstatus Input/Roster/Snapshot | abgeschlossen | Commit `cb2fcab`; `input validate`, `roster validate` und `snapshot approve` melden nach dem Statusvertrag S1-S5; Reporter bis in `taxonomy_source.py` (Retryhinweis je Fetch) und `taxonomy_snapshot.py` (Checkpoint, Driftgate als `WAIT`) durchgereicht |
 | S4 Terminalstatus Mappinglauf und Review, P8 Evaluation | offen | Fortschrittsmeldung je Batch waehrend `run execute`, Statusmeldungen fuer `review export|import`; danach Entwicklungsrun mit vollem Roundtrip |
 

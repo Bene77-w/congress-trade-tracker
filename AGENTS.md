@@ -48,6 +48,7 @@ git merge --no-ff agent/<name> -m "Merge agent/<name>: ..."
 - Committee Matcher V2; P0-P7d + S3 implementiert; Gate B am 2026-08-21 beschlossen (Modell `deepseek/deepseek-v4-flash-0731`, freie Providerwahl, Kostenwache)
 - Providersettings gesetzt + Routing-Preflight `provider check` live; Contract-Smoke am 2026-08-22 live bestanden (Routing `Morph`, 0,000018 USD, Exit 0)
 - Kern vollstaendig: `mapping.py` + `validation.py` (P6), `workflow.py` (P7a), `artifacts.py` (P7b), Laufkommandos `run plan|execute|reconcile` (P7c), Review-Roundtrip `review export|import` (P7d)
+- Review-Workbook ist eine Arbeitstabelle ohne Steuerspalten: Wert aendern, Zeile loeschen, Zeile anhaengen; Provenienz + Aenderungsbilanz rechnet der Import aus dem Vergleich gegen die Laufartefakte
 - Ablauf: Mapping -> Review in Excel -> `reviewed_assignments.csv` -> Uebernahme in `import_trades`
 - Offen: Terminalstatus S4 (Fortschritt waehrend `run execute`, Statusmeldungen fuer `review`), P8 Entwicklungsrun mit vollem Roundtrip live, Phasenreviews (GPT Sol) fuer P7c-Nachpruefung, P7d und S3
 - Entschieden 2026-08-27: CSV-Formelinterpretation bleibt unveraendert (Review laeuft ausschliesslich ueber die Excel), Confidence-Rubrik bleibt vierstufig, `unit_id` bleibt Modellfeld (Fehler faellt ueber Anzahl- und Evidenzpruefung auf), Boundary-Konflikte sind reine Information ohne Eingabefeld

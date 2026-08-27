@@ -11,6 +11,35 @@ Historie abgeschlossener Module/Phasen. **Aktiver WIP-Modul-Stand** steht im „
 
 ---
 
+## 2026-08-27 — Committee Matcher V2: Review-Workbook als Arbeitstabelle
+
+Das Workbook verlangt keine Eintraege mehr, die nicht der Sache dienen. Die
+Spalten `review_action`, `review_decision`, `review_note`, die Broad-Scope-
+Flags und die `model_*`-Spiegelspalten sind ersatzlos entfallen, ebenso die
+Boundary-Aktionen und saemtliche Belegpflichten.
+
+Geblieben ist eine Tabelle mit den Werten selbst: Wert aendern, Zeile
+loeschen, Zeile anhaengen. Was geschehen ist, rechnet der Import aus dem
+Vergleich gegen die Laufartefakte aus - gleiche Werte heisst Modellzeile mit
+Callprovenienz, abweichende heisst `assignment_source=manual` ohne Provenienz,
+fehlende Zeile heisst entfernt. Statt der frueheren Pflichtbestaetigung nennt
+der Import eine Aenderungsbilanz (geaendert, neu, entfernt); daran faellt eine
+versehentlich geloeschte Zeile auf.
+
+Neu ist das Blatt `taxonomy` mit allen zulaessigen Industries des
+Laufsnapshots; es speist zugleich die Auswahlliste der Spalte `industry_id`.
+Abgelehnt wird nur noch, was das Ergebnis unbrauchbar machen wuerde: unbekannte
+Unit, unbekannte Industry, doppelte Industry, unlesbare Confidence, Formel,
+stale Bindung. Die 0/2/5-Regel des Modellvertrags ist fuer den Review eine
+Warnung - ueber den Einzelfall entscheidet der Mensch.
+
+Vertragsversionen: `review-workbook-v2`, `review-export-v2`,
+`review-import-v2`.
+
+Tests: 1852 netzwerkfrei, gruen.
+
+---
+
 ## 2026-08-27 — Committee Matcher V2: P7c/P7d Laufkommandos und Review-Roundtrip
 
 Der Ablauf steht jetzt durchgehend: Mapping, Review in Excel, Rueckuebernahme

@@ -2,6 +2,10 @@
 
 Netzwerkfrei: der Lauf wird mit dem Skriptprovider aus den P7c-Tests erzeugt,
 der Export liest ausschliesslich die geschriebenen Artefakte.
+
+Das Workbook ist eine Arbeitstabelle: geprueft wird deshalb, dass eine
+gewoehnliche Handaenderung ohne Zusatzeintrag ankommt und dass der Import
+selbst ausrechnet, was geschehen ist.
 """
 from __future__ import annotations
 
@@ -128,18 +132,24 @@ def test_export_writes_workbook_and_manifest(mapped_run, capsys):
     assert "review-run-test" in out
     book = workbook_of()
     assert book.sheetnames == [review.SHEET_ASSIGNMENTS, review.SHEET_BOUNDARY,
-                               review.SHEET_INFO]
-    rows = rows_of(book[review.SHEET_ASSIGNMENTS])
-    assert rows, "jede entschiedene Unit steht im Workbook"
+                               review.SHEET_TAXONOMY, review.SHEET_INFO]
+    assert rows_of(book[review.SHEET_ASSIGNMENTS]), "jede entschiedene Unit steht drin"
     assert [cell.value for cell in book[review.SHEET_ASSIGNMENTS][1]] == list(
         review.ASSIGNMENT_SHEET_COLUMNS)
-    assert all(row["review_action"] in (None, "") for row in rows)
+
+
+def test_the_sheet_has_no_control_columns(mapped_run):
+    """Wer reviewt, aendert Werte - er fuellt kein Formular aus."""
+    assert cli.main(export_argv()) in (0, 2)
+    header = [cell.value for cell in workbook_of()[review.SHEET_ASSIGNMENTS][1]]
+    assert not [name for name in header
+                if name.startswith(("review_", "model_")) or name == "row_id"]
 
 
 def test_every_decided_unit_has_a_row(mapped_run):
     assert cli.main(export_argv()) in (0, 2)
     rows = rows_of(workbook_of()[review.SHEET_ASSIGNMENTS])
-    units = {row["model_unit_id"] for row in rows}
+    units = {row["unit_id"] for row in rows}
     coverage = workflow.mapping_path("run-test", "unit_coverage.csv").read_text(
         encoding="utf-8").splitlines()[1:]
     decided = {line.split(",")[2] for line in coverage}
@@ -154,9 +164,16 @@ def test_no_mapping_becomes_one_row_without_industry(scripted, capsys):
     assert cli.main(export_argv()) in (0, 2)
     rows = rows_of(workbook_of()[review.SHEET_ASSIGNMENTS])
     assert len(rows) == 3, "eine Zeile je Unit, keine Zuordnungszeile"
-    assert all(row["model_decision"] == "no_mapping" for row in rows)
-    assert all(not row["model_industry_id"] for row in rows)
-    assert all(row["model_no_mapping_reason"] for row in rows)
+    assert all(not row["industry_id"] for row in rows)
+    assert all(row["no_mapping_reason"] for row in rows)
+
+
+def test_the_taxonomy_sheet_lists_the_snapshot(mapped_run):
+    """Ohne Nachschlagewerk muesste Bene die zulaessigen IDs raten."""
+    assert cli.main(export_argv()) in (0, 2)
+    rows = rows_of(workbook_of()[review.SHEET_TAXONOMY])
+    assert {row["industry_id"] for row in rows} == set(INDUSTRY_POOL)
+    assert all(row["sector_id"] for row in rows)
 
 
 def test_manifest_binds_run_snapshot_and_input(mapped_run):
@@ -169,18 +186,7 @@ def test_manifest_binds_run_snapshot_and_input(mapped_run):
                   "model"):
         assert manifest[field] == run_manifest[field]
     rows = rows_of(workbook_of()[review.SHEET_ASSIGNMENTS])
-    assert set(manifest["rows"]) == {row["row_id"] for row in rows}
-
-
-def test_row_hash_covers_every_model_field(mapped_run):
-    assert cli.main(export_argv()) in (0, 2)
-    manifest = manifest_of()
-    rows = rows_of(workbook_of()[review.SHEET_ASSIGNMENTS])
-    row = rows[0]
-    assert review.row_hash(row) == manifest["rows"][row["row_id"]]
-    for column in review.MODEL_COLUMNS:
-        tampered = {**row, column: (row[column] or "") + "x"}
-        assert review.row_hash(tampered) != manifest["rows"][row["row_id"]], column
+    assert set(manifest["units"]) == {row["unit_id"] for row in rows}
 
 
 def test_a_value_starting_with_equals_stays_text(mapped_run):
@@ -238,8 +244,7 @@ def test_units_without_a_decision_are_named_and_left_out(mapped_run, capsys):
     assert "REV_UNITS_WITHOUT_DECISION" in out
     manifest = manifest_of()
     assert len(manifest["incomplete_units"]) == 1
-    units = {row["model_unit_id"]
-             for row in rows_of(workbook_of()[review.SHEET_ASSIGNMENTS])}
+    units = {row["unit_id"] for row in rows_of(workbook_of()[review.SHEET_ASSIGNMENTS])}
     assert manifest["incomplete_units"][0] not in units
 
 
@@ -284,8 +289,15 @@ def edit(path, row_index: int, **values) -> None:
     book.save(path)
 
 
+def delete_row(path, row_index: int = 0) -> None:
+    """Loescht eine Datenzeile, wie es in Excel von Hand geschieht."""
+    book = load_workbook(path)
+    book[review.SHEET_ASSIGNMENTS].delete_rows(row_index + 2)
+    book.save(path)
+
+
 def add_row(path, **values) -> None:
-    """Haengt eine neue Zeile ohne row_id an."""
+    """Haengt eine neue Zeile an."""
     book = load_workbook(path)
     sheet = book[review.SHEET_ASSIGNMENTS]
     header = [cell.value for cell in sheet[1]]
@@ -296,11 +308,22 @@ def add_row(path, **values) -> None:
     book.save(path)
 
 
+def cell_of(path, row_index: int, name: str) -> str:
+    sheet = load_workbook(path)[review.SHEET_ASSIGNMENTS]
+    header = [cell.value for cell in sheet[1]]
+    return sheet.cell(row=row_index + 2, column=header.index(name) + 1).value
+
+
 def reviewed_rows(review_id: str = "review-run-test") -> list[dict[str, str]]:
-    import csv
     text = review.review_path(review_id, review.REVIEWED_ASSIGNMENTS_FILENAME
                               ).read_text(encoding="utf-8")
     return list(csv.DictReader(text.splitlines()))
+
+
+def import_manifest(review_id: str = "review-run-test") -> dict:
+    return json.loads(
+        review.review_path(review_id, review.IMPORT_MANIFEST_FILENAME)
+        .read_text(encoding="utf-8"))
 
 
 def test_an_untouched_workbook_imports_unchanged(exported, capsys):
@@ -310,128 +333,158 @@ def test_an_untouched_workbook_imports_unchanged(exported, capsys):
     rows = reviewed_rows()
     assert rows, "jede Zuordnung steht in der reviewten CSV"
     assert all(row["assignment_source"] == "model" for row in rows)
-    assert all(row["review_action"] == "keep" for row in rows)
-    manifest = json.loads(
-        review.review_path("review-run-test", review.IMPORT_MANIFEST_FILENAME)
-        .read_text(encoding="utf-8"))
+    assert all(row["call_id"] for row in rows), "Callprovenienz bleibt erhalten"
+    manifest = import_manifest()
     assert manifest["review_status"] == "reviewed"
     assert manifest["manual_assignment_count"] == 0
+    assert (manifest["changed_assignments"], manifest["added_assignments"],
+            manifest["removed_assignments"]) == (0, 0, 0)
 
 
-def test_a_changed_industry_needs_evidence_and_rationale(exported, capsys):
-    edit(exported, 0, review_industry_id="gold")
-    assert cli.main(import_argv()) == int(ExitCode.REVIEW_IMPORT_REJECTED)
-    assert "REV_EVIDENCE_REQUIRED" in capsys.readouterr().out
-    assert not review.reviewed_path_exists("review-run-test")
-
-
-def test_a_changed_industry_with_evidence_becomes_manual(exported, capsys, sandbox):
-    # Eine Industry, die im Lauf noch keine Unit traegt: so bleibt der Test
-    # von der Boundary-Pruefung unabhaengig.
-    industry = "oil-gas-midstream"
-    edit(exported, 0, review_industry_id=industry,
-         review_evidence_excerpt="Zustaendig fuer Bergbau",
-         review_rationale_short="Reviewentscheidung")
+def test_a_changed_industry_becomes_manual(exported, capsys):
+    """Eine geaenderte Industry braucht keinen Zusatzeintrag."""
+    edit(exported, 0, industry_id="oil-gas-midstream")
     assert cli.main(import_argv()) in (0, 2)
     capsys.readouterr()
-    rows = reviewed_rows()
-    changed = [row for row in rows if row["industry_id"] == industry]
+    changed = [row for row in reviewed_rows()
+               if row["industry_id"] == "oil-gas-midstream"]
     assert len(changed) == 1
     assert changed[0]["assignment_source"] == "manual"
-    assert changed[0]["review_action"] == "edit"
     assert not changed[0]["call_id"], "eine manuelle Zeile erbt keine Callprovenienz"
     assert changed[0]["sector_id"], "Sektor stammt aus dem Snapshot"
 
 
-def test_a_changed_confidence_needs_a_rationale(exported, capsys):
-    edit(exported, 0, review_confidence="5")
-    assert cli.main(import_argv()) == int(ExitCode.REVIEW_IMPORT_REJECTED)
-    assert "REV_RATIONALE_REQUIRED" in capsys.readouterr().out
-
-
-def test_a_deleted_assignment_needs_a_note(exported, capsys):
-    edit(exported, 0, review_action="delete")
-    assert cli.main(import_argv()) == int(ExitCode.REVIEW_IMPORT_REJECTED)
-    out = capsys.readouterr().out
-    assert "REV_DELETE_NOTE_REQUIRED" in out or "REV_NO_MAPPING_REASON_REQUIRED" in out
-
-
-def test_switching_to_no_mapping_needs_a_reason_and_empty_fields(exported, capsys):
-    edit(exported, 0, review_decision="no_mapping", review_industry_id="gold")
-    assert cli.main(import_argv()) == int(ExitCode.REVIEW_IMPORT_REJECTED)
-    out = capsys.readouterr().out
-    assert "REV_NO_MAPPING_NOT_EMPTY" in out
-    assert "REV_NO_MAPPING_REASON_REQUIRED" in out
-
-
-def test_switching_to_no_mapping_is_accepted(exported, capsys):
-    edit(exported, 0, review_decision="no_mapping",
-         review_no_mapping_reason="keine direkte Zustaendigkeit")
+def test_a_changed_confidence_becomes_manual(exported, capsys):
+    unit_id = cell_of(exported, 0, "unit_id")
+    edit(exported, 0, confidence="5")
     assert cli.main(import_argv()) in (0, 2)
     capsys.readouterr()
-    unit_id = load_workbook(exported)[review.SHEET_ASSIGNMENTS].cell(row=2, column=2).value
-    rows = [row for row in reviewed_rows() if row["unit_id"] == unit_id]
-    assert rows == [], "eine no_mapping-Unit traegt keine Zuordnung"
+    row = [entry for entry in reviewed_rows() if entry["unit_id"] == unit_id][0]
+    assert row["confidence"] == "5"
+    assert row["assignment_source"] == "manual"
+    assert import_manifest()["changed_assignments"] == 1
+
+
+def test_a_changed_rationale_becomes_manual(exported, capsys):
+    edit(exported, 0, rationale_short="Reviewbegruendung")
+    assert cli.main(import_argv()) in (0, 2)
+    capsys.readouterr()
+    assert import_manifest()["changed_assignments"] == 1
+
+
+def test_a_deleted_row_removes_the_assignment(exported, capsys):
+    unit_id = cell_of(exported, 0, "unit_id")
+    delete_row(exported, 0)
+    assert cli.main(import_argv()) in (0, 2)
+    capsys.readouterr()
+    assert not [row for row in reviewed_rows() if row["unit_id"] == unit_id]
+    manifest = import_manifest()
+    assert manifest["removed_assignments"] == 1
+    assert unit_id in manifest["no_mapping_units"], (
+        "die Unit bleibt im Ergebnis, nur ohne Zuordnung")
+
+
+def test_an_empty_industry_means_no_mapping(exported, capsys):
+    unit_id = cell_of(exported, 0, "unit_id")
+    edit(exported, 0, industry_id="", no_mapping_reason="keine direkte Zustaendigkeit")
+    assert cli.main(import_argv()) in (0, 2)
+    capsys.readouterr()
+    assert not [row for row in reviewed_rows() if row["unit_id"] == unit_id]
     coverage = review.review_path(
         "review-run-test", review.REVIEWED_COVERAGE_FILENAME).read_text(encoding="utf-8")
-    assert "no_mapping" in coverage
+    assert "keine direkte Zustaendigkeit" in coverage
+
+
+def test_a_removal_without_a_reason_is_accepted(exported, capsys):
+    """Kein Pflichtfeld: der Reviewgrund steht im Kopf des Reviewers."""
+    delete_row(exported, 0)
+    assert cli.main(import_argv()) in (0, 2)
+    capsys.readouterr()
+    assert review.reviewed_path_exists("review-run-test")
 
 
 def test_a_new_assignment_is_added_as_manual(exported, capsys):
-    unit_id = load_workbook(exported)[review.SHEET_ASSIGNMENTS].cell(row=2, column=2).value
-    add_row(exported, model_unit_id=unit_id, review_industry_id="gold",
-            review_confidence="4", review_evidence_excerpt="Bergbauaufsicht",
-            review_rationale_short="Reviewergaenzung")
+    unit_id = cell_of(exported, 0, "unit_id")
+    add_row(exported, unit_id=unit_id, industry_id="gold", confidence="4",
+            evidence_excerpt="Bergbauaufsicht", rationale_short="Reviewergaenzung")
     assert cli.main(import_argv()) in (0, 2)
     capsys.readouterr()
     added = [row for row in reviewed_rows()
              if row["unit_id"] == unit_id and row["industry_id"] == "gold"]
     assert len(added) == 1
     assert added[0]["assignment_source"] == "manual"
-    assert added[0]["review_action"] == "add"
+    assert import_manifest()["added_assignments"] == 1
 
 
-def test_a_new_row_with_model_values_is_rejected(exported, capsys):
-    unit_id = load_workbook(exported)[review.SHEET_ASSIGNMENTS].cell(row=2, column=2).value
-    add_row(exported, model_unit_id=unit_id, model_industry_id="gold",
-            review_industry_id="gold", review_confidence="4",
-            review_evidence_excerpt="Beleg", review_rationale_short="Grund")
-    assert cli.main(import_argv()) == int(ExitCode.REVIEW_IMPORT_REJECTED)
-    assert "REV_NEW_ROW_NOT_EMPTY" in capsys.readouterr().out
+def test_a_new_assignment_without_evidence_is_accepted(exported, capsys):
+    """Der Mensch belegt nicht gegenueber dem Programm."""
+    unit_id = cell_of(exported, 0, "unit_id")
+    add_row(exported, unit_id=unit_id, industry_id="gold")
+    assert cli.main(import_argv()) in (0, 2)
+    capsys.readouterr()
+    added = [row for row in reviewed_rows()
+             if row["unit_id"] == unit_id and row["industry_id"] == "gold"]
+    assert len(added) == 1
+    assert added[0]["confidence"] == ""
+
+
+def test_reordered_rows_stay_model(exported, capsys):
+    """Umsortieren ist keine Aenderung; der Abgleich laeuft ueber die Werte."""
+    book = load_workbook(exported)
+    sheet = book[review.SHEET_ASSIGNMENTS]
+    first = [cell.value for cell in sheet[2]]
+    last = [cell.value for cell in sheet[sheet.max_row]]
+    for index, value in enumerate(last, start=1):
+        sheet.cell(row=2, column=index, value=value).data_type = "s"
+    for index, value in enumerate(first, start=1):
+        sheet.cell(row=sheet.max_row, column=index, value=value).data_type = "s"
+    book.save(exported)
+    assert cli.main(import_argv()) in (0, 2)
+    capsys.readouterr()
+    assert import_manifest()["manual_assignment_count"] == 0
+
+
+def test_more_assignments_than_the_limit_only_warn(exported, capsys):
+    """Die Anzahlgrenze diszipliniert das Modell, nicht den Reviewer."""
+    unit_id = cell_of(exported, 0, "unit_id")
+    for industry in ("gold", "oil-gas-midstream", "farm-products"):
+        if industry != cell_of(exported, 0, "industry_id"):
+            add_row(exported, unit_id=unit_id, industry_id=industry)
+    assert cli.main(import_argv()) == int(ExitCode.SUCCESS_WITH_WARNINGS)
+    assert "REV_ASSIGNMENTS_ABOVE_LIMIT" in capsys.readouterr().out
+    assert review.reviewed_path_exists("review-run-test")
 
 
 def test_an_unknown_industry_is_rejected(exported, capsys):
-    edit(exported, 0, review_industry_id="gibt-es-nicht",
-         review_evidence_excerpt="Beleg", review_rationale_short="Grund")
+    edit(exported, 0, industry_id="gibt-es-nicht")
     assert cli.main(import_argv()) == int(ExitCode.REVIEW_IMPORT_REJECTED)
     assert "REV_UNKNOWN_INDUSTRY" in capsys.readouterr().out
 
 
-def test_a_changed_model_field_is_rejected(exported, capsys):
-    edit(exported, 0, model_rationale_short="von Hand geaendert")
+def test_an_unknown_unit_is_rejected(exported, capsys):
+    add_row(exported, unit_id="house--gibt-es-nicht", industry_id="gold")
     assert cli.main(import_argv()) == int(ExitCode.REVIEW_IMPORT_REJECTED)
-    assert "REV_MODEL_FIELD_CHANGED" in capsys.readouterr().out
+    assert "REV_UNIT_UNKNOWN" in capsys.readouterr().out
 
 
-def test_a_missing_row_is_rejected(exported, capsys):
-    book = load_workbook(exported)
-    book[review.SHEET_ASSIGNMENTS].delete_rows(2)
-    book.save(exported)
+def test_a_row_without_a_unit_is_rejected(exported, capsys):
+    add_row(exported, industry_id="gold")
     assert cli.main(import_argv()) == int(ExitCode.REVIEW_IMPORT_REJECTED)
-    assert "REV_ROW_MISSING" in capsys.readouterr().out
+    assert "REV_UNIT_MISSING" in capsys.readouterr().out
 
 
-def test_a_duplicated_row_id_is_rejected(exported, capsys):
-    book = load_workbook(exported)
-    sheet = book[review.SHEET_ASSIGNMENTS]
-    header = [cell.value for cell in sheet[1]]
-    line = sheet.max_row + 1
-    for column in range(1, len(header) + 1):
-        cell = sheet.cell(row=line, column=column, value=sheet.cell(row=2, column=column).value)
-        cell.data_type = "s"
-    book.save(exported)
+def test_the_same_industry_twice_is_rejected(exported, capsys):
+    unit_id = cell_of(exported, 0, "unit_id")
+    industry = cell_of(exported, 0, "industry_id")
+    add_row(exported, unit_id=unit_id, industry_id=industry)
     assert cli.main(import_argv()) == int(ExitCode.REVIEW_IMPORT_REJECTED)
-    assert "REV_ROW_DUPLICATE" in capsys.readouterr().out
+    assert "REV_INDUSTRY_DUPLICATE" in capsys.readouterr().out
+
+
+def test_an_unreadable_confidence_is_rejected(exported, capsys):
+    edit(exported, 0, confidence="hoch")
+    assert cli.main(import_argv()) == int(ExitCode.REVIEW_IMPORT_REJECTED)
+    assert "REV_CONFIDENCE_INVALID" in capsys.readouterr().out
 
 
 def test_a_formula_cell_is_rejected(exported, capsys):
@@ -441,6 +494,14 @@ def test_a_formula_cell_is_rejected(exported, capsys):
     book.save(exported)
     assert cli.main(import_argv()) == int(ExitCode.REVIEW_IMPORT_REJECTED)
     assert "REV_FORMULA_CELL" in capsys.readouterr().out
+
+
+def test_a_changed_header_is_rejected(exported, capsys):
+    book = load_workbook(exported)
+    book[review.SHEET_ASSIGNMENTS].cell(row=1, column=6, value="branche")
+    book.save(exported)
+    assert cli.main(import_argv()) == int(ExitCode.PREFLIGHT_BLOCKED)
+    assert "REV_WORKBOOK_CONTRACT" in capsys.readouterr().out
 
 
 def test_a_stale_snapshot_binding_blocks_the_import(exported, capsys):
@@ -454,7 +515,7 @@ def test_a_stale_snapshot_binding_blocks_the_import(exported, capsys):
 
 
 def test_a_rejected_import_writes_nothing(exported, capsys):
-    edit(exported, 0, model_rationale_short="von Hand geaendert")
+    edit(exported, 0, industry_id="gibt-es-nicht")
     assert cli.main(import_argv()) == int(ExitCode.REVIEW_IMPORT_REJECTED)
     capsys.readouterr()
     assert not review.review_path(
@@ -470,7 +531,6 @@ def test_an_imported_revision_is_never_overwritten(exported, capsys):
 
 
 def test_the_workbook_may_come_from_another_path(exported, capsys, tmp_path):
-    import shutil
     copy = tmp_path / "bearbeitet.xlsx"
     shutil.copy(exported, copy)
     exported.unlink()
@@ -514,13 +574,10 @@ def test_an_untouched_conflict_is_accepted(conflicted, capsys):
     assert len(reviewed_rows()) == 3
 
 
-def test_a_conflict_is_resolved_in_the_assignment_sheet(conflicted, capsys):
-    """Wer die Ueberlappung nicht will, loescht die Zeilen mit Notiz."""
-    for index in range(3):
-        edit(conflicted, index, review_action="delete",
-             review_decision="no_mapping",
-             review_note="Zustaendigkeit liegt beim Parent",
-             review_no_mapping_reason="Konflikt zugunsten keiner Unit geloest")
+def test_a_conflict_is_resolved_by_deleting_rows(conflicted, capsys):
+    """Wer die Ueberlappung nicht will, loescht die Zeilen."""
+    for _ in range(3):
+        delete_row(conflicted, 0)
     assert cli.main(import_argv()) in (0, 2)
     capsys.readouterr()
     assert reviewed_rows() == []

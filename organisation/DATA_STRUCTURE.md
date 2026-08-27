@@ -526,58 +526,55 @@ die Artefakte des Laufs nicht berühren. Ohne `--review-id` lautet sie
 
 | Datei | Zweck |
 |---|---|
-| `review.xlsx` | Workbook für den manuellen Review; Blätter `assignments`, `boundary`, `info` |
-| `export_manifest.json` | Bindung des Exports und Zeilenhashes der Modellwerte |
+| `review.xlsx` | Workbook für den manuellen Review; Blätter `assignments`, `boundary`, `taxonomy`, `info` |
+| `export_manifest.json` | Bindung des Exports und die exportierte Unitmenge |
 | `reviewed_assignments.csv` | Long-CSV des angenommenen Reviewstands |
 | `reviewed_unit_coverage.csv` | Stand je Unit nach dem Review |
 | `import_manifest.json` | Zusammenfassung des angenommenen Imports |
 
-`review.xlsx`, Blatt `assignments`: `row_id`, danach die unveränderlichen
-`model_*`-Spalten (`model_unit_id`, `model_chamber`, `model_committee_name`,
-`model_unit_name`, `model_unit_kind`, `model_decision`, `model_industry_id`,
-`model_industry_name`, `model_sector_id`, `model_sector_name`,
-`model_confidence`, `model_evidence_excerpt`, `model_rationale_short`,
-`model_broad_scope_exception`, `model_broad_scope_reason`,
-`model_no_mapping_reason`, `model_assignment_source`) und die editierbaren
-`review_*`-Spalten (`review_action`, `review_decision`, `review_industry_id`,
-`review_confidence`, `review_evidence_excerpt`, `review_rationale_short`,
-`review_broad_scope_exception`, `review_broad_scope_reason`,
-`review_no_mapping_reason`, `review_note`). Eine `mapped`-Unit hat eine Zeile je
-Zuordnung, eine `no_mapping`-Unit genau eine Zeile ohne Industry; Units ohne
-Urteil (`failed`, `not_decided`) stehen nicht im Workbook und werden im
-Exportmanifest unter `incomplete_units` benannt.
+`review.xlsx`, Blatt `assignments`: `unit_id`, `chamber`, `committee_name`,
+`unit_name`, `unit_kind`, `industry_id`, `confidence`, `evidence_excerpt`,
+`rationale_short`, `no_mapping_reason`. Eine Arbeitstabelle ohne Aktions-,
+Entscheidungs- oder Notizspalte: geändert wird der Wert selbst. Eine
+`mapped`-Unit hat eine Zeile je Zuordnung, eine `no_mapping`-Unit genau eine
+Zeile ohne Industry; Units ohne Urteil (`failed`, `not_decided`) stehen nicht im
+Workbook und werden im Exportmanifest unter `incomplete_units` benannt.
 
 Blatt `boundary`: `family_id`, `industry_id`, `industry_name`, `unit_count`,
 `unit_ids`. Reine Information ohne Eingabefeld; der Import liest das Blatt
-nicht. Blatt `info` nennt die Bindung im Klartext.
+nicht. Blatt `taxonomy`: `industry_id`, `industry_name`, `sector_id`,
+`sector_name` — alle zulässigen Industries des Laufsnapshots; das Blatt speist
+zugleich die Auswahlliste der Spalte `industry_id`. Blatt `info` nennt die
+Bindung im Klartext.
 
 Jede Zelle ist eine Textzelle. Ohne den erzwungenen Zelltyp typisierte openpyxl
 einen Wert mit führendem `=` als Formel; Excel zeigte dann ein Rechenergebnis,
 und der Rückimport läse einen anderen Wert als den exportierten. Umgekehrt
 lehnt der Import jede Formelzelle ab (`REV_FORMULA_CELL`).
 
-`export_manifest.json` (`version: review-export-v1`): `review_id`, `run_id`,
+`export_manifest.json` (`version: review-export-v2`): `review_id`, `run_id`,
 `revision_id`, `snapshot_id`, `taxonomy_content_hash`, `input_manifest_hash`,
 `model`, `unit_count`, `row_count`, `boundary_count`, `incomplete_units`,
-`columns` und `rows` (Zeilen-ID → SHA-256 über die Modellwerte in
-Spaltenreihenfolge). Der Hash ist die Read-only-Prüfung des Rückimports; der
-Zellschutz von Excel wird nicht als Beleg akzeptiert.
+`columns` und `units` (die exportierte Unitmenge). Fehlt eine dieser Units
+später komplett im Workbook, wertet der Import das als Entfernung ihrer
+Zuordnungen — nicht als vergessene Unit.
 
 `reviewed_assignments.csv`: die Spalten von `assignments_long.csv`, ergänzt um
-`review_id`, `review_action` und `review_note`. `assignment_source` ist
-`manual`, sobald der Review den Wert erzeugt oder geändert hat; eine manuelle
-Zeile erbt keine Callprovenienz und keine Promptangaben, da kein Modellaufruf
-hinter ihr steht. Industrie- und Sektornamen leitet der Import aus dem Snapshot
-ab, nie aus Excel.
+`review_id`. `assignment_source` ist `manual`, sobald `confidence`,
+`evidence_excerpt`, `rationale_short` oder die `industry_id` einer Zeile vom
+Stand des Laufs abweichen; eine manuelle Zeile erbt keine Callprovenienz und
+keine Promptangaben, da kein Modellaufruf hinter ihr steht. Industrie- und
+Sektornamen leitet der Import aus dem Snapshot ab, nie aus Excel.
 
 `reviewed_unit_coverage.csv`: `review_id`, `run_id`, `unit_id`, `chamber`,
 `committee_name`, `unit_name`, `unit_kind`, `decision`, `assignment_count`,
 `no_mapping_reason`, `broad_scope_exception`, `broad_scope_reason`,
 `manual_assignments`, `review_status`. `import_manifest.json`
-(`version: review-import-v1`) fasst `unit_count`, `assignment_count`,
-`manual_assignment_count`, `no_mapping_units` und die geschriebenen Dateien
-zusammen; seine Existenz macht die Reviewrevision unveränderlich
-(`REV_IMPORT_EXISTS`).
+(`version: review-import-v2`) fasst `unit_count`, `assignment_count`,
+`manual_assignment_count`, die Änderungsbilanz (`changed_assignments`,
+`added_assignments`, `removed_assignments`), `no_mapping_units` und die
+geschriebenen Dateien zusammen; seine Existenz macht die Reviewrevision
+unveränderlich (`REV_IMPORT_EXISTS`).
 
 #### `data/config/committee_matcher_prompts/` (P5, versionierter Kontrollinput)
 

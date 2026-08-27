@@ -1559,8 +1559,14 @@ def handle_review_export(
     run_id = _run_id(namespace)
     review_id = str(getattr(namespace, "review_id", None) or f"review-{run_id}").strip()
     reporter.start(Stage.REVIEW, run=run_id, review=review_id)
+    # Das Workbook fuehrt die zulaessigen Industries als eigenes Blatt mit; ohne
+    # freigegebenen Snapshot gaebe es keine belastbare Auswahlliste.
+    snapshot = taxonomy_snapshot.approved_snapshot(collector)
+    if collector.has_blockers() or snapshot is None:
+        reporter.error(Stage.REVIEW, run=run_id, code="REV_PREFLIGHT")
+        return [f"Run:      {run_id}", "Export:   blockiert"], []
     try:
-        exported = review_module.export_review(run_id, review_id)
+        exported = review_module.export_review(run_id, review_id, snapshot)
     except MatcherError as exc:
         collector.extend(exc.findings)
         reporter.error(Stage.REVIEW, run=run_id, review=review_id,
@@ -1583,8 +1589,9 @@ def handle_review_export(
         f"Run:      {run_id}",
         f"Review:   {review_id} | {exported.rows} Zeile(n) | "
         f"{exported.boundary_rows} Boundary-Konflikt(e)",
-        "Hinweis:  model_*-Spalten bleiben unveraendert; Zeilen weder loeschen "
-        "noch umsortieren; neue Zuordnung als neue Zeile ohne row_id.",
+        "Hinweis:  Werte direkt aendern; Zeile loeschen entfernt die Zuordnung, "
+        "leere industry_id heisst keine Zuordnung, neue Zeile mit unit_id fuegt "
+        "eine hinzu.",
     ], list(exported.files())
 
 
@@ -1641,12 +1648,16 @@ def handle_review_import(
 
     reporter.ok(Stage.REVIEW, review=review_id, units=imported.units,
                 assignments=imported.assignments,
-                manual=imported.manual_assignments)
+                manual=imported.manual_assignments,
+                removed=imported.removed, added=imported.added,
+                changed=imported.changed)
     return [
         f"Run:      {run_id}",
         f"Review:   {review_id} | {imported.units} Unit(s) | "
         f"{imported.assignments} Zuordnung(en) | {imported.manual_assignments} manuell | "
         f"{imported.no_mapping_units} no_mapping",
+        f"Aenderung: {imported.changed} geaendert | {imported.added} neu | "
+        f"{imported.removed} entfernt",
         "Ergebnis: reviewed_assignments.csv und reviewed_unit_coverage.csv "
         "geschrieben",
     ], list(imported.files)
