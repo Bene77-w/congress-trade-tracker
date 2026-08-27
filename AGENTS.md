@@ -45,11 +45,11 @@ git merge --no-ff agent/<name> -m "Merge agent/<name>: ..."
 
 ## Aktueller Stand
 
-- Committee Matcher V2; P0-P7d + S1-S4 implementiert; Gate B am 2026-08-21 beschlossen (Modell `deepseek/deepseek-v4-flash-0731`, freie Providerwahl, Kostenwache)
+- Committee Matcher V2; P0-P7d + S1-S5 implementiert; Gate B am 2026-08-21 beschlossen (Modell `deepseek/deepseek-v4-flash-0731`, freie Providerwahl, Kostenwache)
 - Providersettings gesetzt + Routing-Preflight `provider check` live; Contract-Smoke am 2026-08-22 live bestanden (Routing `Morph`, 0,000018 USD, Exit 0)
 - Kern vollstaendig: `mapping.py` + `validation.py` (P6), `workflow.py` (P7a), `artifacts.py` (P7b), Laufkommandos `run plan|execute|reconcile` (P7c), Review-Roundtrip `review export|import` (P7d), Live-Terminalstatus fuer alle Vorgaenge (S4)
 - Review-Workbook ist eine Arbeitstabelle ohne Steuerspalten: Wert aendern, Zeile loeschen, Zeile anhaengen; Provenienz + Aenderungsbilanz rechnet der Import aus dem Vergleich gegen die Laufartefakte
 - Ablauf: Mapping -> Review in Excel -> `reviewed_assignments.csv` -> Uebernahme in `import_trades`
-- Offen: S5 Statusabnahme (deterministische Terminaltests), P8 Entwicklungsrun mit vollem Roundtrip live, Phasenreviews (GPT Sol) fuer P7c-Nachpruefung, S3 und S4
+- Offen: P8 Entwicklungsrun mit vollem Roundtrip live (kostenpflichtig, Gate), Phasenreviews (GPT Sol) fuer P7c-Nachpruefung, S3 und S5
 - Entschieden 2026-08-27: CSV-Formelinterpretation bleibt unveraendert (Review laeuft ausschliesslich ueber die Excel), Confidence-Rubrik bleibt vierstufig, `unit_id` bleibt Modellfeld (Fehler faellt ueber Anzahl- und Evidenzpruefung auf), Boundary-Konflikte sind reine Information ohne Eingabefeld
 - Detailstand + History; `CHANGELOG.md`; laufende Entscheidungen + Plaene; `organisation/` und `~/.claude/plans/`

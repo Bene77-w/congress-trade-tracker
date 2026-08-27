@@ -11,6 +11,26 @@ Historie abgeschlossener Module/Phasen. **Aktiver WIP-Modul-Stand** steht im „
 
 ---
 
+## 2026-08-28 — Committee Matcher V2: Abnahme des Statusvertrags (S5)
+
+Der Statusplan verlangt mindestens zwoelf deterministische Terminaltests; es
+sind 49. Ergaenzt wurden die Faelle, die bisher fehlten:
+
+- Mapping mit 1, 2 und 5 Industries; die 5 erreicht die Obergrenze des
+  Modellvertrags samt Broad-Scope-Ausnahme, eigener Evidence und eigener
+  Rationale je Zuordnung. Der uebergeordnete Zustaendigkeitskern bleibt dabei
+  bei zwei Zuordnungen, wie sein Unittyp es vorschreibt.
+- Taxonomie-Freigabegate als `WAIT` statt als Fehler, mit Exit 5.
+- Geheimnisfreiheit der Live-Ausgabe: der API-Schluessel taucht in keiner
+  Statuszeile und in keinem Bericht auf.
+- Streamtrennung ueber einen ganzen Lauf: keine Warnung auf `stdout`, keine
+  Fortschrittszeile auf `stderr`.
+- Genau ein Abschlussbericht, sowohl bei Erfolg als auch bei Fehlschlag.
+
+Tests: 1893 passed (49 im Terminalstatus).
+
+---
+
 ## 2026-08-27 — Committee Matcher V2: Terminalstatus des Mappinglaufs (S4)
 
 Der Live-Status deckt jetzt auch die kostenpflichtigen Vorgaenge ab. Vorhanden

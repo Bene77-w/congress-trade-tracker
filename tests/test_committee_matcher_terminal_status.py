@@ -517,3 +517,153 @@ def test_an_interrupted_call_stays_reserved_and_visible(scripted, capsys, monkey
     assert [fields_of(line)["outcome"] for line in costs] == ["charged", "unknown"]
     assert "[ERROR] workflow" in captured.err
     assert status_lines(captured.err, "[ERROR] mapping | batch=")
+
+
+# ---------------------------------------------------------------------------
+# Abnahme des Statusvertrags (Statusplan S5)
+# ---------------------------------------------------------------------------
+
+from tests.test_committee_matcher_run_cli_p7 import (  # noqa: E402,F401
+    INDUSTRIES, api_key,
+)
+from committee_matcher import taxonomy_snapshot  # noqa: E402
+
+#: Fuenf Industries; nur mit ihnen ist die Obergrenze des Modellvertrags
+#: ueberhaupt erreichbar.
+FIVE_INDUSTRIES = INDUSTRIES + [
+    {
+        "industry_id": f"branche-{index}",
+        "industry_name": f"Branche {index}",
+        "sector_id": "industrials",
+        "sector_name": "Industrials",
+        "description": f"Testbranche {index}.",
+    }
+    for index in range(1, 4)
+]
+
+
+def write_baseline(records, run_id: str = "run-taxonomy") -> None:
+    """Legt eine freigegebene Taxonomie mit genau diesen Industries an."""
+    target = taxonomy_snapshot.baseline_path()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(
+        json.dumps({
+            "content_version": taxonomy_snapshot.TAXONOMY_CONTENT_VERSION,
+            "approved_run_id": run_id,
+            "taxonomy_content_hash": taxonomy_snapshot.hash_records(records),
+            "yfinance_version": "0.2.99",
+            "industries": records,
+        }, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8")
+
+
+class CountingProvider(ScriptedProvider):
+    """Ordnet jeder Einheit ``count`` Industries zu, soweit ihr Typ das zulaesst.
+
+    Der uebergeordnete Zustaendigkeitskern eines Committees traegt nach dem
+    Modellvertrag hoechstens zwei Zuordnungen; er bekommt deshalb zwei, auch
+    wenn der Fall fuenf prueft.
+    """
+
+    #: Ein Subcommittee traegt drei Segmente in seiner Kennung.
+    SUBCOMMITTEE_SEGMENTS = 3
+    #: Woertliche Ausschnitte aus dem Zustaendigkeitstext eines Subcommittees.
+    #: Die Broad-Scope-Ausnahme verlangt je Zuordnung eine eigene Evidence.
+    EVIDENCE = (
+        "Zustaendig fuer", "dessen Aufsicht", "sowie alle daran",
+        "anschliessenden Pruefverfahren", "alle daran anschliessenden",
+    )
+
+    def __init__(self, count: int, pool):
+        super().__init__()
+        self.count = count
+        self.pool = list(pool)
+
+    def _count_for(self, unit_id: str) -> int:
+        wide = len(unit_id.split("--")) >= self.SUBCOMMITTEE_SEGMENTS
+        return self.count if wide else min(self.count, 2)
+
+    def complete(self, request):
+        response = super().complete(request)
+        payload = dict(response.payload)
+        units = []
+        for unit in payload["units"]:
+            count = self._count_for(unit["unit_id"])
+            broad = count > 2
+            assignments = []
+            for position, industry_id in enumerate(self.pool[:count]):
+                entry = _assignment(industry_id)
+                if broad:
+                    entry["evidence_excerpt"] = self.EVIDENCE[position]
+                    entry["rationale_short"] = (
+                        f"Eigener Kernbereich {position + 1} dieser Einheit.")
+                assignments.append(entry)
+            units.append({
+                **unit_result(unit["unit_id"], assignments=assignments),
+                "broad_scope_exception": broad,
+                "broad_scope_reason": ("Mehrere getrennte Kernbereiche."
+                                       if broad else None),
+            })
+        payload["units"] = units
+        return replace(response, payload=payload)
+
+
+@pytest.mark.parametrize("count", [1, 2, 5])
+def test_the_unit_line_counts_the_industries_of_the_run(scripted, capsys, count):
+    """Die gemeldete Zahl folgt der Antwort, ueber die ganze Rubrik hinweg."""
+    write_baseline(FIVE_INDUSTRIES)
+    pool = [record["industry_id"] for record in FIVE_INDUSTRIES]
+    install(scripted, CountingProvider(count, pool))
+    capsys.readouterr()
+    cli.main(execute_argv())
+    out = capsys.readouterr().out
+    units = status_lines(out, "[OK] mapping | unit=")
+    assert len(units) == 3, "jede Einheit bekommt ihre Zeile"
+    counted = {fields_of(line)["unit"]: fields_of(line)["industries"]
+               for line in units}
+    wide = {unit_id: value for unit_id, value in counted.items()
+            if len(unit_id.split("--")) >= 3}
+    assert wide and set(wide.values()) == {str(count)}
+    summary = fields_of(status_lines(out, "[INFO] mapping | committee=")[0])
+    assert summary["industries"] == str(count), "die Familie zaehlt eindeutige IDs"
+
+
+def test_a_missing_approval_waits_instead_of_running(sandbox, capsys):
+    """Das Freigabegate ist ein Wartezustand, kein Fehler."""
+    taxonomy_snapshot.baseline_path().unlink()
+    assert cli.main(plan_argv()) == int(ExitCode.AWAITING_TAXONOMY_APPROVAL)
+    captured = capsys.readouterr()
+    gates = status_lines(captured.out, "[WAIT] taxonomy")
+    assert len(gates) == 1
+    assert "awaiting_taxonomy_approval" in fields_of(gates[0])
+    assert not status_lines(captured.err, "[ERROR] taxonomy")
+
+
+def test_the_api_key_never_reaches_the_output(scripted, capsys, api_key):
+    """Ein Geheimnis darf weder in eine Statuszeile noch in den Bericht."""
+    out, err = run_scripted(scripted, capsys)
+    assert "sk-test" not in out + err
+
+
+def test_exactly_one_report_closes_a_successful_run(scripted, capsys):
+    out, err = run_scripted(scripted, capsys)
+    assert (out + err).count("Exit-Code:") == 1
+    assert out.count("Committee Matcher V2 - run execute") == 1
+
+
+def test_exactly_one_report_closes_a_failed_run(scripted, capsys):
+    out, err = run_scripted(scripted, capsys, errors=[
+        _provider_error(retryable=False, outcome_unknown=False)])
+    assert (out + err).count("Exit-Code:") == 1
+    assert out.count("Committee Matcher V2 - run execute") == 1
+
+
+def test_the_streams_stay_separated_over_a_whole_run(scripted, capsys):
+    """stdout traegt den Fortschritt, stderr ausschliesslich Warnung und Fehler."""
+    out, err = run_scripted(scripted, capsys, errors=[
+        _provider_error(retryable=True, outcome_unknown=False)])
+    assert not [line for line in out.splitlines()
+                if line.startswith(("[WARN]", "[ERROR]"))]
+    assert not [line for line in err.splitlines()
+                if line.startswith(("[START]", "[OK]", "[INFO]", "[WAIT]"))]
+    assert status_lines(err, "[WARN] provider"), "die Warnung ist wirklich gefallen"
