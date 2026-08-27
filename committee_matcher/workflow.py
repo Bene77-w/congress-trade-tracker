@@ -584,6 +584,20 @@ class AuditedProvider:
             response = self.inner.complete(request)
         except provider_module.ProviderCallError as exc:
             raise self._failed(request, worst_case, exc) from None
+        except BaseException as exc:
+            # Die Anfrage ist raus. Ob sie ankam und abgerechnet wurde, ist von
+            # hier aus nicht feststellbar - ein Abbruch mitten im Call (Strg-C,
+            # Programmierfehler im Adapter) gilt deshalb als offener Ausgang.
+            # Ohne diese Buchung waere ein moeglicherweise bezahlter Call weder
+            # reserviert noch fuer die Reconciliation auffindbar.
+            committed_before = self.guard.committed_usd
+            self.guard.settle(worst_case, None)
+            self._report_cost(request.call_id, committed_before, "unknown")
+            self._mark_open(
+                request.call_id,
+                reason=f"CALL_INTERRUPTED: {exc.__class__.__name__}",
+                reserved_usd=worst_case)
+            raise
         # Gebucht wird, sobald die Antwort vorliegt - vor der Persistenz. Sonst
         # bliebe ein bezahlter Call bei einem Schreibfehler ungebucht, und das
         # Budget haette Luft, die es nicht mehr hat.

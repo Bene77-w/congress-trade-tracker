@@ -32,10 +32,18 @@ ersten gebuchten Call fuehrt nicht mehr an der Kostenangabe des
 Abschlussberichts vorbei (`RUN_ABORTED_AFTER_CALL`, `RUN_ABORTED_BY_USER`);
 endgueltige Unit-Fehlschlaege nennen ihren Code.
 
-18 Terminaltests fuer Mappinglauf, Repair, Abbruch und Review ergaenzt; Doku in
-`CLI_Bedienungsanleitung.md` Abschnitt 15k.
+Aus dem Nachreview: die offenen Einheiten eines abgebrochenen Batches werden
+nicht mehr ueber den Laufzustand gezaehlt - ein Batch besteht ohnehin nur aus
+offenen Einheiten, und ein `failed`-Eintrag aus einem frueheren Durchlauf
+haette die Einheit verschluckt. Der Ausnahmepfad schliesst jetzt ebenfalls den
+laufenden Batch. Ein Abbruch mitten im Providercall (Strg-C, Adapterfehler)
+gilt als offener Ausgang und bleibt reserviert, statt unbemerkt zu
+verschwinden. Die Committee-Zusammenfassung trennt `failed` und `not_decided`.
 
-Tests: 1882 passed (38 im Terminalstatus).
+21 Terminaltests fuer Mappinglauf, Repair, Abbruch, Wiederaufnahme und Review;
+Doku in `CLI_Bedienungsanleitung.md` Abschnitt 15k.
+
+Tests: 1885 passed (41 im Terminalstatus).
 
 ---
 

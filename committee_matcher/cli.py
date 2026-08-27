@@ -1056,21 +1056,24 @@ def _run_batch(collector: ErrorCollector, audited: workflow.AuditedProvider,
 
 
 def _report_abort(reporter: TerminalReporter, batch: mapping.MappingBatch,
-                  state: workflow.RunState, guard: workflow.CostGuard,
-                  stopped: str | None) -> None:
+                  guard: workflow.CostGuard, reason: str | None) -> None:
     """Schliesst einen abgebrochenen Batch ab (Statusplan S4).
 
     Ohne diese Meldung bliebe der ``START`` des Batches ohne Gegenstueck, und
     seine Units verschwaenden aus der Ausgabe, obwohl sie offen sind. Offen
     heisst nicht gescheitert: der Batch laeuft im naechsten Durchlauf erneut.
+
+    Offen sind alle Units des Batches. Ein Batch entsteht ausschliesslich aus
+    ``pending``, und ein abgebrochener Batch hat nichts entschieden - ein Blick
+    in den Laufzustand wuerde dagegen die bereits gescheiterten Units eines
+    frueheren Durchlaufs faelschlich als erledigt zaehlen.
     """
-    open_units = [unit for unit in batch.units if unit.unit_id not in state.units]
     reporter.error(Stage.MAPPING, batch=batch.batch_id, aborted=None,
-                   reason=stopped or "unbekannt", open_units=len(open_units),
+                   reason=reason or "unbekannt", open_units=len(batch.units),
                    cost_usd=guard.spent_usd)
-    for unit in open_units:
+    for unit in batch.units:
         reporter.warn(Stage.MAPPING, unit=unit.unit_id, not_decided=None,
-                      reason=stopped or "unbekannt")
+                      reason=reason or "unbekannt")
 
 
 def _record_outcome(state: workflow.RunState, outcome: mapping.BatchOutcome,
@@ -1136,22 +1139,27 @@ def _report_committees(reporter: TerminalReporter, targets: Sequence,
         groups.setdefault(unit.parent_unit_id or unit.unit_id, []).append(unit)
     for committee_id, members in sorted(groups.items()):
         counts = {UnitStatus.MAPPED: 0, UnitStatus.NO_MAPPING: 0, UnitStatus.FAILED: 0}
+        not_decided = 0
         industries: set[str] = set()
         for unit in members:
             record = state.units.get(unit.unit_id)
             if record is None:
-                counts[UnitStatus.FAILED] += 1
+                # Nie gelaufen ist nicht gescheitert; der naechste Durchlauf
+                # holt die Unit nach.
+                not_decided += 1
                 continue
             if record.status in counts:
                 counts[record.status] += 1
             for assignment in (record.result.assignments if record.result else ()):
                 industries.add(assignment.industry_id)
         reporter.emit(
-            StatusKind.WARN if counts[UnitStatus.FAILED] else StatusKind.INFO,
+            StatusKind.WARN if counts[UnitStatus.FAILED] or not_decided
+            else StatusKind.INFO,
             Stage.MAPPING, committee=committee_id, units=len(members),
             mapped=counts[UnitStatus.MAPPED],
             no_mapping=counts[UnitStatus.NO_MAPPING],
-            failed=counts[UnitStatus.FAILED], industries=len(industries))
+            failed=counts[UnitStatus.FAILED], not_decided=not_decided,
+            industries=len(industries))
 
 
 def _report_run_abort(collector: ErrorCollector, reporter: TerminalReporter,
@@ -1196,12 +1204,53 @@ def _final_state(state: workflow.RunState, unknown: Sequence,
     return WorkflowState.AWAITING_MANUAL_REVIEW
 
 
+@dataclass
+class _RunCost:
+    """Kostenstand eines laufenden Handlers, auch wenn er mit einer Ausnahme endet."""
+
+    guard: workflow.CostGuard | None = None
+
+    @property
+    def spent_usd(self) -> float:
+        return self.guard.spent_usd if self.guard is not None else 0.0
+
+    @property
+    def reserved_usd(self) -> float:
+        return self.guard.reserved_usd if self.guard is not None else 0.0
+
+
 def handle_run_execute(
     command: Command, namespace: argparse.Namespace,
     collector: ErrorCollector, settings: MatcherSettings,
     reporter: TerminalReporter,
 ) -> tuple[list[str], list[str], float]:
-    """Fuehrt den geplanten Entwicklungsrun aus (Plan 2.6); kostenpflichtig."""
+    """Fuehrt den geplanten Entwicklungsrun aus (Plan 2.6); kostenpflichtig.
+
+    Der Rahmen haelt allein den Kostenstand fest. Eine Ausnahme im Nachlauf -
+    beim Roster, beim Schreiben der Artefakte - darf den Abschlussbericht nicht
+    als providerfreie Phase enden lassen, wenn bereits Calls gebucht sind.
+    """
+    cost = _RunCost()
+    try:
+        return _execute_run(command, namespace, collector, settings, reporter, cost)
+    except (Exception, KeyboardInterrupt) as exc:
+        run_id = str(getattr(namespace, "run_id", "") or "-").strip()
+        _report_run_abort(collector, reporter, run_id, exc)
+        return [
+            f"Run:      {run_id}",
+            f"Kosten:   {cost.spent_usd:.6f} USD gebucht"
+            + (f" | {cost.reserved_usd:.6f} USD reserviert"
+               if cost.reserved_usd else ""),
+            "Lauf:     abgebrochen; Ergebnisartefakte nicht geschrieben",
+        ], [], cost.spent_usd
+
+
+def _execute_run(
+    command: Command, namespace: argparse.Namespace,
+    collector: ErrorCollector, settings: MatcherSettings,
+    reporter: TerminalReporter, cost: _RunCost,
+) -> tuple[list[str], list[str], float]:
+    """Der Lauf selbst; ``cost`` traegt den Kostenstand nach aussen."""
     if _missing_run_id(command, namespace, collector):
         return [], [], 0.0
     run_id = _run_id(namespace)
@@ -1261,6 +1310,7 @@ def handle_run_execute(
         spent_usd=prior.spent_usd, reserved_usd=prior.reserved_usd,
         calls=prior.calls, unknown_calls=prior.unknown_calls,
     )
+    cost.guard = guard
     if prior.calls:
         reporter.info(Stage.COST, run=run_id, prior_calls=prior.calls,
                       prior_spent_usd=prior.spent_usd)
@@ -1316,8 +1366,10 @@ def handle_run_execute(
         state.state = WorkflowState.RUNNING
         state.write()
 
+        current: mapping.MappingBatch | None = None
         try:
             for index, batch in enumerate(batches, start=1):
+                current = batch
                 reporter.start(
                     Stage.MAPPING, run=run_id, batch=batch.batch_id,
                     units=len(batch.units), position=f"{index}/{len(batches)}")
@@ -1330,7 +1382,8 @@ def handle_run_execute(
                         Stage.MAPPING, batch=batch.batch_id,
                         repairs=outcome.repairs, cost_usd=guard.spent_usd)
                 else:
-                    _report_abort(reporter, batch, state, guard, stopped)
+                    _report_abort(reporter, batch, guard, stopped)
+                current = None
                 state.write()
                 if stopped is not None:
                     break
@@ -1339,7 +1392,15 @@ def handle_run_execute(
             # Abschlussbericht vorbeilaufen: er wuerde den Lauf sonst als
             # providerfrei ausweisen, obwohl Geld gebunden ist.
             stopped = _report_run_abort(collector, reporter, run_id, exc)
-            state.write()
+            if current is not None:
+                _report_abort(reporter, current, guard, stopped)
+            # Der Zustand ist bestenfalls zu retten: war ein Schreibfehler der
+            # Ausloeser, scheitert auch dieser Versuch - der Bericht und die
+            # Auditspur bleiben davon unberuehrt.
+            try:
+                state.write()
+            except Exception:
+                pass
 
     unknown = tuple(audited.unknown) if audited is not None else ()
     state.state = _final_state(state, unknown, stopped)

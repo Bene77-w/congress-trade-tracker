@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import io
+import json
 
 import pytest
 
@@ -152,8 +153,8 @@ from dataclasses import replace  # noqa: E402
 from committee_matcher import workflow  # noqa: E402
 
 from tests.test_committee_matcher_run_cli_p7 import (  # noqa: E402,F401
-    ScriptedProvider, _assignment, _provider_error, execute_argv, plan_argv,
-    scripted, unit_result,
+    ScriptedProvider, _assignment, _provider_error, _requested_units,
+    _single_unit_batches, execute_argv, plan_argv, scripted, unit_result,
 )
 from tests.test_committee_matcher_review_p7 import (  # noqa: E402,F401
     DistinctProvider, export_argv, import_argv, mapped_run, write_wide_baseline,
@@ -230,6 +231,7 @@ def test_the_run_closes_with_a_committee_summary(scripted, capsys):
     assert fields["mapped"] == "3"
     assert fields["no_mapping"] == "0"
     assert fields["failed"] == "0"
+    assert fields["not_decided"] == "0"
     assert fields["industries"] == "1"
 
 
@@ -295,6 +297,11 @@ def test_an_aborted_batch_closes_its_frame(scripted, capsys):
     open_units = status_lines(err, "[WARN] mapping | unit=")
     assert len(open_units) == 3, "jede offene Einheit wird benannt"
     assert all("not_decided" in fields_of(line) for line in open_units)
+    named = {fields_of(line)["unit"] for line in open_units}
+    assert len(named) == 3, "keine Einheit wird doppelt gemeldet"
+    summary = fields_of(status_lines(err, "[WARN] mapping | committee=")[0])
+    assert summary["failed"] == "0", "offen ist nicht gescheitert"
+    assert summary["not_decided"] == "3"
 
 
 class RepairedProvider(ScriptedProvider):
@@ -380,6 +387,10 @@ def test_an_exception_after_a_paid_call_keeps_the_cost_visible(
     assert "providerfreie Phase" not in captured.out
     assert f"Kosten: {CALL_USD:.6f} USD" in captured.out
     assert "[ERROR] workflow" in captured.err
+    aborted = status_lines(captured.err, "[ERROR] mapping | batch=")
+    assert len(aborted) == 1, "auch der Ausnahmepfad schliesst seinen Batch"
+    assert fields_of(aborted[0])["open_units"] == "3"
+    assert len(status_lines(captured.err, "[WARN] mapping | unit=")) == 3
 
 
 def test_the_run_ends_at_a_human_gate_as_wait(scripted, capsys):
@@ -413,3 +424,96 @@ def test_review_import_reports_start_and_balance(mapped_run, capsys):
     assert int(fields["units"]) > 0
     assert fields["manual"] == "0"
     assert (fields["removed"], fields["added"], fields["changed"]) == ("0", "0", "0")
+
+
+class ResumeProvider(ScriptedProvider):
+    """Erste Einheit scheitert fachlich, die zweite bricht den Lauf ab.
+
+    Danach traegt die erste Einheit einen ``failed``-Eintrag im Laufzustand und
+    steht trotzdem wieder in ``pending`` - genau der Fall, in dem eine Zaehlung
+    ueber den Laufzustand die offene Einheit verschluckt.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.first_unit: str | None = None
+
+    def complete(self, request):
+        units = _requested_units(request)
+        if self.first_unit is None:
+            self.first_unit = units[0]
+        if units[0] == self.first_unit:
+            response = super().complete(request)
+            payload = dict(response.payload)
+            payload["units"] = [
+                unit_result(unit_id, assignments=[_assignment("gibt-es-nicht")])
+                for unit_id in units
+            ]
+            return replace(response, payload=payload)
+        self.calls.append(request)
+        raise _provider_error(retryable=False, outcome_unknown=False)
+
+
+def test_an_aborted_resume_batch_still_names_its_unit(scripted, capsys, monkeypatch):
+    """Eine gescheiterte Einheit laeuft erneut; ihr Abbruch bleibt sichtbar."""
+    _single_unit_batches(monkeypatch)
+    first = install(scripted, ResumeProvider())
+    capsys.readouterr()
+    cli.main(execute_argv())
+    capsys.readouterr()
+    assert first.first_unit is not None
+    state = json.loads(
+        workflow.state_path("run-test").read_text(encoding="utf-8"))
+    entry = [unit for unit in state["units"]
+             if unit["unit_id"] == first.first_unit]
+    assert entry and entry[0]["status"] == "failed", (
+        "Vorbedingung: die Einheit steht als gescheitert im Laufzustand und "
+        "laeuft trotzdem erneut")
+
+    install(scripted, ScriptedProvider(errors=[
+        _provider_error(retryable=False, outcome_unknown=False)]))
+    capsys.readouterr()
+    cli.main(execute_argv())
+    err = capsys.readouterr().err
+    aborted = status_lines(err, "[ERROR] mapping | batch=")
+    assert len(aborted) == 1
+    assert fields_of(aborted[0])["open_units"] == "1"
+    open_units = status_lines(err, "[WARN] mapping | unit=")
+    assert [fields_of(line)["unit"] for line in open_units] == [first.first_unit]
+
+
+def test_each_repair_call_reports_its_own_cost(scripted, capsys):
+    """Ohne eigene Zeile verschwaende der Reparaturcall in der Batchsumme."""
+    install(scripted, RepairedProvider())
+    capsys.readouterr()
+    cli.main(execute_argv())
+    out = capsys.readouterr().out
+    costs = status_lines(out, "[INFO] cost | call=")
+    assert len(costs) == 2, "Erstcall und Reparaturcall zaehlen einzeln"
+    assert sum("-repair-" in fields_of(line)["call"] for line in costs) == 1
+    assert float(fields_of(costs[-1])["committed_usd"]) == pytest.approx(2 * CALL_USD)
+
+
+class InterruptingProvider(ScriptedProvider):
+    """Der zweite Call wird mitten im Senden abgebrochen."""
+
+    def complete(self, request):
+        if len(self.calls) >= 1:
+            self.calls.append(request)
+            raise KeyboardInterrupt
+        return super().complete(request)
+
+
+def test_an_interrupted_call_stays_reserved_and_visible(scripted, capsys, monkeypatch):
+    """Ein Abbruch mitten im Call kann bezahlt sein; er gilt als offener Ausgang."""
+    _single_unit_batches(monkeypatch)
+    install(scripted, InterruptingProvider())
+    capsys.readouterr()
+    assert cli.main(execute_argv()) == int(ExitCode.USER_ABORT)
+    captured = capsys.readouterr()
+    assert "RUN_ABORTED_BY_USER" in captured.out
+    assert "providerfreie Phase" not in captured.out
+    costs = status_lines(captured.out, "[INFO] cost | call=")
+    assert [fields_of(line)["outcome"] for line in costs] == ["charged", "unknown"]
+    assert "[ERROR] workflow" in captured.err
+    assert status_lines(captured.err, "[ERROR] mapping | batch=")

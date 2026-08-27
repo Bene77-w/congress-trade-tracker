@@ -1886,7 +1886,7 @@ Was der Mappinglauf meldet (`run execute`):
 [OK] mapping | batch=batch-003 | repairs=1 | cost_usd=0.000212
 [ERROR] mapping | batch=batch-004 | aborted | reason=provider | open_units=3 | cost_usd=0.000212
 [WARN] mapping | unit=house--armed-services--seapower | not_decided | reason=provider
-[INFO] mapping | committee=house--agriculture | units=6 | mapped=5 | no_mapping=1 | failed=0 | industries=8
+[INFO] mapping | committee=house--agriculture | units=6 | mapped=5 | no_mapping=1 | failed=0 | not_decided=0 | industries=8
 [OK] artifacts | run=run-2026-08-27 | files=7
 ```
 
@@ -1901,13 +1901,21 @@ Call, bliebe der Versuch sonst unsichtbar. Jeder `START` eines Batches bekommt
 ein Gegenstück: bricht der Batch ab, nennt die `ERROR`-Zeile den Grund und die
 Zahl der offen gebliebenen Einheiten, und jede dieser Einheiten erscheint als
 `WARN … not_decided`. Offen heißt nicht gescheitert; der nächste Durchlauf
-holt sie nach.
+holt sie nach. Deshalb führt die Committee-Zusammenfassung `failed` und
+`not_decided` getrennt: eine Einheit, die nie gelaufen ist, wird nicht als
+gescheitert gezählt.
 
 Bricht der Lauf nach einem gebuchten Call ab — Benutzerabbruch oder
 unerwarteter Fehler —, endet er trotzdem mit genau einem Abschlussbericht, der
 den tatsächlichen Kostenstand nennt (`RUN_ABORTED_BY_USER`,
-`RUN_ABORTED_AFTER_CALL`). Ein bezahlter Lauf wird nie als providerfrei
+`RUN_ABORTED_AFTER_CALL`). Das gilt auch für einen Fehler im Nachlauf, etwa
+beim Schreiben der Artefakte: ein bezahlter Lauf wird nie als providerfrei
 ausgewiesen.
+
+Trifft der Abbruch einen Call mitten im Senden, ist von außen nicht
+feststellbar, ob der Provider ihn abgerechnet hat. Er gilt deshalb als offener
+Ausgang: der Worst Case bleibt reserviert (`outcome=unknown`), der Call wird
+vorgemerkt und von `run reconcile` geklärt.
 
 `review export|import` melden Start, Zeilen- beziehungsweise Einheitenzahl und
 die Änderungsbilanz; eine abgelehnte Übernahme erscheint als `ERROR` mit der
