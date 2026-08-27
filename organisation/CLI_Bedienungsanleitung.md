@@ -1792,9 +1792,11 @@ Import überschreibt eine bestehende Reviewrevision.
 | `taxonomy` | alle zulässigen `industry_id` des Laufsnapshots; speist die Auswahlliste |
 | `info` | Bindung an Lauf, Snapshot und Modell im Klartext |
 
-Spalten des Blatts `assignments`: `unit_id`, `chamber`, `committee_name`,
-`unit_name`, `unit_kind`, `industry_id`, `confidence`, `evidence_excerpt`,
-`rationale_short`, `no_mapping_reason`.
+Spalten des Blatts `assignments`: `unit_id`, `industry_id`, `confidence`,
+`evidence_excerpt`, `rationale_short`, `no_mapping_reason`. Kammer, Committee-
+und Unitname stehen nicht im Workbook: sie sind aus der `unit_id` ableitbar,
+und jede weitere Spalte wäre eine Stelle mehr, an der Excel und Korpus
+auseinanderlaufen können. Den Klartext holt sich der Import aus dem Korpus.
 
 **Bearbeitung.** Werte direkt ändern, sonst nichts. Es gibt keine Aktions-,
 Entscheidungs- oder Notizspalte; was geschehen ist, rechnet der Import selbst

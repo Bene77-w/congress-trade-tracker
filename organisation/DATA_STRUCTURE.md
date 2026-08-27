@@ -532,10 +532,12 @@ die Artefakte des Laufs nicht berühren. Ohne `--review-id` lautet sie
 | `reviewed_unit_coverage.csv` | Stand je Unit nach dem Review |
 | `import_manifest.json` | Zusammenfassung des angenommenen Imports |
 
-`review.xlsx`, Blatt `assignments`: `unit_id`, `chamber`, `committee_name`,
-`unit_name`, `unit_kind`, `industry_id`, `confidence`, `evidence_excerpt`,
-`rationale_short`, `no_mapping_reason`. Eine Arbeitstabelle ohne Aktions-,
-Entscheidungs- oder Notizspalte: geändert wird der Wert selbst. Eine
+`review.xlsx`, Blatt `assignments`: `unit_id`, `industry_id`, `confidence`,
+`evidence_excerpt`, `rationale_short`, `no_mapping_reason`. Eine
+Arbeitstabelle ohne Aktions-, Entscheidungs- oder Notizspalte: geändert wird
+der Wert selbst. Kammer, Committee- und Unitname fehlen bewusst — sie sind aus
+der `unit_id` ableitbar, und der Import nimmt sie aus dem Korpus, nie aus
+Excel. Eine
 `mapped`-Unit hat eine Zeile je Zuordnung, eine `no_mapping`-Unit genau eine
 Zeile ohne Industry; Units ohne Urteil (`failed`, `not_decided`) stehen nicht im
 Workbook und werden im Exportmanifest unter `incomplete_units` benannt.

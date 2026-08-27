@@ -59,12 +59,11 @@ SHEET_BOUNDARY = "boundary"
 SHEET_TAXONOMY = "taxonomy"
 SHEET_INFO = "info"
 
-#: Herkunft der Zeile im Klartext. Nicht zum Bearbeiten gedacht, aber auch
-#: nicht geschuetzt: Schluessel der Zeile ist allein ``unit_id``, alles Weitere
-#: leitet der Import aus dem Korpus ab.
-CONTEXT_COLUMNS: tuple[str, ...] = (
-    "unit_id", "chamber", "committee_name", "unit_name", "unit_kind",
-)
+#: Schluessel der Zeile. Kammer, Committee- und Unitname stehen bewusst nicht
+#: im Workbook: sie sind aus der ``unit_id`` ableitbar, und jede zusaetzliche
+#: Spalte waere eine Stelle mehr, an der Excel und Korpus auseinanderlaufen
+#: koennen. Den Klartext holt sich der Import aus dem Korpus.
+CONTEXT_COLUMNS: tuple[str, ...] = ("unit_id",)
 #: Die Werte, um die es geht. Leere ``industry_id`` heisst: diese Unit hat
 #: keine Zuordnung.
 VALUE_COLUMNS: tuple[str, ...] = (
