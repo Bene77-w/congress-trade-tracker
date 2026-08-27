@@ -595,7 +595,8 @@ def test_snapshot_writes_stay_inside_the_artifact_root(artifact_sandbox):
 def test_cli_snapshot_paths_are_bound_to_a_run(artifact_sandbox, monkeypatch, capsys):
     from committee_matcher import cli
 
-    monkeypatch.setattr(taxonomy_source, "YFinanceClient", lambda settings: FakeClient(sectors()))
+    monkeypatch.setattr(taxonomy_source, "YFinanceClient",
+                        lambda settings, **kwargs: FakeClient(sectors()))
     assert cli.main(["snapshot", "build", "--run-id", "run-1"]) == int(
         ExitCode.AWAITING_TAXONOMY_APPROVAL
     )
@@ -613,7 +614,8 @@ def test_cli_snapshot_paths_are_bound_to_a_run(artifact_sandbox, monkeypatch, ca
 def test_cli_rejects_a_malformed_run_id(artifact_sandbox, monkeypatch, capsys):
     from committee_matcher import cli
 
-    monkeypatch.setattr(taxonomy_source, "YFinanceClient", lambda settings: FakeClient(sectors()))
+    monkeypatch.setattr(taxonomy_source, "YFinanceClient",
+                        lambda settings, **kwargs: FakeClient(sectors()))
     assert cli.main(["snapshot", "build", "--run-id", "../ausbruch"]) == int(
         ExitCode.PREFLIGHT_BLOCKED
     )

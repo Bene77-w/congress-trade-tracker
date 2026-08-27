@@ -109,3 +109,35 @@ def test_disabled_reporter_stays_silent_but_returns_the_line():
 
 def test_silent_reporter_is_disabled():
     assert SILENT_REPORTER.enabled is False
+
+
+# ---------------------------------------------------------------------------
+# Integration in die providerfreien Aktionen (Statusplan S3)
+# ---------------------------------------------------------------------------
+
+from committee_matcher import cli  # noqa: E402
+from committee_matcher.status import ExitCode  # noqa: E402
+
+from tests.test_committee_matcher_run_cli_p7 import sandbox  # noqa: E402,F401
+
+
+def test_input_validate_reports_start_and_result(sandbox, capsys):
+    cli.main(["input", "validate"])
+    captured = capsys.readouterr()
+    assert "[START] input | action=validate" in captured.out
+    assert "[INFO] input | files=" in captured.out
+    assert "units=3" in captured.out + captured.err
+
+
+def test_roster_validate_reports_its_coverage(sandbox, capsys):
+    cli.main(["roster", "validate"])
+    captured = capsys.readouterr()
+    assert "[START] roster | action=validate" in captured.out
+    assert "without_roster=" in captured.out + captured.err
+
+
+def test_snapshot_approve_without_a_snapshot_reports_an_error(sandbox, capsys):
+    assert cli.main(["snapshot", "approve", "--run-id", "run-ohne"]) != int(ExitCode.SUCCESS)
+    captured = capsys.readouterr()
+    assert "[START] taxonomy | run=run-ohne | action=approve" in captured.out
+    assert "[ERROR] taxonomy | run=run-ohne | approval=abgelehnt" in captured.err

@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import paths
-from .errors import ErrorCollector, Stage
+from .errors import SILENT_REPORTER, ErrorCollector, Stage, TerminalReporter
 from .models import IndustryRecord, TaxonomySnapshot
 from .status import ExitCode, WorkflowState
 from .taxonomy_source import (
@@ -511,24 +511,32 @@ def build_snapshot(
     *,
     run_id: str,
     resume: bool = False,
+    reporter: TerminalReporter = SILENT_REPORTER,
 ) -> SnapshotResult:
     """Ruft die Taxonomie ab, prueft sie und persistiert sie all-or-nothing."""
     checkpoint = load_checkpoint(collector, run_id) if resume else Checkpoint(run_id=run_id)
     known = dict(checkpoint.rows)
+    reporter.start(Stage.TAXONOMY, run=run_id,
+                   action="resume" if resume else "build",
+                   known=len(known))
 
     def remember(row: IndustryRow) -> None:
         checkpoint.rows[row.industry_id] = row
         if len(checkpoint.rows) % _checkpoint_every(client) == 0:
             checkpoint.write()
+            reporter.info(Stage.TAXONOMY, run=run_id, checkpoint=len(checkpoint.rows))
 
     try:
-        rows = fetch_taxonomy(collector, client, known=known, on_progress=remember)
+        rows = fetch_taxonomy(collector, client, known=known, on_progress=remember,
+                              reporter=reporter)
     finally:
         # Auch ein abgebrochener Abruf hinterlaesst seinen Fortschritt - sonst
         # beginnt 'snapshot resume' unnoetig von vorn.
         checkpoint.write()
 
     if collector.has_blockers() or not validate_rows(collector, rows):
+        reporter.error(Stage.TAXONOMY, run=run_id, code="TAX_INCOMPLETE_FETCH",
+                       industries=len(rows))
         return SnapshotResult(
             run_id=run_id, state=WorkflowState.FAILED, reason="incomplete_fetch",
             content_hash=None, industries=len(rows), artifacts=(),
@@ -569,6 +577,8 @@ def build_snapshot(
             "erstmalig freigeben.",
             exit_code=ExitCode.AWAITING_TAXONOMY_APPROVAL,
         )
+        reporter.wait(Stage.TAXONOMY, run=run_id, awaiting_taxonomy_approval=None,
+                      reason=REASON_NO_BASELINE)
         return SnapshotResult(
             run_id=run_id, state=WorkflowState.AWAITING_TAXONOMY_APPROVAL,
             reason=REASON_NO_BASELINE, content_hash=digest,
@@ -578,11 +588,15 @@ def build_snapshot(
     drift = compare_with_baseline(rows, baseline)
     report_drift(collector, drift)
     if drift.blocking:
+        reporter.wait(Stage.TAXONOMY, run=run_id, awaiting_taxonomy_approval=None,
+                      reason=REASON_DRIFT)
         return SnapshotResult(
             run_id=run_id, state=WorkflowState.AWAITING_TAXONOMY_APPROVAL,
             reason=REASON_DRIFT, content_hash=digest, industries=len(rows),
             artifacts=tuple(artifacts), drift=drift,
         )
+    reporter.ok(Stage.TAXONOMY, run=run_id, industries=len(rows),
+                content_hash=digest[:12])
     return SnapshotResult(
         run_id=run_id, state=WorkflowState.COMPLETED, reason=None,
         content_hash=digest, industries=len(rows), artifacts=tuple(artifacts),

@@ -29,7 +29,9 @@ import time
 from dataclasses import dataclass
 from typing import Callable, Iterator
 
-from .errors import ErrorCollector, MatcherError, Stage
+from .errors import (
+    SILENT_REPORTER, ErrorCollector, MatcherError, Stage, TerminalReporter,
+)
 from .settings_view import OfflineSettings
 
 #: Abschliessende Feldliste eines Snapshoteintrags.
@@ -106,12 +108,16 @@ class YFinanceClient:
         settings: OfflineSettings,
         *,
         sleep: Callable[[float], None] = time.sleep,
+        reporter: TerminalReporter = SILENT_REPORTER,
     ) -> None:
         self._pause = settings.yfinance_request_pause_s
         self._retries = settings.yfinance_max_retries
         #: Schrittweite des run-lokalen Checkpoints (Verbraucher: taxonomy_snapshot).
         self.checkpoint_every = settings.yfinance_checkpoint_every
         self._sleep = sleep
+        #: Ein erfolgreicher Einzelabruf bleibt still; nur Wiederholungen sind
+        #: fuer den Nutzer relevant (Statusplan S3).
+        self._reporter = reporter
 
     # -- Infrastruktur -----------------------------------------------------
     def _call(self, what: str, func: Callable[[], object]) -> object:
@@ -123,6 +129,11 @@ class YFinanceClient:
                 return func()
             except Exception as exc:  # yfinance wirft breit; Ursache steht im Befund
                 last = exc
+                if attempt < self._retries:
+                    self._reporter.warn(
+                        Stage.TAXONOMY, object=what,
+                        retry=f"{attempt + 1}/{self._retries}",
+                        reason=exc.__class__.__name__)
         raise TaxonomyFetchError(
             [
                 _finding(
@@ -250,6 +261,7 @@ def fetch_taxonomy(
     *,
     known: dict[str, IndustryRow] | None = None,
     on_progress: Callable[[IndustryRow], None] | None = None,
+    reporter: TerminalReporter = SILENT_REPORTER,
 ) -> tuple[IndustryRow, ...]:
     """Holt die vollstaendige Taxonomie; ``known`` ueberspringt Bekanntes.
 
@@ -269,6 +281,7 @@ def fetch_taxonomy(
 
     result: list[IndustryRow] = []
     for seed in seeds:
+        reporter.start(Stage.TAXONOMY, sector=seed.sector_id)
         rows = client.industries(seed)
         if not rows:
             collector.blocker(

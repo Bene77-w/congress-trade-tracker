@@ -302,9 +302,16 @@ def handle_input_validate(
     reporter: TerminalReporter,
 ) -> tuple[list[str], list[str]]:
     """Corpus laden, Units bilden, Sollmenge pruefen (Plan 2.1/2.2)."""
+    reporter.start(Stage.INPUT, action="validate")
     result = input_corpus.load_documents(collector, settings.offline)
+    reporter.info(Stage.INPUT, files=result.manifest_files,
+                  documents=len(result.documents))
     units = unit_module.build_units(collector, result.documents)
     matches_baseline = unit_module.check_against_baseline(collector, units)
+    reporter.emit(
+        StatusKind.OK if matches_baseline else StatusKind.ERROR,
+        Stage.INPUT, units=len(units),
+        baseline="deckungsgleich" if matches_baseline else "abweichend")
 
     counts: dict[str, int] = {}
     for unit in units:
@@ -353,6 +360,7 @@ def handle_roster_validate(
     reporter: TerminalReporter,
 ) -> tuple[list[str], list[str]]:
     """Roster-Coverage gegen die Unit-Sollmenge pruefen (Plan 2.3)."""
+    reporter.start(Stage.ROSTER, action="validate")
     result = input_corpus.load_documents(collector, settings.offline)
     units = unit_module.build_units(collector, result.documents)
     rows = roster_coverage.run_coverage(collector, units)
@@ -361,6 +369,10 @@ def handle_roster_validate(
     for row in rows:
         counts[row.coverage_status.value] = counts.get(row.coverage_status.value, 0) + 1
     without_roster = roster_coverage.report_gaps(collector, units, rows)
+    reporter.emit(
+        StatusKind.WARN if without_roster else StatusKind.OK,
+        Stage.ROSTER, occurrences=len(rows), units=len(units),
+        without_roster=len(without_roster))
     artifacts = _write_artifact(
         collector, command.name, "roster_coverage.json",
         {
@@ -452,9 +464,9 @@ def _snapshot_run(
     if _missing_run_id(command, namespace, collector):
         return [], []
     run_id = _run_id(namespace)
-    client = taxonomy_source.YFinanceClient(settings.offline)
+    client = taxonomy_source.YFinanceClient(settings.offline, reporter=reporter)
     result = taxonomy_snapshot.build_snapshot(
-        collector, client, run_id=run_id, resume=resume
+        collector, client, run_id=run_id, resume=resume, reporter=reporter
     )
     return _snapshot_summary(result), list(result.artifacts)
 
@@ -488,9 +500,13 @@ def handle_snapshot_approve(
     if _missing_run_id(command, namespace, collector):
         return [], []
     run_id = _run_id(namespace)
+    reporter.start(Stage.TAXONOMY, run=run_id, action="approve")
     digest = taxonomy_snapshot.approve_snapshot(collector, run_id)
     if digest is None:
+        reporter.error(Stage.TAXONOMY, run=run_id, approval="abgelehnt")
         return [f"Run:      {run_id}", "Freigabe: abgelehnt"], []
+    reporter.ok(Stage.TAXONOMY, run=run_id, approval="erteilt",
+                content_hash=digest[:12])
     return (
         [
             f"Run:      {run_id}",
