@@ -1627,7 +1627,8 @@ def handle_review_import(
     workbook = Path(str(given)).expanduser().resolve() if given else None
     try:
         imported = review_module.import_review(
-            review_id, corpus={unit.unit_id: unit for unit in units},
+            review_id, run_id=run_id,
+            corpus={unit.unit_id: unit for unit in units},
             snapshot=snapshot, run_manifest=run_manifest,
             input_manifest_hash=corpus.manifest_sha256,
             collector=collector, workbook=workbook)
@@ -1656,8 +1657,10 @@ def handle_review_import(
         f"Review:   {review_id} | {imported.units} Unit(s) | "
         f"{imported.assignments} Zuordnung(en) | {imported.manual_assignments} manuell | "
         f"{imported.no_mapping_units} no_mapping",
-        f"Aenderung: {imported.changed} geaendert | {imported.added} neu | "
-        f"{imported.removed} entfernt",
+        f"Zuordnung: {imported.changed} geaendert | {imported.added} neu | "
+        f"{imported.removed} entfernt"
+        + (f" | {imported.changed_reasons} Grund geaendert"
+           if imported.changed_reasons else ""),
         "Ergebnis: reviewed_assignments.csv und reviewed_unit_coverage.csv "
         "geschrieben",
     ], list(imported.files)

@@ -32,6 +32,7 @@ als Sperre - er entscheidet, das Modell nicht.
 from __future__ import annotations
 
 import csv
+import io
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -43,6 +44,7 @@ from openpyxl.worksheet.datavalidation import DataValidation
 
 from . import artifacts, paths, validation, workflow
 from .errors import ErrorCollector, MatcherError, Stage
+from .models import MAX_CONFIDENCE, MIN_CONFIDENCE
 from .status import ExitCode
 
 #: Reviewrevisionen liegen neben den Runrevisionen, nicht in ihnen: ein Review
@@ -95,6 +97,11 @@ COMPARED_FIELDS: tuple[str, ...] = (
     "confidence", "evidence_excerpt", "rationale_short",
 )
 
+#: Spalten, deren Wert eine Kennung ist. Nur sie werden beim Lesen getrimmt.
+STRIPPED_COLUMNS: frozenset[str] = frozenset({
+    "unit_id", "industry_id", "confidence",
+})
+
 
 class ReviewError(MatcherError):
     """Fehler im Reviewpfad."""
@@ -126,16 +133,28 @@ def _read_csv(path: Path, columns: Sequence[str]) -> tuple[dict[str, str], ...]:
             f"Das Artefakt ist nicht lesbar: {exc}.",
             "Die Runrevision muss vollstaendig geschrieben sein; "
             "'run execute' abschliessen.")
-    lines = text.splitlines()
-    rows = tuple(csv.DictReader(lines))
-    header = tuple(next(csv.reader(lines), ()))
-    if header != tuple(columns):
+    # ``newline=""`` haelt eingebettete Zeilenumbrueche zusammen. Ueber
+    # ``splitlines()`` gelesen wuerde ein mehrzeiliges Feld ohne seine
+    # Umbrueche zurueckkommen - der Wert waere ein anderer als der
+    # geschriebene, und der Vergleich gegen den Lauf schluege still fehl.
+    reader = csv.DictReader(io.StringIO(text, newline=""))
+    if tuple(reader.fieldnames or ()) != tuple(columns):
         raise _blocked(
             "REV_ARTIFACT_CONTRACT", paths.relative_to_base(path),
             "Die Spalten des Artefakts weichen vom Vertrag ab.",
             "Artefakt aus derselben Programmversion erzeugen; von Hand "
             "geaenderte CSVs werden nicht gelesen.")
-    return rows
+    rows: list[dict[str, str]] = []
+    for row in reader:
+        if None in row or any(value is None for value in row.values()):
+            raise _blocked(
+                "REV_ARTIFACT_CONTRACT", paths.relative_to_base(path),
+                "Eine Zeile des Artefakts hat eine andere Feldzahl als die "
+                "Kopfzeile.",
+                "Artefakt aus derselben Programmversion erzeugen; von Hand "
+                "geaenderte CSVs werden nicht gelesen.")
+        rows.append(dict(row))
+    return tuple(rows)
 
 
 # ---------------------------------------------------------------------------
@@ -319,9 +338,34 @@ def run_assignments(run_id: str) -> tuple[dict[str, str], ...]:
                      artifacts.ASSIGNMENT_COLUMNS)
 
 
+def _require_run_snapshot(run_id: str, manifest: Mapping[str, object],
+                          snapshot) -> None:
+    """Der Export spiegelt einen Lauf; er nutzt dessen Taxonomiestand.
+
+    Das Blatt ``taxonomy`` und die Auswahlliste kommen aus dem uebergebenen
+    Snapshot. Waere er ein anderer als der des Laufs, stuenden im Workbook
+    Industries, die der Lauf nie sehen konnte.
+    """
+    checks = (
+        ("snapshot_id", snapshot.snapshot_id, manifest.get("snapshot_id")),
+        ("taxonomy_content_hash", snapshot.taxonomy_content_hash,
+         manifest.get("taxonomy_content_hash")),
+    )
+    for name, current, expected in checks:
+        if _text(current) != _text(expected):
+            raise _blocked(
+                "REV_SNAPSHOT_MISMATCH", run_id,
+                f"{name} des freigegebenen Snapshots weicht vom Lauf ab: "
+                f"Lauf {expected!r}, jetzt {current!r}.",
+                "Der Review gehoert zum Taxonomiestand des Laufs; Lauf mit dem "
+                "aktuellen Snapshot neu ausfuehren oder den Stand des Laufs "
+                "freigeben.")
+
+
 def export_review(run_id: str, review_id: str, snapshot) -> ExportedReview:
     """Schreibt Workbook und Exportmanifest einer abgeschlossenen Revision."""
     manifest = _require_complete_run(run_id)
+    _require_run_snapshot(run_id, manifest, snapshot)
     if review_path(review_id, WORKBOOK_FILENAME).exists():
         raise _blocked(
             "REV_EXPORT_EXISTS", review_id,
@@ -435,8 +479,6 @@ class EffectiveUnit:
 class ImportedReview:
     """Ergebnis eines angenommenen Rueckimports."""
 
-    review_id: str
-    run_id: str
     units: int
     assignments: int
     manual_assignments: int
@@ -446,6 +488,8 @@ class ImportedReview:
     removed: int
     added: int
     changed: int
+    #: Geaenderte Gruende von Units, die vorher wie nachher ``no_mapping`` sind.
+    changed_reasons: int
     files: tuple[str, ...]
 
 
@@ -474,14 +518,17 @@ def load_export_manifest(review_id: str) -> Mapping[str, object]:
     return payload
 
 
-def read_workbook(path: Path, collector: ErrorCollector) -> tuple[dict[str, str], ...]:
-    """Liest das Blatt ``assignments`` als Text und lehnt jede Formelzelle ab.
+def read_workbook(path: Path, collector: ErrorCollector,
+                  ) -> tuple[tuple[dict[str, str], ...], dict[str, str]]:
+    """Liest die Blaetter ``assignments`` und ``info`` und lehnt Formeln ab.
 
     Eine Formel liefert beim Lesen ihren Ausdruck statt eines Werts. Sie still
     als Text zu uebernehmen wuerde einen Ausdruck zum Reviewurteil machen.
 
-    Die Blaetter ``boundary`` und ``taxonomy`` tragen kein Urteil und werden
-    deshalb nicht gelesen.
+    Das Blatt ``info`` traegt kein Urteil, aber die Kennungen des Exports; es
+    ist die einzige Stelle, an der die Datei selbst sagt, zu welchem Lauf und
+    welcher Reviewrevision sie gehoert. Die Blaetter ``boundary`` und
+    ``taxonomy`` werden nicht gelesen.
     """
     try:
         book = load_workbook(path, data_only=False)
@@ -491,12 +538,24 @@ def read_workbook(path: Path, collector: ErrorCollector) -> tuple[dict[str, str]
             f"Das Workbook ist nicht lesbar: {exc}.",
             "Datei aus 'review export' verwenden und als .xlsx speichern.")
 
-    if SHEET_ASSIGNMENTS not in book.sheetnames:
-        raise _blocked(
-            "REV_WORKBOOK_CONTRACT", SHEET_ASSIGNMENTS,
-            f"Dem Workbook fehlt das Blatt '{SHEET_ASSIGNMENTS}'.",
-            "Blaetter weder umbenennen noch entfernen.")
-    return _sheet_rows(book[SHEET_ASSIGNMENTS], ASSIGNMENT_SHEET_COLUMNS, collector)
+    for name in (SHEET_ASSIGNMENTS, SHEET_INFO):
+        if name not in book.sheetnames:
+            raise _blocked(
+                "REV_WORKBOOK_CONTRACT", name,
+                f"Dem Workbook fehlt das Blatt '{name}'.",
+                "Blaetter weder umbenennen noch entfernen.")
+    rows = _sheet_rows(book[SHEET_ASSIGNMENTS], ASSIGNMENT_SHEET_COLUMNS, collector)
+    return rows, _info_values(book[SHEET_INFO])
+
+
+def _info_values(sheet) -> dict[str, str]:
+    """Die Kennungen des Exports als Zuordnung; Kopfzeile uebersprungen."""
+    values: dict[str, str] = {}
+    for line in sheet.iter_rows(min_row=2, max_col=2):
+        key = _text(line[0].value).strip()
+        if key:
+            values[key] = _text(line[1].value if len(line) > 1 else "").strip()
+    return values
 
 
 def _sheet_rows(sheet, columns: Sequence[str],
@@ -517,23 +576,42 @@ def _sheet_rows(sheet, columns: Sequence[str],
                         "Die Zelle enthaelt eine Formel statt eines Werts.",
                         "Formel durch ihren Wert ersetzen (Einfuegen als Wert); "
                         "ein Ausdruck wird nie als Reviewurteil uebernommen.")
-            values[name] = _text(cell.value).strip()
-        if any(values.values()):
+            value = _text(cell.value)
+            # Nur Kennungen werden getrimmt: dort ist Randwhitespace immer ein
+            # Tippfehler. Textfelder bleiben zeichengenau, sonst wuerde der
+            # Import den exportierten Wert still veraendern und ihn trotzdem
+            # als Modellwert ausweisen.
+            values[name] = value.strip() if name in STRIPPED_COLUMNS else value
+        if any(value.strip() for value in values.values()):
             rows.append(values)
     return tuple(rows)
 
 
 def check_binding(manifest: Mapping[str, object], run_manifest: Mapping[str, object],
-                  snapshot, input_manifest_hash: str,
+                  snapshot, input_manifest_hash: str, review_id: str,
+                  expected_run_id: str, info: Mapping[str, str],
                   collector: ErrorCollector) -> None:
-    """Stale Bindung blockiert den gesamten Import (Plan 2.8)."""
+    """Stale Bindung blockiert den gesamten Import (Plan 2.8).
+
+    Geprueft wird in drei Richtungen, weil drei Dinge auseinanderlaufen
+    koennen: das Exportmanifest gegen den Lauf, der geladene Snapshot gegen
+    beide, und das Workbook selbst gegen die Reviewrevision. Ohne die letzte
+    Richtung liesse sich mit ``--workbook`` die Datei einer fremden Revision
+    einlesen.
+    """
     checks = (
+        ("run_id", manifest.get("run_id"), expected_run_id),
         ("snapshot_id", manifest.get("snapshot_id"), run_manifest.get("snapshot_id")),
+        ("snapshot_id/aktuell", manifest.get("snapshot_id"), snapshot.snapshot_id),
         ("taxonomy_content_hash", manifest.get("taxonomy_content_hash"),
          snapshot.taxonomy_content_hash),
         ("input_manifest_hash", manifest.get("input_manifest_hash"),
          input_manifest_hash),
         ("model", manifest.get("model"), run_manifest.get("model")),
+        ("workbook/review_id", info.get("review_id"), review_id),
+        ("workbook/run_id", info.get("run_id"), manifest.get("run_id")),
+        ("workbook/workbook_version", info.get("workbook_version"),
+         WORKBOOK_VERSION),
     )
     for name, exported, current in checks:
         if _text(exported) != _text(current):
@@ -546,6 +624,7 @@ def check_binding(manifest: Mapping[str, object], run_manifest: Mapping[str, obj
 
 def _confidence(value: str, obj: str, collector: ErrorCollector) -> str | None:
     """Confidence als Text; leer ist zulaessig, Unsinn nicht."""
+    span = f"{MIN_CONFIDENCE}..{MAX_CONFIDENCE}"
     if not value:
         return ""
     try:
@@ -553,27 +632,54 @@ def _confidence(value: str, obj: str, collector: ErrorCollector) -> str | None:
     except (TypeError, ValueError):
         _reject(collector, "REV_CONFIDENCE_INVALID", obj,
                 f"'{value}' ist keine ganze Zahl.",
-                "Confidence als ganze Zahl 1..5 eintragen oder leer lassen.")
+                f"Confidence als ganze Zahl {span} eintragen oder leer lassen.")
         return None
-    if not 1 <= number <= 5:
+    if not MIN_CONFIDENCE <= number <= MAX_CONFIDENCE:
         _reject(collector, "REV_CONFIDENCE_INVALID", obj,
-                f"Confidence {number} liegt ausserhalb von 1..5.",
-                "Confidence als ganze Zahl 1..5 eintragen oder leer lassen.")
+                f"Confidence {number} liegt ausserhalb von {span}.",
+                f"Confidence als ganze Zahl {span} eintragen oder leer lassen.")
         return None
     return str(number)
 
 
-def _origin_index(assignments: Sequence[Mapping[str, str]]
+def _origin_index(assignments: Sequence[Mapping[str, str]],
+                  collector: ErrorCollector,
                   ) -> dict[tuple[str, str], Mapping[str, str]]:
-    """Zeilen des Laufs, adressiert ueber Unit und Industry."""
-    return {(row["unit_id"], row["industry_id"]): row
-            for row in assignments if row.get("industry_id")}
+    """Zeilen des Laufs, adressiert ueber Unit und Industry.
+
+    Der Schluessel ist im Lauf eindeutig. Kaeme er doppelt vor, waere nicht
+    entscheidbar, welche Zeile die Provenienz einer unveraenderten Zuordnung
+    ist; still die letzte zu nehmen wuerde eine Herkunft erfinden.
+    """
+    index: dict[tuple[str, str], Mapping[str, str]] = {}
+    for row in assignments:
+        if not row.get("industry_id"):
+            continue
+        key = (row["unit_id"], row["industry_id"])
+        if key in index:
+            _reject(collector, "REV_ORIGIN_DUPLICATE", "/".join(key),
+                    "Die Long-CSV des Laufs fuehrt diese Zuordnung mehrfach.",
+                    "Artefakte des Laufs sind widerspruechlich; Revision neu "
+                    "ausfuehren statt sie zu reviewen.")
+            continue
+        index[key] = row
+    return index
 
 
 def _unchanged(row: Mapping[str, str], origin: Mapping[str, str]) -> bool:
-    """Traegt die Zeile noch genau die Werte des Laufs?"""
-    return all(row[name] == _text(origin.get(name)).strip()
-               for name in COMPARED_FIELDS)
+    """Traegt die Zeile noch genau die Werte des Laufs?
+
+    Verglichen wird zeichengenau. Nur die Confidence wird vorher getrimmt,
+    weil sie als Kennung gelesen und auf ihre Zahl normalisiert wird.
+    """
+    for name in COMPARED_FIELDS:
+        current = row[name]
+        before = _text(origin.get(name))
+        if name in STRIPPED_COLUMNS:
+            current, before = current.strip(), before.strip()
+        if current != before:
+            return False
+    return True
 
 
 def effective_units(rows: Sequence[Mapping[str, str]],
@@ -605,16 +711,24 @@ def effective_units(rows: Sequence[Mapping[str, str]],
             continue
         grouped.setdefault(unit_id, []).append(dict(row))
 
+    model_counts: dict[str, int] = {}
+    for unit_id, _ in origins:
+        model_counts[unit_id] = model_counts.get(unit_id, 0) + 1
+
     units: dict[str, EffectiveUnit] = {}
     for unit_id, entries in grouped.items():
         assignments: list[EffectiveAssignment] = []
         reason = ""
+        reason_given = False
         seen: set[str] = set()
         for row in entries:
             industry_id = row["industry_id"]
             if not industry_id:
-                # Die Zeile sagt: diese Unit hat keine Zuordnung.
-                reason = row["no_mapping_reason"] or reason
+                # Die Zeile sagt: diese Unit hat keine Zuordnung. Ein
+                # geleertes Feld ist eine Aussage und wird nicht aus dem Lauf
+                # wieder aufgefuellt; nur die erste solche Zeile zaehlt.
+                if not reason_given:
+                    reason, reason_given = row["no_mapping_reason"], True
                 continue
             obj = f"{unit_id}/{industry_id}"
             if industry_id in seen:
@@ -636,14 +750,21 @@ def effective_units(rows: Sequence[Mapping[str, str]],
                 origin=origin if unchanged else {}))
 
         model_state = coverage.get(unit_id, {})
-        if not assignments and not reason:
-            reason = _text(model_state.get("no_mapping_reason")).strip()
+        if not assignments and not reason_given:
+            # Keine Zeile mehr fuer die Unit: der Grund des Laufs gilt weiter.
+            reason = _text(model_state.get("no_mapping_reason"))
+        # Der Ausnahmegrund des Modells beschreibt dessen Zuordnungsmenge. Ist
+        # sie nicht mehr dieselbe, waere er ein Fremdwert an einer Handzeile.
+        untouched = (
+            len(assignments) == model_counts.get(unit_id, 0)
+            and all(entry.source == "model" for entry in assignments))
         units[unit_id] = EffectiveUnit(
             unit_id=unit_id,
             decision="mapped" if assignments else "no_mapping",
             no_mapping_reason=reason if not assignments else "",
             broad_scope_exception=len(assignments) > validation.MAX_ASSIGNMENTS_REGULAR,
-            broad_scope_reason=_text(model_state.get("broad_scope_reason")).strip(),
+            broad_scope_reason=(_text(model_state.get("broad_scope_reason"))
+                                if untouched else ""),
             assignments=tuple(assignments))
     return units
 
@@ -763,36 +884,73 @@ def reviewed_coverage_rows(review_id: str, run_id: str,
     return tuple(rows)
 
 
-def _write_review_file(review_id: str, filename: str, text: str) -> str:
-    target = review_path(review_id, filename, create_parents=True)
-    paths.write_text_atomic(target, text)
-    return paths.relative_to_base(target)
+def _write_review_files(review_id: str,
+                        files: Sequence[tuple[str, str]]) -> tuple[str, ...]:
+    """Schreibt die Ergebnisdateien einer Revision - alle oder keine.
+
+    Bricht eine Datei ab, waeren die bereits geschriebenen ein Reviewstand,
+    den es nicht gibt; sie werden deshalb wieder entfernt.
+    """
+    written: list[Path] = []
+    try:
+        for filename, text in files:
+            target = review_path(review_id, filename, create_parents=True)
+            paths.write_text_atomic(target, text)
+            written.append(target)
+    except (MatcherError, OSError) as exc:
+        for target in written:
+            target.unlink(missing_ok=True)
+        raise _blocked(
+            "REV_IMPORT_NOT_WRITTEN", review_id,
+            f"Die reviewten Artefakte konnten nicht geschrieben werden: {exc}.",
+            "Schreibrecht unter data/committee_matcher_v2/ pruefen; die "
+            "Reviewrevision ist unveraendert.")
+    return tuple(paths.relative_to_base(target) for target in written)
 
 
 def _balance(units: Mapping[str, EffectiveUnit],
-             origins: Mapping[tuple[str, str], Mapping[str, str]]) -> tuple[int, int, int]:
-    """Aenderungsbilanz gegen den Lauf: entfernt, hinzugefuegt, geaendert."""
+             origins: Mapping[tuple[str, str], Mapping[str, str]],
+             coverage: Mapping[str, Mapping[str, str]]) -> tuple[int, int, int, int]:
+    """Aenderungsbilanz gegen den Lauf: entfernt, hinzugefuegt, geaendert, Gruende.
+
+    Gezaehlt wird je Zuordnung, adressiert ueber Unit und Industry. Wer eine
+    Industry gegen eine andere tauscht, sieht das deshalb als eine entfernte
+    und eine neue Zuordnung - nicht als eine geaenderte.
+
+    Der Grund einer ``no_mapping``-Unit haengt an keiner Zuordnung; ohne die
+    vierte Zahl bliebe seine Aenderung im Bericht unsichtbar.
+    """
     kept = {(entry.unit_id, entry.industry_id)
             for state in units.values() for entry in state.assignments}
     changed = sum(1 for state in units.values() for entry in state.assignments
                   if entry.source == "manual" and (entry.unit_id, entry.industry_id) in origins)
     added = sum(1 for key in kept if key not in origins)
     removed = sum(1 for key in origins if key not in kept)
-    return removed, added, changed
+    reasons = sum(
+        1 for unit_id, state in units.items()
+        if state.decision == "no_mapping"
+        and _text(coverage.get(unit_id, {}).get("status")) == "no_mapping"
+        and state.no_mapping_reason != _text(
+            coverage.get(unit_id, {}).get("no_mapping_reason")))
+    return removed, added, changed, reasons
 
 
-def import_review(review_id: str, *, corpus: Mapping[str, object], snapshot,
-                  run_manifest: Mapping[str, object], input_manifest_hash: str,
-                  collector: ErrorCollector, workbook: Path | None = None,
-                  ) -> ImportedReview | None:
+def import_review(review_id: str, *, run_id: str, corpus: Mapping[str, object],
+                  snapshot, run_manifest: Mapping[str, object],
+                  input_manifest_hash: str, collector: ErrorCollector,
+                  workbook: Path | None = None) -> ImportedReview | None:
     """Prueft das bearbeitete Workbook und schreibt die reviewten Artefakte.
 
     Der Import ist alles oder nichts: erst wenn keine Regel verletzt ist,
-    entsteht eine Datei. Ein abgelehnter Import laesst die Reviewrevision
+    entsteht eine Datei, und bricht das Schreiben ab, bleibt keine halbe
+    Revision liegen. Ein abgelehnter Import laesst die Reviewrevision
     unveraendert.
+
+    ``run_id`` ist der Lauf, den der Aufrufer meint. Er wird gegen das
+    Exportmanifest geprueft, statt ihm entnommen zu werden - sonst berichtete
+    die CLI ueber einen Lauf und schriebe die Zeilen eines anderen.
     """
     manifest = load_export_manifest(review_id)
-    run_id = str(manifest.get("run_id", ""))
     target = workbook or review_path(review_id, WORKBOOK_FILENAME)
     if reviewed_path_exists(review_id):
         raise _blocked(
@@ -801,14 +959,26 @@ def import_review(review_id: str, *, corpus: Mapping[str, object], snapshot,
             "Eine reviewte Revision wird nie ueberschrieben; neue Review-ID "
             "exportieren und dort importieren.")
 
-    rows = read_workbook(target, collector)
-    check_binding(manifest, run_manifest, snapshot, input_manifest_hash, collector)
+    rows, info = read_workbook(target, collector)
+    check_binding(manifest, run_manifest, snapshot, input_manifest_hash,
+                  review_id, run_id, info, collector)
 
-    origins = _origin_index(run_assignments(run_id))
+    origins = _origin_index(run_assignments(run_id), collector)
     coverage = {row["unit_id"]: row for row in _read_csv(
         workflow.mapping_path(run_id, artifacts.UNIT_COVERAGE_FILENAME),
         artifacts.UNIT_COVERAGE_COLUMNS)}
-    exported_units = [str(unit_id) for unit_id in (manifest.get("units") or [])]
+    # Die exportierte Unitmenge wird aus der Coverage des Laufs nachgerechnet,
+    # nicht dem Manifest geglaubt. Nur so kann eine Unit nicht dadurch aus dem
+    # Ergebnis fallen, dass sie im Sidecar fehlt.
+    exported_units = [unit_id for unit_id, row in coverage.items()
+                      if row["status"] not in UNDECIDED_STATUS]
+    if sorted(exported_units) != sorted(str(unit_id) for unit_id
+                                        in (manifest.get("units") or [])):
+        _reject(collector, "REV_UNITS_MISMATCH", run_id,
+                "Die entschiedene Unitmenge des Laufs weicht von der des "
+                "Exports ab.",
+                "Die Artefakte des Laufs haben sich seit dem Export geaendert; "
+                "neu exportieren und dieses Workbook verwerfen.")
 
     units = effective_units(rows, exported_units, corpus, origins, coverage, collector)
     known = {unit_id: corpus[unit_id] for unit_id in units}
@@ -816,20 +986,10 @@ def import_review(review_id: str, *, corpus: Mapping[str, object], snapshot,
     if collector.has_blockers():
         return None
 
-    written = [
-        _write_review_file(
-            review_id, REVIEWED_ASSIGNMENTS_FILENAME,
-            artifacts.render_csv(REVIEWED_COLUMNS,
-                                 reviewed_rows(review_id, run_id, units, known, snapshot))),
-        _write_review_file(
-            review_id, REVIEWED_COVERAGE_FILENAME,
-            artifacts.render_csv(REVIEWED_COVERAGE_COLUMNS,
-                                 reviewed_coverage_rows(review_id, run_id, units, known))),
-    ]
     assignments = sum(len(state.assignments) for state in units.values())
     manual = sum(1 for state in units.values() for entry in state.assignments
                  if entry.source == "manual")
-    removed, added, changed = _balance(units, origins)
+    removed, added, changed, reasons = _balance(units, origins, coverage)
     payload = {
         "version": IMPORT_MANIFEST_VERSION,
         "review_id": review_id,
@@ -843,20 +1003,30 @@ def import_review(review_id: str, *, corpus: Mapping[str, object], snapshot,
         "removed_assignments": removed,
         "added_assignments": added,
         "changed_assignments": changed,
+        "changed_no_mapping_reasons": reasons,
         "no_mapping_units": sorted(unit_id for unit_id, state in units.items()
                                    if state.decision == "no_mapping"),
         "review_status": REVIEW_STATUS_REVIEWED,
-        "files": [Path(name).name for name in written],
+        "files": [REVIEWED_ASSIGNMENTS_FILENAME, REVIEWED_COVERAGE_FILENAME],
     }
-    written.append(_write_review_file(
-        review_id, IMPORT_MANIFEST_FILENAME,
-        json.dumps(payload, ensure_ascii=False, indent=2) + "\n"))
+    # Das Importmanifest steht zuletzt: es ist der Abschlussmarker, an dem ein
+    # spaeterer Lauf erkennt, dass die Revision reviewt ist.
+    written = _write_review_files(review_id, (
+        (REVIEWED_ASSIGNMENTS_FILENAME,
+         artifacts.render_csv(REVIEWED_COLUMNS,
+                              reviewed_rows(review_id, run_id, units, known, snapshot))),
+        (REVIEWED_COVERAGE_FILENAME,
+         artifacts.render_csv(REVIEWED_COVERAGE_COLUMNS,
+                              reviewed_coverage_rows(review_id, run_id, units, known))),
+        (IMPORT_MANIFEST_FILENAME,
+         json.dumps(payload, ensure_ascii=False, indent=2) + "\n"),
+    ))
     return ImportedReview(
-        review_id=review_id, run_id=run_id, units=len(units),
+        units=len(units),
         assignments=assignments, manual_assignments=manual,
         no_mapping_units=len(payload["no_mapping_units"]),
         removed=removed, added=added, changed=changed,
-        files=tuple(written))
+        changed_reasons=reasons, files=written)
 
 
 def reviewed_path_exists(review_id: str) -> bool:

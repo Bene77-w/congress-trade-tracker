@@ -23,7 +23,8 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from committee_matcher import cli, paths, review, taxonomy_snapshot, workflow  # noqa: E402
+from committee_matcher import (  # noqa: E402
+    artifacts, cli, paths, review, taxonomy_snapshot, workflow)
 from committee_matcher.status import ExitCode  # noqa: E402
 
 from tests.test_committee_matcher_run_cli_p7 import (  # noqa: E402
@@ -356,11 +357,11 @@ def test_a_changed_industry_becomes_manual(exported, capsys):
 
 def test_a_changed_confidence_becomes_manual(exported, capsys):
     unit_id = cell_of(exported, 0, "unit_id")
-    edit(exported, 0, confidence="5")
+    edit(exported, 0, confidence="4")
     assert cli.main(import_argv()) in (0, 2)
     capsys.readouterr()
     row = [entry for entry in reviewed_rows() if entry["unit_id"] == unit_id][0]
-    assert row["confidence"] == "5"
+    assert row["confidence"] == "4"
     assert row["assignment_source"] == "manual"
     assert import_manifest()["changed_assignments"] == 1
 
@@ -584,3 +585,199 @@ def test_a_conflict_is_resolved_by_deleting_rows(conflicted, capsys):
     coverage = review.review_path(
         "review-run-test", review.REVIEWED_COVERAGE_FILENAME).read_text(encoding="utf-8")
     assert coverage.count("no_mapping") >= 3
+
+
+# ---------------------------------------------------------------------------
+# Bindung, Wertetreue und Atomaritaet (Reviewbefunde zu P7d)
+# ---------------------------------------------------------------------------
+
+def set_info(path, **values) -> None:
+    """Aendert Kennungen im Blatt 'info', wie es eine Handmanipulation taete."""
+    book = load_workbook(path)
+    sheet = book[review.SHEET_INFO]
+    for line in sheet.iter_rows(min_row=2, max_col=2):
+        key = line[0].value
+        if key in values:
+            line[1].value = values[key]
+            line[1].data_type = "s"
+    book.save(path)
+
+
+def patch_export_manifest(review_id: str = "review-run-test", **values) -> None:
+    target = review.review_path(review_id, review.EXPORT_MANIFEST_FILENAME)
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    payload.update(values)
+    target.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+                      encoding="utf-8")
+
+
+def test_confidence_above_the_model_contract_is_rejected(exported, capsys):
+    """Der Reviewwert folgt derselben Rubrik wie der Modellwert."""
+    edit(exported, 0, confidence="5")
+    assert cli.main(import_argv()) == int(ExitCode.REVIEW_IMPORT_REJECTED)
+    assert "REV_CONFIDENCE_INVALID" in capsys.readouterr().out
+    assert not review.reviewed_path_exists("review-run-test")
+
+
+def test_a_workbook_of_another_run_is_rejected(exported, capsys):
+    """Ohne diese Pruefung liefe das Urteil eines Laufs in einen anderen."""
+    set_info(exported, run_id="run-fremd")
+    assert cli.main(import_argv()) == int(ExitCode.REVIEW_IMPORT_REJECTED)
+    assert "REV_STALE_BINDING" in capsys.readouterr().out
+
+
+def test_a_workbook_of_another_review_is_rejected(mapped_run, capsys):
+    """Ein fremdes Workbook per --workbook wird nicht angenommen."""
+    assert cli.main(export_argv("run-test", "review-a")) in (0, 2)
+    assert cli.main(export_argv("run-test", "review-b")) in (0, 2)
+    capsys.readouterr()
+    other = review.review_path("review-b", review.WORKBOOK_FILENAME)
+    assert cli.main(import_argv(review_id="review-a", workbook=str(other))) == int(
+        ExitCode.REVIEW_IMPORT_REJECTED)
+    assert "REV_STALE_BINDING" in capsys.readouterr().out
+
+
+def test_an_export_manifest_of_another_run_is_rejected(exported, capsys):
+    """Der Lauf des Kommandos und der des Exports muessen derselbe sein."""
+    patch_export_manifest(run_id="run-fremd")
+    assert cli.main(import_argv()) == int(ExitCode.REVIEW_IMPORT_REJECTED)
+    assert "REV_STALE_BINDING" in capsys.readouterr().out
+
+
+def test_a_shortened_unit_list_is_rejected(exported, capsys):
+    """Die Unitmenge kommt aus dem Lauf, nicht aus dem Sidecar."""
+    manifest = manifest_of()
+    patch_export_manifest(units=manifest["units"][:-1])
+    assert cli.main(import_argv()) == int(ExitCode.REVIEW_IMPORT_REJECTED)
+    assert "REV_UNITS_MISMATCH" in capsys.readouterr().out
+
+
+def test_a_duplicate_origin_row_is_rejected(exported, capsys):
+    """Zwei Herkunftszeilen je Zuordnung machen die Provenienz unentscheidbar."""
+    target = workflow.mapping_path("run-test", artifacts.ASSIGNMENTS_FILENAME)
+    lines = target.read_text(encoding="utf-8").splitlines()
+    target.write_text("\n".join(lines + [lines[1]]) + "\n", encoding="utf-8")
+    assert cli.main(import_argv()) == int(ExitCode.REVIEW_IMPORT_REJECTED)
+    assert "REV_ORIGIN_DUPLICATE" in capsys.readouterr().out
+
+
+def test_an_export_needs_the_snapshot_of_the_run(mapped_run, capsys):
+    """Eine spaeter freigegebene Taxonomie gehoert nicht in dieses Workbook."""
+    write_wide_baseline("run-anders")
+    assert cli.main(export_argv()) == int(ExitCode.PREFLIGHT_BLOCKED)
+    assert "REV_SNAPSHOT_MISMATCH" in capsys.readouterr().out
+    assert not review.review_path("review-run-test",
+                                  review.WORKBOOK_FILENAME).exists()
+
+
+def test_a_failed_write_leaves_no_partial_review(exported, capsys, monkeypatch):
+    """Bricht das Schreiben ab, bleibt kein halber Reviewstand liegen."""
+    original = paths.write_text_atomic
+    calls = {"n": 0}
+
+    def failing(target, text, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise OSError("Datentraeger voll")
+        return original(target, text, **kwargs)
+
+    monkeypatch.setattr(review.paths, "write_text_atomic", failing)
+    assert cli.main(import_argv()) == int(ExitCode.PREFLIGHT_BLOCKED)
+    assert "REV_IMPORT_NOT_WRITTEN" in capsys.readouterr().out
+    for name in (review.REVIEWED_ASSIGNMENTS_FILENAME,
+                 review.REVIEWED_COVERAGE_FILENAME,
+                 review.IMPORT_MANIFEST_FILENAME):
+        assert not review.review_path("review-run-test", name).exists()
+
+
+def test_a_multiline_value_survives_the_artifact_roundtrip(tmp_path):
+    """Ein mehrzeiliger Ausschnitt darf beim Lesen nicht seine Umbrueche verlieren."""
+    columns = ("unit_id", "evidence_excerpt")
+    text = artifacts.render_csv(
+        columns, [{"unit_id": "house--x", "evidence_excerpt": "erste Zeile\nzweite"}])
+    target = tmp_path / "assignments.csv"
+    target.write_text(text, encoding="utf-8")
+    rows = review._read_csv(target, columns)
+    assert rows[0]["evidence_excerpt"] == "erste Zeile\nzweite"
+
+
+def test_a_short_artifact_row_is_rejected(tmp_path):
+    """Eine Zeile mit fehlenden Feldern wird nicht mit None aufgefuellt."""
+    target = tmp_path / "assignments.csv"
+    target.write_text("unit_id,evidence_excerpt\nhouse--x\n", encoding="utf-8")
+    with pytest.raises(review.ReviewError):
+        review._read_csv(target, ("unit_id", "evidence_excerpt"))
+
+
+def test_a_cleared_no_mapping_reason_is_not_refilled(scripted, capsys):
+    """Ein geleertes Feld ist eine Aussage, keine Luecke."""
+    scripted.install(decision="no_mapping")
+    assert cli.main(plan_argv()) in (0, 2)
+    assert cli.main(execute_argv()) in (0, 2)
+    assert cli.main(export_argv()) in (0, 2)
+    capsys.readouterr()
+    path = review.review_path("review-run-test", review.WORKBOOK_FILENAME)
+    edit(path, 0, no_mapping_reason="")
+    assert cli.main(import_argv()) in (0, 2)
+    capsys.readouterr()
+    text = review.review_path("review-run-test",
+                              review.REVIEWED_COVERAGE_FILENAME
+                              ).read_text(encoding="utf-8")
+    rows = list(csv.DictReader(text.splitlines()))
+    assert rows[0]["no_mapping_reason"] == ""
+    assert any(row["no_mapping_reason"] for row in rows[1:]), (
+        "unberuehrte Units behalten ihren Grund")
+
+
+def effective_of(rows, coverage_row, origins):
+    """Ruft die Auswertung mit minimalem Umfeld auf."""
+    from committee_matcher.errors import ErrorCollector
+
+    collector = ErrorCollector()
+    units = review.effective_units(
+        rows, ["house--x"], {"house--x": object()}, origins,
+        {"house--x": coverage_row}, collector)
+    assert not collector.blockers
+    return units["house--x"]
+
+
+def test_the_broad_scope_reason_stays_with_the_untouched_unit():
+    coverage = {"status": "mapped", "no_mapping_reason": "",
+                "broad_scope_reason": "Drei getrennte Kernbereiche."}
+    origin = {"unit_id": "house--x", "industry_id": "gold", "confidence": "3",
+              "evidence_excerpt": "Zustaendig fuer", "rationale_short": "Kern.",
+              "call_id": "call-1"}
+    row = {"unit_id": "house--x", "industry_id": "gold", "confidence": "3",
+           "evidence_excerpt": "Zustaendig fuer", "rationale_short": "Kern.",
+           "no_mapping_reason": ""}
+    state = effective_of([row], coverage, {("house--x", "gold"): origin})
+    assert state.broad_scope_reason == "Drei getrennte Kernbereiche."
+
+
+def test_the_broad_scope_reason_is_dropped_when_the_unit_changed():
+    """Der Ausnahmegrund des Modells beschreibt dessen Menge, nicht die neue."""
+    coverage = {"status": "mapped", "no_mapping_reason": "",
+                "broad_scope_reason": "Drei getrennte Kernbereiche."}
+    origin = {"unit_id": "house--x", "industry_id": "gold", "confidence": "3",
+              "evidence_excerpt": "Zustaendig fuer", "rationale_short": "Kern.",
+              "call_id": "call-1"}
+    row = {"unit_id": "house--x", "industry_id": "gold", "confidence": "3",
+           "evidence_excerpt": "Anderer Ausschnitt", "rationale_short": "Kern.",
+           "no_mapping_reason": ""}
+    state = effective_of([row], coverage, {("house--x", "gold"): origin})
+    assert state.assignments[0].source == "manual"
+    assert state.broad_scope_reason == ""
+
+
+def test_a_changed_no_mapping_reason_is_reported(scripted, capsys):
+    """Ohne die vierte Zahl bliebe die Aenderung im Bericht unsichtbar."""
+    scripted.install(decision="no_mapping")
+    assert cli.main(plan_argv()) in (0, 2)
+    assert cli.main(execute_argv()) in (0, 2)
+    assert cli.main(export_argv()) in (0, 2)
+    capsys.readouterr()
+    path = review.review_path("review-run-test", review.WORKBOOK_FILENAME)
+    edit(path, 0, no_mapping_reason="Keine Industry erfuellt die Regel.")
+    assert cli.main(import_argv()) in (0, 2)
+    assert "1 Grund geaendert" in capsys.readouterr().out
+    assert import_manifest()["changed_no_mapping_reasons"] == 1

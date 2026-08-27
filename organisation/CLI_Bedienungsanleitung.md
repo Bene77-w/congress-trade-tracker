@@ -1817,27 +1817,39 @@ Bedingungen. Eine geänderte oder neue Zeile bekommt automatisch
 behält beides.
 
 Der Import meldet nach dem Schreiben die Änderungsbilanz gegen den Lauf
-(`geändert | neu | entfernt`). Sie ist der Ersatz für die frühere
-Löschbestätigung: Eine versehentlich gelöschte Zeile fällt an der Zahl auf.
+(`geändert | neu | entfernt`, dazu `Grund geändert`, sofern zutreffend). Sie ist
+der Ersatz für die frühere Löschbestätigung: Eine versehentlich gelöschte Zeile
+fällt an der Zahl auf. Gezählt wird je Zuordnung, adressiert über Einheit und
+Industry — ein Industrietausch erscheint deshalb als eine entfernte plus eine
+neue Zuordnung, nicht als eine geänderte.
 
 **Was der Import ablehnt** (Exit 7, keine Datei wird geschrieben):
 
 | Code | Bedeutung |
 |---|---|
-| `REV_STALE_BINDING` | Snapshot, Taxonomiehash, Inputmanifest oder Modell weichen vom Export ab |
+| `REV_STALE_BINDING` | Lauf, Snapshot, Taxonomiehash, Inputmanifest, Modell oder die Kennungen im Blatt `info` weichen vom Export ab |
+| `REV_UNITS_MISMATCH` | die entschiedene Einheitenmenge des Laufs weicht von der des Exports ab |
+| `REV_ORIGIN_DUPLICATE` | die Long-CSV des Laufs führt eine Zuordnung doppelt |
 | `REV_WORKBOOK_CONTRACT` | Blatt oder Spaltenkopf umbenannt, verschoben oder entfernt |
 | `REV_FORMULA_CELL` | eine Zelle enthält eine Formel statt eines Werts |
 | `REV_UNIT_MISSING` / `REV_UNIT_UNKNOWN` | Zeile ohne `unit_id` oder mit einer, die es nicht gibt |
 | `REV_UNKNOWN_INDUSTRY` | `industry_id` steht nicht im Snapshot des Laufs |
 | `REV_INDUSTRY_DUPLICATE` | dieselbe Industry zweimal bei derselben Einheit |
-| `REV_CONFIDENCE_INVALID` | Confidence ist keine ganze Zahl 1..5 |
+| `REV_CONFIDENCE_INVALID` | Confidence ist keine ganze Zahl 1..4 |
 
 Nur als Warnung (Exit 2, Datei wird geschrieben): `REV_ASSIGNMENTS_ABOVE_LIMIT`
 — mehr Zuordnungen als der Modellvertrag erlaubt. Die 0/2/5-Regel diszipliniert
 das Modell; über den Einzelfall entscheidet der Review.
 
+Blockierend vor jeder Prüfung (Exit 4): `REV_SNAPSHOT_MISMATCH` beim Export,
+wenn der freigegebene Snapshot nicht der des Laufs ist, und
+`REV_IMPORT_NOT_WRITTEN`, wenn eine Ergebnisdatei nicht geschrieben werden kann
+— bereits geschriebene werden dann wieder entfernt, die Reviewrevision bleibt
+unberührt.
+
 Angenommen entstehen `reviewed_assignments.csv`, `reviewed_unit_coverage.csv`
-und `import_manifest.json`. Sektor- und Industrienamen leitet der Import aus dem
+und `import_manifest.json`; das Manifest steht zuletzt und ist der
+Abschlussmarker. Sektor- und Industrienamen leitet der Import aus dem
 Snapshot ab, damit ein Tippfehler im Namen nicht ins Ergebnis wandert; die
 `industry_id` ist die Wahrheit.
 

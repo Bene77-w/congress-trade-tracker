@@ -11,6 +11,36 @@ Historie abgeschlossener Module/Phasen. **Aktiver WIP-Modul-Stand** steht im „
 
 ---
 
+## 2026-08-27 — Committee Matcher V2: Reviewbefunde zu Bindung und Wertetreue
+
+Nachbesserung des Review-Roundtrips nach dem Phasenreview. Sechs Befunde
+betrafen die Datenverarbeitung selbst:
+
+- Der Import ist jetzt auch beim Schreiben alles-oder-nichts; bricht eine der
+  drei Ergebnisdateien ab, werden die bereits geschriebenen entfernt.
+- Lauf, Reviewrevision und Snapshot werden dreifach gleichgesetzt: CLI-Lauf
+  gegen Exportmanifest, Exportmanifest gegen Runmanifest, Runmanifest gegen den
+  geladenen Snapshot. Zusaetzlich traegt das Blatt `info` die Kennungen des
+  Exports und wird gegen sie geprueft, womit ein fremdes Workbook per
+  `--workbook` nicht mehr angenommen wird. Der Export blockiert, wenn der
+  freigegebene Snapshot nicht der des Laufs ist (`REV_SNAPSHOT_MISMATCH`).
+- Werte werden nicht mehr still veraendert: CSVs werden mit erhaltenen
+  eingebetteten Zeilenumbruechen gelesen, Textfelder zeichengenau aus der
+  Zelle uebernommen (getrimmt werden nur Kennungen), und ein geleerter
+  `no_mapping_reason` wird nicht aus dem Lauf wieder aufgefuellt.
+- Die Confidence folgt dem Modellvertrag (1..4 statt 1..5).
+- Die exportierte Einheitenmenge rechnet der Import aus `unit_coverage.csv`
+  nach; `units` im Exportmanifest ist nur noch die Gegenprobe
+  (`REV_UNITS_MISMATCH`).
+- Der Ausnahmegrund `broad_scope_reason` bleibt nur an unveraenderten
+  Einheiten stehen, eine doppelte Herkunftszeile im Lauf ist ein Ablehnungs-
+  grund statt eines stillen Vorrangs, und die Bilanz weist geaenderte
+  `no_mapping`-Gruende gesondert aus.
+
+Tests: 1866 passed (53 im Review-Roundtrip).
+
+---
+
 ## 2026-08-27 — Committee Matcher V2: Review-Workbook als Arbeitstabelle
 
 Das Workbook verlangt keine Eintraege mehr, die nicht der Sache dienen. Die

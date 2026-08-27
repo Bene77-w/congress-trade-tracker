@@ -559,7 +559,10 @@ lehnt der Import jede Formelzelle ab (`REV_FORMULA_CELL`).
 `model`, `unit_count`, `row_count`, `boundary_count`, `incomplete_units`,
 `columns` und `units` (die exportierte Unitmenge). Fehlt eine dieser Units
 später komplett im Workbook, wertet der Import das als Entfernung ihrer
-Zuordnungen — nicht als vergessene Unit.
+Zuordnungen — nicht als vergessene Unit. Die Menge selbst rechnet der Import aus
+`unit_coverage.csv` des Laufs nach und lehnt bei Abweichung ab
+(`REV_UNITS_MISMATCH`); `units` im Manifest ist die Gegenprobe, nicht die
+Quelle.
 
 `reviewed_assignments.csv`: die Spalten von `assignments_long.csv`, ergänzt um
 `review_id`. `assignment_source` ist `manual`, sobald `confidence`,
@@ -574,8 +577,8 @@ Sektornamen leitet der Import aus dem Snapshot ab, nie aus Excel.
 `manual_assignments`, `review_status`. `import_manifest.json`
 (`version: review-import-v2`) fasst `unit_count`, `assignment_count`,
 `manual_assignment_count`, die Änderungsbilanz (`changed_assignments`,
-`added_assignments`, `removed_assignments`), `no_mapping_units` und die
-geschriebenen Dateien zusammen; seine Existenz macht die Reviewrevision
+`added_assignments`, `removed_assignments`, `changed_no_mapping_reasons`),
+`no_mapping_units` und die geschriebenen Dateien zusammen; seine Existenz macht die Reviewrevision
 unveränderlich (`REV_IMPORT_EXISTS`).
 
 #### `data/config/committee_matcher_prompts/` (P5, versionierter Kontrollinput)
