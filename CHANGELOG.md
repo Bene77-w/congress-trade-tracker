@@ -11,6 +11,26 @@ Historie abgeschlossener Module/Phasen. **Aktiver WIP-Modul-Stand** steht im „
 
 ---
 
+## 2026-08-27 — Committee Matcher V2: Terminalstatus des Mappinglaufs (S4)
+
+Der Live-Status deckt jetzt auch die kostenpflichtigen Vorgaenge ab. Vorhanden
+waren Batchstart mit Position, Batchabschluss mit Reparaturzahl und
+Kostenstand, das Ergebnis je Unit (`no_mapping` als `INFO`, nicht als Fehler),
+die Zusammenfassung je Committee sowie Retry und Providerfehler auf `stderr`.
+
+Neu ist die Kostenzeile nach jedem gebuchten Modellcall: `AuditedProvider`
+nimmt einen optionalen Reporter und meldet Einzelbetrag und Gesamtstand,
+`outcome=charged` oder `outcome=unknown`. Ein vom Provider abgewiesener Call
+kostet nichts und bekommt keine Zeile. Ohne sie verschwand ein teurer
+Reparaturcall in der Batchsumme.
+
+Dreizehn Terminaltests fuer Mappinglauf und Review ergaenzt; Doku in
+`CLI_Bedienungsanleitung.md` Abschnitt 15k.
+
+Tests: 1877 passed.
+
+---
+
 ## 2026-08-27 — Committee Matcher V2: Reviewbefunde zu Bindung und Wertetreue
 
 Nachbesserung des Review-Roundtrips nach dem Phasenreview. Sechs Befunde

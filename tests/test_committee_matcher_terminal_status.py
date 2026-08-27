@@ -141,3 +141,133 @@ def test_snapshot_approve_without_a_snapshot_reports_an_error(sandbox, capsys):
     captured = capsys.readouterr()
     assert "[START] taxonomy | run=run-ohne | action=approve" in captured.out
     assert "[ERROR] taxonomy | run=run-ohne | approval=abgelehnt" in captured.err
+
+
+# ---------------------------------------------------------------------------
+# Integration in Mappinglauf und Review (Statusplan S4)
+# ---------------------------------------------------------------------------
+
+from dataclasses import replace  # noqa: E402
+
+from tests.test_committee_matcher_run_cli_p7 import (  # noqa: E402,F401
+    ScriptedProvider, _assignment, _provider_error, execute_argv, plan_argv,
+    scripted, unit_result,
+)
+from tests.test_committee_matcher_review_p7 import (  # noqa: E402,F401
+    DistinctProvider, export_argv, import_argv, mapped_run, write_wide_baseline,
+)
+
+
+def run_scripted(scripted, capsys, **kwargs) -> tuple[str, str]:
+    """Plant und fuehrt den Lauf aus; liefert die Ausgabe der Ausfuehrung."""
+    scripted.install(**kwargs)
+    assert cli.main(plan_argv()) in (0, 2)
+    capsys.readouterr()
+    cli.main(execute_argv())
+    captured = capsys.readouterr()
+    return captured.out, captured.err
+
+
+def test_each_batch_reports_start_and_finish(scripted, capsys):
+    out, _ = run_scripted(scripted, capsys)
+    assert "[START] mapping | run=run-test | batch=" in out
+    assert "position=1/" in out, "der Batch nennt seine Stelle im Lauf"
+    assert "[OK] mapping | batch=" in out
+    assert "repairs=0" in out
+
+
+def test_each_unit_reports_its_industry_count(scripted, capsys):
+    out, _ = run_scripted(scripted, capsys)
+    assert "[OK] mapping | unit=" in out
+    assert "industries=1" in out
+
+
+def test_no_mapping_is_an_info_not_an_error(scripted, capsys):
+    """Eine Einheit ohne Zuordnung ist eine Entscheidung, kein Fehlschlag."""
+    out, err = run_scripted(scripted, capsys, decision="no_mapping")
+    assert "[INFO] mapping | unit=" in out
+    assert "no_mapping" in out
+    assert "[ERROR] mapping" not in out + err
+
+
+def test_the_run_closes_with_a_committee_summary(scripted, capsys):
+    out, _ = run_scripted(scripted, capsys)
+    assert "[INFO] mapping | committee=" in out
+    for field in ("units=", "mapped=", "no_mapping=", "failed=", "industries="):
+        assert field in out
+
+
+def test_every_call_reports_the_cost(scripted, capsys):
+    """Ohne die Zeile waere die Kostenentwicklung erst nach dem Batch sichtbar."""
+    out, _ = run_scripted(scripted, capsys)
+    assert "[INFO] cost | call=" in out
+    assert "outcome=charged" in out
+    assert "committed_usd=" in out
+
+
+def test_an_open_outcome_reports_its_reservation(scripted, capsys):
+    out, _ = run_scripted(scripted, capsys, errors=[
+        _provider_error(retryable=True, outcome_unknown=True)])
+    assert "outcome=unknown" in out
+    assert "[INFO] cost | call=" in out
+
+
+def test_a_rejected_call_reports_its_retry_on_stderr(scripted, capsys):
+    _, err = run_scripted(scripted, capsys, errors=[
+        _provider_error(retryable=True, outcome_unknown=False)])
+    assert "[WARN] provider | batch=" in err
+    assert "retry=1/" in err
+
+
+def test_a_final_provider_error_names_its_code(scripted, capsys):
+    _, err = run_scripted(scripted, capsys, errors=[
+        _provider_error(retryable=False, outcome_unknown=False)])
+    assert "[ERROR] provider | batch=" in err
+    assert "code=PROV_TEST" in err
+
+
+class RepairedProvider(ScriptedProvider):
+    """Erster Call verletzt den Vertrag, der Reparaturcall liefert gueltig."""
+
+    def complete(self, request):
+        response = super().complete(request)
+        if "-repair-" in request.call_id:
+            return response
+        payload = dict(response.payload)
+        payload["units"] = [
+            unit_result(unit["unit_id"], assignments=[_assignment("gibt-es-nicht")])
+            for unit in payload["units"]
+        ]
+        return replace(response, payload=payload)
+
+
+def test_a_repair_attempt_is_reported(scripted, capsys):
+    adapter = RepairedProvider()
+    scripted.monkeypatch.setattr(
+        cli.provider.OpenRouterProvider, "create",
+        classmethod(lambda cls, collector, settings: adapter))
+    assert cli.main(plan_argv()) in (0, 2)
+    capsys.readouterr()
+    cli.main(execute_argv())
+    captured = capsys.readouterr()
+    assert "[WARN] mapping | batch=" in captured.err
+    assert "repair=1" in captured.err
+    assert "open_violations=" in captured.err
+
+
+def test_review_export_reports_start_and_result(mapped_run, capsys):
+    assert cli.main(export_argv()) in (0, 2)
+    out = capsys.readouterr().out
+    assert "[START] review | run=run-test | review=review-run-test" in out
+    assert "[OK] review | review=review-run-test | rows=" in out
+
+
+def test_review_import_reports_start_and_balance(mapped_run, capsys):
+    assert cli.main(export_argv()) in (0, 2)
+    capsys.readouterr()
+    assert cli.main(import_argv()) in (0, 2)
+    out = capsys.readouterr().out
+    assert "[START] review | run=run-test | review=review-run-test | action=import" in out
+    assert "[OK] review | review=review-run-test | units=" in out
+    for field in ("assignments=", "manual=", "removed=", "added=", "changed="):
+        assert field in out

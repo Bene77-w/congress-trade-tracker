@@ -23,7 +23,8 @@ from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
 from . import mapping, paths, provider as provider_module
-from .errors import Finding, MatcherError, Severity, Stage
+from .errors import (Finding, MatcherError, SILENT_REPORTER, Severity, Stage,
+                     TerminalReporter)
 from .models import MappingUnitResult, MatcherUnit
 from .prompts import SystemPrompt
 from .settings_view import MatcherSettings, OfflineSettings, ProviderSettings
@@ -568,6 +569,8 @@ class AuditedProvider:
     #: Bezahlte Calls ohne verwertbare Antwort; ihr Kostenstand ist geklaert,
     #: ihre Spur ist die Klaerungsdatei statt einer Auditdatei.
     settled: list[str] = field(default_factory=list)
+    #: Live-Status; ohne Terminal bleibt der stille Reporter stehen.
+    reporter: TerminalReporter = field(default_factory=lambda: SILENT_REPORTER)
 
     def complete(self, request: provider_module.StructuredRequest
                  ) -> provider_module.StructuredResponse:
@@ -584,9 +587,25 @@ class AuditedProvider:
         # Gebucht wird, sobald die Antwort vorliegt - vor der Persistenz. Sonst
         # bliebe ein bezahlter Call bei einem Schreibfehler ungebucht, und das
         # Budget haette Luft, die es nicht mehr hat.
+        committed_before = self.guard.committed_usd
         self.guard.settle(worst_case, response)
+        self._report_cost(request.call_id, committed_before, "charged")
         self._persist(request, response, worst_case)
         return response
+
+    def _report_cost(self, call_id: str, committed_before: float,
+                     outcome: str) -> None:
+        """Meldet den Kostenstand nach einem gebuchten Call (Statusplan S4).
+
+        Ohne die Zeile waere die Kostenentwicklung erst nach dem Batch
+        sichtbar; ein teurer Reparaturcall verschwaende in dessen Summe.
+        Gemeldet wird nur, was tatsaechlich gebucht ist - ein vom Provider
+        abgewiesener Call kostet nichts und bekommt keine Zeile.
+        """
+        self.reporter.info(
+            Stage.COST, call=call_id, outcome=outcome,
+            call_usd=round(self.guard.committed_usd - committed_before, 6),
+            committed_usd=round(self.guard.committed_usd, 6))
 
     def _reserve(self, request, worst_case: float) -> None:
         """Legt die Vormerkung an, bevor die Anfrage das Haus verlaesst.
@@ -700,7 +719,9 @@ class AuditedProvider:
             # Inhalt. Der Ausgang ist damit bekannt - der Call ist bezahlt und
             # geklaert, nur ohne verwertbare Antwort. Ihn als 'offen' zu fuehren
             # wuerde eine Reconciliation verlangen, die nichts mehr klaeren kann.
+            committed_before = self.guard.committed_usd
             self.guard.settle(worst_case, cost_usd=exc.cost_usd)
+            self._report_cost(request.call_id, committed_before, "charged")
             self._settle_without_audit(
                 request.call_id, reason=reason, cost_usd=exc.cost_usd,
                 generation_id=exc.generation_id)
@@ -708,7 +729,9 @@ class AuditedProvider:
         if not exc.outcome_unknown:
             self._release(request.call_id)
             return exc
+        committed_before = self.guard.committed_usd
         self.guard.settle(worst_case, None)
+        self._report_cost(request.call_id, committed_before, "unknown")
         self._mark_open(request.call_id, reason=reason, reserved_usd=worst_case,
                         generation_id=exc.generation_id)
         exc.retryable = False

@@ -1853,6 +1853,51 @@ Abschlussmarker. Sektor- und Industrienamen leitet der Import aus dem
 Snapshot ab, damit ein Tippfehler im Namen nicht ins Ergebnis wandert; die
 `industry_id` ist die Wahrheit.
 
+### 15k. Live-Terminalstatus (Statusplan S1–S4)
+
+Jeder nutzerrelevante Vorgang meldet sich sofort; der strukturierte
+Abschlussbericht bleibt davon unberührt. Interne Funktionsaufrufe und
+erfolgreiche einzelne yfinance-Requests erzeugen keine Zeile.
+
+| Art | Bedeutung | Stream |
+|---|---|---|
+| `START` | Vorgang beginnt | stdout |
+| `OK` | Vorgang erfolgreich | stdout |
+| `INFO` | fachliche Feststellung, kein Fehler (z. B. `no_mapping`) | stdout |
+| `WAIT` | Lauf wartet auf eine menschliche Freigabe | stdout |
+| `WARN` | Retry, Reparaturversuch, übersprungener Schritt | stderr |
+| `ERROR` | Vorgang gescheitert, Code und Objekt genannt | stderr |
+
+Zeilenformat: `[ART] stage | feld=wert | marker`. Ein Feld ohne Wert ist ein
+Marker (`no_mapping`). Prompttexte, API-Schlüssel und vollständige
+Providerantworten erscheinen nie; Feldnamen, die nach einem Geheimnis klingen,
+weist der Reporter ab.
+
+Was der Mappinglauf meldet (`run execute`):
+
+```text
+[START] workflow | run=run-2026-08-27 | action=execute
+[INFO] workflow | run=run-2026-08-27 | pending=42 | cached=6
+[START] mapping | run=run-2026-08-27 | batch=batch-003 | units=3 | position=3/14
+[INFO] cost | call=... | outcome=charged | call_usd=0.000018 | committed_usd=0.000212
+[OK] mapping | unit=house--agriculture--livestock | industries=2
+[INFO] mapping | unit=house--agriculture--nutrition | no_mapping | reason=...
+[WARN] mapping | batch=batch-003 | repair=1 | call=... | open_violations=2
+[OK] mapping | batch=batch-003 | repairs=1 | cost_usd=0.000212
+[INFO] mapping | committee=house--agriculture | units=6 | mapped=5 | no_mapping=1 | failed=0 | industries=8
+[OK] artifacts | run=run-2026-08-27 | files=7
+```
+
+Die Kostenzeile steht nach jedem gebuchten Modellcall; `outcome=unknown`
+markiert einen Call mit offenem Ausgang, dessen Worst Case reserviert bleibt.
+Ein vom Provider abgewiesener Call kostet nichts und bekommt keine Zeile. Die
+Committee-Zusammenfassung erscheint als `WARN`, sobald eine Einheit der Familie
+fehlgeschlagen ist.
+
+`review export|import` melden Start, Zeilen- beziehungsweise Einheitenzahl und
+die Änderungsbilanz; eine abgelehnte Übernahme erscheint als `ERROR` mit der
+Zahl der Befunde.
+
 ## 16. Ausgelagerter Analyse-Workflow
 
 Der ehemalige Suspicious-Trades-Workflow ist kein Script oder internes Modul des

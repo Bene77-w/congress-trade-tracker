@@ -1275,7 +1275,8 @@ def handle_run_execute(
         if adapter is None:
             return [f"Run:      {run_id}", "Lauf:     blockiert (Providerrand)"], [], 0.0
         audited = workflow.AuditedProvider(
-            inner=adapter, run_id=run_id, guard=guard, offline=settings.offline)
+            inner=adapter, run_id=run_id, guard=guard, offline=settings.offline,
+            reporter=reporter)
         state.state = WorkflowState.RUNNING
         state.write()
 
