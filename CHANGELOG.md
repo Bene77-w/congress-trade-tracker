@@ -11,6 +11,28 @@ Historie abgeschlossener Module/Phasen. **Aktiver WIP-Modul-Stand** steht im „
 
 ---
 
+## 2026-08-28 — Committee Matcher V2: Entwicklungsrun und Roundtrip live (P8)
+
+Lauf `p8-run2` ueber 7 Units des House Committee on Agriculture: 6 mapped,
+1 no_mapping, 0 failed, 0,003685 USD Ist gegen 0,233431 USD Worst Case. Ein
+Batch kippte einmalig mit `PROV_INVALID_JSON` (leere Antwort, 0 USD); die
+Wiederaufnahme holte die drei bereits bezahlten Units aus dem Cache und lief
+durch - der vorgesehene Weg, ohne Doppelabrechnung.
+
+Roundtrip `review-p8-run2`, von Bene in Excel bearbeitet: 1 Zuordnung
+geaendert, 2 neu, 2 entfernt, beide Richtungen `mapped ↔ no_mapping`,
+2 Boundary-Konflikte unveraendert uebernommen. Der erste Importversuch wurde
+mit `REV_UNKNOWN_INDUSTRY` abgelehnt, weil Excels Autokorrektur
+`packaged-foods` zu `Packaged-foods` gross geschrieben hatte; abgelehnt heisst
+keine Datei geschrieben, der zweite Versuch lief sauber durch.
+
+Beobachtungen ohne Codefolge: Excel speichert neu getippte Confidence-Werte als
+Zahl statt als Text, der Import liest beides. Der Hinweis "Wiederholbar" an
+`PROV_INVALID_JSON` fuehrt in die Irre, weil der Workflow nach einem gebuchten
+Call nie wiederholt (Schutz vor Doppelabrechnung).
+
+---
+
 ## 2026-08-28 — Committee Matcher V2: Denktiefe begrenzt (P8-Befund)
 
 Der erste Live-Run scheiterte zweimal an `PROV_TRUNCATED`, ohne ein Zeichen
