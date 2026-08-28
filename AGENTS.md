@@ -51,6 +51,7 @@ git merge --no-ff agent/<name> -m "Merge agent/<name>: ..."
 - Review-Workbook ist eine Arbeitstabelle ohne Steuerspalten: Wert aendern, Zeile loeschen, Zeile anhaengen; Provenienz + Aenderungsbilanz rechnet der Import aus dem Vergleich gegen die Laufartefakte
 - Ablauf: Mapping -> Review in Excel -> `reviewed_assignments.csv` -> Uebernahme in `import_trades`
 - P8 am 2026-08-28 live bestanden: Lauf `p8-run2` (7 Units House Agriculture, 6 mapped, 1 no_mapping, 0,003685 USD) plus Roundtrip `review-p8-run2`; Denktiefe je Call ist seither ueber `COMMITTEE_MATCHER_REASONING_EFFORT` begrenzt, gesendet wird `max_output_tokens + reasoning_reserve_tokens`
-- Offen: P9 Entwicklungs-Gold-Set und Evaluation (kostenpflichtig, Gate), Phasenreviews (GPT Sol) fuer P7c-Nachpruefung, S3, S5 und P8
+- Phasenreviews abgeschlossen: P7c-Nachpruefung, S3, S5 (je nicht abgenommen, Befunde behoben) und P8 (mit Auflagen abgenommen, Auflagen erledigt)
+- Offen: P9 Entwicklungs-Gold-Set und Evaluation (kostenpflichtig, Gate); Bene labelt die 22 Units in data/committee_matcher_v2/goldset/development_goldset.xlsx
 - Entschieden 2026-08-27: CSV-Formelinterpretation bleibt unveraendert (Review laeuft ausschliesslich ueber die Excel), Confidence-Rubrik bleibt vierstufig, `unit_id` bleibt Modellfeld (Fehler faellt ueber Anzahl- und Evidenzpruefung auf), Boundary-Konflikte sind reine Information ohne Eingabefeld
 - Detailstand + History; `CHANGELOG.md`; laufende Entscheidungen + Plaene; `organisation/` und `~/.claude/plans/`
