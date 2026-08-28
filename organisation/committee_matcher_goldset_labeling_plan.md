@@ -86,12 +86,20 @@ Blatt `labels`, eine Zeile je Zuordnung, Spalten wie `review.ASSIGNMENT_SHEET_CO
   sie je Zuordnung verlangt, und erzeugt mit den Slots eine Ordnung, die
   fachlich nicht existiert. Mengenmetriken lesen aus Long-Format direkt.
 
-Weitere Blätter: `jurisdiction` (Volltext je Unit, Lesehilfe), `taxonomy`
-(145 Industries, zugleich Auswahlliste der Spalte `industry_id`), `agent_notes`
-(`unit_id, engine, model, label_uncertain, sources, dissens` — Begründungs- und
-Adjudikationsmaterial, außerhalb der Arbeitstabelle), `info` (Provenienz:
-`snapshot_id`, `taxonomy_content_hash`, `mapping_input_hash` je Unit,
-Prompt-SHA-256, Engine, Modell, Effort, Erzeugungszeit).
+Weitere Blätter: `jurisdiction` (`unit_id, chamber, committee_name,
+unit_name, input_basis, jurisdiction_text` — Lesehilfe), `taxonomy`
+(`industry_id, industry_name, sector_name, description`; zugleich Auswahlliste
+der Spalte `industry_id`), `agent_notes` (`unit_id, engine, model,
+label_uncertain, uncertainty_note, broad_scope, broad_scope_reason, sources,
+dissens` — Begründungs- und Adjudikationsmaterial, außerhalb der
+Arbeitstabelle), `info` (Provenienz je Unit: `unit_id, snapshot_id,
+taxonomy_content_hash, mapping_input_hash, prompt_sha256, prompt_version,
+engine, model, effort, prompt_delivery, created_at`).
+
+Die maschinellen Zwischentabellen liegen unter `labeling/collected/` als
+`labels_<engine>.csv`, `notes_<engine>.csv` und `info_<engine>.csv`; `merge`
+schreibt dieselben drei Dateien unter `merged` sowie `labeling/disagreements.md`.
+Die bearbeitete Datei ist `goldset/goldset_review.xlsx`.
 
 Die bisherige Vorlage wird ersetzt; ihre Kopfdaten (`chamber`,
 `committee_name`, `unit_name`, `input_basis`) sind aus der `unit_id` und dem
@@ -183,13 +191,28 @@ Sitzungseinstellung ebenfalls nur für den Lauf.
 
 - Arbeitsverzeichnis ist ein temporäres Verzeichnis außerhalb des Repos, damit
   weder `CLAUDE.md`/`AGENTS.md` noch Projektartefakte in den Kontext geraten.
-- Claude: `-p --output-format json --json-schema <datei> --tools WebSearch,WebFetch
-  --system-prompt <vertrag> --add-dir <tmpdir>`; keine Datei- und keine
-  Bash-Werkzeuge.
-- Codex: `codex exec --output-schema <datei> -o <antwort.json> --json
-  --sandbox read-only --skip-git-repo-check --ignore-user-config -C <tmpdir>`,
-  Websuche über `--search` beziehungsweise `-c tools.web_search=true`; welche
-  Form Version 0.150.1 in `exec` annimmt, klärt Phase 1.
+- Claude (umgesetzt): `-p --system-prompt <vertrag> --json-schema <schema>
+  --output-format json --model … --effort … --tools WebSearch,WebFetch
+  --safe-mode --no-session-persistence --strict-mcp-config`. `--safe-mode` hält
+  CLAUDE.md, Skills, Plugins, Hooks und MCP-Server draußen, `--tools` lässt
+  genau die Websuche übrig: keine Datei-, Bash- oder Editierwerkzeuge.
+- Codex (umgesetzt): `codex exec --output-schema <schema>
+  --output-last-message <datei> --json --sandbox read-only
+  --skip-git-repo-check --ignore-user-config -C <tmpdir> -m … -c
+  model_reasoning_effort="…" -c tools.web_search=true`, dazu ein eigenes
+  `CODEX_HOME` je Lauf im Arbeitsverzeichnis mit `auth.json` als Symlink.
+  `--search` kennt `codex exec` in Fassung 0.150 nicht; die Websuche wirkt
+  ausschließlich über den Konfigurationsschlüssel, nachgewiesen an den
+  `web_search`-Ereignissen im Protokoll.
+
+Verbleibende Grenze bei Codex, offen: die globalen Skills aus
+`~/.agents/skills/` werden auch mit eigenem `CODEX_HOME` geladen; ein
+Abschalter existiert in Fassung 0.150 nicht (`--disable skills` meldet
+„Unknown feature flag"). Das eigene Home entfernt `~/.codex/AGENTS.md` und
+`config.toml` — messbar an den Eingabetokens (14.384 auf 13.022) —, die Skills
+bleiben. `--sandbox read-only` erlaubt außerdem Lesezugriff außerhalb des
+Arbeitsverzeichnisses. Bei Claude besteht die Lücke nicht. Ob Codex damit als
+unabhängige Zweitengine taugt, entscheidet Bene.
 ### Deckel
 
 Keine der beiden CLIs kennt ein Turn-Limit: `claude --help` führt keines,
@@ -204,6 +227,22 @@ Wall-Clock-Zeit des Unterprozesses.
   als Notbremse für den unbeaufsichtigten Lauf.
 - Ein Lauf im Deckel wird als `timeout` protokolliert und einzeln
   wiederholbar; der übrige Satz bleibt erhalten.
+- Der Gesamtdeckel kappt den nächsten Unterprozess auf die Restzeit, statt erst
+  zwischen zwei Units zu greifen; sonst wäre er um einen vollen Unitdeckel
+  überziehbar. Offene Units ergeben Exit 2, damit ein unvollständiger Satz nicht
+  als Erfolg gilt.
+- Systemische Fehler (`GS_MODEL_UNKNOWN`, `GS_CLI_UNAUTHORIZED`, `GS_CLI_FLAG`,
+  `GS_RATE_LIMITED`) brechen den Satz nach dem ersten Auftreten ab; sie treffen
+  jeden weiteren Aufruf gleichermaßen.
+- Die Denktiefe lehnt keine der beiden CLIs ab: Claude warnt auf stderr und
+  rechnet mit der Standardstufe weiter (Exit 0), Codex nimmt jeden Wert
+  kommentarlos an. Der Lauf blockt deshalb auf Claudes Warnung
+  (`GS_EFFORT_REJECTED`) und führt bei Codex `effort_confirmation:
+  unbestaetigt` in der Provenienz jeder Antwort.
+- Die Wiederaufnahme prüft die vorhandene Antwort auf Fassung, Engine, Modell,
+  Denktiefe, Zustellweg und die Bindungshashes, statt sich auf die Existenz der
+  Datei zu verlassen; eine Abweichung meldet `GS_RESUME_MISMATCH` und labelt
+  nicht ungefragt neu.
 - `num_turns` und der von Claude gemeldete `total_cost_usd` werden
   protokolliert, nicht bewacht — eine USD-Wache entfällt bei Abo-Abrechnung.
 
@@ -218,6 +257,22 @@ Zwischenformat ist CSV mit UTF-8 und `QUOTE_ALL`; XLSX schreibt allein
 `to-xlsx`, `industry_id`-Zellen als Text.
 
 ## 6. Phasen und Gates
+
+Stand 2026-08-28:
+
+| Phase | Stand |
+|---|---|
+| P1 Aufgabenpakete und Trockenlauf | umgesetzt; 56 Tests grün, netzwerk- und CLI-frei |
+| Gate A erster bezahlter Lauf | offen, wartet auf Benes Freigabe |
+| P2 Vollauf | offen |
+| P3 Merge | offen, nur bei Doppelvergabe |
+| Gate B Abnahme | offen |
+| P4 Übernahme | offen |
+
+Reviewstand: Themenbereich 1 (Fundament, Lader, `prepare`) mit Auflagen
+abgenommen, Auflagen erledigt. Themenbereich 2 (Engines, `preflight`, `run`)
+nicht abgenommen, alle 13 Befunde behoben. Themenbereich 3 (`collect`, `merge`,
+`to-xlsx`, `verify`, Trockenlauf, Tests) noch nicht geprüft.
 
 ### P1 — Aufgabenpakete und Trockenlauf (kostenfrei)
 
@@ -292,7 +347,8 @@ prüfenden Funktion ermittelt, nicht von Hand gepflegt.
 | `GS_CLI_MISSING` | `claude` oder `codex` nicht im PATH | Installationspfad prüfen |
 | `GS_CLI_UNAUTHORIZED` | CLI meldet fehlende Anmeldung | interaktiv anmelden, dann erneut |
 | `GS_MODEL_UNKNOWN` | Modellname von der CLI abgelehnt | `preflight` mit korrigiertem `--model` |
-| `GS_EFFORT_REJECTED` | Effortwert abgelehnt | zulässige Stufe der jeweiligen CLI setzen |
+| `GS_EFFORT_REJECTED` | Claude verwirft den Effortwert und rechnet mit der Standardstufe | zulässige Stufe setzen; die Warnung nennt sie |
+| `GS_EFFORT_UNCONFIRMED` | Codex bestätigt die Denktiefe nicht | Stufe gegen die CLI-Dokumentation prüfen; Provenienz weist sie als unbestätigt aus |
 | `GS_WEBSEARCH_OFF` | Antwort ohne `sources`, Websuche nicht aktiv | Codex-Flagvariante prüfen (Phase 1 klärt sie) |
 | `GS_TIMEOUT` | Deckel je Unit erreicht | Unit einzeln wiederholen; Satz bleibt erhalten |
 | `GS_RATE_LIMITED` | Abo-Ratenlimit | Lauf später fortsetzen, `run` nimmt wieder auf |
@@ -306,6 +362,16 @@ prüfenden Funktion ermittelt, nicht von Hand gepflegt.
 | `GS_UNIT_DUPLICATE` | identische Zuordnung doppelt | Zeile löschen |
 | `GS_SNAPSHOT_DRIFT` | `taxonomy_content_hash` weicht vom Aufgabenpaket ab | `prepare` neu ausführen |
 | `GS_CORPUS_DRIFT` | Jurisdiktionstext seit `prepare` verändert | `prepare` neu, betroffene Units erneut labeln |
+| `GS_RUN_FAILED` | Fehlschlag ohne bekanntes Merkmal | Rohausgabe im Log der Unit lesen |
+| `GS_ANSWER_AMBIGUOUS` | Abschlussdatei enthält mehr als ein JSON-Objekt | Unit wiederholen; welches die Antwort ist, wäre geraten |
+| `GS_ANSWER_FORMAT` | abgelegte Antwort in fremder Fassung | Unit mit `--force` wiederholen |
+| `GS_RESUME_MISMATCH` | vorhandene Antwort passt nicht zum aktuellen Lauf | Antwort prüfen, mit `--force` neu erzeugen |
+| `GS_INDUSTRY_CASE` | `industry_id` weicht nur in der Schreibweise ab | `verify --fix-case` |
+| `GS_XLSX_MISSING` / `GS_XLSX_LAYOUT` / `GS_XLSX_FORMULA` | Reviewdatei fehlt, hat fremdes Blattbild oder eine Formelzelle | `to-xlsx` neu erzeugen; Formelzelle als Text eintragen |
+| `GS_LABELS_MISSING` / `GS_LABELS_FORMAT` | Zwischentabelle fehlt oder hat fremde Spaltenfolge | vorherigen Schritt wiederholen |
+| `GS_MERGE_SCOPE` | Vergleich zweier Läufe nicht durchführbar | zwei verschiedene Engines angeben |
+| `GS_FAKE_MODE` | `GOLDSET_LABEL_FAKE_DIR` zeigt ins Leere | Variable auf ein Verzeichnis setzen oder löschen |
+| `GS_SETTING_INVALID` | aufgelöster Laufparameter unbrauchbar | Wert an der genannten Stelle korrigieren |
 
 `GS_SNAPSHOT_DRIFT` und `GS_CORPUS_DRIFT` sind die stillen Risikostellen: ohne
 Prüfung labelt der Agent gegen einen Stand, den die Evaluation später nicht mehr
@@ -313,7 +379,10 @@ kennt. Beide werden bei jedem `run` und jedem `collect` geprüft.
 
 ## 8. Dokumentation
 
-Nach P4: `organisation/DATA_STRUCTURE.md` (Verzeichnis `goldset/labeling/`,
-neues Gold-Set-Format), `organisation/CLI_Bedienungsanleitung.md` (Skript mit
-sieben Unterkommandos), `organisation/committee_matcher_goldset_stichprobe.md`
+Erledigt: `organisation/DATA_STRUCTURE.md` (Abschnitt
+`data/committee_matcher_v2/goldset/`) und
+`organisation/CLI_Bedienungsanleitung.md` (Bedienablauf, Kommandotabelle,
+`GS_`-Exit-Codes, Trockenlauf).
+
+Offen bis nach P4: `organisation/committee_matcher_goldset_stichprobe.md`
 (Abschnitt Labelvorlage auf das Long-Format umstellen), `CHANGELOG.md`.
