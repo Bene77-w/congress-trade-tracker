@@ -123,25 +123,44 @@ from tests.test_committee_matcher_run_cli_p7 import sandbox  # noqa: E402,F401
 
 
 def test_input_validate_reports_start_and_result(sandbox, capsys):
+    """Zeilenweise geprueft: ein Feld darf nicht aus einer anderen Zeile
+    stammen, und die Stromtrennung wird mitgeprueft."""
     cli.main(["input", "validate"])
     captured = capsys.readouterr()
-    assert "[START] input | action=validate" in captured.out
-    assert "[INFO] input | files=" in captured.out
-    assert "units=3" in captured.out + captured.err
+    lines = captured.out.splitlines()
+    assert lines.count("[START] input | action=validate") == 1
+    infos = [line for line in lines if line.startswith("[INFO] input |")]
+    assert len(infos) == 1
+    assert fields_of(infos[0])["files"] == "2"
+    assert fields_of(infos[0])["documents"] == "1"
+    results = [line for line in lines + captured.err.splitlines()
+               if line.startswith(("[OK] input | units=", "[ERROR] input | units="))]
+    assert len(results) == 1
+    assert fields_of(results[0])["units"] == "3"
 
 
 def test_roster_validate_reports_its_coverage(sandbox, capsys):
     cli.main(["roster", "validate"])
     captured = capsys.readouterr()
-    assert "[START] roster | action=validate" in captured.out
-    assert "without_roster=" in captured.out + captured.err
+    assert captured.out.splitlines().count("[START] roster | action=validate") == 1
+    results = [line for line in captured.out.splitlines() + captured.err.splitlines()
+               if line.startswith(("[OK] roster |", "[WARN] roster |"))]
+    assert len(results) == 1, "genau ein Coverageergebnis"
+    fields = fields_of(results[0])
+    assert fields["units"] == "3"
+    assert fields["without_roster"].isdigit()
+    assert fields["occurrences"].isdigit()
 
 
 def test_snapshot_approve_without_a_snapshot_reports_an_error(sandbox, capsys):
     assert cli.main(["snapshot", "approve", "--run-id", "run-ohne"]) != int(ExitCode.SUCCESS)
     captured = capsys.readouterr()
-    assert "[START] taxonomy | run=run-ohne | action=approve" in captured.out
-    assert "[ERROR] taxonomy | run=run-ohne | approval=abgelehnt" in captured.err
+    assert captured.out.splitlines().count(
+        "[START] taxonomy | run=run-ohne | action=approve") == 1
+    assert captured.err.splitlines().count(
+        "[ERROR] taxonomy | run=run-ohne | approval=abgelehnt") == 1
+    assert not [line for line in captured.out.splitlines()
+                if line.startswith("[ERROR]")]
 
 
 from committee_matcher import paths, taxonomy_snapshot, taxonomy_source  # noqa: E402
@@ -258,7 +277,7 @@ from dataclasses import replace  # noqa: E402
 from committee_matcher import workflow  # noqa: E402
 
 from tests.test_committee_matcher_run_cli_p7 import (  # noqa: E402,F401
-    ScriptedProvider, _assignment, _provider_error, _requested_units,
+    ScriptedProvider, _assignment, _provider_error, _requested_units, _units,
     _single_unit_batches, execute_argv, plan_argv, scripted, unit_result,
 )
 from tests.test_committee_matcher_review_p7 import (  # noqa: E402,F401
@@ -287,12 +306,20 @@ def fields_of(line: str) -> dict[str, str]:
     return values
 
 
-def run_scripted(scripted, capsys, **kwargs) -> tuple[str, str]:
-    """Plant und fuehrt den Lauf aus; liefert die Ausgabe der Ausfuehrung."""
+def run_scripted(scripted, capsys, *, expected_exit=None, **kwargs) -> tuple[str, str]:
+    """Plant und fuehrt den Lauf aus; liefert die Ausgabe der Ausfuehrung.
+
+    Der Ausgang wird mitgeprueft: ohne ihn bliebe ein Test zum Fehlerfall auch
+    dann gruen, wenn der Lauf den Fehler verschluckt und erfolgreich endet.
+    """
     scripted.install(**kwargs)
     assert cli.main(plan_argv()) in (0, 2)
     capsys.readouterr()
-    cli.main(execute_argv())
+    exit_code = cli.main(execute_argv())
+    if expected_exit is None:
+        assert exit_code in (0, 2), "der Lauf sollte durchlaufen"
+    else:
+        assert exit_code == int(expected_exit)
     captured = capsys.readouterr()
     return captured.out, captured.err
 
@@ -315,6 +342,18 @@ def test_each_unit_reports_its_industry_count(scripted, capsys):
     units = status_lines(out, "[OK] mapping | unit=")
     assert len(units) == 3, "jede Einheit des Laufs bekommt genau eine Zeile"
     assert {fields_of(line)["industries"] for line in units} == {"1"}
+    # An den Unit-IDs geprueft: eine doppelt gemeldete Einheit bei gleichzeitig
+    # fehlender zweiter waere ueber die blosse Anzahl nicht zu sehen.
+    reported = [fields_of(line)["unit"] for line in units]
+    assert sorted(reported) == sorted(_expected_unit_ids(scripted))
+
+
+def _expected_unit_ids(sandbox) -> list[str]:
+    """Die Unit-IDs des Testcorpus, gekuerzt wie in der Statuszeile."""
+    from committee_matcher.errors import MAX_FIELD_CHARS
+    ids = [unit.unit_id for unit in _units(sandbox)]
+    return [value if len(value) <= MAX_FIELD_CHARS
+            else value[: MAX_FIELD_CHARS - 3] + "..." for value in ids]
 
 
 def test_no_mapping_is_an_info_not_an_error(scripted, capsys):
@@ -325,6 +364,17 @@ def test_no_mapping_is_an_info_not_an_error(scripted, capsys):
     assert all("no_mapping" in fields_of(line) for line in infos)
     assert all(fields_of(line)["reason"] for line in infos)
     assert not status_lines(out + err, "[ERROR] mapping")
+    # Die Gesamtsumme desselben Laufs: eine Aggregation, die 'no_mapping' nicht
+    # mitzaehlt, bliebe sonst unentdeckt.
+    summaries = status_lines(out, "[INFO] mapping | committee=")
+    assert len(summaries) == 1
+    fields = fields_of(summaries[0])
+    assert fields["units"] == "3"
+    assert fields["mapped"] == "0"
+    assert fields["no_mapping"] == "3"
+    assert fields["failed"] == "0"
+    assert fields["not_decided"] == "0"
+    assert fields["industries"] == "0"
 
 
 def test_the_run_closes_with_a_committee_summary(scripted, capsys):
@@ -361,8 +411,9 @@ def test_a_free_call_gets_no_cost_line(scripted, capsys):
 
 
 def test_an_open_outcome_reports_its_reservation(scripted, capsys):
-    out, _ = run_scripted(scripted, capsys, errors=[
-        _provider_error(retryable=True, outcome_unknown=True)])
+    out, _ = run_scripted(scripted, capsys, expected_exit=ExitCode.OUTCOME_UNKNOWN,
+                          errors=[_provider_error(retryable=True,
+                                                  outcome_unknown=True)])
     costs = status_lines(out, "[INFO] cost | call=")
     assert len(costs) == 1
     fields = fields_of(costs[0])
@@ -382,8 +433,9 @@ def test_a_rejected_call_reports_its_retry_on_stderr(scripted, capsys):
 
 
 def test_a_final_provider_error_names_its_code(scripted, capsys):
-    _, err = run_scripted(scripted, capsys, errors=[
-        _provider_error(retryable=False, outcome_unknown=False)])
+    _, err = run_scripted(scripted, capsys, expected_exit=ExitCode.PROVIDER_ERROR,
+                          errors=[_provider_error(retryable=False,
+                                                  outcome_unknown=False)])
     errors = status_lines(err, "[ERROR] provider | batch=")
     assert len(errors) == 1
     assert fields_of(errors[0])["code"] == "PROV_TEST"
@@ -391,8 +443,9 @@ def test_a_final_provider_error_names_its_code(scripted, capsys):
 
 def test_an_aborted_batch_closes_its_frame(scripted, capsys):
     """Ohne Abschlusszeile bliebe der START ohne Gegenstueck."""
-    out, err = run_scripted(scripted, capsys, errors=[
-        _provider_error(retryable=False, outcome_unknown=False)])
+    out, err = run_scripted(scripted, capsys, expected_exit=ExitCode.PROVIDER_ERROR,
+                            errors=[_provider_error(retryable=False,
+                                                    outcome_unknown=False)])
     assert len(status_lines(out, "[START] mapping | run=")) == 1
     aborted = status_lines(err, "[ERROR] mapping | batch=")
     assert len(aborted) == 1
@@ -750,6 +803,113 @@ def test_the_api_key_never_reaches_the_output(scripted, capsys, api_key):
     assert "sk-test" not in out + err
 
 
+class CanaryProvider(ScriptedProvider):
+    """Merkt sich den Systemprompt und faerbt die Antwort ein.
+
+    Beides sind Kanarienvoegel: der Prompt liegt versioniert vor und die
+    Antwortnutzlast steht in der Auditdatei - im Terminal hat keines von beiden
+    etwas zu suchen.
+    """
+
+    CANARY = "KANARIENVOGEL-ANTWORTTEXT"
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.system_prompts: list[str] = []
+
+    def complete(self, request):
+        self.system_prompts.append(request.system_prompt)
+        response = super().complete(request)
+        for unit in response.payload["units"]:
+            for assignment in unit["assignments"]:
+                # Das Evidenzfeld bleibt unangetastet: es wird gegen den
+                # Quelltext geprueft und faerbte sonst den Lauf ein statt die
+                # Ausgabe.
+                assignment["rationale_short"] = self.CANARY
+        return response
+
+
+def test_neither_prompt_nor_response_payload_reaches_the_output(scripted, capsys,
+                                                                api_key):
+    """Geprueft an echten Kanarienvoegeln, nicht an einem Platzhalter."""
+    adapter = CanaryProvider()
+    scripted.monkeypatch.setattr(
+        cli.provider.OpenRouterProvider, "create",
+        classmethod(lambda cls, collector, settings: adapter))
+    assert cli.main(plan_argv()) in (0, 2)
+    capsys.readouterr()
+    assert cli.main(execute_argv()) in (0, 2)
+    captured = capsys.readouterr()
+    text = captured.out + captured.err
+
+    assert adapter.system_prompts, "der Prompt hat den Adapter wirklich erreicht"
+    prompt = adapter.system_prompts[0]
+    # Ein zusammenhaengendes Stueck des echten Systemprompts; zufaellig kann es
+    # nicht im Terminal stehen.
+    assert len(prompt) > 200
+    for start in (0, len(prompt) // 2):
+        assert prompt[start:start + 60] not in text
+    assert CanaryProvider.CANARY not in text
+    assert "sk-test" not in text
+    # Gegenprobe: die Antwort wurde verarbeitet, der Lauf lief nicht ins Leere.
+    assert status_lines(captured.out, "[OK] mapping | unit=")
+
+
+def test_every_reporter_parameter_defaults_to_silence():
+    """Ohne Reporter bleibt ein Fachmodul still.
+
+    Sonst schriebe ein Bibliotheksaufruf oder ein Test in fremde Streams.
+    """
+    import dataclasses
+    import inspect
+
+    from committee_matcher import (mapping as mapping_module, taxonomy_snapshot,
+                                   taxonomy_source, workflow as workflow_module)
+
+    checked = 0
+    for module in (cli, mapping_module, workflow_module, taxonomy_snapshot,
+                   taxonomy_source):
+        for member in vars(module).values():
+            if not (inspect.isfunction(member) or inspect.isclass(member)):
+                continue
+            if dataclasses.is_dataclass(member):
+                # Ein Dataclassfeld traegt seinen Default als Fabrik; in der
+                # Signatur steht dafuer nur ein Platzhalter.
+                for entry in dataclasses.fields(member):
+                    if entry.name != "reporter":
+                        continue
+                    factory = entry.default_factory
+                    default = (factory() if factory is not dataclasses.MISSING
+                               else entry.default)
+                    assert default is SILENT_REPORTER, member.__qualname__
+                    checked += 1
+                continue
+            target = member.__init__ if inspect.isclass(member) else member
+            try:
+                parameter = inspect.signature(target).parameters.get("reporter")
+            except (TypeError, ValueError):
+                continue
+            if parameter is None or parameter.default is inspect.Parameter.empty:
+                continue
+            assert parameter.default is SILENT_REPORTER, target.__qualname__
+            checked += 1
+    assert checked >= 4, "die Vertragspruefung findet die Fachmodule wirklich"
+
+
+def test_a_run_uses_exactly_one_reporter(scripted, capsys, monkeypatch):
+    """Zwei Reporter je Lauf hiessen zwei Ausgabekanaele mit eigenem Zustand."""
+    built: list[TerminalReporter] = []
+
+    class CountingReporter(TerminalReporter):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            built.append(self)
+
+    monkeypatch.setattr(cli, "TerminalReporter", CountingReporter)
+    run_scripted(scripted, capsys)
+    assert len(built) == 2, "je Kommando genau einer: 'run plan' und 'run execute'"
+
+
 def test_exactly_one_report_closes_a_successful_run(scripted, capsys):
     out, err = run_scripted(scripted, capsys)
     assert (out + err).count("Exit-Code:") == 1
@@ -757,10 +917,18 @@ def test_exactly_one_report_closes_a_successful_run(scripted, capsys):
 
 
 def test_exactly_one_report_closes_a_failed_run(scripted, capsys):
-    out, err = run_scripted(scripted, capsys, errors=[
-        _provider_error(retryable=False, outcome_unknown=False)])
+    out, err = run_scripted(scripted, capsys, expected_exit=ExitCode.PROVIDER_ERROR,
+                            errors=[_provider_error(retryable=False,
+                                                    outcome_unknown=False)])
     assert (out + err).count("Exit-Code:") == 1
     assert out.count("Committee Matcher V2 - run execute") == 1
+    # Der Bericht steht am Ende: keine Statuszeile danach.
+    lines = out.splitlines()
+    headline = lines.index([line for line in lines
+                            if "Committee Matcher V2 - run execute" in line][0])
+    assert not [line for line in lines[headline:]
+                if line.startswith(("[START]", "[OK]", "[INFO]", "[WAIT]"))]
+    assert "Exit-Code: 9 (provider_error)" in out
 
 
 def test_the_streams_stay_separated_over_a_whole_run(scripted, capsys):
