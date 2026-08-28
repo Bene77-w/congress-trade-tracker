@@ -1106,6 +1106,49 @@ Ergebnis nach erfolgreichem Import:
 Diese Datei ist die vorgesehene Übergabe an `import_trades`; der genaue
 Aufruf für diese Übernahme bleibt offen.
 
+### Entwicklungs-Gold-Set labeln lassen (P9, außerhalb der Matcher-CLI)
+
+`scripts/committee_matcher_goldset_label.py` lässt die 22 Units der Stichprobe
+von einem headless Agenten labeln — wahlweise über Claude Code oder Codex,
+gleiche Eingabe, gleiches Ausgabeformat. Der Produktivpfad
+(`run plan|execute`) bleibt dabei ungenutzt: er ist der Prüfling. Die Labels
+sind ein Vorschlag; das Gold-Set entsteht erst durch die Abnahme.
+
+```bash
+venv/bin/python scripts/committee_matcher_goldset_label.py prepare
+venv/bin/python scripts/committee_matcher_goldset_label.py preflight --engine claude
+venv/bin/python scripts/committee_matcher_goldset_label.py run --engine claude          # kostenpflichtig
+venv/bin/python scripts/committee_matcher_goldset_label.py collect --engine claude
+venv/bin/python scripts/committee_matcher_goldset_label.py merge --base claude --against codex
+venv/bin/python scripts/committee_matcher_goldset_label.py to-xlsx --source merged
+venv/bin/python scripts/committee_matcher_goldset_label.py verify --fix-case
+```
+
+| Kommando | Wirkung | Bezahlt |
+|---|---|---|
+| `prepare` | Aufgabenpaket je Unit nach `labeling/tasks/` | nein |
+| `preflight` | ein Kurzaufruf; prüft Engine, Anmeldung, Modellname, Denktiefe | minimal |
+| `run` | je Unit ein headless Lauf, Rohantwort und Log je Unit | ja |
+| `collect` | Rohantworten prüfen und als CSV sammeln | nein |
+| `merge` | zwei Engineläufe vergleichen, `disagreements.md` schreiben | nein |
+| `to-xlsx` | gesammelte Labels in die Reviewdatei schreiben | nein |
+| `verify` | bearbeitete Reviewdatei zurücklesen und prüfen | nein |
+
+Modell und Denktiefe sind freie Parameter (`--model`, `--effort`) und werden
+roh an die CLI durchgereicht, damit künftige Modelle ohne Codeänderung
+funktionieren; Defaults stehen als `GOLDSET_LABEL_*` in `config/settings.py`.
+`--timeout` deckelt die einzelne Unit (Default 1800 s), `--total-timeout` den
+ganzen Satz (Default 43200 s); ein erneuter Aufruf setzt fort und überspringt
+vorhandene Antworten, sofern Modell, Denktiefe und Bindungshashes passen.
+
+Exit-Codes dieses Skripts: `0` erfolgreich · `1` blockiert (Bedienfehler,
+fehlende Voraussetzung) · `2` durchgelaufen, aber mit Befunden zu einzelnen
+Units. Die Codes tragen das Präfix `GS_`; jeder Befund nennt Was, Warum,
+Abhilfe und die auslösende Codestelle.
+
+Für Tests ersetzt `GOLDSET_LABEL_FAKE_DIR=<verzeichnis>` beide CLIs durch
+vorbereitete Antwortdateien — kein Netz, kein Kontingent.
+
 Offen: `evaluate goldset`, `qualify holdout`, `full-run`,
 `report` + ihr Bedienablauf. Diese Kommandos bis zur Implementierung nicht
 ausführen; sie enden derzeit mit Exit 4.

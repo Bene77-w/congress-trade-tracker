@@ -581,6 +581,31 @@ Sektornamen leitet der Import aus dem Snapshot ab, nie aus Excel.
 `no_mapping_units` und die geschriebenen Dateien zusammen; seine Existenz macht die Reviewrevision
 unveränderlich (`REV_IMPORT_EXISTS`).
 
+#### `data/committee_matcher_v2/goldset/` (P9, Entwicklungs-Gold-Set)
+
+Erzeugt und geprüft von `scripts/committee_matcher_goldset_label.py`, nicht von
+der Matcher-CLI: das Gold-Set ist die Referenz, gegen die der Produktivpfad
+gemessen wird, und entsteht deshalb unabhängig von ihm.
+
+| Pfad | Inhalt |
+|---|---|
+| `sample_units.json` | die 22 Units der Stichprobe: `nr`, `unit_id`, `chamber`, `committee_name`, `unit_name`, `input_basis`, `focus`; Feld `expected_unit_count` |
+| `labeling/tasks/<unit_id>.json` | Aufgabenpaket je Unit: Systemprompt, Userprompt, Ausgabeschema, `binding` (Snapshot-, Prompt- und Eingabehashes); ohne `focus` |
+| `labeling/tasks/index.json` | Verzeichnis der Pakete |
+| `labeling/runs/<engine>/<unit_id>.json` | Rohantwort samt Provenienz: Engine, Modell, `requested_effort`, `effort_confirmation`, `prompt_delivery`, `binding`, Dauer, Turns |
+| `labeling/runs/<engine>/<unit_id>.log` | Rohausgabe der CLI, einzige Quelle bei unklarem Fehlschlag |
+| `labeling/collected/labels_<engine>.csv` | Long-Format je Zuordnung: `unit_id`, `industry_id`, `confidence`, `evidence_excerpt`, `rationale_short`, `no_mapping_reason` |
+| `labeling/collected/notes_<engine>.csv` | `unit_id`, `engine`, `model`, `label_uncertain`, `uncertainty_note`, `broad_scope`, `broad_scope_reason`, `sources`, `dissens` |
+| `labeling/collected/info_<engine>.csv` | Provenienz je Unit: `snapshot_id`, `taxonomy_content_hash`, `mapping_input_hash`, `prompt_sha256`, `prompt_version`, `engine`, `model`, `effort`, `prompt_delivery`, `created_at` |
+| `labeling/disagreements.md` | Dissens zweier Engineläufe, je strittige Unit mit beiden Urteilen und Begründungen |
+| `goldset_review.xlsx` | die Datei, die Bene bearbeitet; Blätter `labels`, `jurisdiction`, `taxonomy`, `agent_notes`, `info` |
+
+Die CSV sind maschinelles Zwischenformat und werden nicht von Hand bearbeitet.
+Die XLSX trägt alle Zellen als Text (`data_type = "s"`), hängt an
+`industry_id` die Auswahlliste des Blatts `taxonomy` und wird von `verify`
+zeichengenau zurückgelesen — drei Sperren gegen die Autokorrektur, die im
+P8-Lauf `packaged-foods` zu `Packaged-foods` gemacht hat.
+
 #### `data/config/committee_matcher_prompts/` (P5, versionierter Kontrollinput)
 
 Die beiden editierbaren Systemprompts `mapping_system.md` und
