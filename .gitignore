@@ -83,3 +83,6 @@ opencode.json
 # data/committee_matcher_v2/taxonomy/.
 data/committee_matcher_v2/reports/
 data/committee_matcher_v2/runs/
+
+# LibreOffice-Lockdateien tragen Benutzer-, Rechner- und Pfadangaben
+.~lock.*#

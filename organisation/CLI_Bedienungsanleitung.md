@@ -1106,7 +1106,7 @@ Ergebnis nach erfolgreichem Import:
 Diese Datei ist die vorgesehene Übergabe an `import_trades`; der genaue
 Aufruf für diese Übernahme bleibt offen.
 
-Offen: P8-Live-Roundtrip; `evaluate goldset`, `qualify holdout`, `full-run`,
+Offen: `evaluate goldset`, `qualify holdout`, `full-run`,
 `report` + ihr Bedienablauf. Diese Kommandos bis zur Implementierung nicht
 ausführen; sie enden derzeit mit Exit 4.
 
@@ -1679,19 +1679,26 @@ der Lauf frisch; dann ist auch nichts bezahlt worden.
 
 Ein Resume gegen ein vorhandenes Manifest ist nur zulässig, solange
 `taxonomy_content_hash`, `input_manifest_hash`, `model`, `prompts`, `schema`,
-`batching`, `context` und `cache_key_version` unverändert sind; sonst blockiert
+`batching`, `context`, `cache_key_version`, `selection`, `unit_count`,
+`snapshot_id` und `routing` unverändert sind; sonst blockiert
 `RUN_MANIFEST_DRIFT` mit Exit 4. `context` gehört dazu, weil
-`max_output_tokens` und `reasoning_reserve_tokens` auch im Cache-Key stehen —
-sonst gäbe es einen Parameter, der den Cache verschiebt, einen Resume aber
-durchließe. Ein anderes Budget oder eine andere
-Snapshot-ID sind ausdrücklich kein Grund, bezahlte Ergebnisse wegzuwerfen.
+`max_output_tokens`, `reasoning_reserve_tokens` und `reasoning_effort` auch im
+Cache-Key stehen — sonst gäbe es einen Parameter, der den Cache verschiebt,
+einen Resume aber durchließe. `snapshot_id` gehört dazu, weil der
+Artefaktabschluss die Snapshotrevision des Manifests verlangt; ohne die Bindung
+liefe der Resume durch, bezahlte jeden offenen Batch und scheiterte erst danach
+mit `ART_SNAPSHOT_MISMATCH`. Ein anderes Budget ist ausdrücklich kein Grund,
+bezahlte Ergebnisse wegzuwerfen.
 
 **Kostenwache.** Gerechnet wird mit dem Preisdeckel
 `COMMITTEE_MATCHER_MAX_PRICE_USD_PER_MTOK`, nicht mit einem erwarteten Preis:
 er ist die einzige vor dem Call feststehende Zahl, und die Routingbedingungen
 lassen keinen teureren Endpoint zu. Die Eingabe wird geschätzt (dieselbe
-pessimistische Schätzung wie im Context-Gate), die Ausgabe mit
-`MAX_OUTPUT_TOKENS` angesetzt.
+pessimistische Schätzung wie im Context-Gate), die Ausgabe mit der Obergrenze
+des Ausgabestroms angesetzt: `MAX_OUTPUT_TOKENS + REASONING_RESERVE_TOKENS`.
+Reasoningtokens zählen beim Endpoint gegen dieselbe Grenze wie die Antwort;
+mit `MAX_OUTPUT_TOKENS` allein läge die Rechnung unter dem, was ein Call
+kosten kann.
 
 | Buchung | Bedeutung |
 |---|---|
