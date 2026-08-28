@@ -1,0 +1,121 @@
+{
+  "task_format": "goldset-task-v1",
+  "snapshot_id": "run-p4-spike",
+  "taxonomy_content_hash": "8c3da76572d994be167115502e646785f97c299d43244bc161468457b5ffbb6f",
+  "prompt_sha256": "cc2eef907f3eef10001bfebf90f8db36e0349d6622f2b9e550d6fe5125ee8a9f",
+  "prompt_version": "mapping-system-v2",
+  "unit_count": 22,
+  "units": [
+    {
+      "nr": 1,
+      "unit_id": "house--transportation-and-infrastructure--aviation",
+      "input_basis": "jurisdiction_text"
+    },
+    {
+      "nr": 2,
+      "unit_id": "house--energy-and-commerce--energy",
+      "input_basis": "jurisdiction_text"
+    },
+    {
+      "nr": 3,
+      "unit_id": "house--financial-services--financial-institutions",
+      "input_basis": "jurisdiction_text"
+    },
+    {
+      "nr": 4,
+      "unit_id": "house--natural-resources--energy-and-mineral-resources",
+      "input_basis": "jurisdiction_text"
+    },
+    {
+      "nr": 5,
+      "unit_id": "house--ways-and-means--health",
+      "input_basis": "jurisdiction_text"
+    },
+    {
+      "nr": 6,
+      "unit_id": "house--science-space-and-technology--space-and-aeronautics",
+      "input_basis": "jurisdiction_text"
+    },
+    {
+      "nr": 7,
+      "unit_id": "house--homeland-security--cybersecurity-and-infrastructure-protection",
+      "input_basis": "jurisdiction_text"
+    },
+    {
+      "nr": 8,
+      "unit_id": "house--judiciary--courts-intellectual-property-artificial-intelligence-and-the-internet",
+      "input_basis": "jurisdiction_text"
+    },
+    {
+      "nr": 9,
+      "unit_id": "house--rules--legislative-and-budget-process",
+      "input_basis": "jurisdiction_text"
+    },
+    {
+      "nr": 10,
+      "unit_id": "house--appropriations--transportation-housing-and-urban-development-and-related-agencies",
+      "input_basis": "jurisdiction_text"
+    },
+    {
+      "nr": 11,
+      "unit_id": "house--foreign-affairs--africa",
+      "input_basis": "jurisdiction_text"
+    },
+    {
+      "nr": 12,
+      "unit_id": "senate--finance--health-care",
+      "input_basis": "name_only"
+    },
+    {
+      "nr": 13,
+      "unit_id": "senate--banking-housing-and-urban-affairs--digital-assets",
+      "input_basis": "jurisdiction_text"
+    },
+    {
+      "nr": 14,
+      "unit_id": "senate--commerce-science-and-transportation--telecommunications-and-media",
+      "input_basis": "jurisdiction_text"
+    },
+    {
+      "nr": 15,
+      "unit_id": "senate--environment-and-public-works--chemical-safety-waste-management-environmental-justice-and-regulatory-oversight",
+      "input_basis": "jurisdiction_text"
+    },
+    {
+      "nr": 16,
+      "unit_id": "senate--agriculture-nutrition-and-forestry--livestock-dairy-poultry-and-food-safety",
+      "input_basis": "jurisdiction_text"
+    },
+    {
+      "nr": 17,
+      "unit_id": "senate--homeland-security-and-governmental-affairs--border-management-federal-workforce-and-regulatory-affairs",
+      "input_basis": "name_only"
+    },
+    {
+      "nr": 18,
+      "unit_id": "senate--appropriations--department-of-homeland-security",
+      "input_basis": "jurisdiction_text"
+    },
+    {
+      "nr": 19,
+      "unit_id": "house--energy-and-commerce--health",
+      "input_basis": "jurisdiction_text"
+    },
+    {
+      "nr": 20,
+      "unit_id": "house--financial-services--housing-and-insurance",
+      "input_basis": "jurisdiction_text"
+    },
+    {
+      "nr": 21,
+      "unit_id": "senate--energy-and-natural-resources--public-lands-forests-and-mining",
+      "input_basis": "jurisdiction_text"
+    },
+    {
+      "nr": 22,
+      "unit_id": "senate--commerce-science-and-transportation--surface-transportation-freight-pipelines-and-safety",
+      "input_basis": "jurisdiction_text"
+    }
+  ],
+  "created_at": "2026-08-28T18:44:36+00:00"
+}

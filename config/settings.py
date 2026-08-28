@@ -813,3 +813,33 @@ COMMITTEE_MATCHER_MAX_QUALIFICATION_COST_USD = 15.0  # float|None, 0 < x <= 1000
 # --disable-cost-guard je Lauf abschaltbar; Ist-Kosten werden dann weiterhin
 # protokolliert und angezeigt, der abgeschaltete Guard steht im Runmanifest.
 COMMITTEE_MATCHER_COST_GUARD = True                 # bool
+
+# --- Evaluation: Variantenmatrix (Verbraucher: evaluation.py) --------------
+# Die Matrix wird bei 'evaluate export' eingefroren; sie spaeter zu aendern
+# verlangt eine neue Evaluationsrevision. Verglichen werden Batchgroessen; je
+# Variante laeuft der Prueflauf mehrfach ohne Cache-Reads, damit die Stabilitaet
+# messbar wird.
+COMMITTEE_MATCHER_EVALUATION_BATCH_SIZES = (1, 3)   # Tuple aus 1 und/oder 3
+COMMITTEE_MATCHER_EVALUATION_REPETITIONS = 3        # int 1..10
+# Obergrenze fuer die Nachforderung bei uneindeutiger Stabilitaet; jede
+# Erhoehung ueber die regulaere Wiederholungszahl hinaus verlangt eine erneute
+# Budgetpruefung.
+COMMITTEE_MATCHER_EVALUATION_MAX_REPETITIONS = 5    # int, >= REPETITIONS
+
+# --- Gold-Set-Labeling (Verbraucher: scripts/committee_matcher_goldset_label.py)
+# Bewusst ohne das Praefix COMMITTEE_MATCHER_: das Werkzeug laesst das
+# Entwicklungs-Gold-Set von einem headless Agenten labeln und ist nicht Teil
+# eines Matcherlaufs. Seine Werte gehoeren weder in settings_view noch in die
+# Auditartefakte einer Runrevision.
+# Modell und Denktiefe werden roh an die jeweilige CLI durchgereicht; es gibt
+# bewusst keine Whitelist, damit kuenftige Modelle ohne Codeaenderung
+# funktionieren. Gegen den Tippfehler steht 'preflight'.
+GOLDSET_LABEL_ENGINE = "claude"                     # 'claude'|'codex'
+GOLDSET_LABEL_MODEL_CLAUDE = "opus"                 # str, an 'claude --model'
+GOLDSET_LABEL_MODEL_CODEX = "gpt-5.6-sol"           # str, an 'codex exec -m'
+GOLDSET_LABEL_EFFORT = "high"                       # str, Denktiefe beider CLIs
+# Notbremse, keine Ablaufsteuerung: ein Lauf mit Recherche und hoher Denktiefe
+# braucht 3 bis 10 Minuten. Der Deckel greift bei Haenger, Endlosschleife oder
+# wartendem Ratenlimit, nicht bei langem Nachdenken.
+GOLDSET_LABEL_TIMEOUT_SECONDS = 1800                # int, 60..172800 (30 min)
+GOLDSET_LABEL_TOTAL_TIMEOUT_SECONDS = 43200         # int, 60..172800 (12 h)

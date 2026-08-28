@@ -1,0 +1,206 @@
+{
+  "sample_version": "goldset-sample-v1",
+  "source": "organisation/committee_matcher_goldset_stichprobe.md",
+  "note": "'focus' dokumentiert die Fallabdeckung der Stichprobe und dient der Berichterstattung. Der Wert gelangt nie in ein Aufgabenpaket: ein Hinweis auf die erwartete Antwort wuerde das Gold-Set entwerten.",
+  "expected_unit_count": 22,
+  "units": [
+    {
+      "nr": 1,
+      "unit_id": "house--transportation-and-infrastructure--aviation",
+      "chamber": "house",
+      "committee_name": "Committee on Transportation and Infrastructure",
+      "unit_name": "Subcommittee on Aviation",
+      "input_basis": "jurisdiction_text",
+      "focus": "eindeutige Mehrfachzuordnung: Airlines, Airports, Aerospace"
+    },
+    {
+      "nr": 2,
+      "unit_id": "house--energy-and-commerce--energy",
+      "chamber": "house",
+      "committee_name": "Committee on Energy and Commerce",
+      "unit_name": "Subcommittee on Energy",
+      "input_basis": "jurisdiction_text",
+      "focus": "Versorger gegen Oel/Gas trennen"
+    },
+    {
+      "nr": 3,
+      "unit_id": "house--financial-services--financial-institutions",
+      "chamber": "house",
+      "committee_name": "Committee on Financial Services",
+      "unit_name": "Subcommittee on Financial Institutions",
+      "input_basis": "jurisdiction_text",
+      "focus": "Banken gegen Kreditdienste trennen"
+    },
+    {
+      "nr": 4,
+      "unit_id": "house--natural-resources--energy-and-mineral-resources",
+      "chamber": "house",
+      "committee_name": "Committee on Natural Resources",
+      "unit_name": "Subcommittee on Energy and Mineral Resources",
+      "input_basis": "jurisdiction_text",
+      "focus": "Rohstoffkette: Bergbau, Kohle, Oel/Gas"
+    },
+    {
+      "nr": 5,
+      "unit_id": "house--ways-and-means--health",
+      "chamber": "house",
+      "committee_name": "Committee on Ways and Means",
+      "unit_name": "Subcommittee on Health",
+      "input_basis": "jurisdiction_text",
+      "focus": "Falle: Medicare heisst Versicherer, nicht Pharma"
+    },
+    {
+      "nr": 6,
+      "unit_id": "house--science-space-and-technology--space-and-aeronautics",
+      "chamber": "house",
+      "committee_name": "Committee on Science, Space, and Technology",
+      "unit_name": "Subcommittee on Space and Aeronautics",
+      "input_basis": "jurisdiction_text",
+      "focus": "Raumfahrt ohne eigene Industry in der Taxonomie"
+    },
+    {
+      "nr": 7,
+      "unit_id": "house--homeland-security--cybersecurity-and-infrastructure-protection",
+      "chamber": "house",
+      "committee_name": "Committee on Homeland Security",
+      "unit_name": "Subcommittee on Cybersecurity and Infrastructure Protection",
+      "input_basis": "jurisdiction_text",
+      "focus": "Falle: Behoerdenaufgabe gegen Softwarebranche"
+    },
+    {
+      "nr": 8,
+      "unit_id": "house--judiciary--courts-intellectual-property-artificial-intelligence-and-the-internet",
+      "chamber": "house",
+      "committee_name": "Committee on the Judiciary",
+      "unit_name": "Subcommittee on Courts, Intellectual Property, Artificial Intelligence, and the Internet",
+      "input_basis": "jurisdiction_text",
+      "focus": "Falle: KI und Internet als Rechtsthema, nicht als Branche"
+    },
+    {
+      "nr": 9,
+      "unit_id": "house--rules--legislative-and-budget-process",
+      "chamber": "house",
+      "committee_name": "Committee on Rules",
+      "unit_name": "Subcommittee on Legislative and Budget Process",
+      "input_basis": "jurisdiction_text",
+      "focus": "no_mapping erwartet: reines Parlamentsverfahren"
+    },
+    {
+      "nr": 10,
+      "unit_id": "house--appropriations--transportation-housing-and-urban-development-and-related-agencies",
+      "chamber": "house",
+      "committee_name": "Committee on Appropriations",
+      "unit_name": "Subcommittee on Transportation, Housing and Urban Development, and Related Agencies",
+      "input_basis": "jurisdiction_text",
+      "focus": "Extremfall: Jurisdiktionstext unter der Mindestlaenge"
+    },
+    {
+      "nr": 11,
+      "unit_id": "house--foreign-affairs--africa",
+      "chamber": "house",
+      "committee_name": "Committee on Foreign Affairs",
+      "unit_name": "Subcommittee on Africa",
+      "input_basis": "jurisdiction_text",
+      "focus": "geografischer Zuschnitt ohne Branchenbezug"
+    },
+    {
+      "nr": 12,
+      "unit_id": "senate--finance--health-care",
+      "chamber": "senate",
+      "committee_name": "Committee on Finance",
+      "unit_name": "Subcommittee on Health Care",
+      "input_basis": "name_only",
+      "focus": "name_only bei einem Namen, der eine Branche nahelegt"
+    },
+    {
+      "nr": 13,
+      "unit_id": "senate--banking-housing-and-urban-affairs--digital-assets",
+      "chamber": "senate",
+      "committee_name": "Committee on Banking, Housing, and Urban Affairs",
+      "unit_name": "Subcommittee on Digital Assets",
+      "input_basis": "jurisdiction_text",
+      "focus": "Falle: Krypto gegen Software und Kapitalmaerkte"
+    },
+    {
+      "nr": 14,
+      "unit_id": "senate--commerce-science-and-transportation--telecommunications-and-media",
+      "chamber": "senate",
+      "committee_name": "Committee on Commerce, Science, and Transportation",
+      "unit_name": "Subcommittee on Telecommunications and Media",
+      "input_basis": "jurisdiction_text",
+      "focus": "zwei benachbarte Branchen im selben Text"
+    },
+    {
+      "nr": 15,
+      "unit_id": "senate--environment-and-public-works--chemical-safety-waste-management-environmental-justice-and-regulatory-oversight",
+      "chamber": "senate",
+      "committee_name": "Committee on Environment and Public Works",
+      "unit_name": "Subcommittee on Chemical Safety, Waste Management, Environmental Justice, and Regulatory Oversight",
+      "input_basis": "jurisdiction_text",
+      "focus": "Regulierung gegen regulierte Branche"
+    },
+    {
+      "nr": 16,
+      "unit_id": "senate--agriculture-nutrition-and-forestry--livestock-dairy-poultry-and-food-safety",
+      "chamber": "senate",
+      "committee_name": "Committee on Agriculture, Nutrition, and Forestry",
+      "unit_name": "Subcommittee on Livestock, Dairy, Poultry, and Food Safety",
+      "input_basis": "jurisdiction_text",
+      "focus": "Landwirtschaft gegen Lebensmittelverarbeitung"
+    },
+    {
+      "nr": 17,
+      "unit_id": "senate--homeland-security-and-governmental-affairs--border-management-federal-workforce-and-regulatory-affairs",
+      "chamber": "senate",
+      "committee_name": "Committee on Homeland Security and Governmental Affairs",
+      "unit_name": "Subcommittee on Border Management, Federal Workforce, and Regulatory Affairs",
+      "input_basis": "name_only",
+      "focus": "name_only mit no_mapping als erwarteter Antwort"
+    },
+    {
+      "nr": 18,
+      "unit_id": "senate--appropriations--department-of-homeland-security",
+      "chamber": "senate",
+      "committee_name": "Committee on Appropriations",
+      "unit_name": "Subcommittee on Department of Homeland Security",
+      "input_basis": "jurisdiction_text",
+      "focus": "kurzer Text bei breitem Haushaltstitel"
+    },
+    {
+      "nr": 19,
+      "unit_id": "house--energy-and-commerce--health",
+      "chamber": "house",
+      "committee_name": "Committee on Energy and Commerce",
+      "unit_name": "Subcommittee on Health",
+      "input_basis": "jurisdiction_text",
+      "focus": "vier bis fuenf Zuordnungen: Versicherer, Pharma, Medizintechnik, Kliniken, Gesundheits-IT"
+    },
+    {
+      "nr": 20,
+      "unit_id": "house--financial-services--housing-and-insurance",
+      "chamber": "house",
+      "committee_name": "Committee on Financial Services",
+      "unit_name": "Subcommittee on Housing and Insurance",
+      "input_basis": "jurisdiction_text",
+      "focus": "vier bis fuenf Zuordnungen: Sach- und Spezialversicherer, Hypothekenfinanzierung, Wohn-REITs, Wohnungsbau"
+    },
+    {
+      "nr": 21,
+      "unit_id": "senate--energy-and-natural-resources--public-lands-forests-and-mining",
+      "chamber": "senate",
+      "committee_name": "Committee on Energy and Natural Resources",
+      "unit_name": "Subcommittee on Public Lands, Forests, and Mining",
+      "input_basis": "jurisdiction_text",
+      "focus": "vier bis fuenf Zuordnungen: Industriemetalle, Gold, Kohle, Holz, Oel/Gas-Foerderung"
+    },
+    {
+      "nr": 22,
+      "unit_id": "senate--commerce-science-and-transportation--surface-transportation-freight-pipelines-and-safety",
+      "chamber": "senate",
+      "committee_name": "Committee on Commerce, Science, and Transportation",
+      "unit_name": "Subcommittee on Surface Transportation, Freight, Pipelines, and Safety",
+      "input_basis": "jurisdiction_text",
+      "focus": "vier Zuordnungen: Speditionen, Bahn, Pipelines, Logistik"
+    }
+  ]
+}
