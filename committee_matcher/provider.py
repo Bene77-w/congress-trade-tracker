@@ -514,7 +514,12 @@ def _call_failure(code: str, obj: str, message: str, hint: str, *,
         obj=obj,
         message=message,
         hint=hint,
-        exit_code=ExitCode.PROVIDER_ERROR,
+        # Ein offener Ausgang ist kein geklaerter Providerfehler: der naechste
+        # Schritt ist 'run reconcile', und der haengt am Exit-Code 8. Traege
+        # der Befund die 9, wuerde die Klaerung erst nach einem zweiten,
+        # blockierten 'run execute' angestossen.
+        exit_code=(ExitCode.OUTCOME_UNKNOWN if outcome_unknown
+                   else ExitCode.PROVIDER_ERROR),
     )
     return ProviderCallError([finding], f"{code}: {obj}", retryable=retryable,
                              routing_suspected=routing_suspected,
@@ -807,7 +812,8 @@ class OpenRouterProvider:
             raise _call_failure(
                 "PROV_EMPTY_RESPONSE", request.call_id,
                 "Antwort enthaelt keine Auswahl (choices leer).",
-                "Wiederholbar; bleibt der Zustand, Modell oder Endpoint pruefen.",
+                "Der naechste 'run execute' sendet den Batch erneut; bleibt der "
+                "Zustand, Modell oder Endpoint pruefen.",
                 retryable=True,
                 **received,
             )
@@ -846,9 +852,10 @@ class OpenRouterProvider:
             raise _call_failure(
                 "PROV_INVALID_JSON", request.call_id,
                 f"Antwort ist trotz erzwungenem Schema kein gueltiges JSON ({exc}).",
-                "Wiederholbar; haeuft sich der Fall, unterstuetzt der geroutete "
-                "Endpoint Structured Output nur nominell - 'provider check' "
-                "zeigt die zulaessigen Endpoints.",
+                "Der naechste 'run execute' sendet den Batch erneut; haeuft sich "
+                "der Fall, unterstuetzt der geroutete Endpoint Structured "
+                "Output nur nominell - 'provider check' zeigt die "
+                "zulaessigen Endpoints.",
                 retryable=True,
                 **received,
             ) from exc
@@ -857,7 +864,8 @@ class OpenRouterProvider:
                 "PROV_INVALID_JSON", request.call_id,
                 f"Antwort ist ein {type(payload).__name__}, erwartet wird ein "
                 "JSON-Objekt.",
-                "Wiederholbar; Schema und Prompt pruefen, falls es bleibt.",
+                "Der naechste 'run execute' sendet den Batch erneut; Schema und "
+                "Prompt pruefen, falls es bleibt.",
                 retryable=True,
                 **received,
             )

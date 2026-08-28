@@ -856,10 +856,44 @@ def test_a_changed_condition_forbids_a_resume(change, expected):
     assert expected in conflicts
 
 
-def test_budget_and_snapshot_id_do_not_forbid_a_resume():
+def test_a_changed_budget_does_not_forbid_a_resume():
     """Sonst wuerde ein Lauf bezahlte Ergebnisse aus formalen Gruenden wegwerfen."""
-    changed = _manifest(budget_usd=99.0, snapshot_id="snap-2")
-    assert workflow.resume_conflicts(_manifest(), changed) == ()
+    assert workflow.resume_conflicts(_manifest(), _manifest(budget_usd=99.0)) == ()
+
+
+def test_a_new_snapshot_revision_forbids_a_resume():
+    """Der Artefaktabschluss verlangt die Snapshotrevision des Manifests.
+
+    Ohne diese Bindung liefe der Resume durch, bezahlte jeden offenen Batch und
+    scheiterte erst danach mit ``ART_SNAPSHOT_MISMATCH`` - ohne Artefakte, mit
+    verbrauchtem Budget. Inhaltsgleichheit genuegt dafuer nicht.
+    """
+    conflicts = workflow.resume_conflicts(_manifest(), _manifest(snapshot_id="snap-2"))
+    assert "snapshot_id" in conflicts
+
+
+def test_an_unreadable_manifest_is_named_instead_of_ignored(artifact_sandbox):
+    """Ein kaputtes Manifest darf nicht wie ein fehlendes ueberschrieben werden.
+
+    Daneben liegt der Laufzustand mit bezahlten Ergebnissen; ein stiller
+    Neustart plante sie ein zweites Mal ein.
+    """
+    paths.write_text_atomic(
+        workflow.manifest_path("run-1", create_parents=True), "{kaputt")
+    assert workflow.load_manifest("run-1") is None
+    assert "nicht lesbar" in workflow.manifest_unusable("run-1")
+
+
+def test_a_manifest_of_another_run_belongs_to_that_run(artifact_sandbox):
+    paths.write_text_atomic(
+        workflow.manifest_path("run-1", create_parents=True),
+        json.dumps(_manifest(run_id="run-2")))
+    assert workflow.load_manifest("run-1") is None
+    assert "run-2" in workflow.manifest_unusable("run-1")
+
+
+def test_a_run_without_manifest_has_nothing_to_complain_about(artifact_sandbox):
+    assert workflow.manifest_unusable("run-1") is None
 
 
 def test_a_drift_blocker_names_the_fields_and_blocks_preflight():
@@ -949,6 +983,103 @@ def test_every_cache_relevant_inference_field_also_binds_the_resume():
         changed = _manifest(provider_settings=_provider_settings(
             **{name: getattr(_provider_settings(), name) * 2}))
         assert workflow.resume_conflicts(base, changed), name
+
+
+# -- Kostenrekonstruktion nach Abbruch --------------------------------------
+def _write_audit(run_id, call_id, **overrides):
+    record = workflow.audit_record(
+        _request(call_id=call_id), _response(call_id=call_id, **{
+            k: v for k, v in overrides.items() if k in {"cost", "generation_id"}}),
+        worst_case_usd=overrides.get("worst_case_usd", 0.0))
+    record.update({k: v for k, v in overrides.items()
+                   if k in {"prompt_tokens", "completion_tokens", "cost_usd"}})
+    paths.write_text_atomic(
+        workflow.call_path(run_id, call_id, create_parents=True),
+        json.dumps(record, ensure_ascii=False))
+    return record
+
+
+def test_a_reservation_written_before_the_call_carries_the_amount(artifact_sandbox):
+    """Der Feldname der Vormerkung ist Vertrag zwischen Senden und Resume."""
+    guard = workflow.CostGuard(budget_usd=1.0, rates=workflow.CostRates(1.0, 1.0))
+    audited = workflow.AuditedProvider(
+        inner=_Recorder([RuntimeError("Abbruch mitten im Call")]),
+        run_id="run-1", guard=guard, offline=_offline())
+    with pytest.raises(Exception):
+        audited.complete(_request())
+    data = json.loads(workflow.intent_path("run-1", "call-1").read_text(encoding="utf-8"))
+    assert data["reserved_usd"] > 0.0
+    assert data["created_at"]
+    assert workflow.prior_costs("run-1", workflow.CostRates(1.0, 1.0)).reserved_usd > 0.0
+
+
+def test_an_answer_without_usage_reserves_the_worst_case_of_the_send():
+    """Ohne Tokenzahlen ist der beim Senden festgehaltene Worst Case die
+    einzige Zahl, die kein ausgegebenes Budget freigibt."""
+    rates = workflow.CostRates(1.0, 1.0)
+    audit = {"prompt_tokens": 0, "completion_tokens": 0, "worst_case_usd": 0.42}
+    assert workflow.unknown_reservation(audit, rates) == pytest.approx(0.42)
+
+
+def test_an_answer_with_usage_reserves_its_real_tokens():
+    rates = workflow.CostRates(1.0, 1.0)
+    audit = {"prompt_tokens": 1_000, "completion_tokens": 500, "worst_case_usd": 9.0}
+    assert workflow.unknown_reservation(audit, rates) == pytest.approx(
+        rates.worst_case_usd(1_000, 500))
+
+
+def test_a_paid_call_without_reported_cost_stays_reconcilable(artifact_sandbox):
+    _write_audit("run-1", "call-1", cost=None, worst_case_usd=0.5)
+    assert workflow.unpriced_audits("run-1") == ("call-1",)
+    prior = workflow.prior_costs("run-1", workflow.CostRates(1.0, 1.0))
+    assert prior.reserved_usd > 0.0
+    assert prior.unknown_calls == 1
+
+
+def test_a_priced_call_needs_no_clarification(artifact_sandbox):
+    _write_audit("run-1", "call-1", cost=0.0004)
+    assert workflow.unpriced_audits("run-1") == ()
+
+
+def test_a_clarified_call_is_no_longer_reserved(artifact_sandbox):
+    _write_audit("run-1", "call-1", cost=None, worst_case_usd=0.5)
+    paths.write_text_atomic(
+        workflow.reconciled_path("run-1", "call-1", create_parents=True),
+        json.dumps({"outcome": "charged", "cost_usd": 0.002}))
+    assert workflow.unpriced_audits("run-1") == ()
+    prior = workflow.prior_costs("run-1", workflow.CostRates(1.0, 1.0))
+    assert prior.spent_usd == pytest.approx(0.002)
+    assert prior.reserved_usd == 0.0
+
+
+def test_a_paid_answer_is_rebuilt_from_its_audit(artifact_sandbox):
+    """Abbruch zwischen Audit- und Zustandspersistenz: die Antwort ist bezahlt
+    und liegt auf der Platte, der Zustand kennt sie nicht."""
+    payload = {"units": [{"unit_id": "u"}]}
+    record = workflow.audit_record(_request(), _response(payload=payload))
+    paths.write_text_atomic(
+        workflow.call_path("run-1", "call-1", create_parents=True),
+        json.dumps(record, ensure_ascii=False))
+    loaded = workflow.load_audit("run-1", "call-1")
+    rebuilt = workflow.audit_response(loaded)
+    assert rebuilt.payload == payload
+    assert rebuilt.generation_id == "gen-1"
+    assert rebuilt.cost_usd == pytest.approx(0.0004)
+
+
+@pytest.mark.parametrize("missing", ["provider", "generation_id", "payload"])
+def test_an_untraceable_audit_is_never_reused(missing):
+    record = workflow.audit_record(_request(), _response())
+    record[missing] = None
+    assert workflow.audit_response(record) is None
+
+
+def test_an_audit_of_another_call_is_not_read(artifact_sandbox):
+    record = workflow.audit_record(_request(call_id="call-2"), _response(call_id="call-2"))
+    paths.write_text_atomic(
+        workflow.call_path("run-1", "call-1", create_parents=True),
+        json.dumps(record, ensure_ascii=False))
+    assert workflow.load_audit("run-1", "call-1") is None
 
 
 def test_the_audit_keeps_the_endpoint_the_key_leaves_out():

@@ -994,6 +994,38 @@ def test_user_abort_maps_to_exit_130(monkeypatch, capsys, artifact_sandbox):
     assert "CLI_ABORTED" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize("break_it,code,expected", [
+    (KeyboardInterrupt, ExitCode.USER_ABORT, "CLI_ABORTED"),
+    (RuntimeError("kaputt"), ExitCode.INTERNAL_ERROR, "CLI_INTERNAL_ERROR"),
+])
+def test_an_aborted_run_leaves_its_report_in_the_run(monkeypatch, capsys,
+                                                     artifact_sandbox, break_it,
+                                                     code, expected):
+    """Abbruch und interner Fehler schreiben denselben laufgebundenen Bericht
+    wie der Regelweg; sonst erklaert nur der Terminaltext den Abbruch."""
+    def explode(*_args, **_kwargs):
+        raise break_it
+
+    monkeypatch.setattr(cli, "run_command", explode)
+    argv = ["run", "execute", "--run-id", "run-abbruch",
+            "--committee", "Committee on Testing"]
+    assert cli.main(argv) == int(code)
+    target = (artifact_sandbox / "runs" / "run-abbruch" / "reports"
+              / "run_execute" / "errors.json")
+    assert target.exists()
+    assert expected in target.read_text(encoding="utf-8")
+
+
+def test_an_abort_before_the_command_is_known_still_reports(monkeypatch, capsys,
+                                                            artifact_sandbox):
+    """Faellt schon die Aktionssuche aus, gibt es keine Run-ID zu binden."""
+    monkeypatch.setattr(cli, "_lookup", lambda _ns: (_ for _ in ()).throw(
+        KeyError("unbekannt")))
+    assert cli.main(["input", "validate"]) == int(ExitCode.INTERNAL_ERROR)
+    assert (artifact_sandbox / "reports" / "committee_matcher"
+            / "errors.json").exists()
+
+
 def test_broken_settings_block_before_any_stage(monkeypatch, capsys, artifact_sandbox):
     def blocked():
         raise SettingsBlocked(

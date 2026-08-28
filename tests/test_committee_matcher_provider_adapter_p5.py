@@ -175,7 +175,11 @@ def test_request_carries_the_gate_b_routing_conditions():
     # Ohne Begrenzung verbraucht ein denkendes Modell das gesamte
     # Ausgabebudget im Reasoning und die Antwort wird abgeschnitten.
     assert sent["reasoning_effort"] == "low"
-    assert sent["retries"] is not None, "SDK-Retries werden ausdruecklich abgeschaltet"
+    # Nicht nur 'gesetzt': eine aktive Backoff-Strategie wuerde mehrere
+    # physische Requests hinter einer einzigen Kosten- und Auditbuchung senden.
+    retries = sent["retries"]
+    assert retries.strategy == "none"
+    assert retries.retry_connection_errors is False
 
 
 def test_missing_cost_stays_unknown_instead_of_becoming_zero():
@@ -218,8 +222,27 @@ def test_transient_sdk_errors_are_retryable(name):
     with pytest.raises(provider.ProviderCallError) as exc:
         adapter.complete(_request())
     assert exc.value.retryable is True
-    assert exc.value.findings[0].exit_code is ExitCode.PROVIDER_ERROR
+    # Ohne Statuscode ist nicht belegt, dass der Endpoint den Call abgelehnt
+    # hat: er kann gelaufen und abgerechnet sein. Der naechste Schritt ist
+    # deshalb die Klaerung, und die haengt am Exit-Code 8.
+    assert exc.value.outcome_unknown is True
+    assert exc.value.findings[0].exit_code is ExitCode.OUTCOME_UNKNOWN
     assert exc.value.findings[0].stage is Stage.PROVIDER
+
+
+@pytest.mark.parametrize("status", sorted(provider.REJECTED_BEFORE_EXECUTION))
+def test_a_call_rejected_before_execution_is_no_open_outcome(status):
+    """Ein abgelehnter Call hat einen geklaerten Ausgang: er lief nie.
+
+    Exit 8 wuerde hier eine Klaerung anstossen, die nichts zu klaeren hat.
+    """
+    error = _sdk_error("TooManyRequestsResponseError")
+    error.status_code = status
+    adapter, _ = _provider(error=error)
+    with pytest.raises(provider.ProviderCallError) as exc:
+        adapter.complete(_request())
+    assert exc.value.outcome_unknown is False
+    assert exc.value.findings[0].exit_code is ExitCode.PROVIDER_ERROR
 
 
 @pytest.mark.parametrize("name,code", [

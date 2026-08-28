@@ -1149,7 +1149,7 @@ Die Zielangaben `--chamber`, `--committee` und `--unit-id` existieren nur bei
 **Exit-Codes** (verbindliche Matrix, Plan 2.7): `0` erfolgreich oder erwartete
 Human-Übergabe · `2` erfolgreich mit Warnungen · `3` finale fehlgeschlagene
 Mapping-Units · `4` Input-/Prompt-/Config-Preflight blockiert ·
-`5` `awaiting_taxonomy_approval` · `6` Kostenlimit oder `cost_unknown` ·
+`5` `awaiting_taxonomy_approval` · `6` Kostenlimit überschritten ·
 `7` Review-/Gold-Set-/Holdout-Import abgelehnt · `8` `outcome_unknown` ·
 `9` nicht-retrybarer Providerfehler · `10` interner Fehler · `130` Abbruch.
 `1` bleibt unbelegt; ein Bedienfehler von argparse liefert bewusst `4` statt `2`.
@@ -1159,6 +1159,11 @@ Fehlercode, Objekt, Handlungshinweis, Kosten und Artefaktpfaden — auch bei nul
 Befunden, bei Benutzerabbruch und bei einem Bedienfehler des Parsers. Noch nicht
 implementierte Stages melden `CLI_STAGE_NOT_IMPLEMENTED` mit der Phase, in der
 sie entstehen.
+
+Der Bericht entsteht auf jedem Weg aus dem Programm: auch ein Benutzerabbruch
+und ein interner Fehler schreiben ihn, laufgebunden unter der Run-ID des
+Kommandos. Sonst erklärte nur der Terminaltext, warum ein Lauf mitten im
+Vorgang endete.
 
 Zusätzlich persistiert jeder Lauf die Befunde strukturiert nach
 `data/committee_matcher_v2/reports/<kommando>/errors.json` (Bedienfehler unter
@@ -1776,6 +1781,25 @@ blockiert `run execute` mit `RUN_OUTCOME_UNKNOWN` (Exit 8) und sendet nichts.
 erst nach `COMMITTEE_MATCHER_RECONCILE_MIN_AGE_S` Sekunden als „nicht
 abgerechnet"; vorher bleibt sie offen. Ohne `OPENROUTER_API_KEY` blockiert der
 Abgleich als Preflight (Exit 4), da kein Providercall stattgefunden hat.
+
+`run reconcile` klärt zwei Fälle, die beide eine Reservierung halten:
+
+| Fall | Spur | Klärung |
+|---|---|---|
+| Ausgang offen | Vormerkung ohne Auditdatei | unbekannte Generation gilt nach der Mindestwartezeit als nicht abgerechnet |
+| Betrag offen | Auditdatei ohne `cost_usd` | unbekannte Generation lässt die Reservierung stehen, denn die Antwort belegt den Call |
+
+Ohne die zweite Zeile bliebe die Reservierung eines Calls, dessen Kosten der
+Provider nicht mitgemeldet hat, für die Lebensdauer der Revision stehen und
+schmälerte jedes weitere Budget des Laufs.
+
+**Verlorener Zustandseintrag.** Bricht der Prozess zwischen Auditpersistenz und
+Zustandspersistenz ab, nimmt der nächste `run execute` die bezahlte Antwort aus
+der Auditdatei auf, statt den Batch erneut zu senden. Wiederverwendet wird
+ausschließlich ein Erstcall mit vollständiger Provenienz, dessen Antwort die
+formale Prüfung besteht; alles andere läuft erneut. Ein unbrauchbares
+Runmanifest blockiert den Lauf mit `RUN_MANIFEST_UNUSABLE` (Exit 4) und wird nie
+überschrieben — daneben kann ein Laufzustand mit bezahlten Ergebnissen liegen.
 
 Der Artefaktsatz entsteht erst, wenn der Lauf abgeschlossen ist: kein Abbruch,
 kein offener Ausgang, jede Zielunit im Zustand. Sonst meldet der Lauf

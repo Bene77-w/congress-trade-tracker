@@ -469,6 +469,80 @@ def test_resume_reuses_paid_units_and_sends_only_the_open_batches(scripted, caps
     assert workflow.mapping_path("run-test", "artifacts_manifest.json").exists()
 
 
+def test_a_paid_answer_lost_by_the_state_is_reused_instead_of_resent(
+        scripted, capsys):
+    """Abbruch zwischen Audit- und Zustandspersistenz.
+
+    Die Antwort ist bezahlt und liegt auf der Platte; kennt der Zustand sie
+    nicht, wuerde derselbe Batch ein zweites Mal gesendet und bezahlt.
+    """
+    _single_unit_batches(scripted.monkeypatch)
+    first = scripted.install(errors=[None, _provider_error(
+        retryable=False, outcome_unknown=False)])
+    cli.main(plan_argv())
+    capsys.readouterr()
+    assert cli.main(execute_argv()) == int(ExitCode.PROVIDER_ERROR)
+    assert len(first.calls) == 2
+    paid_batch = first.calls[0].call_id
+    capsys.readouterr()
+
+    # Der Zustand geht verloren, die Auditspur bleibt.
+    workflow.state_path("run-test").unlink()
+    second = scripted.install()
+    assert cli.main(execute_argv()) in (0, 2)
+    out = capsys.readouterr().out
+    assert not any(paid_batch in call_id for call_id in _sent_batches(second)), (
+        "der bezahlte Batch wird nie erneut gesendet")
+    assert len(second.calls) == 2, "nur die offenen Batches laufen"
+    assert f"batch={paid_batch}" in out and "source=audit" in out
+    assert workflow.mapping_path("run-test", "artifacts_manifest.json").exists()
+
+
+def _sent_batches(adapter) -> list[str]:
+    return [call.call_id for call in adapter.calls]
+
+
+def test_an_unusable_audit_is_not_reused(scripted, capsys):
+    """Ohne vollstaendige Provenienz ist eine Antwort nicht rueckverfolgbar."""
+    _single_unit_batches(scripted.monkeypatch)
+    first = scripted.install(errors=[None, _provider_error(
+        retryable=False, outcome_unknown=False)])
+    cli.main(plan_argv())
+    capsys.readouterr()
+    cli.main(execute_argv())
+    paid_batch = first.calls[0].call_id
+    capsys.readouterr()
+
+    target = workflow.call_path("run-test", paid_batch)
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    payload["generation_id"] = None
+    target.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    workflow.state_path("run-test").unlink()
+
+    second = scripted.install()
+    assert cli.main(execute_argv()) in (0, 2)
+    err = capsys.readouterr().err
+    assert any(paid_batch in call_id for call_id in _sent_batches(second)), (
+        "unbrauchbares Audit laeuft erneut")
+    assert "audit_unusable" in err
+
+
+def test_an_unusable_manifest_is_never_overwritten(scripted, capsys):
+    """Daneben liegt ein Laufzustand mit bezahlten Ergebnissen.
+
+    Ein stiller Neustart stellte sie unter Bedingungen, die sie nie erzeugt
+    haben.
+    """
+    scripted.install()
+    cli.main(plan_argv())
+    capsys.readouterr()
+    workflow.manifest_path("run-test").write_text("{kaputt", encoding="utf-8")
+    assert cli.main(plan_argv()) == int(ExitCode.PREFLIGHT_BLOCKED)
+    out = capsys.readouterr().out
+    assert "RUN_MANIFEST_UNUSABLE" in out
+    assert workflow.manifest_path("run-test").read_text(encoding="utf-8") == "{kaputt"
+
+
 def test_a_rejected_call_is_repeated_under_a_new_call_id(scripted, capsys):
     adapter = scripted.install(errors=[_provider_error(
         retryable=True, outcome_unknown=False)])
@@ -489,9 +563,11 @@ def test_an_open_outcome_is_never_repeated(scripted, capsys):
         retryable=True, outcome_unknown=True)])
     cli.main(plan_argv())
     capsys.readouterr()
-    # Der Providerfehler hat nach EXIT_CODE_PRIORITY Vorrang; der offene
-    # Ausgang wird daneben als eigener Befund ausgewiesen.
-    assert cli.main(execute_argv()) == int(ExitCode.PROVIDER_ERROR)
+    # Der offene Ausgang bestimmt den Exit-Code, nicht der Providerfehler:
+    # der naechste Schritt ist 'run reconcile', und die Bedienungsanleitung
+    # bindet ihn an Exit 8. Mit Exit 9 bliebe die Reservierung liegen, bis ein
+    # zweites 'run execute' den Lauf blockiert.
+    assert cli.main(execute_argv()) == int(ExitCode.OUTCOME_UNKNOWN)
     out = capsys.readouterr().out
     assert len(adapter.calls) == 1, "ein offener Ausgang wird nie erneut gesendet"
     assert "RUN_OUTCOME_UNKNOWN" in out
@@ -617,6 +693,53 @@ def test_reconcile_without_an_api_key_blocks(scripted, capsys, monkeypatch):
     # Kein Providercall gescheitert: der Lauf startet gar nicht erst.
     assert cli.main(reconcile_argv()) == int(ExitCode.PREFLIGHT_BLOCKED)
     assert "PROV_NO_API_KEY" in capsys.readouterr().out
+
+
+def test_a_paid_call_without_a_reported_amount_is_clarified(scripted, capsys,
+                                                            api_key, monkeypatch):
+    """Ein bezahlter Call ohne Kostenmeldung haelt eine Reservierung.
+
+    Ohne diesen Klaerweg bliebe sie fuer die Lebensdauer der Revision stehen
+    und schmaelerte jedes weitere Budget des Laufs.
+    """
+    scripted.install(cost_usd=None)
+    cli.main(plan_argv())
+    cli.main(execute_argv())
+    capsys.readouterr()
+    assert workflow.open_intents("run-test") == ()
+    unpriced = workflow.unpriced_audits("run-test")
+    assert len(unpriced) == 1
+
+    monkeypatch.setattr(
+        cli.provider, "fetch_generation",
+        lambda generation_id, key: cli.provider.GenerationRecord(
+            generation_id=generation_id, found=True, cost_usd=0.000021,
+            provider="fake", model="anbieter/modell"))
+    assert cli.main(reconcile_argv()) in (0, 2)
+    assert "0.000021 USD tatsaechlich abgerechnet" in capsys.readouterr().out
+    assert workflow.unpriced_audits("run-test") == ()
+
+
+def test_a_paid_call_the_provider_does_not_know_keeps_its_reservation(
+        scripted, capsys, api_key, monkeypatch):
+    """Die Antwort belegt, dass der Call gelaufen ist.
+
+    Ihn wie eine unbekannte Vormerkung als 'nicht abgerechnet' zu werten wuerde
+    Budget freigeben, das ausgegeben ist.
+    """
+    scripted.install(cost_usd=None)
+    cli.main(plan_argv())
+    cli.main(execute_argv())
+    capsys.readouterr()
+    call_id = workflow.unpriced_audits("run-test")[0]
+    monkeypatch.setattr(
+        cli.provider, "fetch_generation",
+        lambda generation_id, key: cli.provider.GenerationRecord(
+            generation_id=generation_id, found=False))
+    assert cli.main(reconcile_argv()) == int(ExitCode.OUTCOME_UNKNOWN)
+    assert "COST_RECONCILE_INCOMPLETE" in capsys.readouterr().out
+    assert not workflow.reconciled_path("run-test", call_id).exists()
+    assert workflow.unpriced_audits("run-test") == (call_id,)
 
 
 def test_a_cleared_batch_runs_again_under_a_new_call_id(scripted, capsys, api_key,

@@ -244,6 +244,11 @@ def prior_costs(run_id: str, rates: CostRates, state: "RunState | None" = None
     calls = documented = unknown = 0
     spent = reserved = 0.0
     orphaned: list[str] = []
+    # Eine Klaerung ersetzt die Reservierung ihres Calls. Ohne diese Vorabliste
+    # zaehlte ein geklaerter Call zweimal: einmal reserviert aus der Auditdatei,
+    # einmal gebucht aus der Klaerung.
+    settled = {entry.name[: -len(".reconciled.json")]
+               for entry in folder.glob("*.reconciled.json")}
 
     for entry in sorted(folder.glob("*.json")):
         name = entry.name
@@ -265,11 +270,9 @@ def prior_costs(run_id: str, rates: CostRates, state: "RunState | None" = None
         cost = data.get("cost_usd")
         if isinstance(cost, (int, float)) and not isinstance(cost, bool):
             spent += float(cost)
-        else:
+        elif call_id not in settled:
             unknown += 1
-            reserved += rates.worst_case_usd(
-                int(data.get("prompt_tokens") or 0),
-                int(data.get("completion_tokens") or 0))
+            reserved += unknown_reservation(data, rates)
         if state is not None and call_id not in known_units:
             orphaned.append(call_id)
 
@@ -277,11 +280,28 @@ def prior_costs(run_id: str, rates: CostRates, state: "RunState | None" = None
         data = load_intent(run_id, call_id) or {}
         calls += 1
         unknown += 1
-        reserved += float(data.get("reserved_usd") or 0.0)
+        # 'worst_case_usd' ist der Feldname aelterer Vormerkungen.
+        reserved += float(data.get("reserved_usd")
+                          or data.get("worst_case_usd") or 0.0)
 
     return PriorCosts(calls=calls, spent_usd=spent, unknown_calls=unknown,
                       reserved_usd=reserved, documented_calls=documented,
                       orphaned_audits=tuple(sorted(orphaned)))
+
+
+def unknown_reservation(audit: Mapping[str, object], rates: "CostRates") -> float:
+    """Reservierung fuer einen Call, der eine Antwort, aber keine Kosten meldet.
+
+    Die Tokenzahlen der Antwort ergeben die genauere Obergrenze. Fehlen sie -
+    der Provider meldet Usage nicht immer -, gilt der beim Senden festgehaltene
+    Worst Case. Aus fehlender Usage 0.00 USD zu machen waere die einzige
+    Variante, die Budget freigibt, das moeglicherweise ausgegeben ist.
+    """
+    prompt_tokens = int(audit.get("prompt_tokens") or 0)
+    completion_tokens = int(audit.get("completion_tokens") or 0)
+    if prompt_tokens or completion_tokens:
+        return rates.worst_case_usd(prompt_tokens, completion_tokens)
+    return float(audit.get("worst_case_usd") or 0.0)
 
 
 def _write_json(target: Path, payload: object) -> Path:
@@ -525,7 +545,8 @@ def plan_cost_usd(requests: Sequence[provider_module.StructuredRequest],
 # ---------------------------------------------------------------------------
 
 def audit_record(request: provider_module.StructuredRequest,
-                 response: provider_module.StructuredResponse) -> dict[str, object]:
+                 response: provider_module.StructuredResponse,
+                 worst_case_usd: float = 0.0) -> dict[str, object]:
     """Bereinigte Auditform eines Calls.
 
     Enthalten sind Provenienz und die rohe Antwortnutzlast - nicht enthalten
@@ -538,6 +559,10 @@ def audit_record(request: provider_module.StructuredRequest,
         "version": CALL_AUDIT_VERSION,
         "schema_name": request.schema_name,
         "max_output_tokens": request.max_output_tokens,
+        # Meldet der Provider keine Kosten, reserviert der Lauf diesen Betrag.
+        # Ohne ihn muesste ein Resume die Reservierung aus den Tokenzahlen
+        # schaetzen - und faende bei fehlender Usage 0.00 USD.
+        "worst_case_usd": round(worst_case_usd, 6),
         "payload": response.payload,
     })
     return entry
@@ -645,7 +670,13 @@ class AuditedProvider:
             "run_id": self.run_id,
             "call_id": request.call_id,
             "schema_name": request.schema_name,
-            "worst_case_usd": round(worst_case, 6),
+            # Der Feldname ist Vertrag: 'prior_costs' und 'run reconcile' lesen
+            # 'reserved_usd'. Stuende der Betrag unter einem anderen Namen,
+            # kaeme ein Abbruch mitten im Call mit 0.00 USD reserviert zurueck.
+            "reserved_usd": round(worst_case, 6),
+            # Ohne Zeitstempel darf 'run reconcile' eine unbekannte Generation
+            # nie als 'nicht abgerechnet' werten; der Frischeschutz griffe nicht.
+            "created_at": _now_iso(),
         })
 
     def _release(self, call_id: str) -> None:
@@ -755,7 +786,7 @@ class AuditedProvider:
     def _persist(self, request, response, worst_case: float = 0.0) -> None:
         target = call_path(self.run_id, request.call_id, create_parents=True)
         try:
-            _write_json(target, audit_record(request, response))
+            _write_json(target, audit_record(request, response, worst_case))
         except Exception:
             # Jede Ausnahme nach bezahlter Antwort hat dieselbe Folge, nicht nur
             # ein OSError: die Pfadwache, ein Serialisierungsfehler oder ein
@@ -1068,7 +1099,14 @@ def write_manifest(run_id: str, manifest: Mapping) -> Path:
 
 
 def load_manifest(run_id: str) -> dict | None:
-    """Liest ein vorhandenes Manifest; fehlt oder faellt es aus dem Vertrag, None."""
+    """Liest ein vorhandenes Manifest; fehlt oder faellt es aus dem Vertrag, None.
+
+    ``None`` heisst hier ausschliesslich 'nicht vorhanden oder unbrauchbar'.
+    Wer entscheidet, ob unter dieser Revision geschrieben werden darf, muss
+    zusaetzlich ``manifest_unusable`` fragen: ein unlesbares Manifest darf nicht
+    wie ein fehlendes behandelt und ueberschrieben werden, denn daneben kann ein
+    Laufzustand mit bezahlten Ergebnissen liegen.
+    """
     target = manifest_path(run_id)
     if not target.exists():
         return None
@@ -1078,7 +1116,108 @@ def load_manifest(run_id: str) -> dict | None:
         return None
     if not isinstance(data, dict) or data.get("version") != MANIFEST_VERSION:
         return None
+    if data.get("run_id") != run_id:
+        return None
     return data
+
+
+def unpriced_audits(run_id: str) -> tuple[str, ...]:
+    """Calls mit gueltiger Antwort, aber ohne gemeldete Kosten.
+
+    Fuer sie steht der Worst Case reserviert, bis die Generation den Betrag
+    liefert. Ohne diesen Klaerweg bliebe die Reservierung fuer die Lebensdauer
+    der Revision stehen und schmaelerte jedes weitere Budget des Laufs.
+    """
+    folder = mapping_path(run_id, CALLS_DIRNAME)
+    if not folder.is_dir():
+        return ()
+    open_calls = []
+    for entry in sorted(folder.glob("*.json")):
+        name = entry.name
+        if name.endswith(".intent.json") or name.endswith(".reconciled.json"):
+            continue
+        call_id = name[: -len(".json")]
+        if reconciled_path(run_id, call_id).exists():
+            continue
+        data = load_audit(run_id, call_id)
+        if data is None:
+            continue
+        cost = data.get("cost_usd")
+        if not isinstance(cost, (int, float)) or isinstance(cost, bool):
+            open_calls.append(call_id)
+    return tuple(open_calls)
+
+
+def load_audit(run_id: str, call_id: str) -> dict | None:
+    """Liest die Auditdatei eines Calls; alles Unstimmige gilt als nicht da."""
+    target = call_path(run_id, call_id)
+    if not target.exists():
+        return None
+    try:
+        data = json.loads(target.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    if not isinstance(data, dict) or data.get("version") != CALL_AUDIT_VERSION:
+        return None
+    if data.get("call_id") != call_id or not isinstance(data.get("payload"), dict):
+        return None
+    return data
+
+
+def audit_response(data: Mapping[str, object]
+                   ) -> provider_module.StructuredResponse | None:
+    """Baut die Antwort eines bezahlten Calls aus seiner Auditdatei zurueck.
+
+    Gebraucht wird das, wenn der Prozess zwischen Auditpersistenz und
+    Zustandspersistenz abgebrochen ist: die Antwort ist bezahlt und liegt auf
+    der Platte, der Laufzustand kennt sie nicht. Ohne Rueckbau wuerde derselbe
+    Batch ein zweites Mal gesendet und ein zweites Mal bezahlt.
+
+    Die Provenienz bleibt die des urspruenglichen Calls - Provider, Generation
+    und Kosten stehen im Audit. Fehlt eine davon, ist die Antwort nicht
+    rueckverfolgbar und wird nicht wiederverwendet.
+    """
+    call_id = data.get("call_id")
+    payload = data.get("payload")
+    provider_name = data.get("provider")
+    generation_id = data.get("generation_id")
+    if not (isinstance(call_id, str) and isinstance(payload, dict)
+            and provider_name and generation_id):
+        return None
+    cost = data.get("cost_usd")
+    return provider_module.StructuredResponse(
+        call_id=call_id,
+        payload=payload,
+        model=str(data.get("model") or ""),
+        provider=str(provider_name),
+        prompt_tokens=int(data.get("prompt_tokens") or 0),
+        completion_tokens=int(data.get("completion_tokens") or 0),
+        cost_usd=float(cost) if isinstance(cost, (int, float))
+        and not isinstance(cost, bool) else None,
+        finish_reason=data.get("finish_reason"),
+        generation_id=str(generation_id),
+    )
+
+
+def manifest_unusable(run_id: str) -> str | None:
+    """Grund, warum ein vorhandenes Manifest nicht gelesen werden kann.
+
+    ``None`` heisst: entweder liegt keines vor, oder es ist brauchbar.
+    """
+    target = manifest_path(run_id)
+    if not target.exists():
+        return None
+    try:
+        data = json.loads(target.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        return f"nicht lesbar ({exc.__class__.__name__})"
+    if not isinstance(data, dict):
+        return "kein Objekt"
+    if data.get("version") != MANIFEST_VERSION:
+        return f"Vertragsversion {data.get('version')!r} statt {MANIFEST_VERSION!r}"
+    if data.get("run_id") != run_id:
+        return f"gehoert zu Run {data.get('run_id')!r}"
+    return None
 
 
 #: Manifestfelder, deren Aenderung einen Resume verbietet: sie bestimmen das
@@ -1086,6 +1225,13 @@ def load_manifest(run_id: str) -> dict | None:
 RESUME_BOUND_FIELDS = ("taxonomy_content_hash", "input_manifest_hash", "model",
                        "prompts", "schema", "batching", "context",
                        "cache_key_version", "selection", "unit_count",
+                       # Zwei inhaltsgleiche Snapshots liefern dasselbe
+                       # Ergebnis - der Artefaktabschluss verlangt aber die
+                       # Revision des Manifests (ART_SNAPSHOT_MISMATCH). Ohne
+                       # diese Bindung liefe der Resume durch, bezahlte jeden
+                       # offenen Batch und scheiterte erst danach am
+                       # Artefaktschreiben.
+                       "snapshot_id",
                        # Routing traegt die Datenschutzzusage (ZDR,
                        # data_collection) und die Preisdeckel des Laufs; ein
                        # Wechsel mitten im Lauf hiesse, dass Teile des

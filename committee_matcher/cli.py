@@ -37,6 +37,7 @@ from . import (
     taxonomy_snapshot,
     taxonomy_source,
     units as unit_module,
+    validation,
     workflow,
 )
 from .errors import (
@@ -860,6 +861,18 @@ def _manifest_conflict(collector: ErrorCollector, run_id: str,
     ergebnisbestimmenden Bedingungen hat. Weicht eine davon ab, ist es ein
     anderer Lauf und bekommt eine eigene Revision.
     """
+    unusable = workflow.manifest_unusable(run_id)
+    if unusable is not None:
+        # Ein unbrauchbares Manifest zu ueberschreiben wuerde einen daneben
+        # liegenden Laufzustand mit bezahlten Ergebnissen unter neue
+        # Bedingungen stellen: der Resume liefe gegen ein Manifest, das die
+        # Ergebnisse nie erzeugt hat.
+        _run_blocker(
+            collector, "RUN_MANIFEST_UNUSABLE", run_id,
+            f"Unter dieser Revision liegt bereits ein Manifest, das {unusable}.",
+            "Datei sichten und die Revision entweder bereinigen oder eine neue "
+            "--run-id verwenden; ueberschrieben wird sie nie.")
+        return True
     previous = workflow.load_manifest(run_id)
     if previous is None:
         return False
@@ -1002,6 +1015,9 @@ def _run_batch(collector: ErrorCollector, audited: workflow.AuditedProvider,
     der Ausfuehrung abgelehnt hat. Bei offenem Ausgang wird nie wiederholt: der
     Call koennte gelaufen und abgerechnet worden sein (Plan 2.6).
     """
+    reused = _reuse_paid_answer(audited.run_id, batch, prepared, reporter)
+    if reused is not None:
+        return reused, None
     attempts = 1 + max(0, settings.offline.workflow_retries)
     # Ein Batch, der in diesem Lauf schon einmal gesendet wurde, bekommt einen
     # eigenen Durchlaufpraefix: seine alte Call-ID gehoert zu einem Call, der
@@ -1053,6 +1069,47 @@ def _run_batch(collector: ErrorCollector, audited: workflow.AuditedProvider,
             # naechsten Batches liefen in denselben Fehler und kosteten erneut.
             return None, _STOP_PROVIDER
     return None, _STOP_PROVIDER
+
+
+def _reuse_paid_answer(run_id: str, batch: mapping.MappingBatch,
+                       prepared: RunPreparation, reporter: TerminalReporter,
+                       ) -> mapping.BatchOutcome | None:
+    """Nimmt eine bezahlte Antwort auf, die der Laufzustand verloren hat.
+
+    Bricht der Prozess zwischen Auditpersistenz und Zustandspersistenz ab, ist
+    der Batch bezahlt und seine Antwort liegt auf der Platte - offen ist nur
+    der Zustandseintrag. Ihn durch einen zweiten Call zu ersetzen hiesse,
+    denselben Batch zweimal zu bezahlen.
+
+    Wiederverwendet wird ausschliesslich ein Erstcall, dessen Antwort die
+    formale Pruefung vollstaendig besteht. Eine Antwort, die damals repariert
+    werden musste, laeuft erneut: ihre Reparaturkette wieder aufzunehmen waere
+    ein zweiter Zustandsautomat fuer einen seltenen Fall.
+    """
+    data = workflow.load_audit(run_id, batch.batch_id)
+    if data is None:
+        return None
+    response = workflow.audit_response(data)
+    if response is None:
+        reporter.warn(Stage.MAPPING, batch=batch.batch_id, audit_unusable=None,
+                      reason="Provenienz unvollstaendig")
+        return None
+    outcome = validation.validate_payload(
+        response.payload, batch, prepared.snapshot)
+    if not outcome.ok:
+        reporter.warn(Stage.MAPPING, batch=batch.batch_id, audit_unusable=None,
+                      reason="Antwort besteht die Pruefung nicht",
+                      violations=len(outcome.violations))
+        return None
+    request = mapping.build_request(
+        batch, prepared.snapshot, prepared.mapping_prompt,
+        prepared.provider_settings)
+    reporter.info(Stage.MAPPING, batch=batch.batch_id, reused=None,
+                  source="audit", cost_usd=response.cost_usd or 0.0)
+    return mapping.BatchOutcome(
+        batch=batch, result=outcome.result, violations=(),
+        calls=(mapping.CallRecord("mapping", request, response, ()),),
+        unit_calls={unit_id: batch.batch_id for unit_id in batch.unit_ids})
 
 
 def _report_abort(reporter: TerminalReporter, batch: mapping.MappingBatch,
@@ -1520,9 +1577,15 @@ def handle_run_reconcile(
     run_id = _run_id(namespace)
     reporter.start(Stage.WORKFLOW, run=run_id, action="reconcile")
     provider_settings = settings.require_provider()
+    rates = workflow.CostRates.from_settings(provider_settings)
 
     open_calls = workflow.open_intents(run_id)
-    if not open_calls:
+    # Ein Call mit gueltiger Antwort, aber ohne gemeldete Kosten haelt ebenfalls
+    # eine Reservierung. Sein Ausgang ist bekannt - offen ist nur der Betrag.
+    unpriced = workflow.unpriced_audits(run_id)
+    pending_calls = open_calls + tuple(
+        call_id for call_id in unpriced if call_id not in open_calls)
+    if not pending_calls:
         reporter.ok(Stage.WORKFLOW, run=run_id, action="reconcile", open_calls=0)
         return [f"Run:      {run_id}", "Abgleich: kein Call mit offenem Ausgang"], []
 
@@ -1535,7 +1598,8 @@ def handle_run_reconcile(
             "einer Generation gehoert zum Konto und braucht den Key.",
             exit_code=ExitCode.PREFLIGHT_BLOCKED,
         )
-        return [f"Run:      {run_id}", f"Abgleich: blockiert ({len(open_calls)} offen)"], []
+        return [f"Run:      {run_id}",
+                f"Abgleich: blockiert ({len(pending_calls)} offen)"], []
 
     settled: list[dict] = []
     unresolved: list[str] = []
@@ -1545,9 +1609,15 @@ def handle_run_reconcile(
     now = datetime.now(timezone.utc)
     min_age_s = settings.offline.reconcile_min_age_s
 
-    for call_id in open_calls:
-        intent = workflow.load_intent(run_id, call_id)
-        reserved = float(intent.get("reserved_usd") or 0.0) if intent else 0.0
+    for call_id in pending_calls:
+        # Der bezahlte Call kennt seine Generation aus der Auditdatei, der
+        # abgebrochene aus seiner Vormerkung.
+        priced = call_id in unpriced and call_id not in open_calls
+        intent = (workflow.load_audit(run_id, call_id) if priced
+                  else workflow.load_intent(run_id, call_id))
+        reserved = (workflow.unknown_reservation(intent, rates) if priced and intent
+                    else float((intent or {}).get("reserved_usd")
+                               or (intent or {}).get("worst_case_usd") or 0.0))
         generation_id = (intent or {}).get("generation_id")
         if intent is None or not generation_id:
             unresolved.append(call_id)
@@ -1566,6 +1636,19 @@ def handle_run_reconcile(
             reporter.warn(Stage.COST, call=call_id, reason=str(exc))
             continue
 
+        if not record.found and priced:
+            # Die Antwort liegt vor, der Call ist also gelaufen. Ihn als 'nicht
+            # abgerechnet' zu werten wuerde eine Reservierung aufloesen, die zu
+            # einem tatsaechlich bezahlten Call gehoert.
+            unresolved.append(call_id)
+            collector.warning(
+                "COST_RECONCILE_INCOMPLETE", Stage.COST, call_id,
+                "Der Provider kennt die Generation dieses bezahlten Calls nicht.",
+                "Abgleich spaeter wiederholen; die Reservierung bleibt bestehen, "
+                "denn die Antwort belegt, dass der Call gelaufen ist.")
+            reporter.warn(Stage.COST, call=call_id,
+                          reason="bezahlter Call ohne bekannte Generation")
+            continue
         if not record.found:
             age_s = _intent_age_s(intent, now)
             if age_s is None or age_s < min_age_s:
@@ -1798,6 +1881,24 @@ def _report_run_id(command: Command, namespace: argparse.Namespace) -> str | Non
     return raw if raw and RUN_ID_RE.match(raw) else None
 
 
+def _abort_report(collector: ErrorCollector, command: Command | None,
+                  namespace: argparse.Namespace, headline: str,
+                  exit_code: ExitCode | None = None) -> int:
+    """Abschlussweg der Top-Level-Faenger.
+
+    Ein Abbruch oder ein interner Fehler schreibt denselben laufgebundenen
+    Fehlerbericht wie der Regelweg - sonst erklaert nur der Terminaltext, warum
+    ein Lauf mitten im Vorgang endete.
+    """
+    name = command.name if command is not None else PROGRAM
+    run_id = _report_run_id(command, namespace) if command is not None else None
+    artifacts, persist_finding = _persist(collector, name, run_id)
+    if persist_finding is not None:
+        collector.extend([persist_finding])
+    print_report(collector, headline=headline, artifacts=artifacts)
+    return int(exit_code if exit_code is not None else collector.exit_code())
+
+
 def run_command(command: Command, namespace: argparse.Namespace) -> int:
     collector = ErrorCollector()
     # Ein Reporter je Lauf; Fachmodule geben nie selbst aus (Statusplan S2).
@@ -1885,31 +1986,34 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return int(collector.exit_code())
 
+    command: Command | None = None
     try:
         command = _lookup(namespace)
         return run_command(command, namespace)
     except KeyboardInterrupt:
         collector = ErrorCollector()
         collector.blocker(
-            "CLI_ABORTED", Stage.CLI, PROGRAM,
+            "CLI_ABORTED", Stage.CLI, command.name if command else PROGRAM,
             "Lauf durch Benutzerabbruch beendet.",
             "Lauf erneut starten; bereits geschriebene Artefakte bleiben unveraendert.",
             exit_code=ExitCode.USER_ABORT,
         )
-        print_report(collector, headline="Committee Matcher V2 - Abbruch")
-        return int(ExitCode.USER_ABORT)
+        return _abort_report(
+            collector, command, namespace,
+            "Committee Matcher V2 - Abbruch", ExitCode.USER_ABORT)
     except MatcherError as exc:
         collector = ErrorCollector()
         collector.extend(exc.findings)
-        print_report(collector, headline="Committee Matcher V2 - blockiert")
-        return int(collector.exit_code())
+        return _abort_report(
+            collector, command, namespace, "Committee Matcher V2 - blockiert")
     except Exception as exc:  # noqa: BLE001 - letzte Sicherung, Exit-Code 10
         collector = ErrorCollector()
         collector.blocker(
-            "CLI_INTERNAL_ERROR", Stage.CLI, PROGRAM,
+            "CLI_INTERNAL_ERROR", Stage.CLI, command.name if command else PROGRAM,
             f"Unerwarteter interner Fehler: {exc.__class__.__name__}: {exc}",
             "Traceback pruefen; dieser Pfad ist immer ein Implementierungsfehler.",
             exit_code=ExitCode.INTERNAL_ERROR,
         )
-        print_report(collector, headline="Committee Matcher V2 - interner Fehler")
-        return int(ExitCode.INTERNAL_ERROR)
+        return _abort_report(
+            collector, command, namespace,
+            "Committee Matcher V2 - interner Fehler", ExitCode.INTERNAL_ERROR)
