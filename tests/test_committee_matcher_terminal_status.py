@@ -144,6 +144,111 @@ def test_snapshot_approve_without_a_snapshot_reports_an_error(sandbox, capsys):
     assert "[ERROR] taxonomy | run=run-ohne | approval=abgelehnt" in captured.err
 
 
+from committee_matcher import paths, taxonomy_snapshot, taxonomy_source  # noqa: E402
+from committee_matcher.errors import ErrorCollector  # noqa: E402
+
+from tests.test_committee_matcher_taxonomy_p4 import (  # noqa: E402,F401
+    FakeClient, artifact_sandbox, sectors)
+
+
+def _snapshot_status(artifact_sandbox, **client_kwargs):
+    """Fuehrt einen Snapshotlauf gegen das Testdouble und gibt die Streams."""
+    out, err = io.StringIO(), io.StringIO()
+    reporter = TerminalReporter(stdout=out, stderr=err)
+    client = FakeClient(sectors(), **client_kwargs)
+    return client, reporter, out, err
+
+
+def test_snapshot_build_reports_sector_progress_and_result(artifact_sandbox):
+    client, reporter, out, err = _snapshot_status(artifact_sandbox)
+    taxonomy_snapshot.build_snapshot(
+        ErrorCollector(), client, run_id="run-1", reporter=reporter)
+    lines = out.getvalue().splitlines()
+    assert "[START] taxonomy | run=run-1 | action=build | known=0" in lines
+    # Jeder Sectorvorgang hat Start und Gegenstueck; 'done' beziffert den
+    # Restumfang in der einzigen vorab bekannten Menge.
+    assert "[START] taxonomy | sector=energy | done=1/2" in lines
+    assert "[OK] taxonomy | sector=energy | industries=2" in lines
+    assert "[START] taxonomy | sector=technology | done=2/2" in lines
+    assert "[OK] taxonomy | sector=technology | industries=1" in lines
+    assert any(line.startswith("[INFO] taxonomy | run=run-1 | checkpoint=")
+               for line in lines), "Checkpointfortschritt bleibt sichtbar"
+    assert err.getvalue() == ""
+
+
+def test_a_successful_single_fetch_stays_silent(artifact_sandbox):
+    """Nur Wiederholungen sind relevant; sonst stuende je Industry eine Zeile."""
+    client, reporter, out, err = _snapshot_status(artifact_sandbox)
+    taxonomy_snapshot.build_snapshot(
+        ErrorCollector(), client, run_id="run-1", reporter=reporter)
+    assert not [line for line in out.getvalue().splitlines()
+                if "industry=" in line]
+
+
+def test_a_retried_request_is_visible_without_its_payload():
+    calls = {"n": 0}
+
+    def flaky():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("GEHEIMER ANTWORTTEXT")
+        return "ok"
+
+    out, err = io.StringIO(), io.StringIO()
+    reporter = TerminalReporter(stdout=out, stderr=err)
+    from tests.test_committee_matcher_taxonomy_p4 import OFFLINE
+
+    client = taxonomy_source.YFinanceClient(
+        OFFLINE, sleep=lambda _s: None, reporter=reporter)
+    assert client._call("uranium", flaky) == "ok"
+    assert "[WARN] taxonomy | object=uranium | retry=1/" in err.getvalue()
+    assert "GEHEIMER ANTWORTTEXT" not in err.getvalue() + out.getvalue()
+
+
+def test_an_exhausted_fetch_closes_its_start_with_an_error(artifact_sandbox):
+    """Sonst bliebe der Vorgang im Livestatus offen und der gesicherte
+    Wiederaufnahmepunkt stuende nirgends."""
+    client, reporter, out, err = _snapshot_status(artifact_sandbox, fail_on="uranium")
+    with pytest.raises(taxonomy_source.TaxonomyFetchError):
+        taxonomy_snapshot.build_snapshot(
+            ErrorCollector(), client, run_id="run-1", reporter=reporter)
+    assert ("[ERROR] taxonomy | run=run-1 | code=TAX_FETCH_FAILED | known=1"
+            in err.getvalue())
+
+
+def test_snapshot_resume_reports_its_starting_point(artifact_sandbox):
+    client, reporter, out, err = _snapshot_status(artifact_sandbox, fail_on="uranium")
+    with pytest.raises(taxonomy_source.TaxonomyFetchError):
+        taxonomy_snapshot.build_snapshot(
+            ErrorCollector(), client, run_id="run-1", reporter=reporter)
+
+    client, reporter, out, err = _snapshot_status(artifact_sandbox)
+    taxonomy_snapshot.build_snapshot(
+        ErrorCollector(), client, run_id="run-1", resume=True, reporter=reporter)
+    assert "[START] taxonomy | run=run-1 | action=resume | known=1" in out.getvalue()
+
+
+def test_a_snapshot_module_without_a_reporter_stays_silent(artifact_sandbox, capsys):
+    taxonomy_snapshot.build_snapshot(
+        ErrorCollector(), FakeClient(sectors()), run_id="run-1")
+    captured = capsys.readouterr()
+    assert captured.out == "" and captured.err == ""
+
+
+def test_an_aborted_snapshot_run_still_ends_with_one_report(sandbox, capsys,
+                                                            monkeypatch):
+    """Genau ein Abschlussbericht je Lauf, auch wenn der Abruf ausfaellt."""
+    def failing(settings, **_kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(taxonomy_source, "YFinanceClient", failing)
+    assert cli.main(["snapshot", "build", "--run-id", "run-abbruch"]) == int(
+        ExitCode.USER_ABORT)
+    out = capsys.readouterr().out
+    assert out.count("Committee Matcher V2 -") == 1
+    assert "CLI_ABORTED" in out
+
+
 # ---------------------------------------------------------------------------
 # Integration in Mappinglauf und Review (Statusplan S4)
 # ---------------------------------------------------------------------------

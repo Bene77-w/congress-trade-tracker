@@ -280,8 +280,12 @@ def fetch_taxonomy(
         return ()
 
     result: list[IndustryRow] = []
-    for seed in seeds:
-        reporter.start(Stage.TAXONOMY, sector=seed.sector_id)
+    for position, seed in enumerate(seeds, start=1):
+        # Sectoren sind die einzige Menge, die vor dem Abruf feststeht; die
+        # Industries entdeckt erst der Lauf. 'done' ist damit der Restumfang,
+        # den ein fortgesetzter Abruf ueberhaupt beziffern kann.
+        reporter.start(Stage.TAXONOMY, sector=seed.sector_id,
+                       done=f"{position}/{len(seeds)}")
         rows = client.industries(seed)
         if not rows:
             collector.blocker(
@@ -324,4 +328,7 @@ def fetch_taxonomy(
                 # Auch uebernommene Beschreibungen werden gemeldet, damit der
                 # Checkpoint die aktuelle Identitaet traegt.
                 on_progress(complete)
+        # Gegenstueck zum START des Sectors; ohne es bliebe jeder Sectorvorgang
+        # im Livestatus offen.
+        reporter.ok(Stage.TAXONOMY, sector=seed.sector_id, industries=len(rows))
     return tuple(result)

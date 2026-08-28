@@ -30,7 +30,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import paths
-from .errors import SILENT_REPORTER, ErrorCollector, Stage, TerminalReporter
+from .errors import (SILENT_REPORTER, ErrorCollector, MatcherError, Stage,
+                     TerminalReporter)
 from .models import IndustryRecord, TaxonomySnapshot
 from .status import ExitCode, WorkflowState
 from .taxonomy_source import (
@@ -529,6 +530,15 @@ def build_snapshot(
     try:
         rows = fetch_taxonomy(collector, client, known=known, on_progress=remember,
                               reporter=reporter)
+    except MatcherError as exc:
+        # Ein erschoepfter Abruf verlaesst die Funktion als Ausnahme. Ohne diese
+        # Meldung bliebe der ``START`` dieses Laufs ohne Gegenstueck, und der
+        # gesicherte Wiederaufnahmepunkt stuende nirgends im Livestatus.
+        reporter.error(
+            Stage.TAXONOMY, run=run_id,
+            code=exc.findings[0].code if exc.findings else "TAX_FETCH_FAILED",
+            known=len(checkpoint.rows))
+        raise
     finally:
         # Auch ein abgebrochener Abruf hinterlaesst seinen Fortschritt - sonst
         # beginnt 'snapshot resume' unnoetig von vorn.
