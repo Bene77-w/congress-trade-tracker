@@ -7,21 +7,29 @@ Umsetzung der Evaluation: `organisation/committee_matcher_v2_implementierungspla
 
 Ausschliesslich Subcommittees, weil sie mit 179 von 225 Units die Grundgesamtheit
 tragen und den schwierigsten Fall stellen: enger Zuschnitt bei gleichzeitig
-kurzem Jurisdiktionstext. Hoechstens ein Subcommittee je Committee, damit kein
-Themenfeld die Stichprobe dominiert.
+kurzem Jurisdiktionstext. In der Regel ein Subcommittee je Committee, damit kein
+Themenfeld die Stichprobe dominiert; drei Committees stellen ein zweites, weil
+nur dort Zuschnitte liegen, die vier oder fuenf Zuordnungen verlangen.
 
-Die 18 Units bilden 18 verschiedene Committees ab und treffen die Verteilung der
+Die 22 Units bilden 19 verschiedene Committees ab und treffen die Verteilung der
 Grundgesamtheit:
 
 | Merkmal | Grundgesamtheit | Stichprobe |
 |---|---|---|
-| House / Senate | 109 / 70 (61 % / 39 %) | 11 / 7 (61 % / 39 %) |
-| Appropriations-Subcommittees | 24 von 179 (13 %) | 2 von 18 (11 %) |
-| `name_only` ohne Jurisdiktionstext | 8 von 179 (4 %) | 2 von 18 (11 %) |
-| Textlaenge Median | 524 Zeichen | 543 Zeichen |
+| House / Senate | 109 / 70 (61 % / 39 %) | 13 / 9 (59 % / 41 %) |
+| Appropriations-Subcommittees | 24 von 179 (13 %) | 2 von 22 (9 %) |
+| `name_only` ohne Jurisdiktionstext | 8 von 179 (4 %) | 2 von 22 (9 %) |
+| Textlaenge Median | 524 Zeichen | 648 Zeichen |
 
 `name_only` ist bewusst ueberrepraesentiert: der Fall ist selten, aber er
-entscheidet, ob das Modell ohne Evidenz halluziniert.
+entscheidet, ob das Modell ohne Evidenz halluziniert. Der Median liegt ueber dem
+der Grundgesamtheit, weil die vier nachtraeglich ergaenzten Mehrfachfaelle
+durchweg lange Zustaendigkeitstexte tragen.
+
+Der Plan nennt 15 bis 20 Units; die Stichprobe liegt mit 22 darueber, weil sonst
+entweder die Mehrfachzuordnung oder ein bereits abgedeckter Fall haette
+entfallen muessen. Der Mehraufwand liegt beim Labeln, nicht bei den Kosten: die
+Evaluation bleibt auch mit 22 Units unter 0,10 USD.
 
 ## Stichprobe
 
@@ -45,16 +53,28 @@ entscheidet, ob das Modell ohne Evidenz halluziniert.
 | 16 | senate | Agriculture, Nutrition, and Forestry | Livestock, Dairy, Poultry, and Food Safety | Text | 233 | Landwirtschaft gegen Lebensmittelverarbeitung |
 | 17 | senate | Homeland Security and Governmental Affairs | Border Management, Federal Workforce, and Regulatory Affairs | Name | 0 | `name_only` mit `no_mapping` als erwarteter Antwort |
 | 18 | senate | Appropriations | Department of Homeland Security | Text | 31 | kurzer Text bei breitem Haushaltstitel |
+| 19 | house | Energy and Commerce | Health | Text | 660 | vier bis fuenf Zuordnungen: Versicherer, Pharma, Medizintechnik, Kliniken, Gesundheits-IT |
+| 20 | house | Financial Services | Housing and Insurance | Text | 1663 | vier bis fuenf Zuordnungen: Sach- und Spezialversicherer, Hypothekenfinanzierung, Wohn-REITs, Wohnungsbau |
+| 21 | senate | Energy and Natural Resources | Public Lands, Forests, and Mining | Text | 710 | vier bis fuenf Zuordnungen: Industriemetalle, Gold, Kohle, Holz, Oel/Gas-Foerderung |
+| 22 | senate | Commerce, Science, and Transportation | Surface Transportation, Freight, Pipelines, and Safety | Text | 712 | vier Zuordnungen: Speditionen, Bahn, Pipelines, Logistik |
 
 ## Abgedeckte Faelle
 
 - eindeutige Einzel- und Mehrfachzuordnung (1, 2, 3, 4, 14, 16)
+- Zuschnitte, die vier oder fuenf Zuordnungen verlangen und damit die Obergrenze
+  des Modellvertrags treffen (19, 20, 21, 22); regulaer sind zwei, mehr nur mit
+  Broad-Scope-Ausnahme, eigener Evidenz und eigener Begruendung je Zuordnung
 - breiter Zuschnitt, der die Broad-Scope-Regel ausloest (4, 10, 15, 18)
 - `no_mapping` als richtige Antwort (9, 11, 17)
 - Falsche Freunde, bei denen der Name eine Branche nahelegt, die Zustaendigkeit
   aber eine andere ist (5, 6, 7, 8, 13)
 - fehlende Evidenz: `name_only` (12, 17) und Text unter der Mindestlaenge (10, 18)
 - Aufsichts- und Verfahrenszuschnitte ohne Branchenbezug (9, 11, 17)
+
+Die drei Zweitbelegungen liegen jeweils im entferntesten Feld ihres Committees:
+Energy and Commerce mit Energie und Gesundheit, Financial Services mit Banken
+und Wohnen/Versicherung, Senate Commerce mit Telekommunikation und
+Landverkehr. Eine thematische Verdopplung entsteht dadurch nicht.
 
 Nicht in der Stichprobe: House Committee on Agriculture, dessen sieben Units im
 P8-Lauf `p8-run2` bereits gemappt und im Review bewertet wurden. Ein Gold-Set,
