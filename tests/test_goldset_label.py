@@ -454,6 +454,13 @@ def test_typfehler_verdeckt_die_uebrigen_felder_nicht(paar, taxonomy) -> None:
     assert "confidence=9" in texte
     assert "GS_EVIDENCE_NOT_VERBATIM" in {found.code for found in befunde}
 
+    # Auch das leere Pflichtfeld faellt neben dem Typfehler noch auf.
+    record["answer"]["assignments"][0]["rationale_short"] = "  "
+    texte = " ".join(found.was
+                     for found in gs.check_answer(task, record, taxonomy).problems)
+    assert "industry_id=None ist kein Text" in texte
+    assert "leeres Pflichtfeld" in texte
+
 
 @pytest.mark.parametrize("feld", ["no_mapping_reason", "broad_scope_reason"])
 def test_begruendungsfelder_sind_text_oder_leer(paar, taxonomy, feld) -> None:
