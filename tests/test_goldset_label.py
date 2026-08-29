@@ -434,8 +434,25 @@ def test_typfehler_der_industry_id_meldet_nicht_die_folge(paar, taxonomy) -> Non
     """Gemeldet gehoert der Typfehler, nicht die daraus folgende leere ID."""
     task, record = paar
     record["answer"]["assignments"][0]["industry_id"] = None
-    gefunden = codes(task, record, taxonomy)
-    assert gefunden == {"GS_SCHEMA_INVALID"}
+    geprueft = gs.check_answer(task, record, taxonomy)
+    assert {found.code for found in geprueft.problems} == {"GS_SCHEMA_INVALID"}
+    # Eine Zeile ohne brauchbare ID gehoert nicht in die Zwischentabelle.
+    assert geprueft.rows == []
+
+
+def test_typfehler_verdeckt_die_uebrigen_felder_nicht(paar, taxonomy) -> None:
+    """Confidence und Beleg haengen nicht an der ID und werden weiter geprueft.
+
+    Der Sammelbericht soll die Unit in einem Durchgang vollstaendig zeigen.
+    """
+    task, record = paar
+    record["answer"]["assignments"][0].update(
+        industry_id=None, confidence=9, evidence_excerpt="frei erfunden")
+    befunde = gs.check_answer(task, record, taxonomy).problems
+    texte = " ".join(found.was for found in befunde)
+    assert "industry_id=None ist kein Text" in texte
+    assert "confidence=9" in texte
+    assert "GS_EVIDENCE_NOT_VERBATIM" in {found.code for found in befunde}
 
 
 @pytest.mark.parametrize("feld", ["no_mapping_reason", "broad_scope_reason"])

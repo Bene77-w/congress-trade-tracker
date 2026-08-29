@@ -2625,13 +2625,12 @@ def check_answer(task: Mapping[str, Any], record: Mapping[str, Any],
         excerpt = texte["evidence_excerpt"]
         rationale = texte["rationale_short"]
 
-        if "industry_id" in typfehler:
-            # Der ersatzweise leere Wert erzeugte sonst gleich darauf einen
-            # zweiten Befund ueber eine unbekannte Industry; gemeldet gehoert
-            # der Typfehler, nicht seine Folge.
-            continue
-
-        if industry_id not in taxonomy.ids:
+        # Der ersatzweise leere Wert wuerde als unbekannte Industry und
+        # als Dublette ein zweites Mal auffallen; die uebrigen Felder derselben
+        # Zuordnung haengen nicht an der ID und werden weiter geprueft, damit
+        # der Sammelbericht die Unit in einem Durchgang vollstaendig zeigt.
+        id_brauchbar = "industry_id" not in typfehler
+        if id_brauchbar and industry_id not in taxonomy.ids:
             near = [known for known in sorted(taxonomy.ids)
                     if known.casefold() == industry_id.casefold()]
             result.problems.append(problem(
@@ -2643,14 +2642,15 @@ def check_answer(task: Mapping[str, Any], record: Mapping[str, Any],
                 "geschrieben ist.",
                 "Zeile in der Reviewdatei korrigieren; die Auswahlliste des "
                 "Blatts 'taxonomy' nennt die zulaessigen IDs."))
-        if industry_id in seen:
-            result.problems.append(problem(
-                "GS_UNIT_DUPLICATE", f"{unit_id} / {industry_id}",
-                "Dieselbe Industry erscheint mehrfach.",
-                "Eine doppelte Zuordnung zaehlte in der Evaluation doppelt und "
-                "verschoebe Praezision und Trefferquote.",
-                "Doppelte Zeile in der Reviewdatei loeschen."))
-        seen.add(industry_id)
+        if id_brauchbar:
+            if industry_id in seen:
+                result.problems.append(problem(
+                    "GS_UNIT_DUPLICATE", f"{unit_id} / {industry_id}",
+                    "Dieselbe Industry erscheint mehrfach.",
+                    "Eine doppelte Zuordnung zaehlte in der Evaluation doppelt "
+                    "und verschoebe Praezision und Trefferquote.",
+                    "Doppelte Zeile in der Reviewdatei loeschen."))
+            seen.add(industry_id)
 
         if not isinstance(confidence, int) or isinstance(confidence, bool) or \
                 not MIN_CONFIDENCE <= confidence <= MAX_CONFIDENCE:
@@ -2681,14 +2681,15 @@ def check_answer(task: Mapping[str, Any], record: Mapping[str, Any],
         # Zwischentabelle uebernommen: sonst meldete 'verify' ihn spaeter als
         # Autokorrektur der Tabellenkalkulation, obwohl er aus der Antwort
         # stammt. Die Belegpruefung normalisiert ohnehin.
-        result.rows.append({
-            "unit_id": unit_id,
-            "industry_id": industry_id,
-            "confidence": text_value(confidence),
-            "evidence_excerpt": excerpt.strip(),
-            "rationale_short": rationale.strip(),
-            "no_mapping_reason": "",
-        })
+        if id_brauchbar:
+            result.rows.append({
+                "unit_id": unit_id,
+                "industry_id": industry_id,
+                "confidence": text_value(confidence),
+                "evidence_excerpt": excerpt.strip(),
+                "rationale_short": rationale.strip(),
+                "no_mapping_reason": "",
+            })
 
     if decision == "no_mapping":
         result.rows.append({
