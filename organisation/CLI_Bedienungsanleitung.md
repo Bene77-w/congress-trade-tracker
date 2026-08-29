@@ -1121,7 +1121,7 @@ venv/bin/python scripts/committee_matcher_goldset_label.py run --engine claude  
 venv/bin/python scripts/committee_matcher_goldset_label.py collect --engine claude
 venv/bin/python scripts/committee_matcher_goldset_label.py merge --base claude --against codex
 venv/bin/python scripts/committee_matcher_goldset_label.py to-xlsx --source merged
-venv/bin/python scripts/committee_matcher_goldset_label.py verify --fix-case
+venv/bin/python scripts/committee_matcher_goldset_label.py verify --source merged --fix-case
 ```
 
 | Kommando | Wirkung | Bezahlt |
@@ -1131,8 +1131,17 @@ venv/bin/python scripts/committee_matcher_goldset_label.py verify --fix-case
 | `run` | je Unit ein headless Lauf, Rohantwort und Log je Unit | ja |
 | `collect` | Rohantworten prüfen und als CSV sammeln | nein |
 | `merge` | zwei Engineläufe vergleichen, `disagreements.md` schreiben | nein |
-| `to-xlsx` | gesammelte Labels in die Reviewdatei schreiben | nein |
+| `to-xlsx` | neue Reviewmappe aus den gesammelten Labels erzeugen | nein |
 | `verify` | bearbeitete Reviewdatei zurücklesen und prüfen | nein |
+
+`--source` wählt bei `to-xlsx` und `verify` die Zwischentabelle: `merged`
+(Default) oder ein Enginename. `to-xlsx` blockt auf eine vorhandene Zieldatei,
+da sie die Abnahmearbeit trägt; `--force` sichert sie vorher als
+`<name>.<zeitstempel>.bak.xlsx`. `verify --fix-case` repariert Schreibweise und
+Randleerraum, sichert die Datei vorher ebenfalls und weigert sich, solange der
+Sperrvermerk `.~lock.<name>#` daneben liegt. Jedes `verify` gibt zusätzlich
+eine Änderungsbilanz gegen `labels_<source>.csv` aus: geänderte Zellen mit alt
+und neu, neue und entfernte Zeilen.
 
 Modell und Denktiefe sind freie Parameter (`--model`, `--effort`) und werden
 roh an die CLI durchgereicht, damit künftige Modelle ohne Codeänderung
@@ -1143,7 +1152,9 @@ vorhandene Antworten, sofern Modell, Denktiefe und Bindungshashes passen.
 
 Exit-Codes dieses Skripts: `0` erfolgreich · `1` blockiert (Bedienfehler,
 fehlende Voraussetzung) · `2` durchgelaufen, aber mit Befunden zu einzelnen
-Units. Die Codes tragen das Präfix `GS_`; jeder Befund nennt Was, Warum,
+Units. `preflight` gibt 2, wenn die CLI die Denktiefe nicht bestätigt (Codex);
+`merge` gibt 2 nur, wenn eine Unit in bloß einem der beiden Läufe steht —
+Dissens allein ist das Ergebnis des Vergleichs und kein Befund. Die Codes tragen das Präfix `GS_`; jeder Befund nennt Was, Warum,
 Abhilfe und die auslösende Codestelle.
 
 Für Tests ersetzt `GOLDSET_LABEL_FAKE_DIR=<verzeichnis>` beide CLIs durch

@@ -36,6 +36,7 @@ import csv
 import hashlib
 import inspect
 import json
+import math
 import os
 import re
 import shutil
@@ -43,6 +44,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import unicodedata
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -147,6 +149,13 @@ MAX_CONFIDENCE = 4
 #: Obergrenzen des Modellvertrags (``data/config/committee_matcher_prompts``).
 REGULAR_ASSIGNMENT_LIMIT = 2
 BROAD_SCOPE_ASSIGNMENT_LIMIT = 5
+#: Die Broad-Scope-Ausnahme traegt nur hohe Confidence.
+BROAD_SCOPE_MIN_CONFIDENCE = 3
+#: Unittypen, die nie mehr als ``REGULAR_ASSIGNMENT_LIMIT`` Zuordnungen tragen
+#: duerfen. Nachgebaut statt importiert, damit die Wache nicht dieselbe
+#: Auslegung teilt wie der Pruefling.
+NARROW_UNIT_KINDS: tuple[str, ...] = ("committee_parent_core",)
+NAME_ONLY_BASIS = "name_only"
 
 
 # -- Fehlerbild ------------------------------------------------------------
@@ -166,6 +175,7 @@ ERROR_CATALOG: dict[str, str] = {
     "GS_INDUSTRY_UNKNOWN": "Die industry_id steht nicht im freigegebenen Snapshot.",
     "GS_EVIDENCE_NOT_VERBATIM": "Das Zitat steht nicht woertlich im Zustaendigkeitstext.",
     "GS_COUNT_EXCEEDED": "Die Zahl der Zuordnungen ueberschreitet den Modellvertrag.",
+    "GS_BROAD_SCOPE_INVALID": "Die Broad-Scope-Ausnahme haelt ihre Bedingungen nicht ein.",
     "GS_DECISION_CONFLICT": "Die Unit traegt Zuordnung und no_mapping_reason zugleich.",
     "GS_UNIT_MISSING": "Eine Unit der Stichprobe fehlt.",
     "GS_UNIT_DUPLICATE": "Eine Zuordnung erscheint doppelt.",
@@ -189,7 +199,10 @@ ERROR_CATALOG: dict[str, str] = {
     "GS_INDUSTRY_CASE": "Die industry_id weicht nur in der Schreibweise ab (Autokorrektur).",
     "GS_XLSX_MISSING": "Die Reviewdatei fehlt.",
     "GS_XLSX_LAYOUT": "Die Reviewdatei hat ein fremdes Blatt- oder Spaltenbild.",
+    "GS_XLSX_OVERWRITE": "Die Zieldatei ist vorhanden und wuerde ueberschrieben.",
+    "GS_XLSX_LOCKED": "Die Reviewdatei ist in einem anderen Programm geoeffnet.",
     "GS_XLSX_FORMULA": "Eine Zelle enthaelt eine Formel statt eines Texts.",
+    "GS_XLSX_WHITESPACE": "Ein Zellwert traegt Leerraum am Rand.",
     "GS_FAKE_MODE": "Der Trockenlauf ist eingeschaltet, aber nicht benutzbar.",
     "GS_RUN_FAILED": "Der Lauf schlug aus einer Ursache fehl, die nicht im Katalog steht.",
     "GS_ANSWER_AMBIGUOUS": "Die Antwortdatei enthaelt mehr als ein JSON-Objekt.",
@@ -1209,6 +1222,10 @@ class EngineResult:
     session_id: str | None = None
     #: Auslastung des Abo-Fensters, sofern die CLI sie meldet.
     rate_limit: dict | None = None
+    #: Die Abschlussdatei trug mehr als ein JSON-Objekt. Eigenes Feld statt
+    #: einer Textmarke im stderr: eine Marke, die aus dem Protokoll der CLI
+    #: stammen koennte, ist als Merkmal nicht verlaesslich.
+    ambiguous: bool = False
 
 
 @dataclass(frozen=True)
@@ -1218,6 +1235,8 @@ class EngineConfig:
     effort: str
     timeout_seconds: int
     total_timeout_seconds: int = MAX_TIMEOUT_SECONDS
+    #: Wurde ``timeout_seconds`` von der Restzeit des Gesamtdeckels gekappt?
+    capped: bool = False
 
 
 #: Wie der Modellvertrag die Engine erreicht. Die Wege sind bewusst
@@ -1269,15 +1288,33 @@ def effort_fallback(result: EngineResult) -> str | None:
     return None
 
 
-def effort_confirmation(engine: str) -> str:
-    """Ob die CLI die Denktiefe ueberhaupt zurueckmeldet.
+def effort_echoed(result: EngineResult, effort: str) -> bool:
+    """Nennt das Protokoll der CLI die angeforderte Denktiefe selbst?"""
+    text = f"{result.stdout}\n{result.stderr}".casefold()
+    wert = effort.casefold()
+    return any(mark in text for mark in (
+        f'"effort":"{wert}"', f'"effort": "{wert}"',
+        f'reasoning_effort="{wert}"', f'"reasoning_effort":"{wert}"',
+        f'"reasoning_effort": "{wert}"'))
 
-    Claude verwirft eine unbekannte Stufe sichtbar und laesst sich damit
-    pruefen; Codex nimmt jeden Wert kommentarlos an. Der Unterschied gehoert
-    in die Provenienz, sonst behauptete das Manifest eine Denktiefe, die
-    niemand bestaetigt hat.
+
+def effort_confirmation(result: EngineResult, config: EngineConfig) -> str:
+    """Wie belastbar die Denktiefe dieses Laufs ist.
+
+    Abgeleitet aus dem Protokoll des Laufs statt aus dem Enginenamen: eine
+    Konstante je Engine behauptet dieselbe Belastbarkeit auch dann noch, wenn
+    die CLI ihr Verhalten geaendert hat oder das Protokoll fehlt.
+
+    - ``bestaetigt``: die CLI nennt die Stufe selbst zurueck;
+    - ``ohne-warnung``: sie haette eine unbekannte Stufe sichtbar verworfen
+      (Claude), tat es aber nicht - ein schwaecherer, aber echter Beleg;
+    - ``unbestaetigt``: die CLI nimmt jeden Wert kommentarlos an (Codex).
     """
-    return "bestaetigt" if engine == "claude" else "unbestaetigt"
+    if effort_fallback(result) is not None:
+        return "verworfen"
+    if effort_echoed(result, config.effort):
+        return "bestaetigt"
+    return "ohne-warnung" if config.engine == "claude" else "unbestaetigt"
 
 
 def assert_effort_accepted(result: EngineResult, config: EngineConfig) -> None:
@@ -1371,7 +1408,6 @@ FAILURE_MARKS: tuple[tuple[str, tuple[str, ...]], ...] = (
                              "authentication", "nicht angemeldet")),
     ("GS_RATE_LIMITED", ("rate limit", "rate_limit", "too many requests",
                          "usage limit", "quota")),
-    ("GS_ANSWER_AMBIGUOUS", ("[mehrdeutig]",)),
 )
 
 #: HTTP-Status zu Ursache. 404 allein sagt nur, dass ein Endpunkt fehlt;
@@ -1452,14 +1488,26 @@ def classify_failure(engine: str, result: EngineResult, config: EngineConfig,
     Claude-CLI listet unter anderem den Slash-Befehl 'effort' auf.
     """
     if result.timed_out:
+        # Der Unitdeckel wird von der Restzeit des Gesamtdeckels gekappt; ein
+        # Abbruch unter dem eingestellten Wert ist deshalb kein Haenger,
+        # sondern das Ende des Satzes - und braucht eine andere Abhilfe.
+        gekappt = config.capped
         return problem(
             "GS_TIMEOUT", config.engine,
-            f"Der Lauf wurde nach {config.timeout_seconds} s abgebrochen.",
+            f"Der Lauf wurde nach {config.timeout_seconds} s abgebrochen"
+            + (" (Restzeit des Gesamtdeckels, nicht der volle Unitdeckel)."
+               if gekappt else "."),
+            "Die Restzeit des Gesamtdeckels reichte fuer diese Unit nicht mehr."
+            if gekappt else
             "Ein Lauf mit Recherche braucht Minuten, keine halbe Stunde; "
             "erreicht er den Deckel, haengt er oder wartet auf ein Limit.",
+            "Gesamtdeckel anheben oder den Satz erneut aufrufen; 'run' setzt "
+            "bei den offenen Units fort." if gekappt else
             "Unit einzeln wiederholen: 'run --engine "
             f"{config.engine} --unit-id <id>'. Der uebrige Satz bleibt "
             "erhalten.")
+    if result.ambiguous:
+        return _cause_text("GS_ANSWER_AMBIGUOUS", engine, config, result)
     if shape_detail:
         found = _cause_text("GS_SCHEMA_INVALID", engine, config, result)
         return Problem(code=found.code, obj=found.obj,
@@ -1468,11 +1516,18 @@ def classify_failure(engine: str, result: EngineResult, config: EngineConfig,
 
     text = failure_digest(engine, result)
     treffer = [code for code, marks in FAILURE_MARKS if _looks_like(text, *marks)]
+    # Der Status ist das haertere Merkmal als der Text: er wird nach vorn
+    # geholt, auch wenn eine Textmarke denselben Code schon gefunden hat -
+    # sonst entschiede die Reihenfolge der Marken statt der Antwort der CLI.
     for status in STATUS_PATTERN.findall(text):
-        if status in STATUS_CODES and STATUS_CODES[status] not in treffer:
-            treffer.insert(0, STATUS_CODES[status])
-        elif status == "404" and "GS_MODEL_UNKNOWN" in treffer:
-            treffer.insert(0, "GS_MODEL_UNKNOWN")
+        code = STATUS_CODES.get(status)
+        if code is None and status == "404":
+            code = "GS_MODEL_UNKNOWN" if "GS_MODEL_UNKNOWN" in treffer else None
+        if code is None:
+            continue
+        if code in treffer:
+            treffer.remove(code)
+        treffer.insert(0, code)
 
     if not treffer:
         return _cause_text("GS_RUN_FAILED", engine, config, result)
@@ -1496,20 +1551,43 @@ def _as_text(raw: Any) -> str:
     return str(raw)
 
 
+#: Umgebungsvariablen, die die CLI sehen darf. Positivliste statt geerbter
+#: Umgebung: ``OPENAI_BASE_URL`` oder ``ANTHROPIC_BASE_URL`` lenkten den Lauf
+#: sonst still auf einen anderen Endpunkt um, und das Label truege im Manifest
+#: trotzdem den Namen des angefragten Modells.
+ENV_ALLOWED: tuple[str, ...] = (
+    "PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LC_ALL", "TERM",
+    "TMPDIR", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME",
+    "CODEX_HOME", "CLAUDE_CONFIG_DIR",
+    "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
+    "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE",
+    "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
+    "http_proxy", "https_proxy", "no_proxy",
+)
+
+
+def clean_env(extra: Mapping[str, str] | None = None) -> dict[str, str]:
+    """Die Umgebung des Unterprozesses, auf das Noetige beschraenkt."""
+    env = {name: os.environ[name] for name in ENV_ALLOWED if name in os.environ}
+    env.update(extra or {})
+    return env
+
+
 def _spawn(command: list[str], *, cwd: Path, timeout: int,
            stdin_text: str | None = None,
            env: dict[str, str] | None = None) -> EngineResult:
     """Fuehrt eine CLI aus und misst sie.
 
-    Die Umgebung wird bewusst weitergereicht: beide CLIs holen ihre Anmeldung
-    daraus. Was ferngehalten wird, ist der Arbeitskontext - das
-    Arbeitsverzeichnis liegt ausserhalb des Repos.
+    Weitergereicht wird nur die Positivliste ``ENV_ALLOWED``: beide CLIs holen
+    ihre Anmeldung aus der Umgebung, aber eine geerbte Endpunktvariable
+    verfaelschte den Lauf unbemerkt. Ferngehalten wird auch der
+    Arbeitskontext - das Arbeitsverzeichnis liegt ausserhalb des Repos.
     """
     started = time.monotonic()
     try:
         completed = subprocess.run(
             command, cwd=str(cwd), input=stdin_text, capture_output=True,
-            text=True, timeout=timeout, env=env or os.environ.copy())
+            text=True, timeout=timeout, env=env if env is not None else clean_env())
     except subprocess.TimeoutExpired as expired:
         # Die Teilausgabe eines abgebrochenen Laufs kommt als Bytes, auch bei
         # text=True: die Ausnahme wird gebildet, bevor der Textmodus greift.
@@ -1739,8 +1817,7 @@ def run_codex(task: dict, config: EngineConfig, workdir: Path) -> EngineResult:
         link = home / "auth.json"
         if not link.exists():
             link.symlink_to(auth)
-    env = os.environ.copy()
-    env["CODEX_HOME"] = str(home)
+    env = clean_env({"CODEX_HOME": str(home)})
 
     command = [
         cli_name("codex"), "exec",
@@ -1779,8 +1856,8 @@ def run_codex(task: dict, config: EngineConfig, workdir: Path) -> EngineResult:
         return EngineResult(
             answer=None, exit_code=result.exit_code, duration_s=result.duration_s,
             timed_out=False, stdout=result.stdout,
-            stderr=result.stderr + "\n[mehrdeutig] die Abschlussdatei enthaelt "
-            f"{weitere + 1} JSON-Objekte", num_turns=turns)
+            stderr=result.stderr + "\ndie Abschlussdatei enthaelt "
+            f"{weitere + 1} JSON-Objekte", num_turns=turns, ambiguous=True)
     return EngineResult(
         answer=payload, exit_code=result.exit_code, duration_s=result.duration_s,
         timed_out=False, stdout=result.stdout, stderr=result.stderr,
@@ -1877,7 +1954,10 @@ def command_preflight(args: argparse.Namespace) -> int:
         return 1
     print(f"Antwort nach {result.duration_s:.1f} s: "
           f"{json.dumps(result.answer, ensure_ascii=False)[:120]}")
-    if effort_confirmation(config.engine) != "bestaetigt":
+    bestaetigung = effort_confirmation(result, config)
+    unbestaetigt = bestaetigung == "unbestaetigt"
+    print(f"Denktiefe {config.effort}: {bestaetigung}")
+    if unbestaetigt:
         print(problem(
             "GS_EFFORT_UNCONFIRMED", config.effort,
             f"Die {cli_name(config.engine)}-CLI hat die Denktiefe "
@@ -1891,7 +1971,9 @@ def command_preflight(args: argparse.Namespace) -> int:
         print(f"Rechnerischer Gegenwert: {result.cost_usd:.6f} USD "
               "(Abo, nicht abgerechnet)")
     report_rate_limit(result)
-    return 0
+    # Exit 2 statt 0: der Preflight ist bestanden, aber mit Befund - die
+    # Denktiefe des folgenden Satzes ist dann nicht belegt.
+    return 2 if unbestaetigt else 0
 
 
 def report_rate_limit(result: EngineResult) -> float | None:
@@ -1999,7 +2081,7 @@ def store_answer(config: EngineConfig, task: dict, result: EngineResult,
         # hat.
         "effort": config.effort,
         "requested_effort": config.effort,
-        "effort_confirmation": effort_confirmation(config.engine),
+        "effort_confirmation": effort_confirmation(result, config),
         "prompt_delivery": PROMPT_DELIVERY[config.engine],
         "binding": task["binding"],
         "answer": result.answer,
@@ -2021,7 +2103,7 @@ def store_answer(config: EngineConfig, task: dict, result: EngineResult,
 #: uebereinstimmen muss, damit das Ueberspringen zulaessig ist.
 RESUME_FIELDS = ("engine", "model", "effort", "prompt_delivery")
 RESUME_BINDING_FIELDS = ("taxonomy_content_hash", "prompt_sha256",
-                         "user_prompt_sha256")
+                         "system_prompt_sha256", "user_prompt_sha256")
 
 
 def resume_problem(config: EngineConfig, task: Mapping[str, Any],
@@ -2115,8 +2197,10 @@ def command_run(args: argparse.Namespace) -> int:
     done = failed = skipped = 0
     offen: list[str] = []
     problems: list[Problem] = []
+    # Die Belastbarkeit der Denktiefe steht erst nach dem Lauf fest und wird
+    # je Antwort im Feld 'effort_confirmation' vermerkt.
     print(f"Lauf {config.engine}: Modell {config.model}, Denktiefe "
-          f"{config.effort} ({effort_confirmation(config.engine)}), "
+          f"{config.effort}, "
           f"{len(wanted)} Units, Deckel {config.timeout_seconds} s je Unit, "
           f"{config.total_timeout_seconds} s gesamt")
 
@@ -2141,7 +2225,9 @@ def command_run(args: argparse.Namespace) -> int:
         # Der Unterprozess bekommt nur die Zeit, die der Gesamtdeckel noch
         # hergibt: ein Deckel, der erst zwischen zwei Units greift, koennte um
         # einen vollen Unitdeckel ueberzogen werden.
-        rest = int(total_deadline - time.monotonic())
+        # Aufgerundet: bei ``gesamt == unit_deckel`` haette schon die
+        # Millisekunde bis hierher den ersten Lauf verhindert.
+        rest = math.ceil(total_deadline - time.monotonic())
         if rest < MIN_TIMEOUT_SECONDS:
             offen.extend(wanted[index - 1:])
             print(f"Gesamtdeckel von {config.total_timeout_seconds} s erreicht; "
@@ -2151,7 +2237,8 @@ def command_run(args: argparse.Namespace) -> int:
         laufconfig = EngineConfig(
             engine=config.engine, model=config.model, effort=config.effort,
             timeout_seconds=min(config.timeout_seconds, rest),
-            total_timeout_seconds=config.total_timeout_seconds)
+            total_timeout_seconds=config.total_timeout_seconds,
+            capped=rest < config.timeout_seconds)
 
         started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
         print(f"[{index}/{len(wanted)}] {unit_id}: laeuft ...", flush=True)
@@ -2308,6 +2395,122 @@ class UnitLabels:
     problems: list[Problem] = field(default_factory=list)
 
 
+def visible_text(value: Any) -> bool:
+    """Traegt der Wert sichtbaren Inhalt?
+
+    ``strip()`` allein genuegt nicht: unsichtbare Formatzeichen (Kategorie Cf,
+    etwa Zero-Width-Space) sind kein Leerraum und liessen ein leeres
+    Pflichtfeld formal bestehen.
+    """
+    if not isinstance(value, str) or not value:
+        return False
+    return bool("".join(ch for ch in unicodedata.normalize("NFKC", value)
+                        if unicodedata.category(ch) != "Cf").strip())
+
+
+def assignment_limit(task: Mapping[str, Any]) -> int:
+    """Obergrenze der Zuordnungen dieser Unit aus ihrem Typ und ihrer Basis.
+
+    Die Grenze haengt an der Unit, nicht am Antwortfeld ``broad_scope_exception``:
+    ein Kernbereich eines Committees und eine Unit ohne Zustaendigkeitstext
+    tragen hoechstens ``REGULAR_ASSIGNMENT_LIMIT`` Zuordnungen, und die
+    Ausnahme steht ihnen gar nicht offen.
+    """
+    if task.get("unit_kind") in NARROW_UNIT_KINDS or \
+            task.get("input_basis") == NAME_ONLY_BASIS:
+        return REGULAR_ASSIGNMENT_LIMIT
+    return BROAD_SCOPE_ASSIGNMENT_LIMIT
+
+
+def _broad_problem(unit_id: str, was: str, abhilfe: str) -> Problem:
+    return problem(
+        "GS_BROAD_SCOPE_INVALID", unit_id, was,
+        "Der Modellvertrag laesst mehr als "
+        f"{REGULAR_ASSIGNMENT_LIMIT} Zuordnungen nur unter allen Bedingungen "
+        "der Ausnahme zu; ein Gold-Set, das sie verletzt, misst den Lauf "
+        "gegen eine Regel, an die er selbst gebunden ist.",
+        abhilfe, depth=2)
+
+
+def check_broad_scope(task: Mapping[str, Any], unit_id: str, decision: str,
+                      assignments: Sequence[Mapping[str, Any]], broad: bool,
+                      broad_reason: Any) -> list[Problem]:
+    """Prueft Anzahlgrenze und Broad-Scope-Ausnahme gegen den Modellvertrag."""
+    found: list[Problem] = []
+    count = len(assignments)
+    items = [item for item in assignments if isinstance(item, Mapping)]
+    limit = assignment_limit(task)
+    grund = (f"Unittyp {task.get('unit_kind')!r}, Basis "
+             f"{task.get('input_basis')!r}")
+
+    if count > limit:
+        found.append(problem(
+            "GS_COUNT_EXCEEDED", unit_id,
+            f"{count} Zuordnungen, erlaubt sind {limit} ({grund}).",
+            "Die Obergrenze steht im Modellvertrag; wird sie ueberschritten, "
+            "misst die Evaluation das Gold-Set gegen eine andere Regel als den "
+            "Lauf.",
+            "Zuordnungen in der Reviewdatei kuerzen oder die Unit wiederholen."))
+
+    if decision == "no_mapping":
+        if broad or broad_reason:
+            found.append(_broad_problem(
+                unit_id,
+                "decision=no_mapping traegt eine Broad-Scope-Ausnahme.",
+                "Felder 'broad_scope' und 'broad_scope_reason' leeren."))
+        return found
+
+    if count <= REGULAR_ASSIGNMENT_LIMIT:
+        if broad or broad_reason:
+            found.append(_broad_problem(
+                unit_id,
+                f"Broad-Scope-Ausnahme bei {count} Zuordnungen; sie ist erst "
+                f"ab {REGULAR_ASSIGNMENT_LIMIT + 1} zulaessig.",
+                "Ausnahme entfernen oder die Unit wiederholen."))
+        return found
+
+    if limit == REGULAR_ASSIGNMENT_LIMIT:
+        found.append(_broad_problem(
+            unit_id,
+            f"Die Ausnahme steht dieser Unit nicht offen ({grund}).",
+            "Auf hoechstens "
+            f"{REGULAR_ASSIGNMENT_LIMIT} Zuordnungen kuerzen."))
+        return found
+
+    if not broad:
+        found.append(_broad_problem(
+            unit_id,
+            f"{count} Zuordnungen ohne gesetzte Ausnahme.",
+            "Feld 'broad_scope' setzen und begruenden oder kuerzen."))
+    if not visible_text(broad_reason):
+        found.append(_broad_problem(
+            unit_id, "Die Ausnahme traegt keine sichtbare Begruendung.",
+            "Feld 'broad_scope_reason' im Blatt 'notes' fuellen."))
+
+    weak = sorted(str(item.get("industry_id", "")) for item in items
+                  if not isinstance(item.get("confidence"), int)
+                  or isinstance(item.get("confidence"), bool)
+                  or item.get("confidence", 0) < BROAD_SCOPE_MIN_CONFIDENCE)
+    if weak:
+        found.append(_broad_problem(
+            unit_id,
+            f"Confidence unter {BROAD_SCOPE_MIN_CONFIDENCE} bei: "
+            f"{', '.join(weak)}.",
+            "Confidence anheben oder die schwachen Zuordnungen streichen."))
+
+    for feld, name in (("evidence_excerpt", "Evidence"),
+                       ("rationale_short", "Rationale")):
+        werte = [_normalized(str(item.get(feld, ""))).casefold()
+                 for item in items]
+        if len(set(werte)) != len(werte):
+            found.append(_broad_problem(
+                unit_id,
+                f"Die Ausnahme verlangt eine eigene {name} je Industry; "
+                f"{len(werte) - len(set(werte))} Wert(e) wiederholen sich.",
+                f"Spalte '{feld}' je Zeile eigenstaendig fuellen."))
+    return found
+
+
 def _field_problem(unit_id: str, detail: str, abhilfe: str) -> Problem:
     return problem(
         "GS_SCHEMA_INVALID", unit_id, detail,
@@ -2342,7 +2545,8 @@ def check_answer(task: Mapping[str, Any], record: Mapping[str, Any],
 
     decision = answer.get("decision")
     assignments = answer.get("assignments")
-    reason = (answer.get("no_mapping_reason") or "").strip()
+    reason = answer.get("no_mapping_reason") or ""
+    reason = reason.strip() if visible_text(reason) else ""
     broad = bool(answer.get("broad_scope_exception"))
     if decision not in ("mapped", "no_mapping") or not isinstance(assignments, list):
         result.problems.append(_field_problem(
@@ -2367,16 +2571,9 @@ def check_answer(task: Mapping[str, Any], record: Mapping[str, Any],
             "und eine Begruendung neben Zuordnungen widerspricht ihnen.",
             "Antwort im Log pruefen und die Unit wiederholen."))
 
-    limit = BROAD_SCOPE_ASSIGNMENT_LIMIT if broad else REGULAR_ASSIGNMENT_LIMIT
-    if len(assignments) > limit:
-        result.problems.append(problem(
-            "GS_COUNT_EXCEEDED", unit_id,
-            f"{len(assignments)} Zuordnungen, erlaubt sind {limit}"
-            + (" (Ausnahme fuer breite Zustaendigkeit)" if broad else "") + ".",
-            "Die Obergrenze steht im Modellvertrag; wird sie ueberschritten, "
-            "misst die Evaluation das Gold-Set gegen eine andere Regel als den "
-            "Lauf.",
-            "Zuordnungen in der Reviewdatei kuerzen oder die Unit wiederholen."))
+    result.problems.extend(check_broad_scope(
+        task, unit_id, decision, assignments, broad,
+        answer.get("broad_scope_reason")))
 
     seen: set[str] = set()
     for position, item in enumerate(assignments, start=1):
@@ -2436,12 +2633,16 @@ def check_answer(task: Mapping[str, Any], record: Mapping[str, Any],
                 "Zitat gegen das Blatt 'jurisdiction' pruefen und ersetzen "
                 "oder die Zuordnung streichen."))
 
+        # Randleerraum wird hier abgeschnitten und nicht in die
+        # Zwischentabelle uebernommen: sonst meldete 'verify' ihn spaeter als
+        # Autokorrektur der Tabellenkalkulation, obwohl er aus der Antwort
+        # stammt. Die Belegpruefung normalisiert ohnehin.
         result.rows.append({
             "unit_id": unit_id,
             "industry_id": industry_id,
             "confidence": text_value(confidence),
-            "evidence_excerpt": excerpt,
-            "rationale_short": rationale,
+            "evidence_excerpt": excerpt.strip(),
+            "rationale_short": rationale.strip(),
             "no_mapping_reason": "",
         })
 
@@ -2705,15 +2906,31 @@ def command_merge(args: argparse.Namespace) -> int:
             note["dissens"] = (note["dissens"] + "; " if note["dissens"] else "") \
                 + f"{other_engine} unsicher: {gegen.get('uncertainty_note', '')}"
 
+    # Die Provenienz traegt beide Laeufe, nicht nur die Basis: der Bericht
+    # zitiert Begruendungen der zweiten Engine, und ohne deren Zeilen liesse
+    # sich spaeter nicht mehr sagen, mit welchem Modell sie entstanden sind.
+    provenienz = [
+        row
+        for engine in (base_engine, other_engine)
+        for row in read_csv(info_path(engine), INFO_COLUMNS,
+                            was=f"mit der Provenienz von {engine}")
+    ]
+    rang = {unit_id: nummer for nummer, unit_id in enumerate(order)}
+    provenienz.sort(key=lambda row: (rang.get(row["unit_id"], len(order)),
+                                     row["engine"]))
+
     write_csv(labels_path("merged"), LABEL_COLUMNS, base)
     write_csv(notes_path("merged"), NOTE_COLUMNS, notes)
-    write_csv(info_path("merged"), INFO_COLUMNS,
-              read_csv(info_path(base_engine), INFO_COLUMNS,
-                       was=f"mit der Provenienz von {base_engine}"))
+    write_csv(info_path("merged"), INFO_COLUMNS, provenienz)
     print(f"{einig} von {len(order)} Units einig, {len(dissens)} strittig.")
     print(f"  {paths.relative_to_base(MERGE_REPORT)}")
     print(f"  {paths.relative_to_base(labels_path('merged'))}")
-    return 2 if dissens or only_base or only_other else 0
+    if only_base or only_other:
+        print(f"Befund: {len(only_base) + len(only_other)} Unit(s) stehen nur "
+              "in einem der beiden Laeufe.")
+    # Dissens allein ist kein Befund, sondern das Ergebnis des Vergleichs;
+    # Exit 2 bliebe sonst der Normalfall und truege keine Auskunft mehr.
+    return 2 if only_base or only_other else 0
 
 
 # -- Reviewdatei -----------------------------------------------------------
@@ -2739,6 +2956,12 @@ def _write_sheet(sheet, columns: Sequence[str],
     sheet.freeze_panes = "B2"
 
 
+#: Zusaetzliche Zeilen, die die Auswahlliste ueber den Datenbestand hinaus
+#: abdeckt. 22 Units mit hoechstens fuenf Zuordnungen ergeben 110 Zeilen; die
+#: Reserve traegt jede erlaubte Ergaenzung.
+LIST_RESERVE_ROWS = 200
+
+
 def _bind_industry_list(sheet, taxonomy_rows: int, data_rows: int) -> None:
     """Haengt die Auswahlliste der Industries an die Spalte ``industry_id``.
 
@@ -2757,7 +2980,9 @@ def _bind_industry_list(sheet, taxonomy_rows: int, data_rows: int) -> None:
         prompt="Leer lassen heisst: diese Unit hat keine Zuordnung.",
         promptTitle="industry_id")
     sheet.add_data_validation(rule)
-    rule.add(f"{column}2:{column}{data_rows + 1}")
+    # Reserve: Bene darf Zeilen anhaengen, und ohne sie endete die Liste nach
+    # der letzten vorhandenen Zeile - genau dort, wo der Tippfehler entsteht.
+    rule.add(f"{column}2:{column}{data_rows + 1 + LIST_RESERVE_ROWS}")
 
 
 def jurisdiction_rows(sample: Sequence[SampleUnit],
@@ -2775,6 +3000,61 @@ def jurisdiction_rows(sample: Sequence[SampleUnit],
             "jurisdiction_text": getattr(unit, "evidence_text", "") if unit else "",
         })
     return rows
+
+
+def lock_file(target: Path) -> Path:
+    """Der Sperrvermerk, den LibreOffice neben eine geoeffnete Datei legt."""
+    return target.with_name(f".~lock.{target.name}#")
+
+
+def save_workbook(book: Workbook, target: Path) -> Path:
+    """Schreibt eine Mappe unteilbar und sichert die bisherige Fassung.
+
+    Ein abgebrochenes ``book.save`` liesse die Reviewdatei halb geschrieben
+    zurueck; geschrieben wird deshalb daneben und erst am Ende umgehaengt.
+    Ist die Datei in LibreOffice geoeffnet, wuerde das Programm die Aenderung
+    beim naechsten Speichern ueberschreiben - darum vorher der Sperrvermerk.
+    """
+    lock = lock_file(target)
+    if lock.exists():
+        block("GS_XLSX_LOCKED", paths.relative_to_base(target),
+              f"Der Sperrvermerk {lock.name} liegt daneben; die Datei ist "
+              "vermutlich geoeffnet.",
+              "Das geoeffnete Programm haelt seinen eigenen Stand und wuerde "
+              "die zurueckgeschriebene Fassung beim Speichern verwerfen.",
+              "Datei schliessen und den Aufruf wiederholen.", depth=3)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    backup = target.with_suffix(f".{stamp}.bak{target.suffix}")
+    shutil.copy2(target, backup)
+    temp = target.with_suffix(f".{os.getpid()}.tmp{target.suffix}")
+    try:
+        book.save(temp)
+        os.replace(temp, target)
+    finally:
+        temp.unlink(missing_ok=True)
+    return backup
+
+
+def guard_target(target: Path, force: bool) -> Path | None:
+    """Schuetzt eine vorhandene Reviewdatei vor dem Ueberschreiben.
+
+    Die Datei traegt die Abnahmearbeit; ein zweiter Aufruf von ``to-xlsx``
+    darf sie nicht stillschweigend durch die unbearbeitete Fassung ersetzen.
+    Mit ``--force`` wird sie vorher neben sich gesichert.
+    """
+    if not target.exists():
+        return None
+    if not force:
+        block("GS_XLSX_OVERWRITE", paths.relative_to_base(target),
+              "Die Zieldatei ist bereits vorhanden.",
+              "Sie kann bearbeitete Labels tragen; ein Ueberschreiben ohne "
+              "Nachfrage vernichtet die gesamte Abnahmearbeit.",
+              "Datei umbenennen oder den Aufruf mit '--force' wiederholen; "
+              "'--force' sichert die vorhandene Fassung vorher weg.", depth=3)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    backup = target.with_suffix(f".{stamp}.bak{target.suffix}")
+    shutil.copy2(target, backup)
+    return backup
 
 
 def command_to_xlsx(args: argparse.Namespace) -> int:
@@ -2808,8 +3088,11 @@ def command_to_xlsx(args: argparse.Namespace) -> int:
     _bind_industry_list(sheet, len(taxonomy_rows), len(labels))
 
     target = Path(args.out) if args.out else WORKBOOK_PATH
+    gesichert = guard_target(target, bool(args.force))
     target.parent.mkdir(parents=True, exist_ok=True)
     book.save(target)
+    if gesichert is not None:
+        print(f"Gesichert: {paths.relative_to_base(gesichert)}")
     print(f"Geschrieben: {paths.relative_to_base(target)}")
     print(f"  {len(labels)} Zeilen im Blatt '{SHEET_LABELS}', "
           f"{len(taxonomy_rows)} Industries als Auswahlliste")
@@ -2842,6 +3125,119 @@ def _sheet_matrix(sheet, columns: Sequence[str], name: str) -> list[dict[str, An
     return rows
 
 
+#: Felder, deren Aenderung die Bilanz zeigt. ``unit_id`` und ``industry_id``
+#: bilden den Schluessel und stehen deshalb nicht darunter.
+BALANCE_FIELDS = ("confidence", "evidence_excerpt", "rationale_short",
+                  "no_mapping_reason")
+
+
+def _row_key(unit_id: str, industry_id: str) -> str:
+    return f"{unit_id}|{industry_id}"
+
+
+def change_balance(rows: Sequence[Mapping[str, Any]], source: str
+                   ) -> list[str]:
+    """Vergleicht die Reviewdatei zurueck gegen ``labels_<source>.csv``.
+
+    Bene darf jeden Wert aendern; die Bilanz ist deshalb Auskunft, kein
+    Befund. Ohne sie bliebe unsichtbar, ob eine Zelle bewusst bearbeitet oder
+    von der Tabellenkalkulation umgeschrieben wurde - und genau das ist bei
+    ``evidence_excerpt`` und ``rationale_short`` sonst nirgends geprueft.
+    """
+    vorher = {
+        _row_key(row["unit_id"], row["industry_id"]): row
+        for row in read_csv(labels_path(source), LABEL_COLUMNS,
+                            was=f"mit den Labels von {source}")
+    }
+    nachher: dict[str, dict[str, str]] = {}
+    for row in rows:
+        werte = {column: text_value(row[column].value).strip()
+                 for column in LABEL_COLUMNS}
+        nachher[_row_key(werte["unit_id"], werte["industry_id"])] = werte
+
+    zeilen: list[str] = []
+    for key in sorted(set(vorher) | set(nachher)):
+        alt_row, neu_row = vorher.get(key), nachher.get(key)
+        if alt_row is None:
+            zeilen.append(f"neu:      {key}")
+            continue
+        if neu_row is None:
+            zeilen.append(f"entfernt: {key}")
+            continue
+        for column in BALANCE_FIELDS:
+            if alt_row[column] != neu_row[column]:
+                zeilen.append(
+                    f"geaendert {key} / {column}: "
+                    f"{alt_row[column][:40]!r} -> {neu_row[column][:40]!r}")
+    return zeilen
+
+
+#: Zeichen, die im Blatt wie ein Bindestrich oder ein Leerzeichen aussehen.
+#: NFKC allein genuegt nicht: es fasst Ligaturen und Breitformen zusammen,
+#: laesst den typografischen Gedankenstrich aber stehen - und genau der kommt
+#: beim Kopieren aus einem Browser in eine kebab-case-ID.
+LOOKALIKES = str.maketrans({
+    ch: "-" for ch in "\u2010\u2011\u2012\u2013\u2014\u2015\u2212"
+                      "\ufe58\ufe63\uff0d"
+} | {ch: " " for ch in "\u00a0\u2007\u202f"})
+
+
+def lookalike_form(text: str) -> str:
+    """Vergleichsform, die optisch gleiche Zeichen zusammenfasst."""
+    return _normalized(text.translate(LOOKALIKES)).casefold()
+
+
+def check_edited_units(zuordnungen: Mapping[str, list[dict[str, Any]]],
+                       decisions: Mapping[str, set[str]],
+                       notes: Sequence[Mapping[str, Any]]) -> list[Problem]:
+    """Prueft die bearbeiteten Zeilen erneut gegen den Fachvertrag.
+
+    ``collect`` prueft die Antwort des Agenten, aber Bene darf danach jede
+    Zeile aendern, loeschen und ergaenzen. Ohne diese zweite Pruefung koennte
+    eine von Hand ergaenzte Zuordnung ohne Beleg, ueber der Anzahlgrenze oder
+    mit leerem Pflichtfeld unbemerkt ins Gold-Set gelangen.
+    """
+    found: list[Problem] = []
+    broad_flags = {
+        text_value(row["unit_id"].value).strip(): (
+            text_value(row["broad_scope"].value).strip().casefold() == "ja",
+            text_value(row["broad_scope_reason"].value).strip())
+        for row in notes if text_value(row["unit_id"].value).strip()
+    }
+
+    for unit_id, eintraege in zuordnungen.items():
+        task = load_task(unit_id)
+        broad, broad_reason = broad_flags.get(unit_id, (False, ""))
+        decision = ("mapped" if "mapped" in decisions.get(unit_id, set())
+                    else "no_mapping")
+        found.extend(check_broad_scope(task, unit_id, decision, eintraege,
+                                       broad, broad_reason))
+
+        for eintrag in eintraege:
+            line = eintrag["__zeile__"]
+            for feld, spalte in (("evidence_excerpt", "D"),
+                                 ("rationale_short", "E")):
+                if not visible_text(eintrag[feld]):
+                    found.append(problem(
+                        "GS_SCHEMA_INVALID", f"{SHEET_LABELS}!{spalte}{line}",
+                        f"Das Pflichtfeld {feld!r} ist leer.",
+                        "Eine Zuordnung ohne Beleg oder ohne Begruendung ist "
+                        "als Referenz nicht nachvollziehbar.",
+                        "Feld fuellen oder die Zeile loeschen."))
+            beleg = eintrag["evidence_excerpt"]
+            if beleg and not evidence_supported(task, beleg):
+                quellen = ", ".join(label for label, _ in evidence_contexts(task))
+                found.append(problem(
+                    "GS_EVIDENCE_NOT_VERBATIM", f"{SHEET_LABELS}!D{line}",
+                    f"Das Zitat {beleg[:60]!r} steht in keiner erlaubten "
+                    f"Quelle ({quellen}).",
+                    "Ein Beleg, den der Korpus nicht hergibt, traegt die "
+                    "Zuordnung nicht - auch dann nicht, wenn er von Hand "
+                    "eingetragen wurde.",
+                    f"Zitat gegen das Blatt {SHEET_JURISDICTION!r} pruefen."))
+    return found
+
+
 def command_verify(args: argparse.Namespace) -> int:
     """Prueft die von Bene bearbeitete Reviewdatei.
 
@@ -2858,7 +3254,7 @@ def command_verify(args: argparse.Namespace) -> int:
               "'to-xlsx' ausfuehren oder den Pfad mit --file angeben.")
 
     book = load_workbook(target, data_only=False)
-    for name in (SHEET_LABELS, SHEET_TAXONOMY, SHEET_INFO):
+    for name in (SHEET_LABELS, SHEET_TAXONOMY, SHEET_NOTES, SHEET_INFO):
         if name not in book.sheetnames:
             block("GS_XLSX_LAYOUT", paths.relative_to_base(target),
                   f"Das Blatt {name!r} fehlt; vorhanden sind "
@@ -2870,7 +3266,12 @@ def command_verify(args: argparse.Namespace) -> int:
     taxonomy = load_taxonomy()
     sample = load_sample()
     known = taxonomy.ids
+    # Zwei Nachschlagewerke: die Schreibweise allein (Autokorrektur) und
+    # zusaetzlich die Unicodeform. Ein aus dem Browser kopierter
+    # Gedankenstrich oder ein geschuetztes Leerzeichen sieht im Blatt aus wie
+    # die richtige ID und faellt ohne den zweiten Vergleich erst dem Import auf.
     lookup = {value.casefold(): value for value in known}
+    unicode_lookup = {lookalike_form(value): value for value in known}
     problems: list[Problem] = []
 
     info_rows = _sheet_matrix(book[SHEET_INFO], INFO_COLUMNS, SHEET_INFO)
@@ -2890,6 +3291,8 @@ def command_verify(args: argparse.Namespace) -> int:
     sheet = book[SHEET_LABELS]
     rows = _sheet_matrix(sheet, LABEL_COLUMNS, SHEET_LABELS)
     fixed = 0
+    trimmed = 0
+    zuordnungen: dict[str, list[dict[str, Any]]] = {}
     seen: dict[str, set[str]] = {}
     decisions: dict[str, set[str]] = {}
     for row in rows:
@@ -2897,6 +3300,23 @@ def command_verify(args: argparse.Namespace) -> int:
         unit_cell = row["unit_id"]
         unit_id = text_value(unit_cell.value).strip()
         for column in LABEL_COLUMNS:
+            roh = text_value(row[column].value)
+            if roh != roh.strip():
+                if args.fix_case:
+                    row[column].value = roh.strip()
+                    row[column].data_type = "s"
+                    trimmed += 1
+                else:
+                    problems.append(problem(
+                        "GS_XLSX_WHITESPACE",
+                        f"{SHEET_LABELS}!{get_column_letter(LABEL_COLUMNS.index(column) + 1)}{line}",
+                        f"Der Wert {roh!r} traegt Leerraum am Rand.",
+                        "Die Evaluation vergleicht zeichengenau; ein "
+                        "eingefuegtes Leerzeichen macht aus einer richtigen "
+                        "industry_id eine unbekannte, ohne dass es im Blatt "
+                        "sichtbar waere.",
+                        "'verify --fix-case' ausfuehren; es entfernt den "
+                        "Randleerraum und schreibt die Datei zurueck."))
             if row[column].data_type == "f":
                 problems.append(problem(
                     "GS_XLSX_FORMULA", f"{SHEET_LABELS}!{column}{line}",
@@ -2959,12 +3379,18 @@ def command_verify(args: argparse.Namespace) -> int:
                     "'verify --fix-case' ausfuehren; es schreibt die "
                     "Schreibweise des Snapshots zurueck."))
             else:
+                aehnlich = unicode_lookup.get(lookalike_form(industry_id))
                 problems.append(problem(
                     "GS_INDUSTRY_UNKNOWN", f"{SHEET_LABELS}!B{line}",
                     f"{industry_id!r} steht nicht im Snapshot "
-                    f"{taxonomy.snapshot_id}.",
+                    f"{taxonomy.snapshot_id}."
+                    + (f" Zeichengleich bis auf die Unicodeform ist "
+                       f"{aehnlich!r}." if aehnlich else ""),
                     "Die Evaluation vergleicht IDs zeichengenau; eine "
-                    "unbekannte ID zaehlte als falsche Zuordnung.",
+                    "unbekannte ID zaehlte als falsche Zuordnung."
+                    + (" Hier weichen nur unsichtbare Zeichen ab - etwa ein "
+                       "Gedankenstrich statt eines Bindestrichs."
+                       if aehnlich else ""),
                     f"Wert aus der Auswahlliste des Blatts {SHEET_TAXONOMY!r} "
                     "waehlen."))
 
@@ -2986,6 +3412,18 @@ def command_verify(args: argparse.Namespace) -> int:
                 "Auswertung nicht interpretierbar.",
                 "Wert korrigieren."))
 
+        zuordnungen.setdefault(unit_id, []).append({
+            "industry_id": industry_id,
+            "confidence": int(confidence) if confidence.isdigit() else confidence,
+            "evidence_excerpt": text_value(row["evidence_excerpt"].value).strip(),
+            "rationale_short": text_value(row["rationale_short"].value).strip(),
+            "__zeile__": line,
+        })
+
+    problems.extend(check_edited_units(zuordnungen, decisions,
+                                       _sheet_matrix(book[SHEET_NOTES],
+                                                     NOTE_COLUMNS, SHEET_NOTES)))
+
     for unit_id, kinds in decisions.items():
         if len(kinds) > 1:
             problems.append(problem(
@@ -3005,12 +3443,27 @@ def command_verify(args: argparse.Namespace) -> int:
                 "Zeile ergaenzen: Industry eintragen oder no_mapping_reason "
                 "fuellen."))
 
-    if fixed:
-        book.save(target)
-        print(f"{fixed} Schreibweisen korrigiert und "
-              f"{paths.relative_to_base(target)} zurueckgeschrieben.")
+    if fixed or trimmed:
+        gesichert = save_workbook(book, target)
+        print(f"Gesichert: {paths.relative_to_base(gesichert)}")
+        print(f"{fixed} Schreibweisen korrigiert, {trimmed} Zellen vom "
+              f"Randleerraum befreit; {paths.relative_to_base(target)} "
+              "zurueckgeschrieben.")
     print(f"Geprueft: {len(rows)} Zeilen, {len(decisions)} von {len(sample)} "
           "Units belegt.")
+
+    bilanz = change_balance(rows, args.source)
+    if bilanz:
+        print(f"\nAenderungsbilanz gegen "
+              f"{paths.relative_to_base(labels_path(args.source))}: "
+              f"{len(bilanz)} Abweichungen")
+        for zeile in bilanz[:20]:
+            print(f"  {zeile}")
+        if len(bilanz) > 20:
+            print(f"  ... {len(bilanz) - 20} weitere")
+    else:
+        print(f"Aenderungsbilanz: keine Abweichung gegen "
+              f"{paths.relative_to_base(labels_path(args.source))}.")
     return report_problems(problems)
 
 
@@ -3131,11 +3584,17 @@ def build_parser() -> argparse.ArgumentParser:
     to_xlsx.add_argument("--out", metavar="PFAD",
                          help="Zieldatei; Default "
                               f"{paths.relative_to_base(WORKBOOK_PATH)}")
+    to_xlsx.add_argument("--force", action="store_true",
+                         help="vorhandene Zieldatei ersetzen; die bisherige "
+                              "Fassung wird vorher als '.bak.xlsx' gesichert")
     to_xlsx.set_defaults(handler=command_to_xlsx)
 
     verify = actions.add_parser(
         "verify", help="bearbeitete Reviewdatei gegen Snapshot und Vertrag "
                        "pruefen")
+    verify.add_argument("--source", default="merged",
+                        help="Zwischentabelle des Rueckvergleichs: 'merged' "
+                             "oder ein Enginename; Default 'merged'")
     verify.add_argument("--file", metavar="PFAD",
                         help="zu pruefende Datei; Default "
                              f"{paths.relative_to_base(WORKBOOK_PATH)}")

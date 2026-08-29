@@ -129,14 +129,37 @@ Fehler, Ermüdung, Reihenfolgeeffekt, ein Abbruch kostet den ganzen Satz).
 | `preflight --engine … --model …` | Ein-Token-Lauf; prüft, ob Engine, Modell und Effort existieren | minimal |
 | `run --engine … [--model …] [--effort …]` | je Unit ein headless Lauf, Rohantwort und Log je Unit | ja |
 | `collect --engine …` | Rohantworten nach `labels_<engine>.csv`, formale Prüfung | nein |
-| `merge` | zwei Engineläufe vergleichen, `disagreements.md` erzeugen | nein |
-| `to-xlsx` | CSV in die Vorlage schreiben, Zellen als Text | nein |
-| `verify` | bearbeitete XLSX gegen Snapshot und Vertrag prüfen | nein |
+| `merge --base … --against …` | zwei Engineläufe vergleichen, `disagreements.md` erzeugen, `labels/notes/info_merged.csv` schreiben | nein |
+| `to-xlsx [--source …] [--out …] [--force]` | neue Reviewmappe aus den CSV erzeugen, alle Zellen als Text | nein |
+| `verify [--source …] [--file …] [--fix-case]` | bearbeitete XLSX gegen Snapshot, Vertrag und Zwischentabelle prüfen | nein |
 
-`verify` ist die Wache gegen den `packaged-foods`-Vorfall: es liest die von Bene
-bearbeitete Datei zurück und meldet unbekannte oder umgeschriebene IDs,
-Doppelzeilen, Units mit Zuordnung und `no_mapping_reason` zugleich sowie fehlende
-Units.
+`--source` ist bei `to-xlsx` und `verify` gleichbedeutend: `merged` (Default)
+oder ein Enginename.
+
+`to-xlsx` baut eine neue Mappe mit fünf Blättern (`labels`, `jurisdiction`,
+`taxonomy`, `notes`, `info`); es füllt keine bestehende Vorlage. Eine vorhandene
+Zieldatei blockt den Aufruf (`GS_XLSX_OVERWRITE`), da sie Benes Abnahmearbeit
+trägt; `--force` sichert sie vorher als `<name>.<zeitstempel>.bak.xlsx`.
+
+`verify` ist die Wache gegen den `packaged-foods`-Vorfall und zugleich die
+zweite fachliche Prüfung — Bene darf jede Zeile ändern, löschen und ergänzen,
+weshalb der Vertrag hier erneut gilt und nicht nur bei `collect`. Geprüft wird:
+
+- Schreibweise (`GS_INDUSTRY_CASE`) und Randleerraum (`GS_XLSX_WHITESPACE`),
+  beide mit `--fix-case` behebbar; unbekannte IDs mit Hinweis auf eine nur in
+  der Unicodeform abweichende ID;
+- Formelzellen, Doppelzeilen, Zuordnung und `no_mapping_reason` zugleich,
+  fehlende Units, Confidencebereich;
+- Belegregel, Anzahlgrenze, Broad-Scope-Bedingungen und Pflichtfelder je Unit;
+- Rücklesevergleich gegen `labels_<source>.csv`: die Änderungsbilanz nennt je
+  Zelle alt und neu sowie neue und entfernte Zeilen. Sie ist Auskunft, kein
+  Befund — ohne sie blieben Änderungen an `evidence_excerpt`,
+  `rationale_short` und `no_mapping_reason` ungeprüft.
+
+Ein Rückschreiben durch `--fix-case` geht über eine Nebendatei und hängt sie
+erst am Ende um; vorher entsteht eine Sicherung. Liegt der Sperrvermerk
+`.~lock.<name>#` daneben, blockt der Aufruf (`GS_XLSX_LOCKED`), da das
+geöffnete Programm die Änderung sonst beim nächsten Speichern verwürfe.
 
 ### Modell- und Effortwahl
 
@@ -229,16 +252,22 @@ Wall-Clock-Zeit des Unterprozesses.
   wiederholbar; der übrige Satz bleibt erhalten.
 - Der Gesamtdeckel kappt den nächsten Unterprozess auf die Restzeit, statt erst
   zwischen zwei Units zu greifen; sonst wäre er um einen vollen Unitdeckel
-  überziehbar. Offene Units ergeben Exit 2, damit ein unvollständiger Satz nicht
-  als Erfolg gilt.
+  überziehbar. Die Restzeit wird aufgerundet, damit `Gesamtdeckel ==
+  Unitdeckel` nicht null Läufe ergibt. Ein so gekappter Abbruch wird als
+  Restzeit des Gesamtdeckels gemeldet und nicht als Hänger. Offene Units
+  ergeben Exit 2, damit ein unvollständiger Satz nicht als Erfolg gilt.
 - Systemische Fehler (`GS_MODEL_UNKNOWN`, `GS_CLI_UNAUTHORIZED`, `GS_CLI_FLAG`,
   `GS_RATE_LIMITED`) brechen den Satz nach dem ersten Auftreten ab; sie treffen
   jeden weiteren Aufruf gleichermaßen.
 - Die Denktiefe lehnt keine der beiden CLIs ab: Claude warnt auf stderr und
   rechnet mit der Standardstufe weiter (Exit 0), Codex nimmt jeden Wert
   kommentarlos an. Der Lauf blockt deshalb auf Claudes Warnung
-  (`GS_EFFORT_REJECTED`) und führt bei Codex `effort_confirmation:
-  unbestaetigt` in der Provenienz jeder Antwort.
+  (`GS_EFFORT_REJECTED`). Wie belastbar die Stufe ist, leitet
+  `effort_confirmation` aus dem Protokoll des jeweiligen Laufs ab und nicht
+  aus dem Enginenamen: `bestaetigt` (die CLI nennt die Stufe selbst zurück),
+  `ohne-warnung` (Claude hätte eine unbekannte Stufe sichtbar verworfen),
+  `unbestaetigt` (Codex nimmt jeden Wert an) oder `verworfen`. Der Wert steht
+  in der Provenienz jeder Antwort; `preflight` gibt bei `unbestaetigt` Exit 2.
 - Die Wiederaufnahme prüft die vorhandene Antwort auf Fassung, Engine, Modell,
   Denktiefe, Zustellweg und die Bindungshashes, statt sich auf die Existenz der
   Datei zu verlassen; eine Abweichung meldet `GS_RESUME_MISMATCH` und labelt
@@ -250,11 +279,27 @@ Beide CLIs erzwingen dasselbe JSON-Schema; identisches Ausgabeformat ist damit
 Vertrag, nicht Konvention. Schema je Unit: `unit_id, decision,
 no_mapping_reason, broad_scope_exception, broad_scope_reason,
 assignments[{industry_id, confidence, evidence_excerpt, rationale_short}],
-sources[], label_uncertain`. Als `label_uncertain` markierte Units gehen
-unabhängig vom Konsens in die Adjudikation.
+sources[{url, belegt}], label_uncertain, uncertainty_note`. Als
+`label_uncertain` markierte Units gehen unabhängig vom Konsens in die
+Adjudikation; `uncertainty_note` nennt den Grund und steht im Blatt `notes`.
+
+Die Anzahl- und Broad-Scope-Regel des Modellvertrags wird nachgebaut, nicht
+importiert — die Wache soll nicht dieselbe Auslegung teilen wie der Prüfling.
+Nachgebaut sind: Obergrenze aus `unit_kind` und `input_basis` der Unit (zwei
+bei `committee_parent_core` und bei `name_only`, sonst fünf), Ausnahme erst ab
+drei Zuordnungen, gar nicht bei `no_mapping` und gar nicht bei den engen
+Unittypen, `broad_scope_reason` mit sichtbarem Text, Confidence mindestens 3
+sowie eigene Evidence und eigene Rationale je Industry.
 
 Zwischenformat ist CSV mit UTF-8 und `QUOTE_ALL`; XLSX schreibt allein
-`to-xlsx`, `industry_id`-Zellen als Text.
+`to-xlsx`, `industry_id`-Zellen als Text. Die Auswahlliste des Blatts `labels`
+deckt 200 Zeilen über den Datenbestand hinaus ab, damit angehängte Zeilen sie
+noch tragen.
+
+Der Unterprozess bekommt nur eine Positivliste von Umgebungsvariablen
+(`ENV_ALLOWED`): ein geerbtes `OPENAI_BASE_URL` lenkte den Lauf sonst still auf
+einen anderen Endpunkt um, während das Manifest weiterhin den angefragten
+Modellnamen trüge.
 
 ## 6. Phasen und Gates
 
@@ -262,17 +307,32 @@ Stand 2026-08-28:
 
 | Phase | Stand |
 |---|---|
-| P1 Aufgabenpakete und Trockenlauf | umgesetzt; 56 Tests grün, netzwerk- und CLI-frei |
+| P1 Aufgabenpakete und Trockenlauf | umgesetzt; 91 Tests grün, netzwerk- und CLI-frei |
 | Gate A erster bezahlter Lauf | offen, wartet auf Benes Freigabe |
 | P2 Vollauf | offen |
 | P3 Merge | offen, nur bei Doppelvergabe |
 | Gate B Abnahme | offen |
 | P4 Übernahme | offen |
 
-Reviewstand: Themenbereich 1 (Fundament, Lader, `prepare`) mit Auflagen
-abgenommen, Auflagen erledigt. Themenbereich 2 (Engines, `preflight`, `run`)
-nicht abgenommen, alle 13 Befunde behoben. Themenbereich 3 (`collect`, `merge`,
-`to-xlsx`, `verify`, Trockenlauf, Tests) noch nicht geprüft.
+Reviewstand:
+
+| Themenbereich | Ergebnis | Stand der Befunde |
+|---|---|---|
+| 1 Fundament, Lader, `prepare` | mit Auflagen abgenommen | erledigt |
+| 2 Engines, `preflight`, `run` | nicht abgenommen | alle 13 Befunde behoben |
+| 3 `collect`, `merge`, `to-xlsx`, `verify`, Trockenlauf, Tests | nicht abgenommen | vier Auflagen abgearbeitet (siehe unten) |
+
+Auflagen des Reviews zu Themenbereich 3, Stand 2026-08-29 erledigt: die vier
+HOCH-Befunde (Überschreibschutz für `to-xlsx`, `verify` ohne Trimmen,
+Rücklesevergleich gegen `labels_*.csv`, vollständige Anzahl- und
+Broad-Scope-Regel), `system_prompt_sha256` in der Wiederaufnahmeprüfung, der
+Vorrang des HTTP-Status vor den Textmarken, Tests für Gesamtdeckel,
+`run_codex`-Verdrahtung und `to-xlsx` ohne `--source` sowie dieser Abschnitt
+und §5. Zusätzlich behoben: fachliche Nachprüfung in `verify`, Provenienz
+beider Engines im Merge, unteilbares Rückschreiben mit Sperrvermerkprüfung,
+`effort_confirmation` aus dem Protokoll, Positivliste der Umgebung, Reserve der
+Auswahlliste, Unicode-Ähnlichkeitshinweis, Exit-Codes von `preflight` und
+`merge`.
 
 ### P1 — Aufgabenpakete und Trockenlauf (kostenfrei)
 
@@ -318,12 +378,18 @@ Gold-Set.
 
 ### P4 — Übernahme
 
-`to-xlsx` schreibt in `development_goldset.xlsx`; die leere Altvorlage wird
-vorher gesichert. Nach Benes Bearbeitung läuft `verify`.
+`to-xlsx --out data/committee_matcher_v2/goldset/development_goldset.xlsx
+--force` erzeugt die Reviewmappe und sichert die leere Altvorlage dabei selbst
+als `<name>.<zeitstempel>.bak.xlsx`. Nach Benes Bearbeitung läuft `verify
+--source <quelle>`; ein `verify --fix-case` repariert Schreibweise und
+Randleerraum und sichert die Datei vorher ebenfalls.
 
 Abnahme: alle 22 Units vertreten; jede `industry_id` zeichengenau im Snapshot;
-keine Unit mit Zuordnung und `no_mapping_reason` zugleich; Rücklesetest
-bestätigt die CSV-Werte unverändert.
+keine Unit mit Zuordnung und `no_mapping_reason` zugleich; Belegregel,
+Anzahlgrenze, Broad-Scope-Bedingungen und Pflichtfelder auch für die von Hand
+geänderten Zeilen eingehalten; die Änderungsbilanz des Rücklesevergleichs
+gegen `labels_<source>.csv` nennt ausschließlich Änderungen, die Bene bewusst
+vorgenommen hat.
 
 ## 7. Fehlerbild
 
@@ -348,15 +414,16 @@ prüfenden Funktion ermittelt, nicht von Hand gepflegt.
 | `GS_CLI_UNAUTHORIZED` | CLI meldet fehlende Anmeldung | interaktiv anmelden, dann erneut |
 | `GS_MODEL_UNKNOWN` | Modellname von der CLI abgelehnt | `preflight` mit korrigiertem `--model` |
 | `GS_EFFORT_REJECTED` | Claude verwirft den Effortwert und rechnet mit der Standardstufe | zulässige Stufe setzen; die Warnung nennt sie |
-| `GS_EFFORT_UNCONFIRMED` | Codex bestätigt die Denktiefe nicht | Stufe gegen die CLI-Dokumentation prüfen; Provenienz weist sie als unbestätigt aus |
-| `GS_WEBSEARCH_OFF` | Antwort ohne `sources`, Websuche nicht aktiv | Codex-Flagvariante prüfen (Phase 1 klärt sie) |
+| `GS_EFFORT_UNCONFIRMED` | Die CLI nennt die Denktiefe nicht zurück (Codex) | Stufe gegen die CLI-Dokumentation prüfen; Provenienz weist sie als unbestätigt aus |
+| `GS_WEBSEARCH_OFF` | Antwort ohne `sources` | Log der Unit auf `web_search`-Ereignisse prüfen; fehlen sie, greift der Suchschalter nicht und der Satz ist zu wiederholen |
 | `GS_TIMEOUT` | Deckel je Unit erreicht | Unit einzeln wiederholen; Satz bleibt erhalten |
 | `GS_RATE_LIMITED` | Abo-Ratenlimit | Lauf später fortsetzen, `run` nimmt wieder auf |
 | `GS_SCHEMA_INVALID` | Antwort verletzt das JSON-Schema | Rohantwort im Log, Unit wiederholen |
 | `GS_UNIT_ID_MISMATCH` | Antwort trägt fremde oder veränderte `unit_id` | Unit wiederholen |
 | `GS_INDUSTRY_UNKNOWN` | `industry_id` nicht im Snapshot | Auswahlliste oder `--fix-case` |
 | `GS_EVIDENCE_NOT_VERBATIM` | Zitat steht nicht wörtlich im Jurisdiktionstext | Unit wiederholen, Zitat prüfen |
-| `GS_COUNT_EXCEEDED` | mehr als 2 ohne Broad-Scope oder mehr als 5 | Zeilen streichen oder Ausnahme begründen |
+| `GS_COUNT_EXCEEDED` | mehr Zuordnungen, als der Unittyp zulässt (2 bei `committee_parent_core` und `name_only`, sonst 5) | Zeilen streichen |
+| `GS_BROAD_SCOPE_INVALID` | Ausnahme ohne alle ihre Bedingungen, bei `no_mapping` oder bei einem engen Unittyp | Bedingung erfüllen oder auf 2 Zuordnungen kürzen |
 | `GS_DECISION_CONFLICT` | Unit mit Zuordnung und `no_mapping_reason` zugleich | eine der beiden Angaben entfernen |
 | `GS_UNIT_MISSING` | Unit fehlt in der bearbeiteten Datei | Zeile ergänzen |
 | `GS_UNIT_DUPLICATE` | identische Zuordnung doppelt | Zeile löschen |
@@ -368,10 +435,17 @@ prüfenden Funktion ermittelt, nicht von Hand gepflegt.
 | `GS_RESUME_MISMATCH` | vorhandene Antwort passt nicht zum aktuellen Lauf | Antwort prüfen, mit `--force` neu erzeugen |
 | `GS_INDUSTRY_CASE` | `industry_id` weicht nur in der Schreibweise ab | `verify --fix-case` |
 | `GS_XLSX_MISSING` / `GS_XLSX_LAYOUT` / `GS_XLSX_FORMULA` | Reviewdatei fehlt, hat fremdes Blattbild oder eine Formelzelle | `to-xlsx` neu erzeugen; Formelzelle als Text eintragen |
+| `GS_XLSX_WHITESPACE` | Zellwert mit Leerraum am Rand | `verify --fix-case` |
+| `GS_XLSX_OVERWRITE` | `to-xlsx` träfe eine vorhandene Reviewdatei | Datei umbenennen oder `--force` (sichert vorher) |
+| `GS_XLSX_LOCKED` | Sperrvermerk `.~lock.<name>#` daneben; Datei geöffnet | Datei schließen und wiederholen |
 | `GS_LABELS_MISSING` / `GS_LABELS_FORMAT` | Zwischentabelle fehlt oder hat fremde Spaltenfolge | vorherigen Schritt wiederholen |
 | `GS_MERGE_SCOPE` | Vergleich zweier Läufe nicht durchführbar | zwei verschiedene Engines angeben |
 | `GS_FAKE_MODE` | `GOLDSET_LABEL_FAKE_DIR` zeigt ins Leere | Variable auf ein Verzeichnis setzen oder löschen |
 | `GS_SETTING_INVALID` | aufgelöster Laufparameter unbrauchbar | Wert an der genannten Stelle korrigieren |
+| `GS_TASK_MISSING` / `GS_TASK_FORMAT` / `GS_TASK_LAYOUT` | Aufgabenpaket fehlt, hat fremde Fassung oder das Verzeichnis fremden Inhalt | `prepare` neu ausführen |
+| `GS_CONTRACT_INVALID` / `GS_TAXONOMY_INVALID` / `GS_CORPUS_BLOCKED` | Modellvertrag, Taxonomie oder Korpus unbrauchbar | Quelle an der genannten Stelle prüfen |
+| `GS_SAMPLE_INVALID` / `GS_SAMPLE_STALE` / `GS_UNIT_UNKNOWN` | Stichprobendatei unbrauchbar oder gegen den Korpus veraltet | Stichprobe gegen den Korpus abgleichen |
+| `GS_EVIDENCE_MISMATCH` | geladener Jurisdiktionstext deckt sich nicht mit der Quelldatei | Abschnitt in der Korpusdatei gegen den Parser prüfen |
 
 `GS_SNAPSHOT_DRIFT` und `GS_CORPUS_DRIFT` sind die stillen Risikostellen: ohne
 Prüfung labelt der Agent gegen einen Stand, den die Evaluation später nicht mehr

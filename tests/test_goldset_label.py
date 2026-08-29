@@ -135,7 +135,7 @@ def test_durchstich_bis_zur_reviewdatei(sandbox, sample, capsys) -> None:
     assert lauf("collect", "--engine", "claude") == 0
     assert lauf("to-xlsx", "--source", "claude") == 0
     capsys.readouterr()
-    assert lauf("verify") == 0
+    assert lauf("verify", "--source", "claude") == 0
 
     book = load_workbook(gs.WORKBOOK_PATH)
     assert book.sheetnames == [gs.SHEET_LABELS, gs.SHEET_JURISDICTION,
@@ -186,13 +186,33 @@ def test_merge_meldet_dissens(sandbox, taxonomy, capsys) -> None:
     assert lauf("collect", "--engine", "codex") == 0
     capsys.readouterr()
 
-    assert lauf("merge", "--base", "claude", "--against", "codex") == 2
+    # Dissens allein ist das Ergebnis des Vergleichs, kein Befund.
+    assert lauf("merge", "--base", "claude", "--against", "codex") == 0
     bericht = gs.MERGE_REPORT.read_text(encoding="utf-8")
     assert "0 von 22 Units einig" in bericht
     assert f"nur codex: {zweite}" in bericht
 
     notizen = gs.notes_path("merged").read_text(encoding="utf-8")
     assert f"nur codex: {zweite}" in notizen
+
+    # Die Provenienz traegt beide Laeufe, nicht nur die Basis.
+    provenienz = gs.read_csv(gs.info_path("merged"), gs.INFO_COLUMNS,
+                             was="mit der Provenienz von merged")
+    assert {row["engine"] for row in provenienz} == {"claude", "codex"}
+    assert len(provenienz) == 44
+
+
+def test_merge_meldet_einseitige_units(sandbox, capsys) -> None:
+    """Eine Unit in nur einem Lauf ist ein Befund und kein Dissens."""
+    assert lauf("run", "--engine", "claude") == 0
+    assert lauf("collect", "--engine", "claude") == 0
+    assert lauf("run", "--engine", "codex", "--unit-id",
+                "house--energy-and-commerce--energy") == 0
+    lauf("collect", "--engine", "codex")
+    capsys.readouterr()
+
+    assert lauf("merge", "--base", "claude", "--against", "codex") == 2
+    assert "stehen nur in einem der beiden Laeufe" in capsys.readouterr().out
 
 
 def test_merge_gegen_sich_selbst_blockiert(sandbox) -> None:
@@ -210,7 +230,7 @@ def test_to_xlsx_ohne_sammlung_blockiert(sandbox, capsys) -> None:
 
 
 def test_verify_ohne_datei_blockiert(sandbox, capsys) -> None:
-    assert lauf("verify") == 1
+    assert lauf("verify", "--source", "claude") == 1
     assert "GS_XLSX_MISSING" in capsys.readouterr().err
 
 
@@ -270,24 +290,109 @@ def test_befund_je_fall(paar, taxonomy, aenderung, erwartet) -> None:
     assert erwartet in codes(task, record, taxonomy)
 
 
-def test_zu_viele_zuordnungen(paar, taxonomy) -> None:
-    task, record = paar
+def breit(record, taxonomy, anzahl, **abweichung) -> None:
+    """Setzt eine Antwort mit ``anzahl`` vertragsgemaessen Zuordnungen."""
     vorlage = record["answer"]["assignments"][0]
+    record["answer"]["broad_scope_exception"] = True
+    record["answer"]["broad_scope_reason"] = "Die Zustaendigkeit ist breit."
+    beleg = vorlage["evidence_excerpt"]
     record["answer"]["assignments"] = [
-        {**vorlage, "industry_id": name}
-        for name in sorted(taxonomy.ids)[:gs.REGULAR_ASSIGNMENT_LIMIT + 1]]
+        {**vorlage, "industry_id": name, "confidence": 3,
+         "rationale_short": f"Grund {nr}",
+         # Die Ausnahme verlangt einen eigenen Beleg je Industry; die
+         # Ausschnitte kommen aus demselben Zustaendigkeitstext.
+         "evidence_excerpt": beleg[: len(beleg) - nr + 1]}
+        for nr, name in enumerate(sorted(taxonomy.ids)[:anzahl], start=1)]
+    record["answer"].update(abweichung)
+
+
+def test_zu_viele_zuordnungen(paar, taxonomy) -> None:
+    """Ueber der Obergrenze der Unit; hier greift die Anzahlregel."""
+    task, record = paar
+    breit(record, taxonomy, gs.BROAD_SCOPE_ASSIGNMENT_LIMIT + 1)
     assert "GS_COUNT_EXCEEDED" in codes(task, record, taxonomy)
 
 
 def test_breite_zustaendigkeit_erlaubt_mehr(paar, taxonomy) -> None:
     task, record = paar
-    vorlage = record["answer"]["assignments"][0]
-    record["answer"]["broad_scope_exception"] = True
-    record["answer"]["broad_scope_reason"] = "Die Zustaendigkeit ist breit."
-    record["answer"]["assignments"] = [
-        {**vorlage, "industry_id": name}
-        for name in sorted(taxonomy.ids)[:gs.BROAD_SCOPE_ASSIGNMENT_LIMIT]]
-    assert "GS_COUNT_EXCEEDED" not in codes(task, record, taxonomy)
+    breit(record, taxonomy, gs.BROAD_SCOPE_ASSIGNMENT_LIMIT)
+    assert codes(task, record, taxonomy) == set()
+
+
+@pytest.mark.parametrize("abweichung", [
+    {"broad_scope_exception": False},
+    {"broad_scope_reason": None},
+    {"broad_scope_reason": "  \u200b "},
+])
+def test_broad_scope_bedingungen(paar, taxonomy, abweichung) -> None:
+    """Ausnahme ohne gesetztes Feld oder ohne sichtbare Begruendung."""
+    task, record = paar
+    breit(record, taxonomy, gs.REGULAR_ASSIGNMENT_LIMIT + 1, **abweichung)
+    assert "GS_BROAD_SCOPE_INVALID" in codes(task, record, taxonomy)
+
+
+def test_broad_scope_verlangt_hohe_confidence(paar, taxonomy) -> None:
+    task, record = paar
+    breit(record, taxonomy, gs.REGULAR_ASSIGNMENT_LIMIT + 1)
+    record["answer"]["assignments"][0]["confidence"] = \
+        gs.BROAD_SCOPE_MIN_CONFIDENCE - 1
+    assert "GS_BROAD_SCOPE_INVALID" in codes(task, record, taxonomy)
+
+
+@pytest.mark.parametrize("feld", ["evidence_excerpt", "rationale_short"])
+def test_broad_scope_verlangt_eigene_begruendung(paar, taxonomy, feld) -> None:
+    """Ein wiederholter Beleg oder Grund traegt die Ausnahme nicht."""
+    task, record = paar
+    breit(record, taxonomy, gs.REGULAR_ASSIGNMENT_LIMIT + 1)
+    erste = record["answer"]["assignments"][0][feld]
+    record["answer"]["assignments"][1][feld] = f"  {erste.upper()} "
+    assert "GS_BROAD_SCOPE_INVALID" in codes(task, record, taxonomy)
+
+
+def test_broad_scope_nicht_bei_no_mapping(paar, taxonomy) -> None:
+    task, record = paar
+    record["answer"].update(
+        decision="no_mapping", assignments=[], broad_scope_exception=True,
+        broad_scope_reason="Die Zustaendigkeit ist breit.",
+        no_mapping_reason="Keine Beruehrung zu einer Industry.")
+    assert "GS_BROAD_SCOPE_INVALID" in codes(task, record, taxonomy)
+
+
+def test_no_mapping_reason_ohne_sichtbaren_text(paar, taxonomy) -> None:
+    task, record = paar
+    record["answer"].update(decision="no_mapping", assignments=[],
+                            no_mapping_reason="\u200b\u200b")
+    assert "GS_DECISION_CONFLICT" in codes(task, record, taxonomy)
+
+
+@pytest.mark.parametrize("unit_id", [
+    "senate--finance--health-care",
+    "senate--homeland-security-and-governmental-affairs--"
+    "border-management-federal-workforce-and-regulatory-affairs",
+])
+def test_name_only_kennt_keine_ausnahme(taxonomy, unit_id) -> None:
+    """Ohne Zustaendigkeitstext bleibt es bei zwei Zuordnungen."""
+    task = gs.load_task(unit_id)
+    record = {
+        "answer_format": gs.ANSWER_FORMAT, "unit_id": unit_id,
+        "engine": "claude", "model": "opus", "effort": "high",
+        "binding": task["binding"],
+        "answer": build_answer(task, sorted(taxonomy.ids)[0]),
+        "created_at": "2026-08-28T10:00:00+00:00",
+    }
+    assert gs.assignment_limit(task) == gs.REGULAR_ASSIGNMENT_LIMIT
+    breit(record, taxonomy, gs.REGULAR_ASSIGNMENT_LIMIT + 1)
+    name = task["unit_name"]
+    for nr, zuordnung in enumerate(record["answer"]["assignments"]):
+        zuordnung["evidence_excerpt"] = name[: len(name) - nr]
+    gefunden = codes(task, record, taxonomy)
+    assert "GS_COUNT_EXCEEDED" in gefunden
+    assert "GS_BROAD_SCOPE_INVALID" in gefunden
+
+
+def test_kernbereich_kennt_keine_ausnahme() -> None:
+    task = {"unit_kind": "committee_parent_core", "input_basis": "jurisdiction_text"}
+    assert gs.assignment_limit(task) == gs.REGULAR_ASSIGNMENT_LIMIT
 
 
 def test_no_mapping_ist_eine_zeile(paar, taxonomy) -> None:
@@ -313,9 +418,16 @@ def test_parenttext_belegt_nicht() -> None:
     """Der Text des Parents ist Kontext, nie Beleg."""
     kind = gs.load_task("house--energy-and-commerce--health")
     eltern = gs.load_task("house--energy-and-commerce--energy")
-    fremd = (eltern["binding"]["evidence_text"] or "")[:60]
-    if fremd and fremd.lower() not in (kind["binding"]["evidence_text"] or "").lower():
-        assert not gs.evidence_supported(kind, fremd)
+    eigen = (kind["binding"]["evidence_text"] or "").lower()
+    # Ein Ausschnitt, den nur der Parent traegt; ohne ihn liefe der Test leer
+    # durch und behauptete eine Wache, die er nie geprueft hat.
+    fremd = next(
+        (stueck for start in range(0, 400, 20)
+         if len(stueck := (eltern["binding"]["evidence_text"] or "")[start:start + 60]) == 60
+         and stueck.lower() not in eigen),
+        None)
+    assert fremd, "kein parentfremder Ausschnitt gefunden"
+    assert not gs.evidence_supported(kind, fremd)
 
 
 # -- Rueckpruefung der Reviewdatei ----------------------------------------
@@ -340,10 +452,10 @@ def test_verify_meldet_autokorrektur_und_repariert(sandbox, taxonomy, capsys) ->
     zelle_setzen(pfad, 2, "industry_id", echt.capitalize())
     capsys.readouterr()
 
-    assert lauf("verify") == 2
+    assert lauf("verify", "--source", "claude") == 2
     assert "GS_INDUSTRY_CASE" in capsys.readouterr().out
 
-    assert lauf("verify", "--fix-case") == 0
+    assert lauf("verify", "--source", "claude", "--fix-case") == 0
     book = load_workbook(pfad)
     assert book[gs.SHEET_LABELS].cell(row=2, column=2).value == echt
 
@@ -352,7 +464,7 @@ def test_verify_meldet_unbekannte_industry(sandbox, capsys) -> None:
     pfad = workbook_vorbereiten(sandbox)
     zelle_setzen(pfad, 2, "industry_id", "gibt-es-nicht")
     capsys.readouterr()
-    assert lauf("verify") == 2
+    assert lauf("verify", "--source", "claude") == 2
     assert "GS_INDUSTRY_UNKNOWN" in capsys.readouterr().out
 
 
@@ -360,7 +472,7 @@ def test_verify_meldet_formelzelle(sandbox, capsys) -> None:
     pfad = workbook_vorbereiten(sandbox)
     zelle_setzen(pfad, 2, "rationale_short", "=SUM(1;2)")
     capsys.readouterr()
-    assert lauf("verify") == 2
+    assert lauf("verify", "--source", "claude") == 2
     assert "GS_XLSX_FORMULA" in capsys.readouterr().out
 
 
@@ -370,7 +482,7 @@ def test_verify_meldet_fehlende_unit(sandbox, capsys) -> None:
     book[gs.SHEET_LABELS].delete_rows(2)
     book.save(pfad)
     capsys.readouterr()
-    assert lauf("verify") == 2
+    assert lauf("verify", "--source", "claude") == 2
     assert "GS_UNIT_MISSING" in capsys.readouterr().out
 
 
@@ -378,7 +490,7 @@ def test_verify_meldet_widerspruch(sandbox, capsys) -> None:
     pfad = workbook_vorbereiten(sandbox)
     zelle_setzen(pfad, 2, "no_mapping_reason", "keine Beruehrung")
     capsys.readouterr()
-    assert lauf("verify") == 2
+    assert lauf("verify", "--source", "claude") == 2
     assert "GS_DECISION_CONFLICT" in capsys.readouterr().out
 
 
@@ -388,7 +500,7 @@ def test_verify_meldet_fremdes_blattbild(sandbox, capsys) -> None:
     del book[gs.SHEET_INFO]
     book.save(pfad)
     capsys.readouterr()
-    assert lauf("verify") == 1
+    assert lauf("verify", "--source", "claude") == 1
     assert "GS_XLSX_LAYOUT" in capsys.readouterr().err
 
 
@@ -398,8 +510,104 @@ def test_verify_meldet_fremde_spalte(sandbox, capsys) -> None:
     book[gs.SHEET_LABELS].cell(row=1, column=2, value="industry")
     book.save(pfad)
     capsys.readouterr()
-    assert lauf("verify") == 1
+    assert lauf("verify", "--source", "claude") == 1
     assert "GS_XLSX_LAYOUT" in capsys.readouterr().err
+
+
+def test_verify_meldet_randleerraum_und_repariert(sandbox, taxonomy, capsys) -> None:
+    """Ein eingefuegtes Leerzeichen ist im Blatt unsichtbar, aber toedlich."""
+    pfad = workbook_vorbereiten(sandbox)
+    echt = sorted(taxonomy.ids)[0]
+    zelle_setzen(pfad, 2, "industry_id", f" {echt}")
+    capsys.readouterr()
+
+    assert lauf("verify", "--source", "claude") == 2
+    assert "GS_XLSX_WHITESPACE" in capsys.readouterr().out
+
+    assert lauf("verify", "--source", "claude", "--fix-case") == 0
+    assert load_workbook(pfad)[gs.SHEET_LABELS].cell(row=2, column=2).value == echt
+
+
+def test_verify_bilanziert_gegen_die_csv(sandbox, capsys) -> None:
+    """Der Rueckvergleich zeigt Aenderungen an Feldern ohne eigene Regel."""
+    pfad = workbook_vorbereiten(sandbox)
+    zelle_setzen(pfad, 2, "rationale_short", "Von Bene ueberarbeitet.")
+    capsys.readouterr()
+
+    assert lauf("verify", "--source", "claude") == 0
+    ausgabe = capsys.readouterr().out
+    assert "Aenderungsbilanz" in ausgabe
+    assert "rationale_short" in ausgabe
+    assert "Von Bene ueberarbeitet." in ausgabe
+
+
+def test_verify_bilanziert_entfernte_und_neue_zeilen(sandbox, capsys) -> None:
+    pfad = workbook_vorbereiten(sandbox)
+    book = load_workbook(pfad)
+    sheet = book[gs.SHEET_LABELS]
+    entfernt = sheet.cell(row=2, column=1).value
+    sheet.delete_rows(2)
+    book.save(pfad)
+    capsys.readouterr()
+
+    lauf("verify", "--source", "claude")
+    ausgabe = capsys.readouterr().out
+    assert f"entfernt: {entfernt}" in ausgabe
+
+
+def test_verify_sichert_vor_dem_zurueckschreiben(sandbox, taxonomy) -> None:
+    pfad = workbook_vorbereiten(sandbox)
+    zelle_setzen(pfad, 2, "industry_id", sorted(taxonomy.ids)[0].capitalize())
+    assert lauf("verify", "--source", "claude", "--fix-case") == 0
+    assert list(pfad.parent.glob(f"{pfad.stem}.*.bak.xlsx"))
+
+
+def test_verify_weigert_sich_bei_sperrvermerk(sandbox, taxonomy, capsys) -> None:
+    pfad = workbook_vorbereiten(sandbox)
+    zelle_setzen(pfad, 2, "industry_id", sorted(taxonomy.ids)[0].capitalize())
+    gs.lock_file(pfad).write_text("offen", encoding="utf-8")
+    capsys.readouterr()
+    assert lauf("verify", "--source", "claude", "--fix-case") == 1
+    assert "GS_XLSX_LOCKED" in capsys.readouterr().err
+
+
+# -- Ueberschreibschutz ----------------------------------------------------
+def test_to_xlsx_blockiert_vorhandene_datei(sandbox, capsys) -> None:
+    """Die Reviewdatei traegt die Abnahmearbeit und darf nicht stillschweigend
+    durch die unbearbeitete Fassung ersetzt werden."""
+    pfad = workbook_vorbereiten(sandbox)
+    zelle_setzen(pfad, 2, "rationale_short", "Abnahme durch Bene.")
+    capsys.readouterr()
+
+    assert lauf("to-xlsx", "--source", "claude") == 1
+    assert "GS_XLSX_OVERWRITE" in capsys.readouterr().err
+    zelle = load_workbook(pfad)[gs.SHEET_LABELS].cell(row=2, column=5)
+    assert zelle.value == "Abnahme durch Bene."
+
+
+def test_to_xlsx_force_sichert_vorher(sandbox, capsys) -> None:
+    pfad = workbook_vorbereiten(sandbox)
+    zelle_setzen(pfad, 2, "rationale_short", "Abnahme durch Bene.")
+    capsys.readouterr()
+
+    assert lauf("to-xlsx", "--source", "claude", "--force") == 0
+    sicherungen = list(pfad.parent.glob(f"{pfad.stem}.*.bak.xlsx"))
+    assert len(sicherungen) == 1
+    gesichert = load_workbook(sicherungen[0])[gs.SHEET_LABELS]
+    assert gesichert.cell(row=2, column=5).value == "Abnahme durch Bene."
+    assert load_workbook(pfad)[gs.SHEET_LABELS].cell(row=2, column=5).value \
+        != "Abnahme durch Bene."
+
+
+def test_to_xlsx_ohne_source_nimmt_merged(sandbox, capsys) -> None:
+    """Der Default der Quelle ist 'merged'; ohne Merge fehlt die Tabelle."""
+    assert lauf("run", "--engine", "claude") == 0
+    assert lauf("collect", "--engine", "claude") == 0
+    capsys.readouterr()
+    assert lauf("to-xlsx") == 1
+    fehler = capsys.readouterr().err
+    assert "GS_LABELS_MISSING" in fehler
+    assert "labels_merged.csv" in fehler
 
 
 # -- Zwischentabellen ------------------------------------------------------
@@ -454,8 +662,9 @@ def test_unbekannte_ursache_ist_kein_schemafehler() -> None:
 
 
 def test_mehrdeutige_antwort_wird_erkannt() -> None:
+    """Erkannt wird sie am Feld, nicht an einer Textmarke im Protokoll."""
     found = gs.classify_failure(
-        "codex", ergebnis(stderr="[mehrdeutig] die Abschlussdatei enthaelt 2"),
+        "codex", ergebnis(stderr="die Abschlussdatei enthaelt 2", ambiguous=True),
         config("codex"))
     assert found.code == "GS_ANSWER_AMBIGUOUS"
 
@@ -481,9 +690,16 @@ def test_effortwache_bricht_bei_verworfener_stufe(capsys) -> None:
     assert blocked.value.problem.code == "GS_EFFORT_REJECTED"
 
 
-def test_codex_effort_gilt_als_unbestaetigt() -> None:
-    assert gs.effort_confirmation("claude") == "bestaetigt"
-    assert gs.effort_confirmation("codex") == "unbestaetigt"
+@pytest.mark.parametrize("engine, felder, erwartet", [
+    ("codex", dict(stdout='{"reasoning_effort":"high"}'), "bestaetigt"),
+    ("claude", dict(stdout='{"effort": "high"}'), "bestaetigt"),
+    ("claude", dict(stdout="{}"), "ohne-warnung"),
+    ("codex", dict(stdout="{}"), "unbestaetigt"),
+    ("claude", dict(stderr="Warning: Unknown --effort value 'high'"), "verworfen"),
+])
+def test_effort_bestaetigung_kommt_aus_dem_protokoll(engine, felder, erwartet) -> None:
+    """Die Belastbarkeit haengt am Lauf, nicht am Enginenamen."""
+    assert gs.effort_confirmation(ergebnis(**felder), config(engine)) == erwartet
 
 
 # -- Form der Antwort ------------------------------------------------------
@@ -598,3 +814,177 @@ def test_json_objekte_zaehlen() -> None:
     assert gs._json_objects('{"a": 1}') == ({"a": 1}, 0)
     assert gs._json_objects('{"a": 1} {"b": 2}')[1] == 1
     assert gs._json_objects("kein json") == (None, 0)
+
+
+# -- Gesamtdeckel ----------------------------------------------------------
+def uhr_und_laeufe(monkeypatch, schritt: float = 100.0) -> list[gs.EngineConfig]:
+    """Ersetzt die Uhr durch einen Zaehler, den jeder Lauf weiterstellt.
+
+    Der Trockenlauf braucht keine Zeit; ohne eigene Uhr liesse sich der
+    Gesamtdeckel nur mit echtem Warten pruefen.
+    """
+    stand = {"t": 0.0}
+    gesehen: list[gs.EngineConfig] = []
+    echt = gs.run_fake
+
+    def merken(root, task, config):
+        gesehen.append(config)
+        stand["t"] += schritt
+        return echt(root, task, config)
+
+    monkeypatch.setattr(gs.time, "monotonic", lambda: stand["t"])
+    monkeypatch.setattr(gs, "run_fake", merken)
+    return gesehen
+
+
+def test_gesamtdeckel_kappt_die_restzeit(sandbox, monkeypatch, capsys) -> None:
+    """Der Unitdeckel darf den Gesamtdeckel nicht ueberziehen."""
+    gesehen = uhr_und_laeufe(monkeypatch)
+    assert lauf("run", "--engine", "claude", "--timeout", "120",
+                "--total-timeout", "200") == 2
+    ausgabe = capsys.readouterr().out
+    assert "Gesamtdeckel von 200 s erreicht" in ausgabe
+    assert "Offen:" in ausgabe
+
+    assert len(gesehen) == 2
+    assert (gesehen[0].timeout_seconds, gesehen[0].capped) == (120, False)
+    # Die zweite Unit bekommt nur noch die Restzeit des Gesamtdeckels.
+    assert (gesehen[1].timeout_seconds, gesehen[1].capped) == (100, True)
+
+
+def test_gesamtdeckel_gleich_unitdeckel_laeuft_an(sandbox, monkeypatch) -> None:
+    """Gleiche Werte duerfen nicht null Laeufe ergeben."""
+    gesehen = uhr_und_laeufe(monkeypatch)
+    lauf("run", "--engine", "claude", "--timeout", "60", "--total-timeout", "60")
+    assert len(gesehen) == 1
+
+
+def test_gekappter_deckel_wird_nicht_als_haenger_gemeldet() -> None:
+    gekappt = gs.EngineConfig(engine="claude", model="opus", effort="high",
+                              timeout_seconds=90, total_timeout_seconds=43200,
+                              capped=True)
+    found = gs.classify_failure("claude", ergebnis(timed_out=True), gekappt)
+    assert found.code == "GS_TIMEOUT"
+    assert "Restzeit des Gesamtdeckels" in found.was
+    assert "Gesamtdeckel anheben" in found.abhilfe
+
+
+# -- Verdrahtung von run_codex --------------------------------------------
+def codex_stub(tmp_path: Path, skript: str) -> Path:
+    """Legt ein ausfuehrbares 'codex' in einem eigenen PATH-Verzeichnis ab.
+
+    So laesst sich der Aufrufweg pruefen, ohne die echte CLI und ohne
+    Abo-Kontingent: der Stub sieht dieselbe Kommandozeile wie Codex.
+    """
+    ordner = tmp_path / "bin"
+    ordner.mkdir(exist_ok=True)
+    pfad = ordner / "codex"
+    pfad.write_text("#!/bin/sh\n" + skript, encoding="utf-8")
+    pfad.chmod(0o755)
+    return ordner
+
+
+def codex_lauf(tmp_path, monkeypatch, skript: str) -> gs.EngineResult:
+    monkeypatch.setenv("PATH", str(codex_stub(tmp_path, skript)))
+    monkeypatch.delenv(gs.FAKE_DIR_ENV, raising=False)
+    task = gs.load_task("house--energy-and-commerce--energy")
+    workdir = tmp_path / "arbeit"
+    workdir.mkdir()
+    return gs.run_codex(task, config("codex"), workdir)
+
+
+def antwort_schreiben(inhalt: str, exit_code: int = 0, echo: bool = False) -> str:
+    """Ein Stub, der in die Datei hinter '--output-last-message' schreibt.
+
+    Der Inhalt steht im Skript und nicht in der Umgebung: der Aufruf reicht
+    nur die Positivliste ``ENV_ALLOWED`` weiter.
+    """
+    return "".join([
+        'printf "%s\\n" "$@" >&2\n' if echo else "",
+        'ziel=""\n',
+        'while [ $# -gt 0 ]; do\n',
+        '  if [ "$1" = "--output-last-message" ]; then ziel="$2"; fi\n',
+        '  shift\n',
+        'done\n',
+        f"printf '%s' '{inhalt}' > \"$ziel\"\n" if inhalt else "",
+        f"exit {exit_code}\n",
+    ])
+
+
+def test_run_codex_liest_die_abschlussdatei(tmp_path, monkeypatch) -> None:
+    result = codex_lauf(tmp_path, monkeypatch, antwort_schreiben(
+        '{"unit_id": "x", "decision": "no_mapping"}'))
+    assert result.answer == {"unit_id": "x", "decision": "no_mapping"}
+    assert result.ambiguous is False
+
+
+def test_run_codex_verwirft_antwort_bei_exit_ungleich_null(tmp_path, monkeypatch) -> None:
+    """Eine gefuellte Abschlussdatei ohne Exit 0 ist keine Antwort.
+
+    Sonst uebernaehme der Lauf ein Fehlerereignis als Label und der Resume
+    uebersprunge die Unit danach dauerhaft.
+    """
+    result = codex_lauf(tmp_path, monkeypatch, antwort_schreiben(
+        '{"unit_id": "x", "decision": "no_mapping"}', exit_code=3))
+    assert result.answer is None
+    assert result.exit_code == 3
+
+
+def test_run_codex_meldet_zwei_json_objekte(tmp_path, monkeypatch) -> None:
+    result = codex_lauf(tmp_path, monkeypatch,
+                        antwort_schreiben('{"a": 1} {"b": 2}'))
+    assert result.answer is None
+    assert result.ambiguous is True
+    assert gs.classify_failure("codex", result, config("codex")).code \
+        == "GS_ANSWER_AMBIGUOUS"
+
+
+def test_run_codex_ohne_abschlussdatei(tmp_path, monkeypatch) -> None:
+    result = codex_lauf(tmp_path, monkeypatch, antwort_schreiben(""))
+    assert result.answer is None
+
+
+def test_run_codex_reicht_modell_und_denktiefe_durch(tmp_path, monkeypatch) -> None:
+    result = codex_lauf(tmp_path, monkeypatch,
+                        antwort_schreiben('{"unit_id": "x"}', echo=True))
+    assert "opus" in result.stderr
+    assert 'model_reasoning_effort="high"' in result.stderr
+    assert "tools.web_search=true" in result.stderr
+    assert "--ignore-user-config" in result.stderr
+
+
+def test_umgebung_wird_gefiltert(tmp_path, monkeypatch) -> None:
+    """Ein geerbtes OPENAI_BASE_URL lenkte den Lauf sonst still um."""
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://umgeleitet.example")
+    monkeypatch.setenv("CODEX_HOME", "/soll/ueberschrieben/werden")
+    # 'env' liegt nicht im PATH des Stubs; gemeldet wird ueber die Shell.
+    zeigen = ('printf "%s\\n" "OPENAI_BASE_URL=$OPENAI_BASE_URL" '
+              '"CODEX_HOME=$CODEX_HOME" >&2\n')
+    result = codex_lauf(tmp_path, monkeypatch,
+                        zeigen + antwort_schreiben('{"unit_id": "x"}'))
+    assert "OPENAI_BASE_URL=\n" in result.stderr
+    assert "/soll/ueberschrieben/werden" not in result.stderr
+    assert "codex-home" in result.stderr
+
+
+def test_positivliste_uebernimmt_nur_gesetzte_werte(monkeypatch) -> None:
+    monkeypatch.setenv("PATH", "/pfad")
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    env = gs.clean_env({"CODEX_HOME": "/tmp/home"})
+    assert env["PATH"] == "/pfad"
+    assert env["CODEX_HOME"] == "/tmp/home"
+    assert "OPENAI_BASE_URL" not in env
+
+
+def test_verify_nennt_die_unicodevariante(sandbox, taxonomy, capsys) -> None:
+    """Ein Gedankenstrich statt eines Bindestrichs sieht im Blatt gleich aus."""
+    pfad = workbook_vorbereiten(sandbox)
+    echt = next(value for value in sorted(taxonomy.ids) if "-" in value)
+    zelle_setzen(pfad, 2, "industry_id", echt.replace("-", "‐", 1))
+    capsys.readouterr()
+
+    assert lauf("verify", "--source", "claude") == 2
+    ausgabe = capsys.readouterr().out
+    assert "GS_INDUSTRY_UNKNOWN" in ausgabe
+    assert "Unicodeform" in ausgabe
+    assert repr(echt) in ausgabe

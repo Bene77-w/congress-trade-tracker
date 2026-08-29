@@ -596,15 +596,19 @@ gemessen wird, und entsteht deshalb unabhängig von ihm.
 | `labeling/runs/<engine>/<unit_id>.log` | Rohausgabe der CLI, einzige Quelle bei unklarem Fehlschlag |
 | `labeling/collected/labels_<engine>.csv` | Long-Format je Zuordnung: `unit_id`, `industry_id`, `confidence`, `evidence_excerpt`, `rationale_short`, `no_mapping_reason` |
 | `labeling/collected/notes_<engine>.csv` | `unit_id`, `engine`, `model`, `label_uncertain`, `uncertainty_note`, `broad_scope`, `broad_scope_reason`, `sources`, `dissens` |
-| `labeling/collected/info_<engine>.csv` | Provenienz je Unit: `snapshot_id`, `taxonomy_content_hash`, `mapping_input_hash`, `prompt_sha256`, `prompt_version`, `engine`, `model`, `effort`, `prompt_delivery`, `created_at` |
+| `labeling/collected/info_<engine>.csv` | Provenienz je Unit: `snapshot_id`, `taxonomy_content_hash`, `mapping_input_hash`, `prompt_sha256`, `prompt_version`, `engine`, `model`, `effort`, `prompt_delivery`, `created_at`; `info_merged.csv` trägt beide Läufe, also zwei Zeilen je Unit |
 | `labeling/disagreements.md` | Dissens zweier Engineläufe, je strittige Unit mit beiden Urteilen und Begründungen |
 | `goldset_review.xlsx` | die Datei, die Bene bearbeitet; Blätter `labels`, `jurisdiction`, `taxonomy`, `agent_notes`, `info` |
+| `<name>.<zeitstempel>.bak.xlsx` | Sicherung, die `to-xlsx --force` und `verify --fix-case` vor jedem Überschreiben neben die Zieldatei legen |
 
 Die CSV sind maschinelles Zwischenformat und werden nicht von Hand bearbeitet.
 Die XLSX trägt alle Zellen als Text (`data_type = "s"`), hängt an
-`industry_id` die Auswahlliste des Blatts `taxonomy` und wird von `verify`
-zeichengenau zurückgelesen — drei Sperren gegen die Autokorrektur, die im
-P8-Lauf `packaged-foods` zu `Packaged-foods` gemacht hat.
+`industry_id` die Auswahlliste des Blatts `taxonomy` (200 Zeilen Reserve über
+den Datenbestand hinaus) und wird von `verify` zeichengenau zurückgelesen —
+drei Sperren gegen die Autokorrektur, die im P8-Lauf `packaged-foods` zu
+`Packaged-foods` gemacht hat. `verify` vergleicht dabei ungetrimmt, meldet
+Randleerraum eigens und stellt die Änderungen gegen `labels_<source>.csv`
+gegenüber.
 
 #### `data/config/committee_matcher_prompts/` (P5, versionierter Kontrollinput)
 
