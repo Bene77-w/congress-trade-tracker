@@ -27,6 +27,7 @@ from typing import Mapping, Sequence
 from . import SCAFFOLD_VERSION
 from . import (
     artifacts,
+    evaluation as evaluation_module,
     input_corpus,
     mapping,
     paths,
@@ -131,8 +132,15 @@ COMMANDS: tuple[Command, ...] = (
     Command("review", "import", Stage.REVIEW, "P7", False,
             "bearbeitete Review-XLSX validiert zurueckimportieren",
             requires_run_id=True),
-    Command("evaluate", "goldset", Stage.EVALUATION, "P9", True,
-            "Entwicklungs-Gold-Set auswerten"),
+    Command("evaluate", "export", Stage.EVALUATION, "P9", True,
+            "Evaluationsrevision eroeffnen: frischer Taxonomieabruf, Stichprobe, "
+            "Inputs, Prompts und Variantenmatrix einfrieren (kein Modellaufruf)",
+            network=True),
+    Command("evaluate", "import", Stage.EVALUATION, "P9", True,
+            "gelabeltes Entwicklungs-Gold-Set validiert in die Revision uebernehmen"),
+    Command("evaluate", "run", Stage.EVALUATION, "P9", True,
+            "Prueflauf der Variantenmatrix gegen das Gold-Set (kostenpflichtig)",
+            network=True),
     Command("qualify", "holdout", Stage.EVALUATION, "P10", True,
             "unabhaengiges Holdout qualifizieren"),
     Command("full-run", None, Stage.WORKFLOW, "P11", True,
@@ -205,7 +213,15 @@ def _add_common_flags(parser: argparse.ArgumentParser, command: Command) -> None
             "--workbook",
             help="bearbeitete XLSX; ohne Angabe die Datei der Reviewrevision",
         )
-    if command.family in ("run", "evaluate"):
+    if command.family == "evaluate":
+        # Die Evaluationsmenge steht in der Stichprobendatei; eine Zielangabe
+        # auf der Kommandozeile wuerde das Gold-Set stillschweigend kuerzen.
+        parser.add_argument(
+            "--eval-id",
+            help="Evaluationsrevision; Export, Labelimport und Prueflauf sind "
+                 "daran gebunden",
+        )
+    if command.family == "run":
         parser.add_argument("--chamber", help="nur Entwicklungsruns: Kammerfilter")
         parser.add_argument("--committee", help="nur Entwicklungsruns: Committee-Filter")
         parser.add_argument(
@@ -1857,6 +1873,136 @@ def handle_review_import(
 
 
 #: Bereits implementierte Aktionen; alles andere meldet die Zielphase.
+def _eval_id(collector: ErrorCollector, namespace: argparse.Namespace) -> str | None:
+    """Liefert die Evaluationsrevision; sie ist Pflicht und wird nie erraten.
+
+    Eine aus der Uhrzeit erzeugte Kennung waere hier falsch: an der Revision
+    haengen Labels, die Bene von Hand vergibt, und die muessen wiederfindbar
+    bleiben.
+    """
+    raw = str(getattr(namespace, "eval_id", "") or "").strip()
+    if not raw:
+        collector.blocker(
+            "CLI_EVAL_ID_REQUIRED", Stage.EVALUATION, "evaluate",
+            "Jede Evaluationsaktion ist an genau eine Revision gebunden.",
+            "Lauf mit --eval-id <revision> wiederholen.")
+        return None
+    if not RUN_ID_RE.match(raw):
+        collector.blocker(
+            "CLI_EVAL_ID_INVALID", Stage.EVALUATION, raw,
+            "Evaluations-ID enthaelt unzulaessige Zeichen.",
+            "Nur Buchstaben, Ziffern, '-' und '_' verwenden.")
+        return None
+    return raw
+
+
+def handle_evaluate_export(
+    command: Command, namespace: argparse.Namespace,
+    collector: ErrorCollector, settings: MatcherSettings,
+    reporter: TerminalReporter,
+) -> tuple[list[str], list[str]]:
+    """Eroeffnet eine Evaluationsrevision und friert ihre Bedingungen ein (Plan P9).
+
+    Der Vorgang ruft yfinance ab, ruft aber kein Modell auf und kostet nichts.
+    Er endet bewusst in ``awaiting_development_goldset``: die Labels entstehen
+    von Hand, und erst ``evaluate import`` fuehrt die Revision weiter.
+    """
+    provider_settings = settings.require_provider()
+    budget_usd = settings.require_budget("evaluation")
+    eval_id = _eval_id(collector, namespace)
+    if eval_id is None:
+        return [], []
+
+    reporter.start(Stage.EVALUATION, evaluation=eval_id, action="export")
+    blocked = [f"Evaluation: {eval_id}", "Export:     blockiert"]
+    if not evaluation_module.assert_revision_free(collector, eval_id):
+        reporter.error(Stage.EVALUATION, evaluation=eval_id,
+                       code="EVAL_REVISION_TAKEN")
+        return blocked, []
+
+    sample = evaluation_module.load_sample(collector)
+    if sample is None:
+        reporter.error(Stage.EVALUATION, evaluation=eval_id, code="EVAL_SAMPLE")
+        return blocked, []
+
+    corpus = input_corpus.load_documents(collector, settings.offline)
+    units = unit_module.build_units(collector, corpus.documents)
+    if collector.has_blockers():
+        reporter.error(Stage.EVALUATION, evaluation=eval_id, code="EVAL_INPUT")
+        return blocked, []
+    if not corpus.manifest_sha256:
+        collector.blocker(
+            "EVAL_INPUT_UNBOUND", Stage.EVALUATION, "corpus_manifest.yaml",
+            "Der Inputstand ist nicht hashbar; die Evaluation waere an keinen "
+            "Corpus gebunden.",
+            "Corpusmanifest wiederherstellen; 'input validate' zeigt den Stand.")
+        reporter.error(Stage.EVALUATION, evaluation=eval_id, code="EVAL_INPUT_UNBOUND")
+        return blocked, []
+
+    targets = evaluation_module.select_units(collector, units, sample)
+    if targets is None:
+        reporter.error(Stage.EVALUATION, evaluation=eval_id, code="EVAL_SAMPLE_UNITS")
+        return blocked, []
+    reporter.ok(Stage.INPUT, evaluation=eval_id, units=len(units),
+                targets=len(targets))
+
+    loaded = prompts.load_all(collector)
+    if loaded is None:
+        reporter.error(Stage.EVALUATION, evaluation=eval_id, code="EVAL_PROMPTS")
+        return blocked, []
+
+    # Der Netzabruf kommt zuletzt: jede billige Pruefung hat vorher entschieden,
+    # ob dieser Export ueberhaupt zustande kommen kann.
+    client = taxonomy_source.YFinanceClient(settings.offline, reporter=reporter)
+    snapshot_result = taxonomy_snapshot.build_snapshot(
+        collector, client, run_id=eval_id, reporter=reporter)
+    snapshot_lines = _snapshot_summary(snapshot_result)
+    if (snapshot_result.state is not WorkflowState.COMPLETED
+            or not snapshot_result.content_hash):
+        # Gegen einen nicht freigegebenen Stand zu messen hiesse, das Ergebnis
+        # spaeter keinem Taxonomiestand zuordnen zu koennen.
+        reporter.error(Stage.EVALUATION, evaluation=eval_id,
+                       code="EVAL_TAXONOMY_NOT_FROZEN",
+                       state=snapshot_result.state.value)
+        return blocked + snapshot_lines, list(snapshot_result.artifacts)
+
+    manifest = evaluation_module.build_export_manifest(
+        eval_id=eval_id,
+        settings=settings,
+        provider_settings=provider_settings,
+        prompts_used=(loaded["mapping_system"], loaded["repair_system"]),
+        taxonomy_content_hash=snapshot_result.content_hash,
+        snapshot_id=snapshot_result.run_id,
+        input_manifest_hash=corpus.manifest_sha256,
+        targets=targets,
+        sample=sample,
+        budget_usd=budget_usd,
+    )
+    written = [
+        evaluation_module.write_export_manifest(eval_id, manifest),
+        evaluation_module.write_state(
+            eval_id, WorkflowState.AWAITING_DEVELOPMENT_GOLDSET,
+            unit_count=len(targets), snapshot_id=snapshot_result.run_id),
+    ]
+    variants = manifest["variants"]
+    reporter.wait(Stage.EVALUATION, evaluation=eval_id,
+                  awaiting_development_goldset=None, units=len(targets))
+    return (
+        [
+            f"Evaluation: {eval_id}",
+            f"Zustand:    {WorkflowState.AWAITING_DEVELOPMENT_GOLDSET.value}",
+            f"Stichprobe: {len(targets)} Unit(s) ({sample.version})",
+            f"Varianten:  Batchgroessen {variants['batch_sizes']} x "
+            f"{variants['repetitions']} Wiederholung(en) | Budget "
+            f"{budget_usd:.2f} USD",
+            "Naechster:  Gold-Set labeln, dann "
+            f"'evaluate import --eval-id {eval_id}'",
+        ] + snapshot_lines,
+        [paths.relative_to_base(target) for target in written]
+        + list(snapshot_result.artifacts),
+    )
+
+
 HANDLERS = {
     "provider check": handle_provider_check,
     "provider smoke": handle_provider_smoke,
@@ -1870,6 +2016,7 @@ HANDLERS = {
     "run reconcile": handle_run_reconcile,
     "review export": handle_review_export,
     "review import": handle_review_import,
+    "evaluate export": handle_evaluate_export,
 }
 
 

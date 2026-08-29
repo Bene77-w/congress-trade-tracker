@@ -206,6 +206,24 @@ def _strict_bool(value: Any) -> bool:
     return value
 
 
+def _batch_size_matrix(value: Any) -> tuple[int, ...]:
+    """Die zu vergleichenden Batchgroessen; jede muss der Lauf auch koennen.
+
+    Doppelte Eintraege waeren keine zweite Variante, sondern derselbe Lauf ein
+    zweites Mal - dafuer gibt es die Wiederholungen.
+    """
+    if isinstance(value, str) or not isinstance(value, (tuple, list)):
+        raise TypeError("Wert ist keine Liste von Batchgroessen")
+    if not value:
+        raise ValueError("leere Liste; mindestens eine Variante noetig")
+    for size in value:
+        if isinstance(size, bool) or size not in ALLOWED_BATCH_SIZES:
+            raise ValueError(f"Batchgroesse {size!r} ist nicht in {ALLOWED_BATCH_SIZES}")
+    if len(set(value)) != len(value):
+        raise ValueError("doppelte Batchgroesse")
+    return tuple(value)
+
+
 def _quantizations(value: Any) -> tuple[str, ...]:
     """Prueft die Quantisierungs-Allowlist; leere Menge ist kein Filter."""
     if isinstance(value, str) or not isinstance(value, (tuple, list)):
@@ -237,6 +255,11 @@ class OfflineSettings:
     reconcile_min_age_s: float
     #: Kostenwache; per CLI-Flag je Lauf abschaltbar.
     cost_guard: bool
+    #: Variantenmatrix der Evaluation; bei 'evaluate export' eingefroren.
+    evaluation_batch_sizes: tuple[int, ...]
+    evaluation_repetitions: int
+    #: Obergrenze der Nachforderung bei uneindeutiger Stabilitaet.
+    evaluation_max_repetitions: int
 
 
 @dataclass(frozen=True)
@@ -379,7 +402,27 @@ def load_settings(module: ModuleType | None = None) -> MatcherSettings:
             "float 0..86400", 300.0),
         cost_guard=reader.required(
             f"{_PREFIX}COST_GUARD", _strict_bool, "bool", True),
+        evaluation_batch_sizes=reader.required(
+            f"{_PREFIX}EVALUATION_BATCH_SIZES", _batch_size_matrix,
+            f"Liste ohne Dublette aus {ALLOWED_BATCH_SIZES}", (1, 3)),
+        evaluation_repetitions=reader.required(
+            f"{_PREFIX}EVALUATION_REPETITIONS", _int_in(1, 10),
+            "int 1..10", 3),
+        evaluation_max_repetitions=reader.required(
+            f"{_PREFIX}EVALUATION_MAX_REPETITIONS", _int_in(1, 10),
+            "int 1..10", 5),
     )
+    if (offline.evaluation_max_repetitions < offline.evaluation_repetitions
+            and not reader.collector.has_blockers()):
+        # Sonst waere die Nachforderung von vornherein verboten und die
+        # Stabilitaetspruefung koennte ihren eigenen Ausweg nicht gehen.
+        reader.collector.extend([_finding(
+            "CFG_INVALID", f"{_PREFIX}EVALUATION_MAX_REPETITIONS",
+            f"{_PREFIX}EVALUATION_MAX_REPETITIONS="
+            f"{offline.evaluation_max_repetitions} liegt unter "
+            f"{_PREFIX}EVALUATION_REPETITIONS={offline.evaluation_repetitions}.",
+            "Obergrenze mindestens auf die regulaere Wiederholungszahl setzen.",
+        )])
     if reader.collector.has_blockers():
         raise SettingsBlocked(reader.collector.blockers, "Offlinesettings ungueltig")
 

@@ -108,6 +108,8 @@ def _offline(**overrides) -> OfflineSettings:
         yfinance_checkpoint_every=25, batch_size=3, workflow_retries=2,
         max_repair_attempts=1, chars_per_token=3.0, cost_guard=True,
         reconcile_min_age_s=300.0,
+        evaluation_batch_sizes=(1, 3), evaluation_repetitions=3,
+        evaluation_max_repetitions=5,
     )
     values.update(overrides)
     return OfflineSettings(**values)
