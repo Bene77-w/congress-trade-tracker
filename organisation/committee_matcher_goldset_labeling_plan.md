@@ -137,7 +137,7 @@ Fehler, Ermüdung, Reihenfolgeeffekt, ein Abbruch kostet den ganzen Satz).
 oder ein Enginename.
 
 `to-xlsx` baut eine neue Mappe mit fünf Blättern (`labels`, `jurisdiction`,
-`taxonomy`, `notes`, `info`); es füllt keine bestehende Vorlage. Eine vorhandene
+`taxonomy`, `agent_notes`, `info`); es füllt keine bestehende Vorlage. Eine vorhandene
 Zieldatei blockt den Aufruf (`GS_XLSX_OVERWRITE`), da sie Benes Abnahmearbeit
 trägt; `--force` sichert sie vorher als `<name>.<zeitstempel>.bak.xlsx`.
 
@@ -150,9 +150,12 @@ weshalb der Vertrag hier erneut gilt und nicht nur bei `collect`. Geprüft wird:
   der Unicodeform abweichende ID;
 - Formelzellen, Doppelzeilen, Zuordnung und `no_mapping_reason` zugleich,
   fehlende Units, Confidencebereich;
-- Belegregel, Anzahlgrenze, Broad-Scope-Bedingungen und Pflichtfelder je Unit;
+- Belegregel, Anzahlgrenze, Broad-Scope-Bedingungen und Pflichtfelder je Unit
+  — auch für Units ohne Zuordnung, bei denen die Ausnahme gar nicht zulässig
+  ist;
 - Rücklesevergleich gegen `labels_<source>.csv`: die Änderungsbilanz nennt je
-  Zelle alt und neu sowie neue und entfernte Zeilen. Sie ist Auskunft, kein
+  Zelle alt und neu sowie neue und entfernte Zeilen. Gleiche Zeilen werden
+  einzeln gezählt, damit eine Dublette nicht als Änderung der ersten erscheint. Sie ist Auskunft, kein
   Befund — ohne sie blieben Änderungen an `evidence_excerpt`,
   `rationale_short` und `no_mapping_reason` ungeprüft.
 
@@ -281,7 +284,7 @@ no_mapping_reason, broad_scope_exception, broad_scope_reason,
 assignments[{industry_id, confidence, evidence_excerpt, rationale_short}],
 sources[{url, belegt}], label_uncertain, uncertainty_note`. Als
 `label_uncertain` markierte Units gehen unabhängig vom Konsens in die
-Adjudikation; `uncertainty_note` nennt den Grund und steht im Blatt `notes`.
+Adjudikation; `uncertainty_note` nennt den Grund und steht im Blatt `agent_notes`.
 
 Die Anzahl- und Broad-Scope-Regel des Modellvertrags wird nachgebaut, nicht
 importiert — die Wache soll nicht dieselbe Auslegung teilen wie der Prüfling.
@@ -289,7 +292,11 @@ Nachgebaut sind: Obergrenze aus `unit_kind` und `input_basis` der Unit (zwei
 bei `committee_parent_core` und bei `name_only`, sonst fünf), Ausnahme erst ab
 drei Zuordnungen, gar nicht bei `no_mapping` und gar nicht bei den engen
 Unittypen, `broad_scope_reason` mit sichtbarem Text, Confidence mindestens 3
-sowie eigene Evidence und eigene Rationale je Industry.
+sowie eigene Evidence und eigene Rationale je Industry. `collect` liest die
+Vertragsfelder dabei so streng wie Pydantic: `broad_scope_exception` muss ein
+echter Wahrheitswert sein (`bool("")` machte aus einem Textfeld sonst klaglos
+ein Nein), und Pflichttexte gelten nur mit sichtbarem Inhalt — unsichtbare
+Formatzeichen bestünden ein `strip()`.
 
 Zwischenformat ist CSV mit UTF-8 und `QUOTE_ALL`; XLSX schreibt allein
 `to-xlsx`, `industry_id`-Zellen als Text. Die Auswahlliste des Blatts `labels`

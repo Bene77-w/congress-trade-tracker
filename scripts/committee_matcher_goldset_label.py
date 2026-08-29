@@ -1559,7 +1559,8 @@ ENV_ALLOWED: tuple[str, ...] = (
     "PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LC_ALL", "TERM",
     "TMPDIR", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME",
     "CODEX_HOME", "CLAUDE_CONFIG_DIR",
-    "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN",
+    "OPENAI_API_KEY",
     "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE",
     "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
     "http_proxy", "https_proxy", "no_proxy",
@@ -2547,7 +2548,16 @@ def check_answer(task: Mapping[str, Any], record: Mapping[str, Any],
     assignments = answer.get("assignments")
     reason = answer.get("no_mapping_reason") or ""
     reason = reason.strip() if visible_text(reason) else ""
-    broad = bool(answer.get("broad_scope_exception"))
+    # Strikt wie der Vertrag: ``bool("")`` machte aus einem Textfeld
+    # klaglos ein Nein, und eine 1 aus einem Ja - beides lehnt
+    # ``MappingUnitResult`` ab, und beides verschoebe die Anzahlgrenze.
+    roh_broad = answer.get("broad_scope_exception", False)
+    if not isinstance(roh_broad, bool):
+        result.problems.append(_field_problem(
+            unit_id,
+            f"broad_scope_exception={roh_broad!r} ist kein Wahrheitswert.",
+            f"Unit mit 'run --unit-id {unit_id} --force' wiederholen."))
+    broad = roh_broad is True
     if decision not in ("mapped", "no_mapping") or not isinstance(assignments, list):
         result.problems.append(_field_problem(
             unit_id, f"decision={decision!r}, assignments={type(assignments).__name__}.",
@@ -2615,7 +2625,7 @@ def check_answer(task: Mapping[str, Any], record: Mapping[str, Any],
                 f"confidence={confidence!r} liegt nicht zwischen "
                 f"{MIN_CONFIDENCE} und {MAX_CONFIDENCE}.",
                 "Wert in der Reviewdatei korrigieren."))
-        if not excerpt.strip() or not rationale.strip():
+        if not visible_text(excerpt) or not visible_text(rationale):
             result.problems.append(_field_problem(
                 unit_id,
                 f"Zuordnung {position} ({industry_id}) hat ein leeres "
@@ -3131,8 +3141,25 @@ BALANCE_FIELDS = ("confidence", "evidence_excerpt", "rationale_short",
                   "no_mapping_reason")
 
 
-def _row_key(unit_id: str, industry_id: str) -> str:
-    return f"{unit_id}|{industry_id}"
+def _row_key(unit_id: str, industry_id: str, vorkommen: int) -> str:
+    """Schluessel einer Zeile samt laufender Nummer ihres Vorkommens.
+
+    Ohne die Nummer verschluckte ein Dict die zweite von zwei gleichen Zeilen;
+    die Bilanz zeigte dann eine Aenderung, wo eine Dublette steht. Die Dublette
+    selbst meldet ``GS_UNIT_DUPLICATE``.
+    """
+    return f"{unit_id}|{industry_id}" + (f"|#{vorkommen}" if vorkommen else "")
+
+
+def _keyed(werte: Sequence[Mapping[str, str]]) -> dict[str, Mapping[str, str]]:
+    gezaehlt: dict[tuple[str, str], int] = {}
+    gebunden: dict[str, Mapping[str, str]] = {}
+    for row in werte:
+        paar = (row["unit_id"], row["industry_id"])
+        nummer = gezaehlt.get(paar, 0)
+        gezaehlt[paar] = nummer + 1
+        gebunden[_row_key(paar[0], paar[1], nummer)] = row
+    return gebunden
 
 
 def change_balance(rows: Sequence[Mapping[str, Any]], source: str
@@ -3144,16 +3171,13 @@ def change_balance(rows: Sequence[Mapping[str, Any]], source: str
     von der Tabellenkalkulation umgeschrieben wurde - und genau das ist bei
     ``evidence_excerpt`` und ``rationale_short`` sonst nirgends geprueft.
     """
-    vorher = {
-        _row_key(row["unit_id"], row["industry_id"]): row
-        for row in read_csv(labels_path(source), LABEL_COLUMNS,
-                            was=f"mit den Labels von {source}")
-    }
-    nachher: dict[str, dict[str, str]] = {}
-    for row in rows:
-        werte = {column: text_value(row[column].value).strip()
-                 for column in LABEL_COLUMNS}
-        nachher[_row_key(werte["unit_id"], werte["industry_id"])] = werte
+    vorher = _keyed(read_csv(labels_path(source), LABEL_COLUMNS,
+                             was=f"mit den Labels von {source}"))
+    nachher = _keyed([
+        {column: text_value(row[column].value).strip()
+         for column in LABEL_COLUMNS}
+        for row in rows
+    ])
 
     zeilen: list[str] = []
     for key in sorted(set(vorher) | set(nachher)):
@@ -3205,7 +3229,11 @@ def check_edited_units(zuordnungen: Mapping[str, list[dict[str, Any]]],
         for row in notes if text_value(row["unit_id"].value).strip()
     }
 
-    for unit_id, eintraege in zuordnungen.items():
+    # Ueber ``decisions`` und nicht ueber ``zuordnungen``: eine Unit ohne
+    # Zuordnung steht in ``zuordnungen`` gar nicht, und genau bei ihr ist die
+    # Broad-Scope-Ausnahme unzulaessig - sie bliebe sonst ungeprueft.
+    for unit_id in decisions:
+        eintraege = zuordnungen.get(unit_id, [])
         task = load_task(unit_id)
         broad, broad_reason = broad_flags.get(unit_id, (False, ""))
         decision = ("mapped" if "mapped" in decisions.get(unit_id, set())

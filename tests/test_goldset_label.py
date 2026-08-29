@@ -395,6 +395,23 @@ def test_kernbereich_kennt_keine_ausnahme() -> None:
     assert gs.assignment_limit(task) == gs.REGULAR_ASSIGNMENT_LIMIT
 
 
+@pytest.mark.parametrize("wert", ["", "ja", 1])
+def test_broad_scope_muss_ein_wahrheitswert_sein(paar, taxonomy, wert) -> None:
+    """``bool("")`` machte aus einem Textfeld klaglos ein Nein."""
+    task, record = paar
+    breit(record, taxonomy, gs.REGULAR_ASSIGNMENT_LIMIT + 1)
+    record["answer"]["broad_scope_exception"] = wert
+    assert "GS_SCHEMA_INVALID" in codes(task, record, taxonomy)
+
+
+@pytest.mark.parametrize("feld", ["evidence_excerpt", "rationale_short"])
+def test_pflichtfeld_aus_unsichtbaren_zeichen(paar, taxonomy, feld) -> None:
+    """Zero-Width-Spaces sind kein Leerraum und bestuenden ein strip()."""
+    task, record = paar
+    record["answer"]["assignments"][0][feld] = "\u200b\u200b"
+    assert "GS_SCHEMA_INVALID" in codes(task, record, taxonomy)
+
+
 def test_no_mapping_ist_eine_zeile(paar, taxonomy) -> None:
     task, record = paar
     record["answer"].update(decision="no_mapping", assignments=[],
@@ -571,6 +588,53 @@ def test_verify_weigert_sich_bei_sperrvermerk(sandbox, taxonomy, capsys) -> None
     assert "GS_XLSX_LOCKED" in capsys.readouterr().err
 
 
+def test_verify_prueft_broad_scope_ohne_zuordnung(sandbox, capsys) -> None:
+    """Eine no_mapping-Unit steht in keiner Zuordnungsliste - und genau dort
+    ist die Ausnahme unzulaessig."""
+    pfad = workbook_vorbereiten(sandbox)
+    book = load_workbook(pfad)
+    labels = book[gs.SHEET_LABELS]
+    unit_id = labels.cell(row=2, column=1).value
+    labels.cell(row=2, column=2, value="")
+    labels.cell(row=2, column=3, value="")
+    labels.cell(row=2, column=4, value="")
+    labels.cell(row=2, column=5, value="")
+    labels.cell(row=2, column=6, value="Keine Beruehrung zu einer Industry.")
+    notes = book[gs.SHEET_NOTES]
+    spalte = gs.NOTE_COLUMNS.index("broad_scope") + 1
+    grund = gs.NOTE_COLUMNS.index("broad_scope_reason") + 1
+    for zeile in range(2, notes.max_row + 1):
+        if notes.cell(row=zeile, column=1).value == unit_id:
+            notes.cell(row=zeile, column=spalte, value="ja")
+            notes.cell(row=zeile, column=grund, value="Die Zustaendigkeit ist breit.")
+    book.save(pfad)
+    capsys.readouterr()
+
+    assert lauf("verify", "--source", "claude") == 2
+    ausgabe = capsys.readouterr().out
+    assert "GS_BROAD_SCOPE_INVALID" in ausgabe
+    assert unit_id in ausgabe
+
+
+def test_verify_bilanziert_dubletten_einzeln(sandbox, capsys) -> None:
+    """Zwei gleiche Zeilen duerfen sich in der Bilanz nicht ueberschreiben."""
+    pfad = workbook_vorbereiten(sandbox)
+    book = load_workbook(pfad)
+    labels = book[gs.SHEET_LABELS]
+    werte = [labels.cell(row=2, column=nr).value
+             for nr in range(1, len(gs.LABEL_COLUMNS) + 1)]
+    labels.append(werte)
+    book.save(pfad)
+    capsys.readouterr()
+
+    assert lauf("verify", "--source", "claude") == 2
+    ausgabe = capsys.readouterr().out
+    assert "GS_UNIT_DUPLICATE" in ausgabe
+    # Die zweite Zeile ist neu, keine Aenderung der ersten.
+    assert "neu:      " in ausgabe
+    assert "geaendert" not in ausgabe
+
+
 # -- Ueberschreibschutz ----------------------------------------------------
 def test_to_xlsx_blockiert_vorhandene_datei(sandbox, capsys) -> None:
     """Die Reviewdatei traegt die Abnahmearbeit und darf nicht stillschweigend
@@ -608,6 +672,19 @@ def test_to_xlsx_ohne_source_nimmt_merged(sandbox, capsys) -> None:
     fehler = capsys.readouterr().err
     assert "GS_LABELS_MISSING" in fehler
     assert "labels_merged.csv" in fehler
+
+
+def test_to_xlsx_ohne_source_nach_dem_merge(sandbox, taxonomy, capsys) -> None:
+    """Nach dem Merge greift derselbe Default und erzeugt die Mappe."""
+    for engine in ("claude", "codex"):
+        assert lauf("run", "--engine", engine) == 0
+        assert lauf("collect", "--engine", engine) == 0
+    assert lauf("merge", "--base", "claude", "--against", "codex") == 0
+    capsys.readouterr()
+
+    assert lauf("to-xlsx") == 0
+    assert gs.WORKBOOK_PATH.exists()
+    assert lauf("verify") == 0
 
 
 # -- Zwischentabellen ------------------------------------------------------
@@ -654,6 +731,26 @@ def test_status_schlaegt_textmerkmal(capsys) -> None:
     found = gs.classify_failure("claude", result, config())
     assert found.code == "GS_CLI_UNAUTHORIZED"
     assert "GS_MODEL_UNKNOWN" in found.abhilfe  # Mehrfachtreffer wird genannt
+
+
+def test_status_schlaegt_die_textmarke(capsys) -> None:
+    """Der HTTP-Status entscheidet, auch wenn eine Textmarke schon traf.
+
+    Der gemeldete Fall: 429 zusammen mit 'rate limit' und 'unexpected
+    argument' ergab frueher GS_CLI_FLAG, weil der Statuscode nicht nach vorn
+    geholt wurde, wenn ihn eine Marke bereits gefunden hatte.
+    """
+    # Der Status steht strukturiert im Abschlussereignis, die beiden
+    # Textmerkmale daneben im stderr.
+    found = gs.classify_failure("claude", ergebnis(
+        stderr="unexpected argument --effort\nrate limit reached",
+        stdout='{"type":"result","is_error":true,"api_error_status":429}',
+    ), config())
+    assert found.code == "GS_RATE_LIMITED"
+    # Die uebrigen Merkmale gehen nicht verloren, sie stehen nur hinten - und
+    # der gewaehlte Code erscheint dort nicht doppelt.
+    assert "GS_CLI_FLAG" in found.abhilfe
+    assert "GS_RATE_LIMITED" not in found.abhilfe
 
 
 def test_unbekannte_ursache_ist_kein_schemafehler() -> None:
@@ -736,6 +833,23 @@ def test_resume_meldet_fremdes_modell(sandbox, capsys) -> None:
     ausgabe = capsys.readouterr().out
     assert "GS_RESUME_MISMATCH" in ausgabe
     assert "--force" in ausgabe
+
+
+@pytest.mark.parametrize("feld", gs.RESUME_BINDING_FIELDS)
+def test_resume_prueft_jede_bindung(sandbox, capsys, feld) -> None:
+    """Auch ein geaenderter Systemprompt darf nicht uebersprungen werden."""
+    unit = "house--energy-and-commerce--energy"
+    assert lauf("run", "--engine", "claude", "--unit-id", unit) == 0
+    pfad = gs.answer_path("claude", unit)
+    payload = json.loads(pfad.read_text(encoding="utf-8"))
+    payload["binding"][feld] = "abweichender-hash"
+    pfad.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    capsys.readouterr()
+
+    assert lauf("run", "--engine", "claude", "--unit-id", unit) == 2
+    ausgabe = capsys.readouterr().out
+    assert "GS_RESUME_MISMATCH" in ausgabe
+    assert feld in ausgabe
 
 
 def test_resume_meldet_kaputte_antwortdatei(sandbox, capsys) -> None:
