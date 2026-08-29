@@ -2550,7 +2550,17 @@ def check_answer(task: Mapping[str, Any], record: Mapping[str, Any],
     # Der Vertrag unterscheidet 'nicht gesetzt' von 'leer gesetzt': bei
     # ``mapped`` lehnt er jeden Wert ausser ``None`` ab, auch den leeren
     # String. ``or ""`` haette beide Faelle zu einem verschmolzen.
+    # Die beiden Begruendungsfelder sind ``str | None``; ein ``False`` waere
+    # sonst falsy und ergaebe stillschweigend 'keine Begruendung'.
+    wiederholen = f"Unit mit 'run --unit-id {unit_id} --force' wiederholen."
     roh_reason = answer.get("no_mapping_reason")
+    roh_broad_reason = answer.get("broad_scope_reason")
+    for feld, wert in (("no_mapping_reason", roh_reason),
+                       ("broad_scope_reason", roh_broad_reason)):
+        if wert is not None and not isinstance(wert, str):
+            result.problems.append(_field_problem(
+                unit_id, f"{feld}={wert!r} ist weder Text noch leer.",
+                wiederholen))
     reason = roh_reason.strip() if visible_text(roh_reason) else ""
     # Strikt wie der Vertrag: ``bool("")`` machte aus einem Textfeld
     # klaglos ein Nein, und eine 1 aus einem Ja - beides lehnt
@@ -2560,7 +2570,7 @@ def check_answer(task: Mapping[str, Any], record: Mapping[str, Any],
         result.problems.append(_field_problem(
             unit_id,
             f"broad_scope_exception={roh_broad!r} ist kein Wahrheitswert.",
-            f"Unit mit 'run --unit-id {unit_id} --force' wiederholen."))
+            wiederholen))
     broad = roh_broad is True
     if decision not in ("mapped", "no_mapping") or not isinstance(assignments, list):
         result.problems.append(_field_problem(
@@ -2601,9 +2611,11 @@ def check_answer(task: Mapping[str, Any], record: Mapping[str, Any],
         # 'None' und aus ``1`` die Zeichenkette '1'; beide bestuenden jede
         # weitere Pruefung, obwohl der Vertrag nur Text zulaesst.
         texte: dict[str, str] = {}
+        typfehler: set[str] = set()
         for feld in ("industry_id", "evidence_excerpt", "rationale_short"):
             wert = item.get(feld, "")
             if not isinstance(wert, str):
+                typfehler.add(feld)
                 result.problems.append(_field_problem(
                     unit_id,
                     f"Zuordnung {position}: {feld}={wert!r} ist kein Text.",
@@ -2612,6 +2624,12 @@ def check_answer(task: Mapping[str, Any], record: Mapping[str, Any],
         industry_id = texte["industry_id"].strip()
         excerpt = texte["evidence_excerpt"]
         rationale = texte["rationale_short"]
+
+        if "industry_id" in typfehler:
+            # Der ersatzweise leere Wert erzeugte sonst gleich darauf einen
+            # zweiten Befund ueber eine unbekannte Industry; gemeldet gehoert
+            # der Typfehler, nicht seine Folge.
+            continue
 
         if industry_id not in taxonomy.ids:
             near = [known for known in sorted(taxonomy.ids)

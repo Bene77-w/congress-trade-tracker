@@ -299,7 +299,9 @@ sowie eigene Evidence und eigene Rationale je Industry. `collect` liest die
 Vertragsfelder dabei so streng wie Pydantic: `broad_scope_exception` muss ein
 echter Wahrheitswert sein (`bool("")` machte aus einem Textfeld sonst klaglos
 ein Nein), Textfelder müssen Text sein (`str(None)` ergäbe sonst den sichtbaren
-Wert `None`), Pflichttexte gelten nur mit sichtbarem Inhalt — unsichtbare
+Wert `None`), die beiden Begründungsfelder sind Text oder leer (`False` wäre
+sonst falsy und ergäbe stillschweigend „keine Begründung"), Pflichttexte gelten
+nur mit sichtbarem Inhalt — unsichtbare
 Formatzeichen bestünden ein `strip()` —, und `mapped` duldet keinen
 `no_mapping_reason`, auch keinen leeren.
 

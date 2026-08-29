@@ -430,6 +430,22 @@ def test_textfelder_muessen_text_sein(paar, taxonomy, feld, wert) -> None:
     assert "GS_SCHEMA_INVALID" in codes(task, record, taxonomy)
 
 
+def test_typfehler_der_industry_id_meldet_nicht_die_folge(paar, taxonomy) -> None:
+    """Gemeldet gehoert der Typfehler, nicht die daraus folgende leere ID."""
+    task, record = paar
+    record["answer"]["assignments"][0]["industry_id"] = None
+    gefunden = codes(task, record, taxonomy)
+    assert gefunden == {"GS_SCHEMA_INVALID"}
+
+
+@pytest.mark.parametrize("feld", ["no_mapping_reason", "broad_scope_reason"])
+def test_begruendungsfelder_sind_text_oder_leer(paar, taxonomy, feld) -> None:
+    """``False`` waere falsy und ergaebe stillschweigend 'keine Begruendung'."""
+    task, record = paar
+    record["answer"][feld] = False
+    assert "GS_SCHEMA_INVALID" in codes(task, record, taxonomy)
+
+
 def test_no_mapping_ist_eine_zeile(paar, taxonomy) -> None:
     task, record = paar
     record["answer"].update(decision="no_mapping", assignments=[],
@@ -1168,10 +1184,17 @@ def test_positivliste_uebernimmt_nur_gesetzte_werte(monkeypatch) -> None:
     "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN",
     "OPENAI_API_KEY",
 ])
-def test_anmeldung_erreicht_den_unterprozess(monkeypatch, name) -> None:
-    """Ohne diese Variablen scheiterte eine tokenbasierte Anmeldung."""
-    monkeypatch.setenv(name, "geheim")
-    assert gs.clean_env()[name] == "geheim"
+def test_anmeldung_erreicht_den_unterprozess(tmp_path, monkeypatch, name) -> None:
+    """Ohne diese Variablen scheiterte eine tokenbasierte Anmeldung.
+
+    Geprueft wird am Kindprozess und nicht an ``clean_env`` allein: eine
+    Entkopplung der beiden bliebe sonst unentdeckt.
+    """
+    monkeypatch.setenv(name, "geheim-" + name.lower())
+    zeigen = f'printf "%s\\n" "{name}=${name}" >&2\n'
+    result = codex_lauf(tmp_path, monkeypatch,
+                        zeigen + antwort_schreiben('{"unit_id": "x"}'))
+    assert f"{name}=geheim-{name.lower()}" in result.stderr
 
 
 def test_verify_nennt_die_unicodevariante(sandbox, taxonomy, capsys) -> None:
