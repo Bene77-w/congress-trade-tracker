@@ -15,6 +15,7 @@ Es gibt weiterhin kein ``promote``, ``finalize``, ``research`` oder LLM-``review
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -221,6 +222,11 @@ def _add_common_flags(parser: argparse.ArgumentParser, command: Command) -> None
             help="Evaluationsrevision; Export, Labelimport und Prueflauf sind "
                  "daran gebunden",
         )
+        parser.add_argument(
+            "--labels",
+            help="gelabelte Gold-Set-Datei (.xlsx oder .csv); ohne Angabe die "
+                 "Arbeitsdatei des Labelwerkzeugs",
+        )
     if command.family == "run":
         parser.add_argument("--chamber", help="nur Entwicklungsruns: Kammerfilter")
         parser.add_argument("--committee", help="nur Entwicklungsruns: Committee-Filter")
@@ -258,26 +264,32 @@ def _slug(name: str) -> str:
     return name.replace(" ", "_").replace("-", "_")
 
 
-def _report_segments(command_name: str, run_id: str | None) -> tuple[str, ...]:
-    """Ablageort der Diagnose; mit Run-ID an den Lauf gebunden.
+def _report_segments(command_name: str, revision: str | None,
+                     family: str | None = None) -> tuple[str, ...]:
+    """Ablageort der Diagnose; mit Revision an den Vorgang gebunden.
 
     Ohne Bindung ueberschreibt der naechste Aufruf desselben Kommandos den
     Bericht des vorigen Laufs - genau die Datei, die einen abgebrochenen Lauf
-    erklaert.
+    erklaert. Evaluationen liegen dabei bei ihrer eigenen Revision und nicht
+    unter ``runs``.
     """
-    if run_id:
-        return ("runs", run_id, REPORT_DIR, _slug(command_name))
+    if revision and family == "evaluate":
+        return (evaluation_module.EVALUATIONS_DIR, revision, REPORT_DIR,
+                _slug(command_name))
+    if revision:
+        return ("runs", revision, REPORT_DIR, _slug(command_name))
     return (REPORT_DIR, _slug(command_name))
 
 
 def _persist(collector: ErrorCollector, command_name: str,
-             run_id: str | None = None) -> tuple[list[str], object]:
+             run_id: str | None = None,
+             family: str | None = None) -> tuple[list[str], object]:
     """Schreibt den strukturierten Fehlerbericht ueber die Pfadwache.
 
     Scheitert das Schreiben, bricht der Lauf nicht ab: der Terminalbericht
     erscheint trotzdem und nennt den Fehlschlag als Warnung.
     """
-    segments = _report_segments(command_name, run_id)
+    segments = _report_segments(command_name, run_id, family)
     try:
         target = paths.artifact_path(*segments, REPORT_FILENAME)
         collector.write_json(target)
@@ -2050,6 +2062,97 @@ def _export_evaluation(
     )
 
 
+def handle_evaluate_import(
+    command: Command, namespace: argparse.Namespace,
+    collector: ErrorCollector, settings: MatcherSettings,
+    reporter: TerminalReporter,
+) -> tuple[list[str], list[str]]:
+    """Uebernimmt das gelabelte Entwicklungs-Gold-Set in die Revision (Plan P9).
+
+    Abgelehnt heisst: keine Datei geschrieben. Ein halb uebernommenes Gold-Set
+    waere schlimmer als keines, denn es saehe vollstaendig aus.
+    """
+    eval_id = _eval_id(collector, namespace)
+    if eval_id is None:
+        return [], []
+    reporter.start(Stage.EVALUATION, evaluation=eval_id, action="import")
+    try:
+        return _import_goldset(namespace, collector, settings, reporter, eval_id)
+    except MatcherError as exc:
+        reporter.error(Stage.EVALUATION, evaluation=eval_id,
+                       code=exc.findings[0].code if exc.findings else "EVAL_FAILED")
+        raise
+
+
+def _import_goldset(
+    namespace: argparse.Namespace, collector: ErrorCollector,
+    settings: MatcherSettings, reporter: TerminalReporter, eval_id: str,
+) -> tuple[list[str], list[str]]:
+    """Der Ablauf des Labelimports; ohne Netz und ohne Modellaufruf."""
+    rejected = [f"Evaluation: {eval_id}", "Gold-Set:   abgelehnt"]
+    manifest = evaluation_module.require_export_manifest(eval_id)
+    if evaluation_module.load_goldset(eval_id) is not None:
+        collector.blocker(
+            "EVAL_GOLDSET_PRESENT", Stage.EVALUATION, eval_id,
+            "Diese Revision traegt bereits ein Gold-Set.",
+            "Neue --eval-id exportieren und gegen sie labeln; ein Gold-Set "
+            "wird nie ueberschrieben.",
+            exit_code=ExitCode.REVIEW_IMPORT_REJECTED)
+        reporter.error(Stage.EVALUATION, evaluation=eval_id,
+                       code="EVAL_GOLDSET_PRESENT")
+        return rejected, []
+
+    given = str(getattr(namespace, "labels", None) or "").strip()
+    source = Path(given) if given else evaluation_module.label_workbook_path()
+
+    snapshot = taxonomy_snapshot.approved_snapshot(collector)
+    if snapshot is None:
+        reporter.wait(Stage.EVALUATION, evaluation=eval_id,
+                      awaiting_taxonomy_approval=None, reason="no_baseline")
+        return rejected, []
+    corpus = input_corpus.load_documents(collector, settings.offline)
+    units = unit_module.build_units(collector, corpus.documents)
+    if collector.has_blockers():
+        reporter.error(Stage.EVALUATION, evaluation=eval_id, code="EVAL_INPUT")
+        return rejected, []
+
+    evaluation_module.check_label_binding(
+        manifest, snapshot=snapshot, input_manifest_hash=corpus.manifest_sha256,
+        units={unit.unit_id: unit for unit in units}, collector=collector)
+    rows = evaluation_module.read_labels(source, collector)
+    goldset = evaluation_module.build_goldset(
+        rows,
+        expected_units=list(manifest.get("selection", {}).get("unit_ids") or []),
+        industry_ids=snapshot.industry_ids(),
+        collector=collector)
+    if goldset is None or collector.has_blockers():
+        reporter.error(Stage.EVALUATION, evaluation=eval_id,
+                       code="EVAL_GOLDSET_REJECTED", rows=len(rows))
+        return rejected, []
+
+    payload = evaluation_module.goldset_payload(
+        eval_id, manifest, goldset,
+        source=source,
+        source_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),
+        row_count=len(rows))
+    written = evaluation_module.write_goldset(eval_id, payload)
+    reporter.ok(Stage.EVALUATION, evaluation=eval_id, state=WorkflowState.PENDING.value,
+                units=payload["unit_count"], assignments=payload["assignment_count"])
+    return (
+        [
+            f"Evaluation: {eval_id}",
+            f"Zustand:    {WorkflowState.PENDING.value}",
+            f"Gold-Set:   {payload['unit_count']} Unit(s) | "
+            f"{payload['assignment_count']} Zuordnung(en) | "
+            f"{payload['no_mapping_units']} ohne Zuordnung",
+            f"Labels:     {paths.relative_to_base(source)} ({len(rows)} Zeile(n))",
+            "Naechster:  Gate vor dem Prueflauf; danach "
+            f"'evaluate run --eval-id {eval_id}'",
+        ],
+        [paths.relative_to_base(written)],
+    )
+
+
 HANDLERS = {
     "provider check": handle_provider_check,
     "provider smoke": handle_provider_smoke,
@@ -2064,14 +2167,18 @@ HANDLERS = {
     "review export": handle_review_export,
     "review import": handle_review_import,
     "evaluate export": handle_evaluate_export,
+    "evaluate import": handle_evaluate_import,
 }
 
 
 def _report_run_id(command: Command, namespace: argparse.Namespace) -> str | None:
-    """Run-ID eines laufgebundenen Kommandos, sofern sie gueltig ist."""
-    if not command.requires_run_id:
+    """Revision eines revisionsgebundenen Kommandos, sofern sie gueltig ist."""
+    if command.family == "evaluate":
+        raw = str(getattr(namespace, "eval_id", "") or "").strip()
+    elif command.requires_run_id:
+        raw = str(getattr(namespace, "run_id", "") or "").strip()
+    else:
         return None
-    raw = str(getattr(namespace, "run_id", "") or "").strip()
     return raw if raw and RUN_ID_RE.match(raw) else None
 
 
@@ -2086,7 +2193,8 @@ def _abort_report(collector: ErrorCollector, command: Command | None,
     """
     name = command.name if command is not None else PROGRAM
     run_id = _report_run_id(command, namespace) if command is not None else None
-    artifacts, persist_finding = _persist(collector, name, run_id)
+    artifacts, persist_finding = _persist(
+        collector, name, run_id, command.family if command is not None else None)
     if persist_finding is not None:
         collector.extend([persist_finding])
     print_report(collector, headline=headline, artifacts=artifacts)
@@ -2131,7 +2239,8 @@ def run_command(command: Command, namespace: argparse.Namespace) -> int:
             collector.extend(exc.findings)
 
     artifacts, persist_finding = _persist(
-        collector, command.name, _report_run_id(command, namespace))
+        collector, command.name, _report_run_id(command, namespace),
+        command.family)
     if persist_finding is not None:
         collector.extend([persist_finding])
     artifacts = stage_artifacts + artifacts

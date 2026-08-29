@@ -6,12 +6,15 @@ Artefaktwurzel und Settings liegen unter ``tmp_path``.
 """
 from __future__ import annotations
 
+import hashlib
 import json
+import shutil
 import sys
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from openpyxl import Workbook
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -153,8 +156,12 @@ def test_export_freezes_the_revision_and_hands_over(sandbox, capsys):
     # einem einzigen atomaren Schreibvorgang.
     assert manifest["state"] == WorkflowState.AWAITING_DEVELOPMENT_GOLDSET.value
     assert sorted(path.name for path in
-                  evaluation.evaluation_path(EVAL_ID).iterdir()) == [
-        evaluation.EXPORT_MANIFEST_FILENAME]
+                  evaluation.evaluation_path(EVAL_ID).iterdir()
+                  if path.is_file()) == [evaluation.EXPORT_MANIFEST_FILENAME]
+    # Der Fehlerbericht liegt bei seiner Revision; sonst ueberschriebe ihn der
+    # naechste Evaluationsvorgang.
+    assert (evaluation.evaluation_path(EVAL_ID)
+            / "reports" / "evaluate_export" / "errors.json").exists()
     out = capsys.readouterr().out
     assert "[START] evaluation | evaluation=eval-p9a | action=export" in out
     assert "awaiting_development_goldset" in out
@@ -477,3 +484,192 @@ def test_an_aborting_module_still_closes_its_start(sandbox, capsys):
     captured = capsys.readouterr()
     assert "[START] evaluation | evaluation=eval-p9a | action=export" in captured.out
     assert "[ERROR] evaluation | evaluation=eval-p9a | code=PRM_UNREADABLE" in captured.err
+
+
+# ---------------------------------------------------------------------------
+# evaluate import (P9b)
+# ---------------------------------------------------------------------------
+
+def label_rows(**overrides) -> list[dict[str, str]]:
+    """Ein vollstaendiges, gueltiges Gold-Set der beiden Stichprobenunits."""
+    rows = [
+        {"unit_id": "house--testing--livestock",
+         "industry_id": "farm-products", "confidence": "4",
+         "evidence_excerpt": "Zustaendig fuer Subcommittee on Livestock",
+         "rationale_short": "Erzeugung und Vermarktung.",
+         "no_mapping_reason": ""},
+        {"unit_id": "house--testing--livestock",
+         "industry_id": "agricultural-inputs", "confidence": "3",
+         "evidence_excerpt": "dessen Aufsicht",
+         "rationale_short": "Futter und Vorprodukte.",
+         "no_mapping_reason": ""},
+        {"unit_id": "house--testing--nutrition",
+         "industry_id": "", "confidence": "",
+         "evidence_excerpt": "", "rationale_short": "",
+         "no_mapping_reason": "Ernaehrungsprogramme sind keine Branche."},
+    ]
+    for key, value in overrides.items():
+        index, field = key.split("__")
+        rows[int(index)][field] = value
+    return rows
+
+
+def write_labels(rows=None, *, suffix=".csv", path: Path | None = None) -> Path:
+    rows = label_rows() if rows is None else rows
+    target = path or (evaluation.sample_path().parent / f"labels{suffix}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if suffix == ".csv":
+        lines = [",".join(evaluation.LABEL_COLUMNS)]
+        for row in rows:
+            lines.append(",".join(
+                '"' + str(row[name]).replace('"', '""') + '"'
+                for name in evaluation.LABEL_COLUMNS))
+        target.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return target
+    book = Workbook()
+    sheet = book.active
+    sheet.title = evaluation.LABEL_SHEET
+    sheet.append(list(evaluation.LABEL_COLUMNS))
+    for row in rows:
+        sheet.append([row[name] for name in evaluation.LABEL_COLUMNS])
+    book.save(target)
+    return target
+
+
+def import_argv(source: Path, eval_id: str = EVAL_ID) -> list[str]:
+    return ["evaluate", "import", "--eval-id", eval_id, "--labels", str(source)]
+
+
+@pytest.fixture
+def exported(sandbox, capsys):
+    """Eine eroeffnete Revision; die Ausgabe des Exports ist verworfen."""
+    assert cli.main(export_argv()) == int(ExitCode.SUCCESS)
+    capsys.readouterr()
+    return sandbox
+
+
+def test_the_import_accepts_the_goldset_and_moves_the_revision_on(exported, capsys):
+    assert cli.main(import_argv(write_labels())) == int(ExitCode.SUCCESS)
+    goldset = evaluation.load_goldset(EVAL_ID)
+    assert goldset is not None
+    assert goldset["unit_count"] == 2
+    assert goldset["assignment_count"] == 2
+    assert goldset["no_mapping_units"] == 1
+    assert evaluation.revision_state(EVAL_ID) is WorkflowState.PENDING
+    out = capsys.readouterr().out
+    assert "[OK] evaluation | evaluation=eval-p9a | state=pending" in out
+
+
+def test_the_goldset_records_where_the_labels_came_from(exported):
+    source = write_labels()
+    cli.main(import_argv(source))
+    goldset = evaluation.load_goldset(EVAL_ID)
+    assert goldset["labels"]["rows"] == 3
+    assert goldset["labels"]["sha256"] == hashlib.sha256(
+        source.read_bytes()).hexdigest()
+    assert goldset["snapshot_id"] == "run-taxonomy"
+
+
+def test_the_import_reads_a_workbook_as_well(exported):
+    assert cli.main(import_argv(write_labels(suffix=".xlsx"))) == int(ExitCode.SUCCESS)
+    assert evaluation.load_goldset(EVAL_ID)["assignment_count"] == 2
+
+
+def test_a_formula_cell_is_never_taken_as_a_label(exported, capsys):
+    rows = label_rows()
+    rows[0]["confidence"] = "=1+3"
+    assert cli.main(import_argv(write_labels(rows, suffix=".xlsx"))) == int(
+        ExitCode.REVIEW_IMPORT_REJECTED)
+    assert "EVAL_LABEL_FORMULA_CELL" in capsys.readouterr().out
+    assert evaluation.load_goldset(EVAL_ID) is None
+
+
+@pytest.mark.parametrize("overrides, code", [
+    ({"0__unit_id": "house--gibt-es-nicht"}, "EVAL_LABEL_UNIT_UNKNOWN"),
+    ({"0__unit_id": ""}, "EVAL_LABEL_UNIT_MISSING"),
+    ({"0__industry_id": "gibt-es-nicht"}, "EVAL_LABEL_INDUSTRY_UNKNOWN"),
+    ({"1__industry_id": "farm-products"}, "EVAL_LABEL_INDUSTRY_DUPLICATE"),
+    ({"0__confidence": "sehr sicher"}, "EVAL_LABEL_CONFIDENCE_INVALID"),
+    ({"0__confidence": "9"}, "EVAL_LABEL_CONFIDENCE_INVALID"),
+    ({"0__no_mapping_reason": "trotzdem kein Treffer"}, "EVAL_LABEL_CONTRADICTION"),
+    ({"2__no_mapping_reason": ""}, "EVAL_LABEL_REASON_MISSING"),
+])
+def test_every_rejection_reason_blocks_and_writes_nothing(exported, capsys,
+                                                          overrides, code):
+    assert cli.main(import_argv(write_labels(label_rows(**overrides)))) == int(
+        ExitCode.REVIEW_IMPORT_REJECTED)
+    assert code in capsys.readouterr().out
+    assert evaluation.load_goldset(EVAL_ID) is None
+    assert evaluation.revision_state(EVAL_ID) is (
+        WorkflowState.AWAITING_DEVELOPMENT_GOLDSET)
+
+
+def test_a_missing_sample_unit_is_a_gap_not_a_no_mapping(exported, capsys):
+    rows = [row for row in label_rows()
+            if row["unit_id"] != "house--testing--nutrition"]
+    assert cli.main(import_argv(write_labels(rows))) == int(
+        ExitCode.REVIEW_IMPORT_REJECTED)
+    assert "EVAL_LABEL_UNIT_ABSENT" in capsys.readouterr().out
+    assert evaluation.load_goldset(EVAL_ID) is None
+
+
+def test_a_second_import_under_the_same_revision_is_refused(exported, capsys):
+    source = write_labels()
+    assert cli.main(import_argv(source)) == int(ExitCode.SUCCESS)
+    before = evaluation.goldset_path(EVAL_ID).read_text(encoding="utf-8")
+    capsys.readouterr()
+    assert cli.main(import_argv(source)) == int(ExitCode.REVIEW_IMPORT_REJECTED)
+    assert "EVAL_GOLDSET_PRESENT" in capsys.readouterr().out
+    assert evaluation.goldset_path(EVAL_ID).read_text(encoding="utf-8") == before
+
+
+def test_an_import_without_an_export_is_refused(sandbox, capsys):
+    assert cli.main(import_argv(write_labels())) == int(ExitCode.PREFLIGHT_BLOCKED)
+    assert "EVAL_EXPORT_MANIFEST_MISSING" in capsys.readouterr().out
+
+
+def test_a_changed_unit_text_makes_the_labels_stale(exported, capsys):
+    # Corpus mit anderem Jurisdiktionstext neu erzeugen; Manifest inklusive.
+    shutil.rmtree(exported.root)
+    build_corpus(exported.tmp_path, {
+        "house_testing.md": make_markdown(
+            sections=("Subcommittee on Livestock", "Subcommittee on Nutrition"),
+            preamble="Zustaendig fuer voellig andere Vorgaenge, deren "
+                     "Aufsicht und die zugehoerigen Verfahren."),
+    })
+    assert cli.main(import_argv(write_labels())) == int(
+        ExitCode.REVIEW_IMPORT_REJECTED)
+    out = capsys.readouterr().out
+    assert "EVAL_STALE_BINDING" in out
+    assert evaluation.load_goldset(EVAL_ID) is None
+
+
+def test_a_changed_taxonomy_makes_the_labels_stale(exported, capsys):
+    write_baseline(run_id="run-taxonomy-2")
+    assert cli.main(import_argv(write_labels())) == int(
+        ExitCode.REVIEW_IMPORT_REJECTED)
+    assert "EVAL_STALE_BINDING" in capsys.readouterr().out
+    assert evaluation.load_goldset(EVAL_ID) is None
+
+
+def test_an_unknown_label_format_is_refused(exported, capsys):
+    target = evaluation.sample_path().parent / "labels.txt"
+    target.write_text("unit_id\n", encoding="utf-8")
+    assert cli.main(import_argv(target)) == int(ExitCode.REVIEW_IMPORT_REJECTED)
+    assert "EVAL_LABELS_CONTRACT" in capsys.readouterr().out
+
+
+def test_a_missing_label_file_is_refused(exported, capsys):
+    assert cli.main(import_argv(
+        exported.tmp_path / "gibt-es-nicht.csv")) == int(
+        ExitCode.REVIEW_IMPORT_REJECTED)
+    assert "EVAL_LABELS_MISSING" in capsys.readouterr().out
+
+
+def test_wrong_columns_are_refused(exported, capsys):
+    target = evaluation.sample_path().parent / "labels.csv"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("unit_id,industry_id\nhouse--testing,farm-products\n",
+                      encoding="utf-8")
+    assert cli.main(import_argv(target)) == int(ExitCode.REVIEW_IMPORT_REJECTED)
+    assert "EVAL_LABELS_CONTRACT" in capsys.readouterr().out

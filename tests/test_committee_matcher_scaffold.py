@@ -896,6 +896,9 @@ OFFLINE_HANDLERS = sorted(
     if command.name in cli.HANDLERS
     and not command.network
     and not command.requires_run_id
+    # Evaluationsaktionen sind an eine Revision gebunden und laufen nie ohne
+    # Argumente; sie pruefen die P9-Tests.
+    and command.family != "evaluate"
 )
 
 

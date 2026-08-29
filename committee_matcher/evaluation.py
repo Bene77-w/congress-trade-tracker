@@ -22,11 +22,15 @@ gelangen in ein Artefakt.
 """
 from __future__ import annotations
 
+import csv
+import io
 import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Mapping, Sequence
+
+from openpyxl import load_workbook
 
 from . import paths, workflow
 from .errors import ErrorCollector, MatcherError, Stage
@@ -423,3 +427,409 @@ def variant_allowed(manifest: Mapping[str, object], batch_size: int) -> bool:
     """Prueft eine Batchgroesse gegen die eingefrorene Variantenmatrix."""
     variants = dict(manifest.get("variants") or {})
     return batch_size in list(variants.get("batch_sizes") or [])
+
+
+# ---------------------------------------------------------------------------
+# Gold-Set-Import
+# ---------------------------------------------------------------------------
+
+GOLDSET_FILENAME = "goldset.json"
+GOLDSET_VERSION = "development-goldset-v1"
+
+#: Blatt und Spalten der Labeldatei. Bewusst als Literale gefuehrt und nicht
+#: aus ``review.py`` importiert: die Uebereinstimmung mit dem Reviewvertrag ist
+#: gewollt, die Kopplung an den Pruefling nicht. Aenderte der Reviewpfad seine
+#: Leseregeln, duerfte sich das Gold-Set nicht mitaendern.
+LABEL_SHEET = "labels"
+LABEL_COLUMNS: tuple[str, ...] = (
+    "unit_id", "industry_id", "confidence", "evidence_excerpt",
+    "rationale_short", "no_mapping_reason",
+)
+#: Spalten, deren Wert eine Kennung ist. Nur sie werden beim Lesen getrimmt;
+#: Textfelder bleiben zeichengenau, damit das Zitat belegbar bleibt.
+STRIPPED_LABEL_COLUMNS: frozenset[str] = frozenset({
+    "unit_id", "industry_id", "confidence",
+})
+MIN_CONFIDENCE = 1
+MAX_CONFIDENCE = 4
+
+#: Vorgabe des Labelwerkzeugs (``scripts/committee_matcher_goldset_label.py``).
+LABEL_WORKBOOK_NAME = "goldset_review.xlsx"
+
+DECISION_MAPPED = "mapped"
+DECISION_NO_MAPPING = "no_mapping"
+
+
+def label_workbook_path() -> Path:
+    return paths.artifact_path(GOLDSET_DIR, LABEL_WORKBOOK_NAME)
+
+
+def goldset_path(eval_id: str, *, create_parents: bool = False) -> Path:
+    return evaluation_path(eval_id, GOLDSET_FILENAME, create_parents=create_parents)
+
+
+def _rejected(collector: ErrorCollector, code: str, obj: str, message: str,
+              hint: str) -> None:
+    """Ein abgelehnter Labelimport ist Exit 7; er sammelt jeden Grund."""
+    collector.blocker(code, Stage.EVALUATION, obj, message, hint,
+                      exit_code=ExitCode.REVIEW_IMPORT_REJECTED)
+
+
+def _label_text(value: object) -> str:
+    return "" if value is None else str(value)
+
+
+def _row(values: Mapping[str, object]) -> dict[str, str]:
+    return {
+        name: (_label_text(values.get(name)).strip()
+               if name in STRIPPED_LABEL_COLUMNS
+               else _label_text(values.get(name)))
+        for name in LABEL_COLUMNS
+    }
+
+
+def _read_label_csv(path: Path) -> tuple[dict[str, str], ...]:
+    text = path.read_text(encoding="utf-8")
+    # ``newline=""`` haelt eingebettete Zeilenumbrueche zusammen; ein
+    # mehrzeiliges Zitat waere sonst ein anderer Text als der gelabelte.
+    reader = csv.DictReader(io.StringIO(text, newline=""))
+    if tuple(reader.fieldnames or ()) != LABEL_COLUMNS:
+        raise _blocked(
+            "EVAL_LABELS_CONTRACT", paths.relative_to_base(path),
+            "Die Spalten der Labeldatei weichen vom Vertrag ab.",
+            f"Spalten in der Reihenfolge {', '.join(LABEL_COLUMNS)} fuehren.",
+            exit_code=ExitCode.REVIEW_IMPORT_REJECTED)
+    rows: list[dict[str, str]] = []
+    for line in reader:
+        if None in line or any(value is None for value in line.values()):
+            raise _blocked(
+                "EVAL_LABELS_CONTRACT", paths.relative_to_base(path),
+                "Eine Zeile hat eine andere Feldzahl als die Kopfzeile.",
+                "Datei mit dem Labelwerkzeug erzeugen; von Hand geaenderte "
+                "CSVs werden nicht gelesen.",
+                exit_code=ExitCode.REVIEW_IMPORT_REJECTED)
+        rows.append(_row(line))
+    return tuple(rows)
+
+
+def _read_label_workbook(path: Path,
+                         collector: ErrorCollector) -> tuple[dict[str, str], ...]:
+    """Liest das Blatt ``labels`` und lehnt Formelzellen ab.
+
+    Eine Formel liefert beim Lesen ihren Ausdruck statt eines Werts. Sie still
+    als Text zu uebernehmen wuerde einen Ausdruck zum Gold-Label machen.
+    """
+    try:
+        book = load_workbook(path, data_only=False)
+    except Exception as exc:  # openpyxl wirft je nach Schaden unterschiedlich
+        raise _blocked(
+            "EVAL_LABELS_UNREADABLE", paths.relative_to_base(path),
+            f"Die Labeldatei ist nicht lesbar: {exc}.",
+            "Datei des Labelwerkzeugs verwenden und als .xlsx speichern.",
+            exit_code=ExitCode.REVIEW_IMPORT_REJECTED)
+    if LABEL_SHEET not in book.sheetnames:
+        raise _blocked(
+            "EVAL_LABELS_CONTRACT", LABEL_SHEET,
+            f"Der Labeldatei fehlt das Blatt '{LABEL_SHEET}'.",
+            "Blaetter weder umbenennen noch entfernen.",
+            exit_code=ExitCode.REVIEW_IMPORT_REJECTED)
+    sheet = book[LABEL_SHEET]
+    header = tuple(_label_text(cell.value) for cell in sheet[1])
+    if header != LABEL_COLUMNS:
+        raise _blocked(
+            "EVAL_LABELS_CONTRACT", LABEL_SHEET,
+            "Die Spaltenkoepfe des Blatts weichen vom Vertrag ab.",
+            "Spalten weder umbenennen, verschieben noch entfernen.",
+            exit_code=ExitCode.REVIEW_IMPORT_REJECTED)
+
+    rows: list[dict[str, str]] = []
+    for line in sheet.iter_rows(min_row=2):
+        values: dict[str, object] = {}
+        for name, cell in zip(LABEL_COLUMNS, line):
+            if cell.data_type == "f":
+                _rejected(collector, "EVAL_LABEL_FORMULA_CELL",
+                          f"{LABEL_SHEET}!{cell.coordinate}",
+                          "Die Zelle enthaelt eine Formel statt eines Werts.",
+                          "Formel durch ihren Wert ersetzen (Einfuegen als "
+                          "Wert); ein Ausdruck wird nie als Gold-Label "
+                          "uebernommen.")
+            values[name] = cell.value
+        row = _row(values)
+        if any(value.strip() for value in row.values()):
+            rows.append(row)
+    return tuple(rows)
+
+
+def read_labels(path: Path, collector: ErrorCollector) -> tuple[dict[str, str], ...]:
+    """Liest die Labeldatei; XLSX und CSV tragen denselben Spaltenvertrag."""
+    if not path.exists():
+        raise _blocked(
+            "EVAL_LABELS_MISSING", paths.relative_to_base(path),
+            "Die Labeldatei existiert nicht.",
+            "Pfad mit --labels angeben oder das Gold-Set mit "
+            "scripts/committee_matcher_goldset_label.py erzeugen.",
+            exit_code=ExitCode.REVIEW_IMPORT_REJECTED)
+    suffix = path.suffix.lower()
+    if suffix == ".xlsx":
+        return _read_label_workbook(path, collector)
+    if suffix == ".csv":
+        return _read_label_csv(path)
+    raise _blocked(
+        "EVAL_LABELS_CONTRACT", paths.relative_to_base(path),
+        f"Dateiendung '{suffix or path.name}' ist kein Labelformat.",
+        "Labels als .xlsx oder .csv uebergeben.",
+        exit_code=ExitCode.REVIEW_IMPORT_REJECTED)
+
+
+@dataclass(frozen=True)
+class GoldAssignment:
+    """Ein von Hand vergebenes Gold-Label."""
+
+    industry_id: str
+    confidence: str
+    evidence_excerpt: str
+    rationale_short: str
+
+
+@dataclass(frozen=True)
+class GoldUnit:
+    """Der Gold-Stand einer Unit."""
+
+    unit_id: str
+    decision: str
+    no_mapping_reason: str
+    assignments: tuple[GoldAssignment, ...]
+
+
+def _label_confidence(value: str, obj: str,
+                      collector: ErrorCollector) -> str | None:
+    """Confidence als Text; leer ist zulaessig, Unsinn nicht."""
+    span = f"{MIN_CONFIDENCE}..{MAX_CONFIDENCE}"
+    if not value:
+        return ""
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        _rejected(collector, "EVAL_LABEL_CONFIDENCE_INVALID", obj,
+                  f"'{value}' ist keine ganze Zahl.",
+                  f"Confidence als ganze Zahl {span} eintragen oder leer lassen.")
+        return None
+    if not MIN_CONFIDENCE <= number <= MAX_CONFIDENCE:
+        _rejected(collector, "EVAL_LABEL_CONFIDENCE_INVALID", obj,
+                  f"Confidence {number} liegt ausserhalb von {span}.",
+                  f"Confidence als ganze Zahl {span} eintragen oder leer lassen.")
+        return None
+    return str(number)
+
+
+def build_goldset(rows: Sequence[Mapping[str, str]], *,
+                  expected_units: Sequence[str], industry_ids: frozenset[str],
+                  collector: ErrorCollector) -> tuple[GoldUnit, ...] | None:
+    """Verdichtet die Zeilen zum Gold-Stand je Unit.
+
+    Abgelehnt wird nur, was das Ergebnis unbrauchbar macht. Jede Ablehnung
+    sammelt der Collector: ein Labeldurchgang soll alle Fehler auf einmal
+    nennen und nicht bei jedem Import einen weiteren.
+    """
+    expected = list(expected_units)
+    grouped: dict[str, list[Mapping[str, str]]] = {unit_id: [] for unit_id in expected}
+    for position, row in enumerate(rows, start=2):
+        unit_id = row["unit_id"]
+        if not unit_id:
+            _rejected(collector, "EVAL_LABEL_UNIT_MISSING", f"Zeile {position}",
+                      "Der Zeile fehlt die unit_id.",
+                      "unit_id der gelabelten Unit eintragen; ohne sie ist die "
+                      "Zeile keiner Unit zuzuordnen.")
+            continue
+        if unit_id not in grouped:
+            _rejected(collector, "EVAL_LABEL_UNIT_UNKNOWN", unit_id,
+                      "Die unit_id gehoert nicht zur Stichprobe dieser "
+                      "Evaluationsrevision.",
+                      "unit_id zeichengenau aus der Stichprobe uebernehmen; "
+                      "eine fremde Unit verzerrt jede Metrik.")
+            continue
+        grouped[unit_id].append(row)
+
+    units: list[GoldUnit] = []
+    for unit_id in expected:
+        entries = grouped[unit_id]
+        if not entries:
+            _rejected(collector, "EVAL_LABEL_UNIT_ABSENT", unit_id,
+                      "Zu dieser Unit der Stichprobe gibt es keine Zeile.",
+                      "Unit labeln; eine fehlende Unit waere kein 'no_mapping', "
+                      "sondern eine Luecke im Gold-Set.")
+            continue
+        assignments: list[GoldAssignment] = []
+        reasons: list[str] = []
+        seen: set[str] = set()
+        for row in entries:
+            # Der Grund wird unabhaengig von der Zeilenart gesammelt: er in
+            # einer Zuordnungszeile ist genauso widerspruechlich wie in einer
+            # eigenen, und beides muss auffallen.
+            if row["no_mapping_reason"].strip():
+                reasons.append(row["no_mapping_reason"])
+            industry_id = row["industry_id"]
+            if not industry_id:
+                continue
+            obj = f"{unit_id}/{industry_id}"
+            if industry_id not in industry_ids:
+                _rejected(collector, "EVAL_LABEL_INDUSTRY_UNKNOWN", obj,
+                          "Die industry_id kommt im freigegebenen Snapshot "
+                          "nicht vor.",
+                          "industry_id aus dem Blatt 'taxonomy' uebernehmen; "
+                          "Gross- und Kleinschreibung zaehlt.")
+                continue
+            if industry_id in seen:
+                _rejected(collector, "EVAL_LABEL_INDUSTRY_DUPLICATE", obj,
+                          "Die Industry ist der Unit mehrfach zugeordnet.",
+                          "Doppelte Zeile loeschen; sonst zaehlte dasselbe "
+                          "Paar mehrfach in Precision und Recall.")
+                continue
+            seen.add(industry_id)
+            confidence = _label_confidence(row["confidence"], obj, collector)
+            if confidence is None:
+                continue
+            assignments.append(GoldAssignment(
+                industry_id=industry_id, confidence=confidence,
+                evidence_excerpt=row["evidence_excerpt"],
+                rationale_short=row["rationale_short"]))
+
+        reason = next((text for text in reasons if text.strip()), "")
+        if assignments and any(text.strip() for text in reasons):
+            _rejected(collector, "EVAL_LABEL_CONTRADICTION", unit_id,
+                      "Die Unit traegt Zuordnungen und zugleich einen "
+                      "no_mapping_reason.",
+                      "Entweder die Zuordnungen loeschen oder den Grund; "
+                      "beides zusammen ist kein entscheidbares Gold-Label.")
+            continue
+        if not assignments and not reason.strip():
+            _rejected(collector, "EVAL_LABEL_REASON_MISSING", unit_id,
+                      "Die Unit hat keine Zuordnung und keinen Grund.",
+                      "no_mapping_reason eintragen; ohne ihn ist nicht "
+                      "unterscheidbar, ob die Unit bewusst leer blieb.")
+            continue
+        units.append(GoldUnit(
+            unit_id=unit_id,
+            decision=DECISION_MAPPED if assignments else DECISION_NO_MAPPING,
+            no_mapping_reason="" if assignments else reason,
+            assignments=tuple(assignments)))
+
+    if collector.has_blockers():
+        return None
+    return tuple(units)
+
+
+def check_label_binding(manifest: Mapping[str, object], *, snapshot,
+                        input_manifest_hash: str,
+                        units: Mapping[str, MatcherUnit],
+                        collector: ErrorCollector) -> None:
+    """Stale Bindung lehnt den gesamten Import ab.
+
+    Gelabelt wurde gegen einen bestimmten Taxonomie- und Textstand. Hat sich
+    einer davon seither geaendert, beschreiben die Labels nicht mehr das, was
+    der Prueflauf sehen wird.
+    """
+    checks = (
+        ("snapshot_id", manifest.get("snapshot_id"), snapshot.snapshot_id),
+        ("taxonomy_content_hash", manifest.get("taxonomy_content_hash"),
+         snapshot.taxonomy_content_hash),
+        ("input_manifest_hash", manifest.get("input_manifest_hash"),
+         input_manifest_hash),
+    )
+    for name, expected, current in checks:
+        if _label_text(expected) != _label_text(current):
+            _rejected(collector, "EVAL_STALE_BINDING", name,
+                      f"{name} weicht vom Stand des Exports ab: eingefroren "
+                      f"{expected!r}, jetzt {current!r}.",
+                      "Neue Evaluationsrevision exportieren und gegen sie "
+                      "labeln; Labels aus einem anderen Stand werden nicht "
+                      "uebernommen.")
+    for unit_id, expected in dict(manifest.get("mapping_input_hashes") or {}).items():
+        unit = units.get(unit_id)
+        current = unit.mapping_input_hash if unit is not None else None
+        if _label_text(expected) != _label_text(current):
+            _rejected(collector, "EVAL_STALE_BINDING", f"mapping_input_hash/{unit_id}",
+                      "Der Text dieser Unit hat sich seit dem Export "
+                      "geaendert.",
+                      "Neue Evaluationsrevision exportieren und die Unit neu "
+                      "labeln; das Label gehoert zu einem anderen Text.")
+
+
+def goldset_payload(eval_id: str, manifest: Mapping[str, object],
+                    units: Sequence[GoldUnit], *,
+                    source: Path, source_sha256: str,
+                    row_count: int) -> dict[str, object]:
+    """Das angenommene Gold-Set samt Labelprovenienz."""
+    return {
+        "version": GOLDSET_VERSION,
+        "eval_id": eval_id,
+        "created_at": _now_iso(),
+        "state": WorkflowState.PENDING.value,
+        "snapshot_id": manifest.get("snapshot_id", ""),
+        "taxonomy_content_hash": manifest.get("taxonomy_content_hash", ""),
+        "input_manifest_hash": manifest.get("input_manifest_hash", ""),
+        "sample_version": manifest.get("sample_version", ""),
+        "labels": {
+            "source": paths.relative_to_base(source),
+            "sha256": source_sha256,
+            "rows": row_count,
+        },
+        "unit_count": len(units),
+        "mapped_units": sum(1 for unit in units if unit.decision == DECISION_MAPPED),
+        "no_mapping_units": sum(1 for unit in units
+                                if unit.decision == DECISION_NO_MAPPING),
+        "assignment_count": sum(len(unit.assignments) for unit in units),
+        "units": [
+            {
+                "unit_id": unit.unit_id,
+                "decision": unit.decision,
+                "no_mapping_reason": unit.no_mapping_reason,
+                "assignments": [
+                    {
+                        "industry_id": entry.industry_id,
+                        "confidence": entry.confidence,
+                        "evidence_excerpt": entry.evidence_excerpt,
+                        "rationale_short": entry.rationale_short,
+                    }
+                    for entry in unit.assignments
+                ],
+            }
+            for unit in units
+        ],
+    }
+
+
+def write_goldset(eval_id: str, payload: Mapping[str, object]) -> Path:
+    return paths.write_text_atomic(
+        goldset_path(eval_id, create_parents=True),
+        json.dumps(dict(payload), ensure_ascii=False, indent=2) + "\n")
+
+
+def load_goldset(eval_id: str) -> dict | None:
+    """Liest das Gold-Set der Revision; unbrauchbar wie fehlend behandelt."""
+    target = goldset_path(eval_id)
+    if not target.exists():
+        return None
+    try:
+        data = json.loads(target.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    if not isinstance(data, dict) or data.get("version") != GOLDSET_VERSION:
+        return None
+    if data.get("eval_id") != eval_id:
+        return None
+    return data
+
+
+def revision_state(eval_id: str) -> WorkflowState | None:
+    """Der Zustand der Revision, abgeleitet aus ihren Dateien.
+
+    Der Zustand steht nirgends fuer sich: das Exportmanifest eroeffnet die
+    Revision, das Gold-Set fuehrt sie weiter. Eine eigene Zustandsdatei koennte
+    von beiden abweichen.
+    """
+    if load_export_manifest(eval_id) is None:
+        return None
+    if goldset_path(eval_id).exists():
+        return WorkflowState.PENDING
+    return WorkflowState.AWAITING_DEVELOPMENT_GOLDSET

@@ -80,8 +80,17 @@ konfliktfrei gegen dieselbe Revision.
   Unit, unlesbare Confidence, Formelzelle, Unit mit Zuordnung **und**
   `no_mapping_reason`, `no_mapping` ohne Grund, stale Bindung gegen das
   Exportmanifest. Exit 7, es wird nichts geschrieben;
-- angenommen entsteht `goldset.json` in der Revision samt Labelprovenienz;
-- der Zustand wechselt von `awaiting_development_goldset` zu `pending`.
+- angenommen entsteht `goldset.json` in der Revision samt Labelprovenienz
+  (Quellpfad, SHA-256 der Labeldatei, Zeilenzahl);
+- der Zustand wechselt von `awaiting_development_goldset` zu `pending`. Er
+  wird nicht gespeichert, sondern aus den Dateien der Revision abgeleitet
+  (`evaluation.revision_state`): Exportmanifest eröffnet, `goldset.json` führt
+  weiter.
+
+Die Labeldatei liest der Import als XLSX (Blatt `labels`) oder CSV; Blatt und
+Spalten stehen als Literale in `evaluation.py` und werden bewusst nicht aus
+`review.py` importiert — die Übereinstimmung mit dem Reviewvertrag ist
+gewollt, die Kopplung an den Prüfling nicht.
 
 Abnahme: handgebaute Fixtures je Ablehnungsgrund; ein abgelehnter Import
 hinterlässt keine Datei; ein zweiter Import unter derselben Revision wird
