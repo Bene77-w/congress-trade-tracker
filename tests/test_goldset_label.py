@@ -412,6 +412,24 @@ def test_pflichtfeld_aus_unsichtbaren_zeichen(paar, taxonomy, feld) -> None:
     assert "GS_SCHEMA_INVALID" in codes(task, record, taxonomy)
 
 
+@pytest.mark.parametrize("wert", ["", False])
+def test_mapped_duldet_keinen_no_mapping_reason(paar, taxonomy, wert) -> None:
+    """Der Vertrag lehnt jeden Wert ausser ``None`` ab, auch den leeren."""
+    task, record = paar
+    record["answer"]["no_mapping_reason"] = wert
+    assert "GS_DECISION_CONFLICT" in codes(task, record, taxonomy)
+
+
+@pytest.mark.parametrize("feld", ["industry_id", "evidence_excerpt",
+                                  "rationale_short"])
+@pytest.mark.parametrize("wert", [None, 1])
+def test_textfelder_muessen_text_sein(paar, taxonomy, feld, wert) -> None:
+    """``str(None)`` ergaebe den sichtbaren Text 'None' und bestuende sonst."""
+    task, record = paar
+    record["answer"]["assignments"][0][feld] = wert
+    assert "GS_SCHEMA_INVALID" in codes(task, record, taxonomy)
+
+
 def test_no_mapping_ist_eine_zeile(paar, taxonomy) -> None:
     task, record = paar
     record["answer"].update(decision="no_mapping", assignments=[],
@@ -633,6 +651,62 @@ def test_verify_bilanziert_dubletten_einzeln(sandbox, capsys) -> None:
     # Die zweite Zeile ist neu, keine Aenderung der ersten.
     assert "neu:      " in ausgabe
     assert "geaendert" not in ausgabe
+
+
+def test_verify_meldet_zwei_no_mapping_zeilen(sandbox, capsys) -> None:
+    """Zwei Begruendungen liessen offen, welche das Gold-Set behauptet."""
+    pfad = workbook_vorbereiten(sandbox)
+    book = load_workbook(pfad)
+    labels = book[gs.SHEET_LABELS]
+    unit_id = labels.cell(row=2, column=1).value
+    for nr, grund in enumerate(("Keine Beruehrung.", "Doch eine andere."), start=2):
+        labels.cell(row=nr, column=1, value=unit_id)
+        for spalte in (2, 3, 4, 5):
+            labels.cell(row=nr, column=spalte, value="")
+        labels.cell(row=nr, column=6, value=grund)
+    book.save(pfad)
+    capsys.readouterr()
+
+    assert lauf("verify", "--source", "claude") == 2
+    ausgabe = capsys.readouterr().out
+    assert "GS_UNIT_DUPLICATE" in ausgabe
+    assert "no_mapping-Zeile" in ausgabe
+
+
+def test_bilanz_paart_gleiche_zeilen_vor_der_position(sandbox, capsys) -> None:
+    """Umsortierte Dubletten sind keine Aenderung."""
+    pfad = workbook_vorbereiten(sandbox)
+    book = load_workbook(pfad)
+    labels = book[gs.SHEET_LABELS]
+    werte = [labels.cell(row=2, column=nr).value
+             for nr in range(1, len(gs.LABEL_COLUMNS) + 1)]
+    # Dieselbe Zuordnung ein zweites Mal, mit anderer Begruendung.
+    zweite = list(werte)
+    zweite[4] = "Eine andere Begruendung."
+    labels.append(zweite)
+    book.save(pfad)
+    capsys.readouterr()
+    lauf("verify", "--source", "claude")
+    zuerst = capsys.readouterr().out
+
+    # Reihenfolge tauschen: die Bilanz darf sich dadurch nicht aendern.
+    book = load_workbook(pfad)
+    labels = book[gs.SHEET_LABELS]
+    letzte = labels.max_row
+    for spalte in range(1, len(gs.LABEL_COLUMNS) + 1):
+        labels.cell(row=2, column=spalte, value=zweite[spalte - 1])
+        labels.cell(row=letzte, column=spalte, value=werte[spalte - 1])
+    book.save(pfad)
+    capsys.readouterr()
+    lauf("verify", "--source", "claude")
+    danach = capsys.readouterr().out
+
+    def bilanz(text: str) -> list[str]:
+        return sorted(zeile.strip() for zeile in text.splitlines()
+                      if zeile.strip().startswith(("neu:", "entfernt:", "geaendert")))
+
+    assert bilanz(zuerst) == bilanz(danach)
+    assert any("neu:" in zeile for zeile in bilanz(zuerst))
 
 
 # -- Ueberschreibschutz ----------------------------------------------------
@@ -1088,6 +1162,16 @@ def test_positivliste_uebernimmt_nur_gesetzte_werte(monkeypatch) -> None:
     assert env["PATH"] == "/pfad"
     assert env["CODEX_HOME"] == "/tmp/home"
     assert "OPENAI_BASE_URL" not in env
+
+
+@pytest.mark.parametrize("name", [
+    "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN",
+    "OPENAI_API_KEY",
+])
+def test_anmeldung_erreicht_den_unterprozess(monkeypatch, name) -> None:
+    """Ohne diese Variablen scheiterte eine tokenbasierte Anmeldung."""
+    monkeypatch.setenv(name, "geheim")
+    assert gs.clean_env()[name] == "geheim"
 
 
 def test_verify_nennt_die_unicodevariante(sandbox, taxonomy, capsys) -> None:

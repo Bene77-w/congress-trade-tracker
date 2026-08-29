@@ -46,6 +46,7 @@ import tempfile
 import time
 import unicodedata
 from dataclasses import dataclass, field
+from itertools import zip_longest
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, NoReturn, Sequence
@@ -2546,8 +2547,11 @@ def check_answer(task: Mapping[str, Any], record: Mapping[str, Any],
 
     decision = answer.get("decision")
     assignments = answer.get("assignments")
-    reason = answer.get("no_mapping_reason") or ""
-    reason = reason.strip() if visible_text(reason) else ""
+    # Der Vertrag unterscheidet 'nicht gesetzt' von 'leer gesetzt': bei
+    # ``mapped`` lehnt er jeden Wert ausser ``None`` ab, auch den leeren
+    # String. ``or ""`` haette beide Faelle zu einem verschmolzen.
+    roh_reason = answer.get("no_mapping_reason")
+    reason = roh_reason.strip() if visible_text(roh_reason) else ""
     # Strikt wie der Vertrag: ``bool("")`` machte aus einem Textfeld
     # klaglos ein Nein, und eine 1 aus einem Ja - beides lehnt
     # ``MappingUnitResult`` ab, und beides verschoebe die Anzahlgrenze.
@@ -2572,11 +2576,11 @@ def check_answer(task: Mapping[str, Any], record: Mapping[str, Any],
             "Eine Unit hat entweder Zuordnungen oder genau eine Begruendung; "
             "beides zugleich laesst offen, was das Gold-Set behauptet.",
             "Antwort im Log pruefen und die Unit wiederholen."))
-    if decision == "mapped" and (not assignments or reason):
+    if decision == "mapped" and (not assignments or roh_reason is not None):
         result.problems.append(problem(
             "GS_DECISION_CONFLICT", unit_id,
             f"decision=mapped mit {len(assignments)} Zuordnungen und "
-            f"Begruendung {'vorhanden' if reason else 'leer'}.",
+            f"no_mapping_reason={roh_reason!r}.",
             "Eine leere Zuordnungsliste mit decision=mapped ist kein Urteil, "
             "und eine Begruendung neben Zuordnungen widerspricht ihnen.",
             "Antwort im Log pruefen und die Unit wiederholen."))
@@ -2592,10 +2596,22 @@ def check_answer(task: Mapping[str, Any], record: Mapping[str, Any],
                 unit_id, f"Zuordnung {position} ist kein Objekt.",
                 "Unit wiederholen."))
             continue
-        industry_id = str(item.get("industry_id", "")).strip()
         confidence = item.get("confidence")
-        excerpt = str(item.get("evidence_excerpt", ""))
-        rationale = str(item.get("rationale_short", ""))
+        # Ohne die Typwache machte ``str()`` aus ``None`` den sichtbaren Text
+        # 'None' und aus ``1`` die Zeichenkette '1'; beide bestuenden jede
+        # weitere Pruefung, obwohl der Vertrag nur Text zulaesst.
+        texte: dict[str, str] = {}
+        for feld in ("industry_id", "evidence_excerpt", "rationale_short"):
+            wert = item.get(feld, "")
+            if not isinstance(wert, str):
+                result.problems.append(_field_problem(
+                    unit_id,
+                    f"Zuordnung {position}: {feld}={wert!r} ist kein Text.",
+                    f"Unit mit 'run --unit-id {unit_id} --force' wiederholen."))
+            texte[feld] = wert if isinstance(wert, str) else ""
+        industry_id = texte["industry_id"].strip()
+        excerpt = texte["evidence_excerpt"]
+        rationale = texte["rationale_short"]
 
         if industry_id not in taxonomy.ids:
             near = [known for known in sorted(taxonomy.ids)
@@ -3142,24 +3158,37 @@ BALANCE_FIELDS = ("confidence", "evidence_excerpt", "rationale_short",
 
 
 def _row_key(unit_id: str, industry_id: str, vorkommen: int) -> str:
-    """Schluessel einer Zeile samt laufender Nummer ihres Vorkommens.
-
-    Ohne die Nummer verschluckte ein Dict die zweite von zwei gleichen Zeilen;
-    die Bilanz zeigte dann eine Aenderung, wo eine Dublette steht. Die Dublette
-    selbst meldet ``GS_UNIT_DUPLICATE``.
-    """
-    return f"{unit_id}|{industry_id}" + (f"|#{vorkommen}" if vorkommen else "")
+    """Bezeichnung einer Zeile samt Nummer, falls sie mehrfach vorkommt."""
+    return f"{unit_id}|{industry_id}" + (f"|#{vorkommen + 1}" if vorkommen else "")
 
 
-def _keyed(werte: Sequence[Mapping[str, str]]) -> dict[str, Mapping[str, str]]:
-    gezaehlt: dict[tuple[str, str], int] = {}
-    gebunden: dict[str, Mapping[str, str]] = {}
+def _grouped(werte: Sequence[Mapping[str, str]]
+             ) -> dict[tuple[str, str], list[Mapping[str, str]]]:
+    gruppen: dict[tuple[str, str], list[Mapping[str, str]]] = {}
     for row in werte:
-        paar = (row["unit_id"], row["industry_id"])
-        nummer = gezaehlt.get(paar, 0)
-        gezaehlt[paar] = nummer + 1
-        gebunden[_row_key(paar[0], paar[1], nummer)] = row
-    return gebunden
+        gruppen.setdefault((row["unit_id"], row["industry_id"]), []).append(row)
+    return gruppen
+
+
+def _pair_rows(alt: list[Mapping[str, str]], neu: list[Mapping[str, str]]
+               ) -> list[tuple[Mapping[str, str] | None, Mapping[str, str] | None]]:
+    """Paart die Zeilen einer Schluesselgruppe: erst gleiche, dann der Rest.
+
+    Zwei Zeilen mit demselben ``(unit_id, industry_id)`` unterscheiden sich nur
+    in den Bilanzfeldern. Wuerde stur nach Position gepaart, ergaebe schon ein
+    Umsortieren zwei gemeldete Aenderungen. Unveraenderte Zeilen werden deshalb
+    zuerst gegeneinander weggekuerzt.
+    """
+    offen_alt = list(alt)
+    offen_neu = list(neu)
+    for row in list(offen_neu):
+        gleich = next((other for other in offen_alt
+                       if all(other[column] == row[column]
+                              for column in BALANCE_FIELDS)), None)
+        if gleich is not None:
+            offen_alt.remove(gleich)
+            offen_neu.remove(row)
+    return list(zip_longest(offen_alt, offen_neu))
 
 
 def change_balance(rows: Sequence[Mapping[str, Any]], source: str
@@ -3171,28 +3200,30 @@ def change_balance(rows: Sequence[Mapping[str, Any]], source: str
     von der Tabellenkalkulation umgeschrieben wurde - und genau das ist bei
     ``evidence_excerpt`` und ``rationale_short`` sonst nirgends geprueft.
     """
-    vorher = _keyed(read_csv(labels_path(source), LABEL_COLUMNS,
-                             was=f"mit den Labels von {source}"))
-    nachher = _keyed([
+    vorher = _grouped(read_csv(labels_path(source), LABEL_COLUMNS,
+                               was=f"mit den Labels von {source}"))
+    nachher = _grouped([
         {column: text_value(row[column].value).strip()
          for column in LABEL_COLUMNS}
         for row in rows
     ])
 
     zeilen: list[str] = []
-    for key in sorted(set(vorher) | set(nachher)):
-        alt_row, neu_row = vorher.get(key), nachher.get(key)
-        if alt_row is None:
-            zeilen.append(f"neu:      {key}")
-            continue
-        if neu_row is None:
-            zeilen.append(f"entfernt: {key}")
-            continue
-        for column in BALANCE_FIELDS:
-            if alt_row[column] != neu_row[column]:
-                zeilen.append(
-                    f"geaendert {key} / {column}: "
-                    f"{alt_row[column][:40]!r} -> {neu_row[column][:40]!r}")
+    for paar in sorted(set(vorher) | set(nachher)):
+        for nummer, (alt_row, neu_row) in enumerate(
+                _pair_rows(vorher.get(paar, []), nachher.get(paar, []))):
+            key = _row_key(paar[0], paar[1], nummer)
+            if alt_row is None:
+                zeilen.append(f"neu:      {key}")
+                continue
+            if neu_row is None:
+                zeilen.append(f"entfernt: {key}")
+                continue
+            for column in BALANCE_FIELDS:
+                if alt_row[column] != neu_row[column]:
+                    zeilen.append(
+                        f"geaendert {key} / {column}: "
+                        f"{alt_row[column][:40]!r} -> {neu_row[column][:40]!r}")
     return zeilen
 
 
@@ -3321,6 +3352,7 @@ def command_verify(args: argparse.Namespace) -> int:
     fixed = 0
     trimmed = 0
     zuordnungen: dict[str, list[dict[str, Any]]] = {}
+    leerzeilen: dict[str, int] = {}
     seen: dict[str, set[str]] = {}
     decisions: dict[str, set[str]] = {}
     for row in rows:
@@ -3380,6 +3412,18 @@ def command_verify(args: argparse.Namespace) -> int:
                     "Evaluation als fehlende Unit.",
                     "Industry eintragen, Begruendung ergaenzen oder die Zeile "
                     "loeschen."))
+            # Die Dublettenpruefung weiter unten sieht nur Zuordnungen; eine
+            # Unit mit zwei no_mapping-Zeilen traege sonst zwei einander
+            # widersprechende Begruendungen und bestuende trotzdem.
+            elif unit_id in leerzeilen:
+                problems.append(problem(
+                    "GS_UNIT_DUPLICATE", f"{SHEET_LABELS}!Zeile {line}",
+                    f"{unit_id} hat bereits in Zeile {leerzeilen[unit_id]} "
+                    "eine no_mapping-Zeile.",
+                    "Eine Unit hat genau eine no_mapping-Begruendung; zwei "
+                    "liessen offen, welche das Gold-Set behauptet.",
+                    "Eine der beiden Zeilen loeschen."))
+            leerzeilen.setdefault(unit_id, line)
             continue
         if reason:
             problems.append(problem(

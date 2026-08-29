@@ -148,14 +148,17 @@ weshalb der Vertrag hier erneut gilt und nicht nur bei `collect`. Geprüft wird:
 - Schreibweise (`GS_INDUSTRY_CASE`) und Randleerraum (`GS_XLSX_WHITESPACE`),
   beide mit `--fix-case` behebbar; unbekannte IDs mit Hinweis auf eine nur in
   der Unicodeform abweichende ID;
-- Formelzellen, Doppelzeilen, Zuordnung und `no_mapping_reason` zugleich,
-  fehlende Units, Confidencebereich;
+- Formelzellen, Doppelzeilen — auch zwei `no_mapping`-Zeilen derselben Unit —,
+  Zuordnung und `no_mapping_reason` zugleich, fehlende Units,
+  Confidencebereich;
 - Belegregel, Anzahlgrenze, Broad-Scope-Bedingungen und Pflichtfelder je Unit
   — auch für Units ohne Zuordnung, bei denen die Ausnahme gar nicht zulässig
   ist;
 - Rücklesevergleich gegen `labels_<source>.csv`: die Änderungsbilanz nennt je
   Zelle alt und neu sowie neue und entfernte Zeilen. Gleiche Zeilen werden
-  einzeln gezählt, damit eine Dublette nicht als Änderung der ersten erscheint. Sie ist Auskunft, kein
+  einzeln gezählt, damit eine Dublette nicht als Änderung der ersten erscheint;
+  innerhalb einer Schlüsselgruppe werden unveränderte Zeilen zuerst gepaart,
+  sodass bloßes Umsortieren keine Änderung meldet. Sie ist Auskunft, kein
   Befund — ohne sie blieben Änderungen an `evidence_excerpt`,
   `rationale_short` und `no_mapping_reason` ungeprüft.
 
@@ -295,8 +298,10 @@ Unittypen, `broad_scope_reason` mit sichtbarem Text, Confidence mindestens 3
 sowie eigene Evidence und eigene Rationale je Industry. `collect` liest die
 Vertragsfelder dabei so streng wie Pydantic: `broad_scope_exception` muss ein
 echter Wahrheitswert sein (`bool("")` machte aus einem Textfeld sonst klaglos
-ein Nein), und Pflichttexte gelten nur mit sichtbarem Inhalt — unsichtbare
-Formatzeichen bestünden ein `strip()`.
+ein Nein), Textfelder müssen Text sein (`str(None)` ergäbe sonst den sichtbaren
+Wert `None`), Pflichttexte gelten nur mit sichtbarem Inhalt — unsichtbare
+Formatzeichen bestünden ein `strip()` —, und `mapped` duldet keinen
+`no_mapping_reason`, auch keinen leeren.
 
 Zwischenformat ist CSV mit UTF-8 und `QUOTE_ALL`; XLSX schreibt allein
 `to-xlsx`, `industry_id`-Zellen als Text. Die Auswahlliste des Blatts `labels`
@@ -314,7 +319,7 @@ Stand 2026-08-28:
 
 | Phase | Stand |
 |---|---|
-| P1 Aufgabenpakete und Trockenlauf | umgesetzt; 91 Tests grün, netzwerk- und CLI-frei |
+| P1 Aufgabenpakete und Trockenlauf | umgesetzt; Testsatz grün, netzwerk- und CLI-frei |
 | Gate A erster bezahlter Lauf | offen, wartet auf Benes Freigabe |
 | P2 Vollauf | offen |
 | P3 Merge | offen, nur bei Doppelvergabe |
