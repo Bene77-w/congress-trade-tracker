@@ -47,18 +47,30 @@ brauchen sie nicht und laufen vorab.
 Umfang: neues Modul `committee_matcher/evaluation.py` plus CLI-Aktion.
 
 - Revisionsverzeichnis, Pfadwache, Nichtüberschreibbarkeit;
-- genau eine frische yfinance-Abfrage; Content-Hash gegen die freigegebene
-  Baseline. Drift blockiert mit `awaiting_taxonomy_approval` (Exit 5), statt
-  gegen einen anderen Stand zu messen;
+- genau eine frische yfinance-Abfrage als **Gegenprobe** zur freigegebenen
+  Baseline. Eingefroren wird der freigegebene Stand, denn gegen ihn läuft auch
+  der Prüflauf. Jede Abweichung des frischen Abrufs blockiert mit
+  `awaiting_taxonomy_approval` (Exit 5) — auch die nur warnende
+  Beschreibungsdrift, da der Beschreibungstext im Prompt steht;
 - eingefroren werden: `snapshot_id` + `taxonomy_content_hash`, Stichprobe
   (Unit-IDs aus `data/committee_matcher_v2/goldset/sample_units.json`),
   `mapping_input_hash` je Unit, Prompt- und Schemahashes, `cache_key_version`,
   Variantenmatrix, Gesamtbudget;
 - Ausgang `awaiting_development_goldset`, Exit 0 als erwartete Human-Übergabe.
+  Der Zustand steht als Feld im Exportmanifest, nicht in einer zweiten Datei:
+  die Revision entsteht so in einem einzigen atomaren Schreibvorgang. Den
+  Wechsel nach `pending` belegt später die Existenz der Labeldatei.
+
+Bindungsvertrag: `evaluation.BOUND_FIELDS` nennt die Felder, in denen ein
+Prüflauf mit der Revision übereinstimmen muss. `batching` wird ohne
+`batch_size` verglichen, da die Batchgröße die Variante ist; `selection` und
+`unit_count` stehen nicht darin, da der Prüflauf die Unitmenge in Teilläufen
+abarbeiten darf.
 
 Abnahme: Export zweimal unter derselben `eval_id` überschreibt nichts;
 geänderte Stichprobe oder Taxonomie verlangt eine neue Revision; das Manifest
-trägt weder Prompttext noch Zugangsdaten.
+trägt weder Prompttext noch Zugangsdaten; beide Batchgrößen der Matrix binden
+konfliktfrei gegen dieselbe Revision.
 
 ## Phase P9b — Gold-Set-Import und Bindungsprüfung
 

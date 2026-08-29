@@ -19,8 +19,8 @@ if str(ROOT) not in sys.path:
 
 from committee_matcher import cli, evaluation, input_corpus, paths  # noqa: E402
 from committee_matcher import taxonomy_snapshot, workflow  # noqa: E402
-from committee_matcher.errors import ErrorCollector  # noqa: E402
-from committee_matcher.settings_view import load_settings  # noqa: E402
+from committee_matcher.errors import ErrorCollector, MatcherError  # noqa: E402
+from committee_matcher.settings_view import SettingsBlocked, load_settings  # noqa: E402
 from committee_matcher.status import ExitCode, WorkflowState  # noqa: E402
 from committee_matcher.taxonomy_source import IndustryRow, SectorSeed  # noqa: E402
 
@@ -149,9 +149,12 @@ def test_export_freezes_the_revision_and_hands_over(sandbox, capsys):
     assert manifest["unit_count"] == len(SAMPLE_ROWS)
     assert manifest["selection"]["unit_ids"] == sorted(
         row["unit_id"] for row in SAMPLE_ROWS)
-    state = evaluation.load_state(EVAL_ID)
-    assert state is not None
-    assert state["state"] == WorkflowState.AWAITING_DEVELOPMENT_GOLDSET.value
+    # Der Zustand steht im Manifest selbst; die Revision entsteht damit in
+    # einem einzigen atomaren Schreibvorgang.
+    assert manifest["state"] == WorkflowState.AWAITING_DEVELOPMENT_GOLDSET.value
+    assert sorted(path.name for path in
+                  evaluation.evaluation_path(EVAL_ID).iterdir()) == [
+        evaluation.EXPORT_MANIFEST_FILENAME]
     out = capsys.readouterr().out
     assert "[START] evaluation | evaluation=eval-p9a | action=export" in out
     assert "awaiting_development_goldset" in out
@@ -161,7 +164,10 @@ def test_export_binds_every_condition_that_decides_the_result(sandbox):
     cli.main(export_argv())
     manifest = evaluation.load_export_manifest(EVAL_ID)
     baseline_hash = taxonomy_snapshot.hash_records(INDUSTRIES)
-    assert manifest["snapshot_id"] == EVAL_ID
+    # Gebunden wird der freigegebene Stand: gegen genau ihn laeuft spaeter
+    # auch der Prueflauf. Der frische Abruf ist die Gegenprobe, nicht die
+    # Quelle der Bindung.
+    assert manifest["snapshot_id"] == "run-taxonomy"
     assert manifest["taxonomy_content_hash"] == baseline_hash
     assert manifest["input_manifest_hash"]
     assert manifest["cache_key_version"] == workflow.CACHE_KEY_VERSION
@@ -241,9 +247,10 @@ def test_an_id_already_used_as_a_run_revision_is_refused(sandbox, capsys):
 # Bedienung und Stichprobe
 # ---------------------------------------------------------------------------
 
-def test_export_without_an_eval_id_refuses_to_run(sandbox, capsys):
-    assert cli.main(["evaluate", "export"]) == int(ExitCode.PREFLIGHT_BLOCKED)
-    assert "CLI_EVAL_ID_REQUIRED" in capsys.readouterr().out
+@pytest.mark.parametrize("action", ["export", "import", "run"])
+def test_no_evaluation_action_runs_without_an_eval_id(sandbox, capsys, action):
+    assert cli.main(["evaluate", action]) == int(ExitCode.PREFLIGHT_BLOCKED)
+    assert "--eval-id" in capsys.readouterr().err
     assert sandbox.client.calls == 0
 
 
@@ -307,15 +314,38 @@ def test_taxonomy_drift_waits_instead_of_freezing_another_state(sandbox, capsys)
         lambda offline, reporter=None: FakeYFinance(drifted))
     assert cli.main(export_argv()) == int(ExitCode.AWAITING_TAXONOMY_APPROVAL)
     assert evaluation.load_export_manifest(EVAL_ID) is None
-    assert evaluation.load_state(EVAL_ID) is None
-    assert "awaiting_taxonomy_approval" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "TAX_DRIFT_RENAMED" in out
+    assert "[WAIT] evaluation | evaluation=eval-p9a | awaiting_taxonomy_approval" in out
 
 
-def test_a_missing_baseline_waits_instead_of_freezing(sandbox, capsys):
+def test_a_changed_description_alone_still_blocks_the_export(sandbox, capsys):
+    # Reine Beschreibungsdrift laeuft im Snapshotpfad als Warnung durch. Fuer
+    # die Evaluation entscheidet sie mit: der Beschreibungstext steht im
+    # Prompt, und ein abweichender Content-Hash liesse den spaeteren
+    # Prueflauf gegen einen anderen Stand messen.
+    drifted = [dict(INDUSTRIES[0], description="Anderer Beschreibungstext."),
+               dict(INDUSTRIES[1])]
+    sandbox.monkeypatch.setattr(
+        cli.taxonomy_source, "YFinanceClient",
+        lambda offline, reporter=None: FakeYFinance(drifted))
+    assert cli.main(export_argv()) == int(ExitCode.AWAITING_TAXONOMY_APPROVAL)
+    assert evaluation.load_export_manifest(EVAL_ID) is None
+    out = capsys.readouterr().out
+    assert "EVAL_TAXONOMY_DRIFT" in out
+    assert "[WAIT] evaluation | evaluation=eval-p9a | awaiting_taxonomy_approval" in out
+
+
+def test_a_missing_baseline_waits_before_the_network_call(sandbox, capsys):
     taxonomy_snapshot.baseline_path().unlink()
     assert cli.main(export_argv()) == int(ExitCode.AWAITING_TAXONOMY_APPROVAL)
     assert evaluation.load_export_manifest(EVAL_ID) is None
-    assert "TAX_NO_BASELINE" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "TAX_BASELINE_MISSING" in out
+    assert "[WAIT] evaluation" in out
+    # Ohne freigegebenen Stand gibt es nichts zu bestaetigen; der Abruf
+    # unterbleibt.
+    assert sandbox.client.calls == 0
 
 
 # ---------------------------------------------------------------------------
@@ -361,3 +391,89 @@ def test_an_unbound_unit_blocks_the_selection(sandbox):
     assert evaluation.select_units(collector, stripped, sample) is None
     assert any(finding.code == "EVAL_UNIT_UNBOUND"
                for finding in collector.blockers)
+
+
+# ---------------------------------------------------------------------------
+# Bindung an den Prueflauf
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("batch_size", [1, 3])
+def test_both_variants_of_a_run_bind_to_the_revision(sandbox, batch_size):
+    """Beide Varianten muessen dieselbe Revision treffen.
+
+    Die Batchgroesse ist in der Evaluation die Variante; wuerde sie in die
+    Bindung eingehen, waere hoechstens eine der beiden Varianten zulaessig.
+    """
+    assert cli.main(export_argv()) == int(ExitCode.SUCCESS)
+    manifest = evaluation.load_export_manifest(EVAL_ID)
+    sandbox.monkeypatch.setattr(
+        cli, "load_settings",
+        lambda: load_settings(settings_module(
+            COMMITTEE_MATCHER_BATCH_SIZE=batch_size)))
+    run_id = f"{EVAL_ID}-b{batch_size}"
+    argv = ["run", "plan", "--run-id", run_id]
+    for unit_id in manifest["selection"]["unit_ids"]:
+        argv += ["--unit-id", unit_id]
+    assert cli.main(argv) in (int(ExitCode.SUCCESS),
+                              int(ExitCode.SUCCESS_WITH_WARNINGS))
+    run_manifest = workflow.load_manifest(run_id)
+    assert run_manifest is not None
+    assert evaluation.binding_conflicts(manifest, run_manifest) == ()
+    assert evaluation.variant_allowed(manifest, batch_size)
+
+
+def test_a_batch_size_outside_the_matrix_is_not_allowed(sandbox):
+    cli.main(export_argv())
+    manifest = evaluation.load_export_manifest(EVAL_ID)
+    assert not evaluation.variant_allowed(manifest, 2)
+
+
+def test_a_different_model_is_a_binding_conflict(sandbox):
+    cli.main(export_argv())
+    manifest = evaluation.load_export_manifest(EVAL_ID)
+    foreign = dict(manifest, model="anderer/anbieter",
+                   taxonomy_content_hash="0" * 64)
+    assert evaluation.binding_conflicts(manifest, foreign) == (
+        "taxonomy_content_hash", "model")
+
+
+def test_other_batching_values_remain_bound(sandbox):
+    cli.main(export_argv())
+    manifest = evaluation.load_export_manifest(EVAL_ID)
+    changed = dict(manifest,
+                   batching=dict(manifest["batching"], workflow_retries=99))
+    assert evaluation.binding_conflicts(manifest, changed) == ("batching",)
+
+
+# ---------------------------------------------------------------------------
+# Settings und Statusvertrag
+# ---------------------------------------------------------------------------
+
+def test_a_float_batch_size_is_refused(sandbox):
+    with pytest.raises(SettingsBlocked) as excinfo:
+        load_settings(settings_module(
+            COMMITTEE_MATCHER_EVALUATION_BATCH_SIZES=(1.0, 3)))
+    assert any(finding.obj.endswith("EVALUATION_BATCH_SIZES")
+               for finding in excinfo.value.findings)
+
+
+def test_a_duplicate_batch_size_is_refused(sandbox):
+    with pytest.raises(SettingsBlocked):
+        load_settings(settings_module(
+            COMMITTEE_MATCHER_EVALUATION_BATCH_SIZES=(3, 3)))
+
+
+def test_an_aborting_module_still_closes_its_start(sandbox, capsys):
+    """Auch ein Abbruch als Ausnahme schliesst den ``START`` des Vorgangs."""
+    def explode(collector):
+        raise MatcherError(
+            [ErrorCollector().blocker("PRM_UNREADABLE", cli.Stage.PROVIDER,
+                                      "mapping_system", "Prompt unlesbar.",
+                                      "Datei pruefen.")],
+            "Prompt unlesbar")
+
+    sandbox.monkeypatch.setattr(cli.prompts, "load_all", explode)
+    assert cli.main(export_argv()) == int(ExitCode.PREFLIGHT_BLOCKED)
+    captured = capsys.readouterr()
+    assert "[START] evaluation | evaluation=eval-p9a | action=export" in captured.out
+    assert "[ERROR] evaluation | evaluation=eval-p9a | code=PRM_UNREADABLE" in captured.err

@@ -217,7 +217,9 @@ def _batch_size_matrix(value: Any) -> tuple[int, ...]:
     if not value:
         raise ValueError("leere Liste; mindestens eine Variante noetig")
     for size in value:
-        if isinstance(size, bool) or size not in ALLOWED_BATCH_SIZES:
+        # ``1.0 in (1, 3)`` ist in Python wahr; eine Gleitkommazahl waere aber
+        # keine gueltige Batchgroesse und fiele erst im Lauf auf.
+        if type(size) is not int or size not in ALLOWED_BATCH_SIZES:
             raise ValueError(f"Batchgroesse {size!r} ist nicht in {ALLOWED_BATCH_SIZES}")
     if len(set(value)) != len(value):
         raise ValueError("doppelte Batchgroesse")

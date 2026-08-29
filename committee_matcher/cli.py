@@ -217,7 +217,7 @@ def _add_common_flags(parser: argparse.ArgumentParser, command: Command) -> None
         # Die Evaluationsmenge steht in der Stichprobendatei; eine Zielangabe
         # auf der Kommandozeile wuerde das Gold-Set stillschweigend kuerzen.
         parser.add_argument(
-            "--eval-id",
+            "--eval-id", required=True,
             help="Evaluationsrevision; Export, Labelimport und Prueflauf sind "
                  "daran gebunden",
         )
@@ -1914,6 +1914,23 @@ def handle_evaluate_export(
         return [], []
 
     reporter.start(Stage.EVALUATION, evaluation=eval_id, action="export")
+    try:
+        return _export_evaluation(namespace, collector, settings, reporter,
+                                  eval_id, provider_settings, budget_usd)
+    except MatcherError as exc:
+        # Ohne dieses Gegenstueck bliebe der ``START`` dieses Vorgangs offen,
+        # sobald ein Fachmodul als Ausnahme abbricht.
+        reporter.error(Stage.EVALUATION, evaluation=eval_id,
+                       code=exc.findings[0].code if exc.findings else "EVAL_FAILED")
+        raise
+
+
+def _export_evaluation(
+    namespace: argparse.Namespace, collector: ErrorCollector,
+    settings: MatcherSettings, reporter: TerminalReporter, eval_id: str,
+    provider_settings, budget_usd: float,
+) -> tuple[list[str], list[str]]:
+    """Der Ablauf des Exports; die teure yfinance-Abfrage kommt zuletzt."""
     blocked = [f"Evaluation: {eval_id}", "Export:     blockiert"]
     if not evaluation_module.assert_revision_free(collector, eval_id):
         reporter.error(Stage.EVALUATION, evaluation=eval_id,
@@ -1951,19 +1968,46 @@ def handle_evaluate_export(
         reporter.error(Stage.EVALUATION, evaluation=eval_id, code="EVAL_PROMPTS")
         return blocked, []
 
+    # Gemessen wird gegen den freigegebenen Stand, denn genau gegen ihn laeuft
+    # auch der Prueflauf. Fehlt die Freigabe, ist das eine Uebergabe an Bene
+    # und kein Grund, vorher yfinance abzurufen.
+    approved = taxonomy_snapshot.approved_snapshot(collector)
+    if approved is None:
+        reporter.wait(Stage.EVALUATION, evaluation=eval_id,
+                      awaiting_taxonomy_approval=None, reason="no_baseline")
+        return blocked, []
+
     # Der Netzabruf kommt zuletzt: jede billige Pruefung hat vorher entschieden,
     # ob dieser Export ueberhaupt zustande kommen kann.
     client = taxonomy_source.YFinanceClient(settings.offline, reporter=reporter)
     snapshot_result = taxonomy_snapshot.build_snapshot(
         collector, client, run_id=eval_id, reporter=reporter)
     snapshot_lines = _snapshot_summary(snapshot_result)
-    if (snapshot_result.state is not WorkflowState.COMPLETED
-            or not snapshot_result.content_hash):
-        # Gegen einen nicht freigegebenen Stand zu messen hiesse, das Ergebnis
-        # spaeter keinem Taxonomiestand zuordnen zu koennen.
+    if snapshot_result.state is WorkflowState.AWAITING_TAXONOMY_APPROVAL:
+        reporter.wait(Stage.EVALUATION, evaluation=eval_id,
+                      awaiting_taxonomy_approval=None,
+                      reason=snapshot_result.reason or "drift")
+        return blocked + snapshot_lines, list(snapshot_result.artifacts)
+    if snapshot_result.state is not WorkflowState.COMPLETED:
         reporter.error(Stage.EVALUATION, evaluation=eval_id,
                        code="EVAL_TAXONOMY_NOT_FROZEN",
                        state=snapshot_result.state.value)
+        return blocked + snapshot_lines, list(snapshot_result.artifacts)
+    if snapshot_result.content_hash != approved.taxonomy_content_hash:
+        # Nicht jede Abweichung ist blockierende Drift: eine geaenderte
+        # Beschreibung laeuft als Warnung durch. Fuer die Evaluation ist auch
+        # sie entscheidend, denn der Beschreibungstext steht im Prompt.
+        collector.blocker(
+            "EVAL_TAXONOMY_DRIFT", Stage.EVALUATION, eval_id,
+            "Der frische Taxonomieabruf weicht vom freigegebenen Stand ab "
+            f"(abgerufen {snapshot_result.content_hash[:12]}, freigegeben "
+            f"{approved.taxonomy_content_hash[:12]}).",
+            f"Abweichung sichten und mit 'snapshot approve --run-id {eval_id}' "
+            "freigeben, danach den Export unter einer neuen --eval-id "
+            "wiederholen.",
+            exit_code=ExitCode.AWAITING_TAXONOMY_APPROVAL)
+        reporter.wait(Stage.EVALUATION, evaluation=eval_id,
+                      awaiting_taxonomy_approval=None, reason="content_drift")
         return blocked + snapshot_lines, list(snapshot_result.artifacts)
 
     manifest = evaluation_module.build_export_manifest(
@@ -1971,19 +2015,21 @@ def handle_evaluate_export(
         settings=settings,
         provider_settings=provider_settings,
         prompts_used=(loaded["mapping_system"], loaded["repair_system"]),
-        taxonomy_content_hash=snapshot_result.content_hash,
-        snapshot_id=snapshot_result.run_id,
+        taxonomy_content_hash=approved.taxonomy_content_hash,
+        snapshot_id=approved.snapshot_id,
         input_manifest_hash=corpus.manifest_sha256,
         targets=targets,
         sample=sample,
         budget_usd=budget_usd,
     )
-    written = [
-        evaluation_module.write_export_manifest(eval_id, manifest),
-        evaluation_module.write_state(
-            eval_id, WorkflowState.AWAITING_DEVELOPMENT_GOLDSET,
-            unit_count=len(targets), snapshot_id=snapshot_result.run_id),
-    ]
+    # Zweite Pruefung unmittelbar vor dem Schreiben: zwischen Vorpruefung und
+    # hier liegt der Netzabruf, und in dieser Zeit kann die Kennung belegt
+    # worden sein.
+    if not evaluation_module.assert_revision_free(collector, eval_id):
+        reporter.error(Stage.EVALUATION, evaluation=eval_id,
+                       code="EVAL_REVISION_TAKEN")
+        return blocked + snapshot_lines, list(snapshot_result.artifacts)
+    written = evaluation_module.write_export_manifest(eval_id, manifest)
     variants = manifest["variants"]
     reporter.wait(Stage.EVALUATION, evaluation=eval_id,
                   awaiting_development_goldset=None, units=len(targets))
@@ -1992,14 +2038,15 @@ def handle_evaluate_export(
             f"Evaluation: {eval_id}",
             f"Zustand:    {WorkflowState.AWAITING_DEVELOPMENT_GOLDSET.value}",
             f"Stichprobe: {len(targets)} Unit(s) ({sample.version})",
+            f"Taxonomie:  {approved.snapshot_id} | Content-Hash "
+            f"{approved.taxonomy_content_hash[:12]} (frisch bestaetigt)",
             f"Varianten:  Batchgroessen {variants['batch_sizes']} x "
             f"{variants['repetitions']} Wiederholung(en) | Budget "
             f"{budget_usd:.2f} USD",
             "Naechster:  Gold-Set labeln, dann "
             f"'evaluate import --eval-id {eval_id}'",
         ] + snapshot_lines,
-        [paths.relative_to_base(target) for target in written]
-        + list(snapshot_result.artifacts),
+        [paths.relative_to_base(written)] + list(snapshot_result.artifacts),
     )
 
 

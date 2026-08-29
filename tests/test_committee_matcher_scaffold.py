@@ -875,6 +875,10 @@ STUB_COMMANDS = [c for c in cli.COMMANDS if c.name not in cli.HANDLERS]
 @pytest.mark.parametrize("command", STUB_COMMANDS, ids=lambda c: c.name.replace(" ", "-"))
 def test_every_open_command_is_reachable_and_blocks_with_exit_four(command, capsys, artifact_sandbox):
     argv = [command.family] + ([command.action] if command.action else [])
+    if command.family == "evaluate":
+        # Die Kennung ist bei jeder Evaluationsaktion Pflicht; ohne sie
+        # blockiert schon der Parser und der Stub waere nicht erreichbar.
+        argv += ["--eval-id", "eval-stub"]
     assert cli.main(argv) == int(ExitCode.PREFLIGHT_BLOCKED)
     out = capsys.readouterr().out
     assert command.name in out

@@ -42,8 +42,6 @@ SAMPLE_VERSION = "goldset-sample-v1"
 
 EXPORT_MANIFEST_FILENAME = "export_manifest.json"
 EXPORT_MANIFEST_VERSION = "evaluation-export-v1"
-STATE_FILENAME = "evaluation_state.json"
-STATE_VERSION = "evaluation-state-v1"
 
 #: Kopffelder, die jede Stichprobenzeile tragen muss.
 SAMPLE_UNIT_FIELDS = ("unit_id", "chamber", "committee_name", "unit_name",
@@ -329,6 +327,11 @@ def build_export_manifest(*, eval_id: str, settings, provider_settings,
         "version": EXPORT_MANIFEST_VERSION,
         "eval_id": eval_id,
         "created_at": _now_iso(),
+        # Der Ausgang steht im Manifest und nicht in einer zweiten Datei: so
+        # entsteht die Revision in einem einzigen atomaren Schreibvorgang und
+        # ein Abbruch kann keinen halben Zustand hinterlassen. Den Wechsel
+        # nach 'pending' belegt spaeter die Existenz der Labeldatei.
+        "state": WorkflowState.AWAITING_DEVELOPMENT_GOLDSET.value,
         "sample_version": sample.version,
         # Die Zuordnung Unit -> Textstand. Aendert sich ein Jurisdiktionstext
         # nach dem Labeln, faellt genau diese Unit auf und nicht der ganze Lauf.
@@ -382,32 +385,41 @@ def require_export_manifest(eval_id: str) -> dict:
     return manifest
 
 
-def write_state(eval_id: str, state: WorkflowState,
-                **fields: object) -> Path:
-    """Haelt den Ausgang der Evaluationsrevision fest."""
-    target = evaluation_path(eval_id, STATE_FILENAME, create_parents=True)
-    payload = {
-        "version": STATE_VERSION,
-        "eval_id": eval_id,
-        "state": state.value,
-        "updated_at": _now_iso(),
-        **fields,
-    }
-    return paths.write_text_atomic(
-        target, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+# ---------------------------------------------------------------------------
+# Bindung an den Prueflauf
+# ---------------------------------------------------------------------------
+
+#: Felder, in denen ein Prueflauf mit der Evaluationsrevision uebereinstimmen
+#: muss. Es ist bewusst dieselbe Liste wie beim Resume eines Laufs, ohne
+#: ``selection`` und ``unit_count``: die Evaluation misst dieselbe Unitmenge,
+#: aber der Prueflauf darf sie in mehreren Teillaeufen abarbeiten.
+BOUND_FIELDS = ("taxonomy_content_hash", "input_manifest_hash", "snapshot_id",
+                "model", "routing", "prompts", "schema", "context",
+                "cache_key_version", "batching")
 
 
-def load_state(eval_id: str) -> dict | None:
-    """Liest den Zustand der Revision; unbrauchbar wie fehlend behandelt."""
-    target = evaluation_path(eval_id, STATE_FILENAME)
-    if not target.exists():
-        return None
-    try:
-        data = json.loads(target.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return None
-    if not isinstance(data, dict) or data.get("version") != STATE_VERSION:
-        return None
-    if data.get("eval_id") != eval_id:
-        return None
-    return data
+def binding_conflicts(manifest: Mapping[str, object],
+                      run_manifest: Mapping[str, object]) -> tuple[str, ...]:
+    """Felder, in denen ein Lauf von der Evaluationsrevision abweicht.
+
+    ``batching`` wird ohne ``batch_size`` verglichen: die Batchgroesse ist in
+    der Evaluation die Variante, und beide Varianten sind gueltig. Jedes
+    andere Feld von ``batching`` gehoert dagegen zur Bindung.
+    """
+    conflicts: list[str] = []
+    for name in BOUND_FIELDS:
+        expected, current = manifest.get(name), run_manifest.get(name)
+        if name == "batching":
+            expected = {key: value for key, value in dict(expected or {}).items()
+                        if key != "batch_size"}
+            current = {key: value for key, value in dict(current or {}).items()
+                       if key != "batch_size"}
+        if expected != current:
+            conflicts.append(name)
+    return tuple(conflicts)
+
+
+def variant_allowed(manifest: Mapping[str, object], batch_size: int) -> bool:
+    """Prueft eine Batchgroesse gegen die eingefrorene Variantenmatrix."""
+    variants = dict(manifest.get("variants") or {})
+    return batch_size in list(variants.get("batch_sizes") or [])

@@ -575,6 +575,10 @@ def build_snapshot(
 
     baseline = load_baseline(collector)
     if collector.has_blockers():
+        # Auch dieser Rueckweg schliesst den ``START`` des Laufs; sonst endete
+        # der Livestatus mitten im Vorgang.
+        reporter.error(Stage.TAXONOMY, run=run_id, code="TAX_BASELINE_UNREADABLE",
+                       industries=len(rows))
         return SnapshotResult(
             run_id=run_id, state=WorkflowState.FAILED, reason="baseline_unreadable",
             content_hash=digest, industries=len(rows), artifacts=tuple(artifacts),
