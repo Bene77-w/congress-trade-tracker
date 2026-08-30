@@ -1,0 +1,31 @@
+# HTTPS-Reverse-Proxy vor dem Streamlit-Dashboard.
+# Caddy holt und erneuert das Let's-Encrypt-Zertifikat selbst — Voraussetzung
+# ist nur, dass der A-Record der Domain auf die Server-IP zeigt.
+#
+# Die Domain kommt aus der Umgebungsvariable SITE_DOMAIN (deploy/.env), damit
+# diese Datei unveraendert bleibt und 'git pull' auf dem Server konfliktfrei
+# durchlaeuft.
+{$SITE_DOMAIN} {
+    encode gzip
+
+    header {
+        # Browser merkt sich HTTPS fuer ein Jahr.
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        # Seite darf nicht in fremde Frames eingebettet werden.
+        X-Frame-Options "SAMEORIGIN"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        # Server-Software nicht ausweisen.
+        -Server
+    }
+
+    # Streamlit haelt die Verbindung per WebSocket offen; Caddy leitet
+    # Upgrade-Header automatisch weiter, hier ist nichts extra noetig.
+    reverse_proxy dashboard:8501
+
+    log {
+        # Nicht nach /data: dort liegen die Zertifikate.
+        output file /var/log/caddy/access.log
+        format console
+    }
+}

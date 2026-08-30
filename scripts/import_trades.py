@@ -2163,7 +2163,7 @@ class TradeImporter:
 
         Cache: data/cache/edgar_cik_map.json (TTL 7 Tage). Bei API-Failure
         wird IssuerGroupMapperUnreachableError geworfen (strikter Abbruch).
-        Doku: organisation/Ticker_Architektur.md
+        Doku: organisation/tool_specific_md/Ticker_Architektur.md
         """
         print(f"\n[Stage: issuer_group] Cross-Class Issuer Mapping (EDGAR CIK)...")
         df = self._read_stage_input('issuer_group', delta, dry_run)

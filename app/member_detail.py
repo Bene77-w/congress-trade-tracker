@@ -135,10 +135,25 @@ def _first(series_like) -> object:
     return s.iloc[0] if hasattr(s, 'iloc') and len(s) else ''
 
 
+def price_cache_path() -> str:
+    """Pfad zum Kurs-Cache: Normalort, sonst der Deployment-Ordner.
+
+    Lokal liegt der Cache unter ``data/cache/``, wo die Pipeline ihn pflegt.
+    Im Deployment gibt es diesen Ordner nicht; dort liefert der Snapshot-Bau
+    eine Kopie in ``data/deploy/`` mit. Ohne diesen Fallback zeigen alle
+    Detail-Popups nur 'keine Kursdaten', obwohl die Datei auf dem Server liegt.
+    """
+    primary = ROOT / settings.POST_TRADE_PRICE_CACHE
+    if primary.is_file():
+        return str(primary)
+    fallback = ROOT / settings.DEPLOY_PRICE_CACHE_PATH
+    return str(fallback if fallback.is_file() else primary)
+
+
 @st.cache_data(show_spinner=False)
 def _load_price_cache():
     from scoring.post_trade_returns import _load_price_cache
-    return _load_price_cache(str(ROOT / settings.POST_TRADE_PRICE_CACHE))
+    return _load_price_cache(price_cache_path())
 
 
 @st.cache_resource(show_spinner=False)

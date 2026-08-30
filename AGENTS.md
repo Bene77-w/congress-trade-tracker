@@ -1,101 +1,65 @@
-# Congress Trade Tracker - Projektstatus
+# Congress Trade Tracker
 
-## Projektbeschreibung
-Python + Streamlit App die US-Kongress-Mitglieder Stock-Trades trackt, analysiert und Trading-Empfehlungen erstellt.
+Python + Streamlit zur Analyse von Aktiengeschäften von US-Kongressmitgliedern.
 
-## Wichtige Regeln
-1. **Alle Filter-Parameter muessen konfigurierbar sein** (in config/settings.py)
-2. **Bei komplexen Implementierungen Immer erst Implementierungsplan zeigen**, dann auf "OK" warten bevor Code geschrieben wird, Implementierungsplan kann bei kleinen unkomplexen Änderungen übersprungen werden
-4. **Dokumentation** (Single-Source-of-Truth; Routing-Quelle: `organisation/DOKU_INDEX.md`) — **oberste Priorität ist kosteneffiziente, korrekte Dokumentierung**:
-   - **Zwei Dokumentationsarten, der Implementierungsagent entscheidet eigenständig, welche zutrifft:**
-     - **Große Architekturänderungen / Moduländerungen** (neues Modul, neue Stage, strukturelle Änderung an Pipeline/Datenmodell) → Doku **nicht selbst** schreiben, sondern Skill **`/doku-update`** aufrufen (git-diff-Scope + DOKU_INDEX-Routing + Briefing an den `doku-agent`, Default-Modell **Sonnet**; voller Ablauf + Modell-Overrides: `.claude/skills/doku-update/SKILL.md`).
-     - **Kleine Detailanpassungen** (z. B. einzelnes Feld, kleiner Bugfix, kleines CLI-Flag) → der Implementierungsagent pflegt die betroffene(n) Doku-Datei(en) **selbst/manuell** — *welche*, nennt die „Aktualisieren bei"-Spalte in `DOKU_INDEX.md`. Faustregel: neue/geänderte Spalten/Datenstrukturen → `organisation/DATA_STRUCTURE.md`; neue/geänderte Scripts, Stages, Abläufe, Abhängigkeiten → `organisation/Pipelines.md`.
-   - **Neue projektrelevante Datei** (Daten/Config/Script) zusätzlich aufnehmen in `DATA_STRUCTURE.md` (Struktur, Spalten, Zweck, Beispiele) **und** `Pipelines.md` (Zweck, Position in der Pipeline).
-   - **Plan-Dateien nicht recyceln**: für ein neues, unverwandtes Todo eine **neue** Plan-Datei anlegen statt eine bestehende fremde zu überschreiben (Token-Ersparnis — spart den Read-Roundtrip vor jeder Änderung).
-5. **Systemanweisung**: Du bist ein erfahrener python Software-Entwickler. Um einen individuell passenden Plan zu erstellen frägst du den User nach konkreten Anweisungen und lässt wichtige Planungsfragen vom User beantworten. Du teilst jeden Gedankengang und Entscheidungsweg mit dem User. Falls Rückfragen oder Probleme auftreten, teile sie dem User mit.
-6. **Fragen an dich**: Wenn der User nach deiner Einschätzung frägt, dann präsentiere zunächst deinen Gedankengang, verschiedene Lösungswege, Pro-/Kontra-Argumente und Konsequenzen jedes Lösungsweges und zuletzt deine begründete Empfehlung.
-7. **Emojis-Verbot** Verwende keine Emojis für das frontend/streamlit
-8. **Einsatz von subagents** Nutze für tokenintensive Aufgaben subagents, welche Teilaufgaben für dich erledigen. weiter unten eine Orientierung für die Modellwahl: 
-9. **Git-Workflow im Worktree**. Du arbeitest in einem git-Worktree auf deinem eigenen Branch `agent/<name>`.
-    - **Adden + Committen sind erlaubt** — committe deine Änderungen frei auf deinem eigenen Branch (`git add ...`, `git commit -m "..."`).
-    - **Mergen nach `main` NUR auf ausdrücklichen Befehl des Users** — niemals eigenmächtig. Wenn der User es anweist, läuft es genau so:
-      ```bash
-      # 1. Commit auf dem eigenen Branch (im Worktree …-agent-<name>)
-      git add -A
-      git commit -m "..."
-      # 2. Merge in main aus dem HAUPT-Worktree (dort ist main ausgecheckt)
-      cd /path/to/congress_tracker
-      git merge --no-ff agent/<name> -m "Merge agent/<name>: ..."
-      ```
-    - NIEMALS `git push` und NIEMALS `git stash` ohne ausdrücklichen Befehl (Stash ist im Worktree-Setup zwischen allen Worktrees geteilt → gefährlich).
-10. **Beginne jede antwort mit 'Bene, '(...)**
----
+## Verbindliche Regeln
 
-## Orientierungs-Workflow
-
-Stand **nicht aus dem Gedächtnis** annehmen — aus git/Doku ableiten:
-- **Was hat MEIN Branch geändert?** → `git diff main...HEAD --stat` + `git status`
-- **Stand/History einer Datei oder eines fertigen Moduls?** → `git log --oneline -- <pfad>` oder `CHANGELOG.md`
-- **Wo liegt Thema X / welche Doku pflegen?** → `organisation/DOKU_INDEX.md`
----
-
-## Subagent-Modellwahl (nach Anspruchsgrad)
-
-| Anspruchsgrad | Modell | Typische Aufgaben |
-|---|---|---|
-| **Trivial** | `haiku` | Datei-Suche, Grep-artige Exploration, einfache Lookups, simple Umbenennungen, Formatprüfungen |
-| **Standard** | `sonnet` | Einfache klar spezifizierte code implementierung, Dokumentation |
-| **Komplex / kritisch** | `opus` | Komplexe Implementierungen, Architekturentscheidungen, Security-Reviews, Debugging tiefer Bugs, mehrdeutige Bewertungen mit Abwägung |
----
+- Filterparameter; vollständig in `config/settings.py` konfigurierbar
+- Komplexe Implementierungen; Plan mit testbaren Phasen + Gates vorlegen, erst nach „OK“ implementieren
+- Kleine Änderungen; Plan optional
+- Frontend; keine Emojis
+- Antworten; immer mit `Bene, ` beginnen
+- Tokenintensive, unabhängige Teilaufgaben; Subagents einsetzen
+- Für neues Todo neue Plan-Datei anlegen statt unverwandte überschreiben (spart Read-Roundtrip).
 
 
-## Aktueller Stand (WIP)
 
-**Fertige Module + Phasen-Historie:** `CHANGELOG.md` bzw. `git log --oneline -- <pfad>`.
-Detail, das **nicht** im CHANGELOG steht: Post-Trade-Performance (Modul 5) → `organisation/Briefing_stage_post_trade_performance.md` + `DATA_STRUCTURE.md`; Scheduler/Quiver-Auto-Download (Modul 11) → `deploy/systemd/README.md`.
-**Offene Module** (10, Rebuild T4, genereller Scheduler): s. „Nächste Schritte" unten.
+## Dokumentation
 
-**Ausgelagert — Suspicious-Trades-Workflow:** Der eigenständige Analyse-Workflow
-liegt im Schwesterprojekt
-`/home/bene/Nextcloud/backup_l9520/Projekte/bmb_trdprg/suspicious-trades-workflow`
-mit eigener Konfiguration, Datenablage und virtueller Umgebung. Der Congress
-Tracker enthält davon keinen Code und keine Laufzeitabhängigkeit; verbleibende
-Schnittstelle ist nur der optionale neutrale CSV-Export in `data/agent_exports/`.
+Routing + „Aktualisieren bei“-Trigger: `organisation/DOKU_INDEX.md`.
+ Single-Source-of-Truth pro Thema | Spalten → DATA_STRUCTURE.md · Score/Settings → config/settings.py · Pipeline-Reihenfolge → Pipelines.md · Signal-Schema → tool_specific_md/signal_info.md · Deployment → DEPLOYMENT.md |
 
-**In Arbeit — Modul 9 (Streamlit-Dashboard):** `app/streamlit_app.py`, `score_recompute.py`, `scoring_presets.py`, `chart_helpers.py`, `member_metrics.py`, `member_detail.py`, `score_correlation.py`. **6 Tabs**: Trades / Assets / Members / Post Trade Performance / Recent Trades / Score-Analyse. Kernfeatures: unified Token-Suche (`_search_mask` über Name/Asset/Ticker/Hash-ID); globaler **Horizont-Sichtbarkeitsfilter** (`first_close_offset_days` ≤ Primary-Horizont, offene Positionen ausgeblendet); **Recent-Trades-Tab** für Monitoring offener Positionen (Mark-to-Market `paper_return_pct`, umgeht Horizont-Filter); **Score-Analyse-Tab** (Modul 9.x, `app/score_correlation.py`; bis 2026-07-03 zwei Tabs Score-Korrelation + Score-Analyse) zur `trade_score`-Validierung gegen den signierten Objective Return `post_return_{X}d` (Spearman als Rang-Pearson ohne scipy; umgeht den Horizont-Filter inkl. held; Kennzahlen + Scatter + Score-Buckets [Score 0 separat, Rest in festen 5er-Schritten] + Pro-Signal-Korrelation, alles filterbar nach Kammer/Partei, eigener Tab-Horizont mit Optionen 30…365d); Voll-Recompute bei Signal-Ausschluss; Sidebar-Form **„Score-Gewichte"** (alle `SCORING_WEIGHTS` + Tier-Editor, Preset-Persistenz `data/config/scoring_presets.json`); **Member-Detail-Popup** (Klick auf Members-Tab-Zeile → `@st.dialog`, live pro Member berechnet — keine neuen Master-Spalten/Pipeline-Lauf — Übersicht/Performance/Verläufe/Timing inkl. Spaghetti-Charts, Red-Flag-Ampel, Google-Namens-/Ticker-Links); Trades-Tab-Ticker-Spalte als Google-`LinkColumn`; alle Zeit-/Horizont-Widgets tragen Scope-Präfixe **[Global]/[Tab]/[Detail]** (Sidebar global, Tab-eigene Fenster tab, Popup-Controls detail); Member-Detail-Popup nutzt die **volle Member-Historie** (Sidebar-Zeitfenster wirkt nicht, Quartal-Slider = einziges Zeitfilter). Start: `streamlit run app/streamlit_app.py`. Datenspalten + Modul-Details: `DATA_STRUCTURE.md` (App-Konfiguration/Scope: Abschnitt „7b"; Member-Detail: „7c"; Score-Analyse: „7d"; Abnormal-Return-Anzeige: „7e"); Scoring: `Filter_Instanz_Parameter.md`.
-
-**In Arbeit — Committee-Mapping-Agent:** `scripts/committee_mapping_agent/` — 3-Rollen-LLM-Agent (DeepSeek V4), erzeugt `subcommittee_sector_industry_mapping.csv` (Master des Committee-Tags) gegroundet + reviewbar (xlsx-Round-Trip) neu. Einstieg: `scripts/committee_mapping_agent/run.py` (`python -m scripts.committee_mapping_agent.run <subcommand>`). Status: Probelauf 3 Committees abgeschlossen, Full-Run + `promote` ausstehend. Details: `CLI_Bedienungsanleitung.md` Abschnitt 15, `DATA_STRUCTURE.md` Abschnitt 3a, `Pipelines.md` Pipeline 11, Review-Prozess: `manual_review_anleitung.md` Prozess 4.
-
-**Abgeschlossen — Abnormal Return (Discovery + Integration):** `scoring/abnormal_returns.py` (signierter, marktbereinigter BHAR vs. SPY; 2 Konstrukte: A = `transaction_date`, B = `disclosure_date`; member-geclusterter Block-Bootstrap ohne scipy). **Deskriptiv — KEIN Scoring-Input.** Zwei Nutzungen: (1) **produktive Pipeline-Stage `abnormal_returns`** (`scripts/import_trades.py`, Full-Run [9b]/Delta [10b], `--stage_abnormal_returns`) schreibt die Konstrukt-A-Spalten `signed_ar_{30,60,90,120,180}d` in den Master; Anzeige NUR in den Detail-Popups, AR-Horizont dort per UI wählbar (`st.radio`, Optionen `AR_HORIZONS_DAYS`, Default `AR_HEADLINE_HORIZON_DAYS`/120d — gilt für Trade- UND Member-Detail: Trade-Detail: AR {H}d + zweiseitiger Perzentil-Rang gegen alle Trades + Roh-vs-AR-Tabelle; Member-Detail: Median-AR {H}d + Ausreißer-Quote pos/neg; Helper in `app/member_metrics.py`). Outlier-Flag/Rang bei Anzeige abgeleitet (nicht im Master). (2) **Standalone-Analyse** `scripts/analyse_event_study.py` (Diskriminator + Konstrukt B + Bootstrap, kein Master-Schreiben). Master-Backfill (`--stage_abnormal_returns`) durchgelaufen — `signed_ar_*d`-Spalten sind im Master befüllt (NaN nur bei Trades, die den jeweiligen Horizont noch nicht erreicht haben). Befund-Report: `organisation/analyse_event_study.md`; Spalten/Anzeige: `DATA_STRUCTURE.md` Abschnitt 7e; Stage: `Pipelines.md` Pipeline 5 [8b]; Settings: `AR_*`-Block in `config/settings.py`.
-
----
-
-## Wichtige Dateien (Einstieg)
-
-**Pipeline-Einstieg:** `scrapers/quiver_scraper.py` (Auto-Download Congress-Trading-XLSX, täglich 03:00 via systemd, Exit-Codes 0/1/2/3) → `scripts/import_trades.py` (Haupt-Import-Pipeline, nach jedem Scraper-Lauf). Scheduler-Vorlagen + README: `deploy/systemd/`. House/Senate-Scraper s. Import-Workflow unten.
-
-**Code-Konvention Gate / Tag / Signal:** `gates/` = binäre Hard-Ausschlüsse · `tags/` = Kontext-Anreicherung mit Master-Spalten · `signals/` = User-sichtbare Score-Beiträge. Instanzen + Parameter + Score-Formel: `organisation/Filter_Instanz_Parameter.md`.
-
-**Config:** `config/settings.py` (alle konfigurierbaren Parameter), `config/committee_mapping.py` (O(1) Subcommittee→Sektor-Lookup).
-
-**Utils, `scoring/`, App-Module + alle Datendateien** (Zweck, Spalten, Beispiele): `organisation/DATA_STRUCTURE.md`; Ticker/Issuer-Architektur: `organisation/Ticker_Architektur.md`. Modul-8-Scoring-Formel (`scoring/asset_volume.py`, `scoring/trade_score.py`): `Filter_Instanz_Parameter.md`. `utils/openfigi_client.py` = LEGACY (Rebuild T4 entfernt sie).
-
----
+- Strukturänderung: neues Modul, Stage, Pipeline- oder Datenmodell; Skill `/doku-update` nutzen
+- Detailänderung: betroffene kanonische Doku selbst aktualisieren
+- Neue/geänderte Datenstrukturen oder Spalten; `organisation/DATA_STRUCTURE.md`
+- Neue/geänderte Scripts, Stages, Abläufe oder Abhängigkeiten; `organisation/CLI_Bedienungsanleitung.md`
+- Neue Daten-, Config- oder Script-Datei; zusätzlich in `DATA_STRUCTURE.md`; ausführbare Abläufe zusätzlich in `CLI_Bedienungsanleitung.md`
+- Single-Source pro Thema, Status-Tabellen statt Prosa, Historie → CHANGELOG.md; Optik/Doku erst im finalen Doku-Schritt
 
 
-## Nächste Schritte
+## Arbeitsgrundlage
 
-1. **Modul 9 — Streamlit-Dashboard** (in Arbeit): nächste Iteration `effective_return_horizon_days`-Spalte einblenden, sobald Plan A sie in den Master schreibt (Platzhalter-Check im Code vorhanden).
-2. **Rebuild T4**: Migration alter Caches, `utils/openfigi_client.py` + alte Tabellen entfernen.
-3. **Modul 10** (Email-Benachrichtigungen), **Modul 11** (genereller Scheduler übriger Pipelines).
-4. **Event-Study-Folgeschritte (Discovery):** Perzentil-Rerun (`AR_OUTLIER_MODE='percentile'`, Schwellen `AR_OUTLIER_PCT_UPPER/LOWER`); Konstrukt C (Vote-Event als Anker statt Kauf-/Verkaufsdatum). (Stage-9b-Integration erledigt — s. „Abgeschlossen — Abnormal Return".)
+- Eigener Branch; `git diff main...HEAD --stat` + `git status`
+- Dateihistorie; `git log --oneline -- <pfad>` oder `CHANGELOG.md`
+- Themendokumentation; `organisation/DOKU_INDEX.md`
 
-Historische Plan-Datei (P1–P7, abgeschlossen): `archive/alt/Implementierungsplan_Signals.md`.
+Git:
 
----
+- Commit auf `agent/<name>` erlaubt
+- Kein Merge nach `main`, Push oder Stash ohne ausdrückliche Nutzerfreigabe
+- Freigegebener Merge; aus Haupt-Worktree `/path/to/congress_tracker`
 
-## Detail-Doku
+```bash
+git merge --no-ff agent/<name> -m "Merge agent/<name>: ..."
+```
 
-Schneller Themen-Einstieg (kanonische Quelle pro Thema):
-- **Spalten** → `DATA_STRUCTURE.md` · **Gate/Tag/Signal + Score** → `Filter_Instanz_Parameter.md` · **Pipeline-Stages** → `Pipelines.md` · **Signal-Schema** → `tool_specific_md/signal_info.md` · **Ticker/Issuer** → `Ticker_Architektur.md` · **CLI** → `CLI_Bedienungsanleitung.md` · **Phasen-Historie** → `CHANGELOG.md` · **Offene Pläne** → `~/.claude/plans/*.md`
-**Voller Doku-Index + „Aktualisieren bei"-Trigger pro Datei:** `organisation/DOKU_INDEX.md` (Single-Source-of-Truth-Konvention + Routing-Quelle für Regel 4 und Skill `/doku-update`).
+- Worktree- + Branch-Verwaltung; vorhandene Skripte vor manuellen Eingriffen prüfen und nutzen
+- Worktree-Skripte; `~/Nextcloud/backup_l9520/Projekte/bmb_trdprg/congress_tracker/scripts/`
+- Jeder Agent; eigener Worktree + Branch `agent/<name>`
+
+
+## Aktueller Stand
+
+- Programm läuft: Pipeline, Scoring und Dashboard funktionsfähig
+- Deployment-Fundament steht (Snapshot-Builder, App-Anpassungen, Server-Artefakte); offen: Git-Historie bereinigen (braucht Nutzerfreigabe) und Serverbetrieb aufsetzen (VPS + Domain vorhanden)
+- Committee Matcher V2; P0-P8 + S1-S5 implementiert; Gate B am 2026-08-21 beschlossen (Modell `deepseek/deepseek-v4-flash-0731`, freie Providerwahl, Kostenwache)
+- Providersettings gesetzt + Routing-Preflight `provider check` live; Contract-Smoke am 2026-08-22 live bestanden (Routing `Morph`, 0,000018 USD, Exit 0)
+- Kern vollstaendig: `mapping.py` + `validation.py` (P6), `workflow.py` (P7a), `artifacts.py` (P7b), Laufkommandos `run plan|execute|reconcile` (P7c), Review-Roundtrip `review export|import` (P7d), Live-Terminalstatus fuer alle Vorgaenge (S4)
+- Review-Workbook ist eine Arbeitstabelle ohne Steuerspalten: Wert aendern, Zeile loeschen, Zeile anhaengen; Provenienz + Aenderungsbilanz rechnet der Import aus dem Vergleich gegen die Laufartefakte
+- Ablauf: Mapping -> Review in Excel -> `reviewed_assignments.csv` -> Uebernahme in `import_trades`
+- P8 am 2026-08-28 live bestanden: Lauf `p8-run2` (7 Units House Agriculture, 6 mapped, 1 no_mapping, 0,003685 USD) plus Roundtrip `review-p8-run2`; Denktiefe je Call ist seither ueber `COMMITTEE_MATCHER_REASONING_EFFORT` begrenzt, gesendet wird `max_output_tokens + reasoning_reserve_tokens`
+- Phasenreviews abgeschlossen: P7c-Nachpruefung, S3, S5 (je nicht abgenommen, Befunde behoben) und P8 (mit Auflagen abgenommen, Auflagen erledigt)
+- Offen: P9 Entwicklungs-Gold-Set und Evaluation (kostenpflichtig, Gate); Bene labelt die 22 Units in data/committee_matcher_v2/goldset/development_goldset.xlsx
+- Entschieden 2026-08-27: CSV-Formelinterpretation bleibt unveraendert (Review laeuft ausschliesslich ueber die Excel), Confidence-Rubrik bleibt vierstufig, `unit_id` bleibt Modellfeld (Fehler faellt ueber Anzahl- und Evidenzpruefung auf), Boundary-Konflikte sind reine Information ohne Eingabefeld
+- Befund: `trade_score` korreliert kaum mit dem Return — Konstrukt-Konflikt, kein Bug
+- Detailstand + History: `CHANGELOG.md`; Entscheidungen + Pläne: `organisation/`, `~/.claude/plans/`

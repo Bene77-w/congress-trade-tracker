@@ -2,7 +2,7 @@
 
 Konsolidierte Referenz zu den Roh-Trade-Scrapern (House/Senate) und den PDF-/OCR-Extractoren: Architektur, bekannte Probleme und Paper-PTR-Formate.
 
-**Verwandte Doku:** CLI-Aufrufe → `CLI_Bedienungsanleitung.md` · Pipeline-Position → `Pipelines.md` · Senate-Website-Selektoren → `Senate_website_structure.md` · House-Paper-PDF-Tiefenanalyse → `HAND_DELIVERED_PDF_ANALYSE.md` + `house_all_pdf_info.md`.
+**Verwandte Doku:** CLI-Aufrufe → `CLI_Bedienungsanleitung.md` · Pipeline-Position → `Pipelines.md` · Senate-Website-Selektoren → `Senate_website_structure.md` · House-Paper-PDF-Tiefenanalyse → `house_all_pdf_info.md`.
 
 ---
 
@@ -37,7 +37,7 @@ Für PDFs mit `reason="empty_text"` in `house_scraper_fehler.csv` (Bild-Scans oh
 - **`house_pdf_extractor_v2.py`** (empfohlen): Grid-Erkennung (OpenCV) + Pixel-Density + Vision-API-Batches. Output → `data/raw/house_pdf.csv`.
 - **`house_pdf_extractor.py`** (v1, LEGACY-Fallback): schickt ganze Seiten an die Vision-API → Merge/Truncation-Fehler, Name-Halluzinationen. Durch v2 ersetzt.
 - **Amount-Checkboxen A–K** statt Beträgen (Papierformulare): A=$1.001–15k, B=15k–50k, C=50k–100k, D=100k–250k, E=250k–500k, F=500k–1M, G=1M–5M, H=5M–25M, I=25M–50M, J=>50M, K=Spouse/DC >1M.
-- Detail-Layout der Formulartypen → `HAND_DELIVERED_PDF_ANALYSE.md`; Committee-PDF-Parsing → `house_all_pdf_info.md`.
+- Detail-Layout der Formulartypen → `house_all_pdf_info.md`; Committee-PDF-Parsing → `house_all_pdf_info.md`.
 
 ---
 

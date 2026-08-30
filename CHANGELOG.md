@@ -11,6 +11,39 @@ Historie abgeschlossener Module/Phasen. **Aktiver WIP-Modul-Stand** steht im „
 
 ---
 
+## 2026-08-30 — Deployment-Fundament für das öffentliche Dashboard
+
+Grundlage für einen öffentlich erreichbaren Streamlit-Dashboard-Betrieb auf
+einem eigenen VPS. Leitidee: Auf dem Server läuft nur das Dashboard, nicht die
+Pipeline — kein API-Key, keine Quiver-Zugangsdaten, kein Scraper auf dem
+Server. Er liest einen eingefrorenen Datenstand, den der Entwicklungsrechner
+erzeugt und per rsync hochlädt.
+
+Drei Bausteine: **(1)** `scripts/build_deploy_snapshot.py` (eigenständiges
+Skript, keine Pipeline-Stage) baut aus `trades_master_complete.csv` einen
+Parquet-Snapshot mit `category`-Dtypes für Wiederholungsspalten —
+645 MB → ~15 MB Datei, ~624 MB → ~76 MB RAM, Ladezeit 5 s → 0,1 s — plus Kopie
+des Kurs-Caches. **(2)** App-Anpassungen: Loader bevorzugt den Snapshot, wenn
+vorhanden (lokal ohne Snapshot-Build unverändert), Datenstand-Anzeige unter
+dem Titel, optionales Passwort-Gate (Default aus), Scoring-Presets pro
+Browser-Session im öffentlichen Modus statt in einer geteilten Datei,
+CSV-Export des Recent-Tabs im öffentlichen Modus ausgeblendet. **(3)**
+Server-Artefakte unter `deploy/`: schlankes Dashboard-Image ohne Tesseract/
+Chromium (~600 MB kleiner), Compose mit Caddy als HTTPS-Reverse-Proxy,
+Schritt-für-Schritt-Anleitung (`deploy/README_deployment.md`).
+
+`data/deploy/` ist gitignored — der Snapshot geht per rsync auf den Server,
+nicht ins Repo.
+
+Details: `organisation/DEPLOYMENT.md` Abschnitt 9,
+`organisation/DATA_STRUCTURE.md` Abschnitt 7g,
+`organisation/CLI_Bedienungsanleitung.md` Abschnitt 14.
+
+Test-Stand: 995 Tests grün (davon 21 neu), App-Smoke-Test gegen den Snapshot
+ohne Exceptions.
+
+---
+
 ## 2026-07-11 — Suspicious-Trades-Workflow als Schwesterprojekt ausgelagert
 
 Der zuvor im Congress Tracker enthaltene Workflow wurde vollständig nach

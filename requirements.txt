@@ -63,3 +63,8 @@ curl_cffi==0.15.0          # scrapers/senate_committee_xml (Senate-Roster-Produc
 openai==2.41.1             # scripts/committee_mapping_agent (DeepSeek via OpenAI-SDK)
 ddgs==9.14.4               # scripts/committee_mapping_agent (Grounding-Suche)
 jsonschema==4.26.0         # scripts/committee_mapping_agent (Schema-Validierung)
+
+# Parquet-Engine fuer den Deployment-Snapshot (scripts/build_deploy_snapshot.py,
+# app/streamlit_app.py). Kam bisher nur transitiv ueber streamlit — ohne sie
+# scheitert der Snapshot-Pfad auf dem Server zur Laufzeit.
+pyarrow==18.1.0

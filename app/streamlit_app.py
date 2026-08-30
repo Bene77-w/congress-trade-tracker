@@ -10,6 +10,7 @@ angezeigt, damit Filter konsistent durchschlagen.
 """
 from __future__ import annotations
 
+import hmac
 import json
 import math
 import sys
@@ -51,6 +52,11 @@ from signals.committee_signal import (  # noqa: E402
 
 
 TRADES_CSV = ROOT / 'data' / 'processed' / settings.TRADES_MASTER_COMPLETE_CSV
+# Deployment-Snapshot: eingefrorener Datenstand als Parquet (~15 MB statt
+# ~645 MB CSV). Wird bevorzugt geladen, wenn vorhanden — gebaut von
+# scripts/build_deploy_snapshot.py.
+DEPLOY_SNAPSHOT = ROOT / settings.DEPLOY_SNAPSHOT_PATH
+DEPLOY_MANIFEST = ROOT / settings.DEPLOY_SNAPSHOT_MANIFEST
 
 TRADE_DISPLAY_COLS = [
     # Default-Spalten in Anzeige-Reihenfolge (links -> rechts); die Display-
@@ -186,25 +192,61 @@ def _parse_committee_matches(value: object) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Deployment-Modus
+# ---------------------------------------------------------------------------
+
+def _preset_store() -> dict | None:
+    """Ablage fuer Scoring-Presets: Session-Speicher oder Datei (None).
+
+    Auf einer oeffentlichen Instanz (``APP_PUBLIC_MODE``) bekommt jeder
+    Besucher seine eigene Preset-Ablage im ``session_state``. Wuerden alle in
+    ``data/config/scoring_presets.json`` schreiben, ueberschrieben sie sich
+    gegenseitig, und bei einem Server-Neustart waere die Datei weg. Lokal
+    liefert die Funktion ``None`` = unveraenderte Datei-Persistenz.
+    """
+    if not getattr(settings, 'APP_PUBLIC_MODE', False):
+        return None
+    return st.session_state.setdefault('session_presets', {})
+
+
+@st.cache_data(show_spinner=False)
+def load_snapshot_manifest() -> dict:
+    """Metadaten des Deployment-Snapshots (Datenstand, Zeilen) oder ``{}``."""
+    if not DEPLOY_MANIFEST.exists():
+        return {}
+    try:
+        return json.loads(DEPLOY_MANIFEST.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return {}
+
+
+# ---------------------------------------------------------------------------
 # Loader (cached)
 # ---------------------------------------------------------------------------
 
-@st.cache_data(show_spinner='Lade trades_master_complete.csv …')
+@st.cache_data(show_spinner='Lade Trade-Daten …')
 def load_trades() -> pd.DataFrame:
-    df = pd.read_csv(
-        TRADES_CSV,
-        parse_dates=['transaction_date', 'disclosure_date'],
-        dtype={'ticker': 'string', 'issuer_ticker': 'string',
-               'name': 'string', 'chamber': 'string',
-               'Member_Party': 'string',
-               'subholding': 'string',
-               'transaction_type': 'string', 'amount': 'string',
-               'signals_triggered': 'string',
-               'trade_score_breakdown': 'string',
-               'trade_warnings': 'string',
-               'Relevant_Sectors': 'string'},
-        low_memory=False,
-    )
+    # Deployment-Snapshot hat Vorrang: gleiche Spalten, aber Parquet mit
+    # category-Dtypes -> ~0,1 s statt ~5 s Ladezeit. Ohne Snapshot laeuft die
+    # App unveraendert gegen den Master-CSV (lokaler Entwicklungsstand).
+    if DEPLOY_SNAPSHOT.exists():
+        df = pd.read_parquet(DEPLOY_SNAPSHOT)
+        # Lokal faellt sonst nicht auf, dass ein Pipeline-Lauf den Master
+        # aktualisiert hat, der Snapshot aber alt ist.
+        if (TRADES_CSV.exists()
+                and TRADES_CSV.stat().st_mtime
+                > DEPLOY_SNAPSHOT.stat().st_mtime):
+            st.warning(
+                'Der Master-CSV ist neuer als der geladene Snapshot. '
+                'Neu bauen mit: python scripts/build_deploy_snapshot.py'
+            )
+    else:
+        df = pd.read_csv(
+            TRADES_CSV,
+            parse_dates=list(settings.TRADES_DATE_COLUMNS),
+            dtype={c: 'string' for c in settings.TRADES_STRING_COLUMNS},
+            low_memory=False,
+        )
     if 'Relevant_Sectors' in df.columns:
         df['relevant_sectors'] = df['Relevant_Sectors'].map(
             _parse_relevant_sectors
@@ -530,12 +572,73 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+def _check_password() -> bool:
+    """Passwort-Gate vor dem Dashboard.
+
+    Standardmaessig abgeschaltet (``APP_AUTH_ENABLED = False``), damit
+    Besucher die App ohne Huerde ansehen koennen. Auf True gesetzt, verlangt
+    sie das Passwort aus ``APP_PASSWORD`` (Umgebungsvariable, nicht im Code).
+    """
+    if not getattr(settings, 'APP_AUTH_ENABLED', False):
+        return True
+    if st.session_state.get('auth_ok'):
+        return True
+
+    expected = str(getattr(settings, 'APP_PASSWORD', '') or '')
+    st.title('Congress Trade Tracker')
+    if not expected:
+        st.error(
+            'Zugangsschutz ist aktiviert, aber es ist kein Passwort gesetzt '
+            '(Umgebungsvariable APP_PASSWORD).'
+        )
+        return False
+
+    max_attempts = int(getattr(settings, 'APP_AUTH_MAX_ATTEMPTS', 5))
+    attempts = int(st.session_state.get('auth_attempts', 0))
+    if max_attempts and attempts >= max_attempts:
+        st.error('Zu viele Fehlversuche. Bitte die Seite neu laden.')
+        return False
+
+    # Form statt Button: so loest auch die Eingabetaste die Pruefung aus.
+    with st.form('auth_form'):
+        entered = st.text_input('Passwort', type='password')
+        submitted = st.form_submit_button('Anmelden')
+
+    if submitted:
+        # compare_digest statt '==': gleiche Laufzeit unabhaengig davon, an
+        # welcher Stelle das Passwort abweicht. Beide Seiten als Bytes, sonst
+        # wirft compare_digest bei Umlauten einen TypeError.
+        if hmac.compare_digest(entered.encode('utf-8'),
+                               expected.encode('utf-8')):
+            st.session_state['auth_ok'] = True
+            st.session_state['auth_attempts'] = 0
+            st.rerun()
+        st.session_state['auth_attempts'] = attempts + 1
+        st.error('Falsches Passwort.')
+    return False
+
+
+if not _check_password():
+    st.stop()
+
 st.title('Congress Trade Tracker')
 st.markdown(
     '<div class="subtitle">US-Kongress-Trades · Live-Scoring · '
     'Signal-Filter · Asset- &amp; Member-Aggregation</div>',
     unsafe_allow_html=True,
 )
+
+# Datenstand ausweisen, damit erkennbar ist, worauf sich die Zahlen beziehen —
+# im Deployment laeuft die App gegen einen eingefrorenen Snapshot.
+_manifest = load_snapshot_manifest()
+if _manifest.get('data_as_of'):
+    _as_of = pd.to_datetime(_manifest['data_as_of'], errors='coerce')
+    _as_of_txt = (_as_of.strftime('%d.%m.%Y')
+                  if pd.notna(_as_of) else _manifest['data_as_of'])
+    st.caption(
+        f"Datenstand: {_as_of_txt} · {_manifest.get('rows', 0):,} Trades"
+        .replace(',', '.')
+    )
 
 trades = load_trades()
 max_observed_score = int(trades['trade_score'].max()) if 'trade_score' in trades.columns else 200
@@ -716,7 +819,7 @@ with st.sidebar:
 
     with st.expander('Score-Gewichte', expanded=False):
         # Preset-Auswahl (ausserhalb der Form: sofortiger Effekt)
-        presets = load_presets()
+        presets = load_presets(_preset_store())
         # Korrupte Presets-Datei? -> einmalige Warnung (Backup liegt als .bak)
         _corrupt_msg = consume_corrupt_warning()
         if _corrupt_msg:
@@ -768,7 +871,7 @@ with st.sidebar:
                 and selected_preset in presets):
             if st.button(f'Preset „{selected_preset}" löschen',
                          width='stretch'):
-                delete_preset(selected_preset)
+                delete_preset(selected_preset, _preset_store())
                 st.rerun()
 
         with st.form('score_weights_form', clear_on_submit=False):
@@ -886,6 +989,8 @@ with st.sidebar:
                 'Preset-Name (zum Speichern)', value='',
                 key='preset_save_name',
             )
+            if _preset_store() is not None:
+                st.caption('Presets gelten nur für diese Sitzung.')
 
             col_a, col_b, col_c = st.columns(3)
             apply_clicked = col_a.form_submit_button('Anwenden')
@@ -931,7 +1036,8 @@ with st.sidebar:
 
         if save_clicked:
             try:
-                save_preset(save_name, _state_payload())
+                save_preset(save_name, _state_payload(),
+                            _preset_store())
                 st.success(f'Preset „{save_name.strip()}" gespeichert.')
             except ValueError as exc:
                 st.error(str(exc))
@@ -1349,7 +1455,8 @@ def render_trade_detail(trade, trade_rows, key_prefix: str) -> None:
         if scope_all else contextlib.nullcontext()
     )
     with spinner_ctx:
-        cache_path = str(ROOT / settings.POST_TRADE_PRICE_CACHE)
+        from app.member_detail import price_cache_path
+        cache_path = price_cache_path()
         cache = _load_price_cache(cache_path)
 
         # Gefilterte Menge der weiteren Trades am gleichen Issuer.
@@ -2096,37 +2203,44 @@ with tab_recent:
                 _recent_sel_rows = recent_sel_state.selection.get('rows', [])
             _n_sel = len(_recent_sel_rows)
 
-            st.markdown('**Recent Trades als CSV exportieren**')
-            st.caption('Legt die Auswahl als CSV im Exportordner ab.')
-            ex1, ex2 = st.columns(2)
-            with ex1:
-                if st.button(
-                    f'Alle gefilterten Zeilen exportieren '
-                    f'({len(recent_pool):,})',
-                    key='recent_export_all',
-                    width='stretch',
-                ):
-                    try:
-                        _path = export_selection(recent_pool)
-                        st.success(f'{len(recent_pool):,} Zeilen exportiert '
-                                   f'nach {_path}')
-                    except Exception as _exc:  # noqa: BLE001
-                        st.error(f'Export fehlgeschlagen: {_exc}')
-            with ex2:
-                if st.button(
-                    f'Auswahl exportieren ({_n_sel})',
-                    key='recent_export_sel',
-                    width='stretch',
-                    disabled=(_n_sel == 0),
-                ):
-                    _sel_idx = top_pool.index[_recent_sel_rows]
-                    _sel_df = recent_pool.loc[_sel_idx]
-                    try:
-                        _path = export_selection(_sel_df)
-                        st.success(f'{len(_sel_df):,} Zeilen exportiert nach '
-                                   f'{_path}')
-                    except Exception as _exc:  # noqa: BLE001
-                        st.error(f'Export fehlgeschlagen: {_exc}')
+            # Der Export legt eine Datei auf dem Server ab. Auf der
+            # oeffentlichen Instanz waere sie fuer Besucher unerreichbar,
+            # wuerde aber die Serverplatte fuellen -> dort ausblenden.
+            if settings.APP_PUBLIC_MODE:
+                st.caption('Der CSV-Export ist in der öffentlichen '
+                           'Ansicht deaktiviert.')
+            else:
+                st.markdown('**Recent Trades als CSV exportieren**')
+                st.caption('Legt die Auswahl als CSV im Exportordner ab.')
+                ex1, ex2 = st.columns(2)
+                with ex1:
+                    if st.button(
+                        f'Alle gefilterten Zeilen exportieren '
+                        f'({len(recent_pool):,})',
+                        key='recent_export_all',
+                        width='stretch',
+                    ):
+                        try:
+                            _path = export_selection(recent_pool)
+                            st.success(f'{len(recent_pool):,} Zeilen exportiert '
+                                       f'nach {_path}')
+                        except Exception as _exc:  # noqa: BLE001
+                            st.error(f'Export fehlgeschlagen: {_exc}')
+                with ex2:
+                    if st.button(
+                        f'Auswahl exportieren ({_n_sel})',
+                        key='recent_export_sel',
+                        width='stretch',
+                        disabled=(_n_sel == 0),
+                    ):
+                        _sel_idx = top_pool.index[_recent_sel_rows]
+                        _sel_df = recent_pool.loc[_sel_idx]
+                        try:
+                            _path = export_selection(_sel_df)
+                            st.success(f'{len(_sel_df):,} Zeilen exportiert nach '
+                                       f'{_path}')
+                        except Exception as _exc:  # noqa: BLE001
+                            st.error(f'Export fehlgeschlagen: {_exc}')
 
 
 # --- Score-Analyse: Helfer -------------------------------------------------
