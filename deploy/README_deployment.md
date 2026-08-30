@@ -58,35 +58,90 @@ auf GitHub.
 
 ## 2. Server vorbereiten (einmalig)
 
-Als root auf dem frischen Server:
+**Zugang zuerst.** Bei IONOS gibt es fuer einen bestehenden VPS kein Menue,
+um nachtraeglich einen SSH-Schluessel zu hinterlegen, und keinen Knopf fuer
+einen Passwort-Reset. Der praktikable Weg ist *Server > Aktionen > Image neu
+installieren*: Dort setzt man ein Root-Passwort und traegt unter
+*Weitere Einstellungen > Skripte > Benutzerdaten* (Skripttyp: Cloud Config)
+den Schluessel ein:
 
-```bash
-# Paketstand aktualisieren + Docker installieren
-apt update && apt upgrade -y
-curl -fsSL https://get.docker.com | sh
-
-# Automatische Sicherheitsupdates
-apt install -y unattended-upgrades
-dpkg-reconfigure -plow unattended-upgrades
-
-# Firewall: nur SSH und Web
-apt install -y ufw
-ufw allow OpenSSH && ufw allow 80 && ufw allow 443 && ufw --force enable
+```yaml
+#cloud-config
+disable_root: false
+runcmd:
+  - mkdir -p /root/.ssh
+  - chmod 700 /root/.ssh
+  - echo 'ssh-ed25519 AAAA... dein-kommentar' >> /root/.ssh/authorized_keys
+  - chmod 600 /root/.ssh/authorized_keys
 ```
 
-Zusaetzlich empfohlen: SSH-Login nur per Schluessel
-(`PasswordAuthentication no` in `/etc/ssh/sshd_config`, danach
-`systemctl restart ssh`).
+**Anbieter-Firewall.** IONOS weist dem Server eine eigene Firewall-Richtlinie
+zu, die *vor* dem Betriebssystem filtert — die `ufw` auf dem Server allein
+genuegt also nicht. Unter *Netzwerk > Firewall-Richtlinien* muessen TCP 80 und
+443 zugelassen sein. Die von IONOS vorbelegten Ports 8443 und 8447 (Plesk)
+kann man loeschen, wenn kein Plesk laeuft.
+
+Dann als root auf dem Server:
+
+```bash
+apt update && apt upgrade -y
+apt install -y ca-certificates curl rsync ufw fail2ban unattended-upgrades
+
+# Docker aus dem offiziellen Repo (nicht aus den Ubuntu-Paketen)
+install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+chmod a+r /etc/apt/keyrings/docker.asc
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] \
+  https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" \
+  > /etc/apt/sources.list.d/docker.list
+apt update && apt install -y docker-ce docker-ce-cli containerd.io \
+  docker-buildx-plugin docker-compose-plugin
+systemctl enable --now docker
+
+# Firewall: nur SSH und Web
+ufw default deny incoming && ufw default allow outgoing
+ufw allow 22/tcp && ufw allow 80/tcp && ufw allow 443/tcp
+ufw --force enable
+```
+
+**SSH haerten.** Ubuntu 24.04 laedt `/etc/ssh/sshd_config.d/*.conf`, und der
+*erste* gefundene Wert gewinnt. Die eigene Datei muss deshalb alphabetisch vor
+`50-cloud-init.conf` sortieren:
+
+```bash
+cat > /etc/ssh/sshd_config.d/00-hardening.conf <<'CONF'
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitRootLogin prohibit-password
+PubkeyAuthentication yes
+MaxAuthTries 3
+CONF
+sshd -t && systemctl reload ssh
+sshd -T | grep -E '^(passwordauthentication|permitrootlogin) '   # kontrollieren
+```
+
+Der Passwort-Login ist damit nur ueber SSH aus; die Remotekonsole des Anbieters
+funktioniert weiter — das bleibt der Weg zurueck, falls der Schluessel abhanden
+kommt.
 
 ## 3. Code und Datenstand auf den Server bringen
 
-```bash
-# Auf dem Server: Code holen
-git clone <repo-url> /srv/congress-tracker
+Bei oeffentlichem Repo genuegt ein Clone. Solange das Repo **privat** ist,
+braeuchte der Server einen Deploy-Key — einfacher ist es, den Code direkt
+hochzuladen:
 
-# Auf dem Entwicklungsrechner: Datenstand hochladen (~41 MB)
-rsync -avz data/deploy/ root@<server-ip>:/srv/congress-tracker/data/deploy/
+```bash
+# Auf dem Entwicklungsrechner, aus dem Projektroot:
+rsync -az --delete \
+  --exclude='.git/' --exclude='venv/' --exclude='archive/' \
+  --exclude='__pycache__/' --exclude='data/' --exclude='logs/' \
+  ./ root@<server-ip>:/srv/congress-tracker/
+
+# Datenstand separat (~41 MB)
+rsync -az --mkpath data/deploy/ root@<server-ip>:/srv/congress-tracker/data/deploy/
 ```
+
+Der Ausschluss von `data/` ist wichtig: Sonst wandert der 645-MB-Master mit.
 
 ## 4. Domain eintragen und starten
 
@@ -95,17 +150,23 @@ versionierten Dateien unveraendert und `git pull` laeuft spaeter konfliktfrei.
 Auf dem Server `/srv/congress-tracker/deploy/.env` anlegen:
 
 ```bash
-SITE_DOMAIN=deine-domain.de
+SITE_DOMAIN=deine-domain.de, www.deine-domain.de
 # Passwortschutz (optional, s. Abschnitt 7)
 APP_AUTH_ENABLED=0
 APP_PASSWORD=
 ```
 
+Mehrere Hostnamen komma-getrennt: Caddy holt fuer jeden ein eigenes
+Zertifikat. Steht `www` nicht drin, laeuft der A-Record fuer `www` ins Leere.
+Ein AAAA-Record beim Domain-Parking muss geloescht werden — sonst landet
+sowohl der Browser als auch die Zertifikatspruefung ueber IPv6 auf der
+Parkseite des Anbieters.
+
 Dann starten:
 
 ```bash
 cd /srv/congress-tracker
-docker compose -f deploy/docker-compose.prod.yml up -d --build
+docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env up -d --build
 ```
 
 Der erste Build dauert einige Minuten. Caddy holt das HTTPS-Zertifikat
@@ -139,9 +200,12 @@ laedt. Er dauert wenige Sekunden.
 ## 6. Code-Aenderungen ausrollen
 
 ```bash
-ssh root@<server-ip>
-cd /srv/congress-tracker && git pull
-docker compose -f deploy/docker-compose.prod.yml up -d --build
+# Bei per rsync gepflegtem Server (privates Repo):
+rsync -az --delete --exclude='.git/' --exclude='venv/' --exclude='archive/' \
+  --exclude='__pycache__/' --exclude='data/' --exclude='logs/' \
+  ./ root@<server-ip>:/srv/congress-tracker/
+ssh root@<server-ip> "cd /srv/congress-tracker && \
+  docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env up -d --build"
 ```
 
 ## 7. Passwortschutz (optional, standardmaessig aus)

@@ -11,6 +11,37 @@ Historie abgeschlossener Module/Phasen. **Aktiver WIP-Modul-Stand** steht im „
 
 ---
 
+## 2026-08-30 — Dashboard live auf eigenem Server
+
+Das Dashboard ist öffentlich erreichbar unter `https://congress-trading-tracker.com`
+(auch `www`). Server: privater VPS (4 vCore, 4 GB RAM, 120 GB SSD),
+Ubuntu 24.04 LTS, `server.example`, Projekt unter `/srv/congress-tracker`.
+
+Aufbau: System aktualisiert, Docker 29.7.2 + Compose v5.5.0 aus dem offiziellen
+Repo, `ufw` auf 22/80/443, SSH nur per Schlüssel (`00-hardening.conf` — Ubuntu
+24.04 wertet den *ersten* Treffer in `sshd_config.d/` aus, deshalb der
+Namenspräfix), fail2ban, unattended-upgrades. Code per rsync statt `git clone`,
+weil das Repo noch privat ist und ein Deploy-Key dafür unnötiger Aufwand wäre.
+Caddy holt das Let's-Encrypt-Zertifikat selbst; `SITE_DOMAIN` in `deploy/.env`
+enthält Apex und `www` komma-getrennt.
+
+Verifiziert: 114.347 Trades geladen (80 MB Speicher, Antwortzeit 0,17 s),
+Kurs-Cache vorhanden, HTTP→HTTPS-Weiterleitung (308), HSTS/X-Frame-Options/
+nosniff/Referrer-Policy gesetzt, Container-Healthcheck grün. Nach einem
+`reboot` war die Seite ohne Eingriff in rund 40 Sekunden wieder online.
+
+Zwei Stolpersteine, die in `deploy/README_deployment.md` dokumentiert sind:
+IONOS bietet für einen laufenden VPS weder nachträgliche SSH-Key-Hinterlegung
+noch einen Passwort-Reset — der Weg führt über *Image neu installieren* mit
+einer Cloud-Config in den Benutzerdaten. Und der Domain-Parking-Dienst setzt
+einen AAAA-Record, der die Zertifikatsprüfung über IPv6 auf die Parkseite
+umleitet; er muss gelöscht werden.
+
+Passwortschutz bleibt eingebaut und deaktiviert (`APP_AUTH_ENABLED=0`).
+Offen: Git-Historie bereinigen, danach Repo öffentlich schalten.
+
+---
+
 ## 2026-08-30 — Deployment-Fundament für das öffentliche Dashboard
 
 Grundlage für einen öffentlich erreichbaren Streamlit-Dashboard-Betrieb auf

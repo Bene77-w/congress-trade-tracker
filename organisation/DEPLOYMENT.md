@@ -322,7 +322,20 @@ Lesen/Schreiben der Parquet-Dateien in `data/deploy/`.
 
 ### Stand
 
-Deployment-Fundament steht (Snapshot-Builder, App-Anpassungen, Server-Artefakte).
-Offen: Git-Historie bereinigen (Altdaten aus der Historie entfernen, braucht
-Nutzerfreigabe) und der tatsaechliche Serverbetrieb (VPS + Domain noch nicht
-beschafft). Details: `CHANGELOG.md`.
+Seit 2026-08-30 live unter `https://congress-trading-tracker.com` (auch `www`).
+
+| Merkmal | Wert |
+|---|---|
+| Server | privater VPS (4 vCore, 4 GB RAM, 120 GB), Ubuntu 24.04 LTS, `server.example` |
+| Projektpfad | `/srv/congress-tracker` |
+| Container | `congress-dashboard` (healthy, Deckel 2 GB) + `congress-caddy`, beide `restart: unless-stopped` |
+| Datenstand | 114.347 Trades, Stand 2026-07-21, 80 MB im Speicher |
+| HTTPS | Let's Encrypt via Caddy, automatische Erneuerung |
+| Zugang | SSH nur per Schluessel, `ufw` auf 22/80/443, fail2ban, unattended-upgrades |
+| Passwortschutz | eingebaut, bewusst deaktiviert (`APP_AUTH_ENABLED=0`) |
+
+Neustartfest geprueft: nach `reboot` war die Seite ohne Eingriff in rund
+40 Sekunden wieder erreichbar.
+
+Offen: Git-Historie bereinigen (Altdaten entfernen, braucht Nutzerfreigabe),
+danach Repo oeffentlich schalten. Details: `CHANGELOG.md`.
