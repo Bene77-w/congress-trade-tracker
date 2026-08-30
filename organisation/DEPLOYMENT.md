@@ -278,3 +278,51 @@ und belegt im Leerlauf ~70 MB RAM. Autostart bei Bedarf abschalten:
 sudo systemctl disable --now docker.service docker.socket   # Autostart AUS
 sudo systemctl enable  --now docker.service docker.socket   # Autostart AN
 ```
+
+## 9. Oeffentliches Dashboard-Deployment (VPS)
+
+Anders als Abschnitt 8 (Docker-Container fuer den vollen Pipeline-Betrieb)
+geht es hier um eine **oeffentlich erreichbare** Streamlit-Instanz auf einem
+eigenen Server. Leitidee: Auf dem Server laeuft nur das Dashboard, nicht die
+Pipeline. Der Server bekommt weder API-Keys noch Quiver-Zugangsdaten noch den
+Scraper — er liest einen eingefrorenen Datenstand, den der
+Entwicklungsrechner erzeugt und per rsync hochlaedt.
+
+| Ort | Aufgabe |
+|---|---|
+| Entwicklungsrechner | Pipeline laufen lassen, Snapshot bauen, hochladen |
+| Server (VPS) | Nur das Dashboard anzeigen |
+
+**Schritt-fuer-Schritt-Anleitung (Server einrichten, Domain, Caddy, Upload,
+Betrieb):** `deploy/README_deployment.md`.
+
+### Beteiligte Artefakte
+
+| Datei | Zweck |
+|---|---|
+| `scripts/build_deploy_snapshot.py` | Eigenstaendiges Skript (keine Pipeline-Stage), erzeugt den Snapshot in `data/deploy/` — Details: `organisation/CLI_Bedienungsanleitung.md` Abschnitt 14, Datenformat: `organisation/DATA_STRUCTURE.md` Abschnitt 7g. |
+| `deploy/Dockerfile.app` | Schlankes Dashboard-Image ohne Tesseract/Chromium (~600 MB kleiner als `Dockerfile`, weil auf dem Server kein Scraper laeuft). |
+| `deploy/docker-compose.prod.yml` | Produktiv-Compose: Dashboard-Container + Caddy als HTTPS-Reverse-Proxy, Speicherdeckel, Snapshot read-only gemountet. |
+| `deploy/Caddyfile` | Reverse-Proxy-Konfiguration (Domain, automatisches HTTPS via Let's Encrypt). |
+| `.streamlit/config.toml` | Servereinstellungen: `headless = true`, `maxUploadSize = 5`, `gatherUsageStats = false`, `showErrorDetails = "none"`. |
+
+### Neue ENV-Variablen (`.env.example`)
+
+| Variable | Default | Zweck |
+|---|---|---|
+| `APP_AUTH_ENABLED` | aus (`0`) | Passwort-Gate vor dem Dashboard. Bewusst deaktiviert — ein Login schreckt Betrachter ab. |
+| `APP_PASSWORD` | leer | Passwort, wenn `APP_AUTH_ENABLED=1`. Max. 5 Fehlversuche je Browser-Sitzung (`APP_AUTH_MAX_ATTEMPTS`, `config/settings.py`). |
+| `APP_PUBLIC_MODE` | aus (`0`) | Scoring-Presets liegen pro Browser-Session im Arbeitsspeicher statt in `data/config/scoring_presets.json` — verhindert, dass sich Besucher einer geteilten Instanz gegenseitig die Presets ueberschreiben. |
+
+### Abhaengigkeit
+
+`pyarrow==18.1.0` ist seit dem Snapshot-Format eine direkte Abhaengigkeit in
+`requirements.txt` (vorher nur transitiv ueber Streamlit) — noetig zum
+Lesen/Schreiben der Parquet-Dateien in `data/deploy/`.
+
+### Stand
+
+Deployment-Fundament steht (Snapshot-Builder, App-Anpassungen, Server-Artefakte).
+Offen: Git-Historie bereinigen (Altdaten aus der Historie entfernen, braucht
+Nutzerfreigabe) und der tatsaechliche Serverbetrieb (VPS + Domain noch nicht
+beschafft). Details: `CHANGELOG.md`.

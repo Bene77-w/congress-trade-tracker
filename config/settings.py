@@ -153,7 +153,7 @@ SWARM_PARADOX_MIN_CONFLICTS       = 2            # ab N Gegen-Trades: swarm_para
 # (~12.000 US-Listings) in einer einzigen JSON. Cache 7 Tage TTL; bei
 # API-Failure strikter Abbruch (kein silent Fallback auf veralteten Cache).
 # Code: utils/issuer_group_mapper.py
-# Doku: organisation/Ticker_Architektur.md
+# Doku: organisation/tool_specific_md/Ticker_Architektur.md
 # =============================================================================
 SEC_EDGAR_USER_AGENT = 'Congress Trade Tracker <kontakt@example.com>'  # Pflicht, sonst 403
 SEC_EDGAR_URL        = 'https://www.sec.gov/files/company_tickers_exchange.json'

@@ -43,7 +43,7 @@ Horizont-Backfill (`post_return_*d`) für geschlossene/abgelaufene Positionen.
 - `scripts/import_trades.py`: alle 3 `compute_post_trade_returns`-Aufrufstellen reichen
   `refresh_window_days=settings.POST_TRADE_REFRESH_WINDOW_DAYS` durch.
 
-Vollständige Beschreibung inkl. Lauf-Modi-Tabelle: `organisation/Preis_Aktualisierung.md` §3.
+Vollständige Beschreibung inkl. Lauf-Modi-Tabelle: `organisation/tool_specific_md/Briefing_stage_post_trade_performance.md`.
 
 ---
 
@@ -220,7 +220,7 @@ aufrufen, gültig. `compute_paper_returns` baut intern eine `baseline_live`-Seri
 bleiben unverändert gespeicherte Pre-Split-Werte — diese Härtung repariert sie
 nicht. Dafür braucht es einen vollen `--stage_post_trade_performance`-Lauf
 (kein `--delta`). Details zum Lauf-Modus-Unterschied:
-`organisation/Preis_Aktualisierung.md`.
+`organisation/tool_specific_md/Briefing_stage_post_trade_performance.md`.
 
 ---
 
@@ -402,7 +402,7 @@ exaktem String-Vergleich. Damit werden transaction_type-Varianten korrekt erkann
 **TTL**: `POST_TRADE_PRICE_CACHE_TTL_DAYS = 1` (seit 2026-06-16; vorher 7). Refresh,
 wenn `max(date) pro Ticker < today - 1d` (= tagesaktuell bei jedem Lauf).
 Täglicher Refresh in `compute_post_trade_returns` ist auf das Refetch-Fenster
-(`POST_TRADE_REFRESH_WINDOW_DAYS = 384`) begrenzt; Details → `Preis_Aktualisierung.md` §3.
+(`POST_TRADE_REFRESH_WINDOW_DAYS = 384`) begrenzt; Details → `config/settings.py` (`POST_TRADE_*`).
 
 **Inkrementelles Flushing**: alle `POST_TRADE_CACHE_FLUSH_EVERY = 50`
 erfolgreichen Fetches wird der Cache atomar geschrieben

@@ -271,7 +271,7 @@ abgefragten Ticker):
   eigener Pattern-Listen (R1-R6).
 
 Tiefendoku (Variante-B-Fenster-State-Machine für `post_trade_returns`,
-Marker-Schema-Wechsel, Settings): `organisation/Briefing_stage_post_trade_performance.md`.
+Marker-Schema-Wechsel, Settings): `organisation/tool_specific_md/Briefing_stage_post_trade_performance.md`.
 
 ---
 

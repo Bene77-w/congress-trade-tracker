@@ -293,7 +293,7 @@ confidence, grounding_source, review_reason, review_flag, comment
 - `confidence`-Zelle farbig: `low` rot, `medium` gelb, `high` gruen; `no_mapping`-Zeilen grau (statt Konfidenz-Farbe).
 - `comment`: leer beim Export — manuelle Anweisungen des Reviewers, eingearbeitet von `finalize`.
 
-**Verwendung**: manueller Review-Prozess, s. `manual_review_anleitung.md` (Prozess 4).
+**Verwendung**: manueller Review-Prozess, s. `CLI_Bedienungsanleitung.md`.
 
 ## 4. Yahoo Finance Sektoren
 
@@ -454,7 +454,7 @@ CREATE TABLE ticker_types (
 ### `data/cache/price_history.parquet`
 **Quelle**: Automatisch von `scoring/post_trade_returns.py` (`compute_post_trade_returns`) via yfinance.
 **Format**: Parquet (Pandas MultiIndex)
-**Update**: Bei jedem Import; Cache-TTL = 1 Tag (`POST_TRADE_PRICE_CACHE_TTL_DAYS = 1`, seit 2026-06-16). Nie gecachte Ticker werden immer geladen; bei stale-Tickern greift das Refetch-Fenster `POST_TRADE_REFRESH_WINDOW_DAYS = 384` (= größter Horizont 365 + 19 Puffer; nur Positionen ≤ 384d alt). Details: `organisation/Preis_Aktualisierung.md` §3.
+**Update**: Bei jedem Import; Cache-TTL = 1 Tag (`POST_TRADE_PRICE_CACHE_TTL_DAYS = 1`, seit 2026-06-16). Nie gecachte Ticker werden immer geladen; bei stale-Tickern greift das Refetch-Fenster `POST_TRADE_REFRESH_WINDOW_DAYS = 384` (= größter Horizont 365 + 19 Puffer; nur Positionen ≤ 384d alt). Details: `organisation/tool_specific_md/Briefing_stage_post_trade_performance.md`.
 **Atomare Speicherung**: tmp + rename verhindert Korruption bei Abbruch.
 
 **Struktur**:
@@ -485,14 +485,14 @@ Verhindert wiederholte API-Calls, solange `last_checked_date` innerhalb
 `date='1900-01-01'` werden automatisch migriert (NaN-close wird weiterhin erkannt; `date < cutoff`
 fuehrt zu einmaligem Re-Check). Sobald echte Kurse fuer den Ticker eintreffen, wird der NaN-Marker
 physisch geprunt; je Ticker wird zudem nur der juengste NaN-Marker behalten (Marker-Kollaps).
-Details/Begruendung: `organisation/Briefing_stage_post_trade_performance.md`.
+Details/Begruendung: `organisation/tool_specific_md/Briefing_stage_post_trade_performance.md`.
 
 **Verwendung**: Wird von Stage `post_trade_returns` (Pipeline Stage 9) gelesen/geschrieben. Alle yfinance-basierten Preisdaten (5 Jahre Daily Close via `POST_TRADE_PRICE_FETCH_YEARS`). Wird geladen bevor neue Ticker abgefragt werden (Cache-Hit-Erkennung); neue Daten werden appendiert und in einem Rutsch atomar gespeichert. **Incremental-Save**: alle 100 Ticker wird der Cache zwischenpersistiert (Crash-Schutz fuer 1-2h Erstabruf).
 
 **Netz-Robustheit (seit 2026-06-14)**: Schreibvorgaenge in diesen Cache durchlaufen die
 Variante-B-Fenster-State-Machine (`scoring/post_trade_returns.py`), abgesichert durch
 `utils/network_canary.py` (NetworkCanary-Verdikt) + `utils/network_retry.py` (zentraler
-Retry/Backoff). Details: `organisation/Briefing_stage_post_trade_performance.md`,
+Retry/Backoff). Details: `organisation/tool_specific_md/Briefing_stage_post_trade_performance.md`,
 Modul-Uebersicht: `organisation/Pipelines.md` (Foundation- & Network-Module).
 
 ---
@@ -654,7 +654,7 @@ Class-A/Class-C-FIGIs).
 CIK. Praefix-Konvention `CIK:<cik>` / `TICKER:<id>` / `SKIP:<type>`.
 Wird als SWARM_GROUPING_KEY verwendet. GOOGL und GOOG bekommen
 denselben `CIK:1652044`. Vollstaendige Architektur und
-Design-Entscheidungen: `organisation/Ticker_Architektur.md`.
+Design-Entscheidungen: `organisation/tool_specific_md/Ticker_Architektur.md`.
 
 **adj_-Prefix-Regel**: Spalten mit `adj_X` lesen den Wert aus der
 Quellspalte `X` der complete-Datei und schreiben ihn unter dem
@@ -733,7 +733,7 @@ issuer_group_key,       # Abgeleitete Spalte (P5.6): Issuer-Level via SEC EDGAR 
                         # GOOGL und GOOG bekommen denselben CIK:1652044 (Cross-Class).
                         # ETFs/Foreign-Stocks bypassen den CIK-Lookup -> TICKER:<issuer_ticker>.
                         # Wird als SWARM_GROUPING_KEY verwendet.
-                        # Doku: organisation/Ticker_Architektur.md
+                        # Doku: organisation/tool_specific_md/Ticker_Architektur.md
 
 # Anreicherung durch yfinance (Stage tickeryfinance) — Suffix _yf
 sector_yf,              # YF Sector (z.B. "Technology") — leer bei ETFs/Bonds/unbekannten Tickern
@@ -775,8 +775,8 @@ paper_return_pct,          # float: **NEU (2026-06-06):** Mark-to-Market Return 
                            # AKTUELLEN Preis-Cache abgeleitet (erster Close ≥ `transaction_date`, via
                            # `_price_at_or_after_fast`). Zähler (`latest_close`) und Nenner (`baseline_live`)
                            # stammen damit aus demselben Cache-Stand — ein rückwirkender Split kürzt sich heraus.
-                           # Details/Mechanik: `organisation/Briefing_stage_post_trade_performance.md`,
-                           # Lauf-Modus-Frage: `organisation/Preis_Aktualisierung.md`.
+                           # Details/Mechanik: `organisation/tool_specific_md/Briefing_stage_post_trade_performance.md`,
+                           # Lauf-Modus-Frage: `config/settings.py` (`POST_TRADE_*`).
 price_as_of,               # datetime: **NEU (2026-06-06):** Datum des für `paper_return_pct` verwendeten jüngsten Close.
                            # Macht die Staleness des Mark-to-Market sichtbar. NaT wenn kein Preis verfügbar.
                            # Beispiel: Trade 2023-06-01, jüngstes Close in Cache: 2026-06-05 → `price_as_of=2026-06-05`.
@@ -826,12 +826,12 @@ ex_officio_role_keys,   # str ";"-getrennt: NEU (2026-06-12). Fuehrungsrollen-Ke
 signal_count,           # int 0-4: Anzahl ausgeloester Branch-1 Signale pro Trade
 signals_triggered,      # str ";"-getrennt: Liste der Signal-Typen (z.B. "committee;floor_action")
 
-# Modul 8 — Score-Spalten. Formel + Beispiele: organisation/Filter_Instanz_Parameter.md.
+# Modul 8 — Score-Spalten. Formel + Beispiele: config/settings.py (`SCORING_*`).
 # Edge-Cases: tests/test_trade_score.py, tests/test_trade_volume_signal.py.
 # Primär-/Hint-Gating (2026-06-27): trade_score ist 0, wenn kein Primärsignal
 # (SCORING_PRIMARY_SIGNALS) triggert. Die Master-Spalte signals_triggered bleibt
 # UNVERÄNDERT (enthält alle getriggerten Signale); der Primär/Hint-Split erfolgt
-# nur im App-Frontend (s. Filter_Instanz_Parameter.md).
+# nur im App-Frontend (s. `config/settings.py`).
 trade_score,            # int: gewichteter Trade-Score (kein Cap). Quelle: scoring/trade_score.compute_trade_scores.
 trade_score_breakdown,  # str ";"-getrennt: deterministische Komponenten-Aufschluesselung in fester Reihenfolge
                         # (Branch-1 -> Sequenz -> Schwarm -> trade_volume -> ex_officio).
@@ -1060,7 +1060,7 @@ inkl. `issuer_group_key`). Vollständige Spalten-Doku siehe
 
 Counter-Spalten (`signal_types`, `directions`, `chambers`): String-Format `"committee:5,accumulative:2"` (Count desc, Tie-Break alphabetisch).
 
-Score-Aggregat-Spalten (Modul 8.4) joinen `trade_score`/`trade_volume_usd`/`trade_warnings` aus `trades_master_complete.csv` über distinct `trade_id`. Aggregations-Logik + Helper-Beschreibung: `organisation/Filter_Instanz_Parameter.md`. Schema + Beispiele: `organisation/tool_specific_md/signal_info.md`.
+Score-Aggregat-Spalten (Modul 8.4) joinen `trade_score`/`trade_volume_usd`/`trade_warnings` aus `trades_master_complete.csv` über distinct `trade_id`. Aggregations-Logik + Helper-Beschreibung: `config/settings.py` (`SCORING_*`). Schema + Beispiele: `organisation/tool_specific_md/signal_info.md`.
 
 ---
 
@@ -1076,7 +1076,7 @@ Score-Aggregat-Spalten (Modul 8.4) joinen `trade_score`/`trade_volume_usd`/`trad
 
 `event_trade_pairs` ist eine JSON-encodierte Liste `[["signal_event_id","trade_id"], ...]`.
 
-Score-Aggregate (Modul 8.4) analog `suspicious_assets.csv`, aber NUR drei Score-Spalten — kein `total_volume_usd` und kein `warnings`. Aggregations-Logik: `organisation/Filter_Instanz_Parameter.md`. Schema-Details: `organisation/tool_specific_md/signal_info.md`.
+Score-Aggregate (Modul 8.4) analog `suspicious_assets.csv`, aber NUR drei Score-Spalten — kein `total_volume_usd` und kein `warnings`. Aggregations-Logik: `config/settings.py` (`SCORING_*`). Schema-Details: `organisation/tool_specific_md/signal_info.md`.
 
 ---
 
@@ -1173,7 +1173,7 @@ Nancy Pelosi,30,house,Nancy Mace,63
 `utils/ticker_sector.py::_write_delisted_stage` eine **frische** `NetworkCanary.force_reprobe()` —
 ist das Netz zu diesem Zeitpunkt ROT, wird die Datei **nicht** geschrieben (naechster Lauf erzeugt
 sie neu). Verhindert, dass ein stale-GRUENes Verdikt zu Ausfall-Beginn falsche Delisted-Eintraege
-verewigt. Details: `organisation/Briefing_stage_post_trade_performance.md`.
+verewigt. Details: `organisation/tool_specific_md/Briefing_stage_post_trade_performance.md`.
 
 **Spalten**:
 ```csv
@@ -1369,14 +1369,14 @@ nächsten Speichern stiller Totalverlust.
 ### `config/settings.py::DETAIL_RETURN_THRESHOLD_PCT`
 **Default**: `10.0` (Prozent). Reiner **Anzeige-Schwellwert** für das
 Member-Detail-Popup (kein Scoring-Parameter, daher nicht in
-`Filter_Instanz_Parameter.md`): bestimmt den Anteil „großer Treffer" — Trades
+`config/settings.py` (`SCORING_*`)): bestimmt den Anteil „großer Treffer" — Trades
 mit `paper_return_terminal > x` — in den Diagrammen D1/D7. Im Popup per Slider
 live überschreibbar, ohne Recompute oder Pipeline-Lauf.
 
 ### `config/settings.py::DETAIL_RED_FLAG_*`
 **NEU (Bugfix 2026-07-02):** Schwellen der Red-Flag-Ampel im Member-Detail-Popup
 (`app/member_detail.py::_count_red_flags`), reine **Anzeige-Parameter** (kein
-Scoring-Input, daher nicht in `Filter_Instanz_Parameter.md`):
+Scoring-Input, daher nicht in `config/settings.py` (`SCORING_*`)):
 - `DETAIL_RED_FLAG_VOTE_TIMING_RATE` — Default `0.20`; Schwelle Anteil
   Vote-Timing-Trades.
 - `DETAIL_RED_FLAG_COMMITTEE_FULL_RATE` — Default `0.20`; Schwelle Anteil
@@ -1390,7 +1390,7 @@ Ampel-Level (`RED_FLAG_LEVELS` in `app/member_detail.py`) sind seit diesem Fix
 
 ### `config/settings.py::DETAIL_RELATED_RETURN_COLOR_PCT`
 **Default**: `10.0` (Prozent). Reiner **Anzeige-Schwellwert** (kein Scoring-Parameter,
-daher nicht in `Filter_Instanz_Parameter.md`), **NEU (2026-07-02)**: ±Schwelle der
+daher nicht in `config/settings.py` (`SCORING_*`)), **NEU (2026-07-02)**: ±Schwelle der
 Grün-/Rot-Färbung der Related-Trades-Tabelle im Trade-Detail-Popup
 (`app/streamlit_app.py`) — Return `>= +x` grün, `<= -x` rot.
 
@@ -1431,7 +1431,7 @@ bestimmbaren Anker wird nicht gefiltert. Tests:
 ### `config/settings.py::SCORE_CORR_*` (Score-Analyse-Tab)
 Reine **Anzeige-/Analyse-Parameter** für den Tab „Score-Analyse" (kein
 Scoring-Parameter, daher nicht in
-`Filter_Instanz_Parameter.md`). Block in `config/settings.py` unter
+`config/settings.py` (`SCORING_*`)). Block in `config/settings.py` unter
 „Score-Korrelation (Modul 9.x)":
 - `SCORE_CORR_DEFAULT_HORIZON_DAYS` — Default `180`; Default-Horizont X des
   Tabs. Muss in `POST_TRADE_HORIZONS_DAYS` (30/60/90/120/180/270/365) enthalten
@@ -1469,6 +1469,40 @@ Steuern das **eigene Zeitfenster des Recent-Trades-Tabs**:
   weiterhin unwirksam (sie würden die offenen Positionen entfernen, die der Tab
   zeigen soll). Bei Sidebar-Auswahl „Alles" greift
   `RECENT_MONITORING_WINDOW_DAYS` als Obergrenze.
+
+### `config/settings.py` — Deployment-Block (oeffentliches Dashboard)
+Block „Deployment (oeffentliches Streamlit-Dashboard)" am Dateiende. Steuert
+den eingefrorenen Datenstand, den der Server statt des 645-MB-Master-CSV liest
+— Details zum Snapshot selbst: Abschnitt 7g. Server-/ENV-Kontext:
+`organisation/DEPLOYMENT.md` Abschnitt 9.
+- `DEPLOY_SNAPSHOT_PATH` — `'data/deploy/trades_snapshot.parquet'`, vom
+  Loader bevorzugt geladen, wenn die Datei existiert (sonst Fallback auf den
+  Master-CSV — lokal ohne Snapshot-Build unveraendertes Verhalten).
+- `DEPLOY_SNAPSHOT_MANIFEST` — `'data/deploy/snapshot_manifest.json'`, Quelle
+  der Datenstand-Anzeige unter dem App-Titel (`load_snapshot_manifest`).
+- `DEPLOY_PRICE_CACHE_PATH` — `'data/deploy/price_history.parquet'`, Fallback-
+  Pfad des Kurs-Caches, wenn `data/cache/` fehlt (Server-Fall).
+- `DEPLOY_SNAPSHOT_CATEGORY_MAX_UNIQUE` — `2000`; Spalten mit weniger
+  verschiedenen Werten werden im Snapshot als `category`-Dtype gespeichert.
+- `DEPLOY_SNAPSHOT_CATEGORY_EXCLUDE` — `('signals_triggered',
+  'trade_score_breakdown', 'trade_warnings')`; bleiben normale Strings, weil
+  der Score-Recompute im Dashboard sie komplett neu schreibt (Kategorien aus
+  dem Snapshot waeren dafuer ungeeignet).
+- `TRADES_DATE_COLUMNS` — `('transaction_date', 'disclosure_date')` — gemeinsamer
+  Dtype-Vertrag beider Lesepfade (CSV-Loader der App und Snapshot-Builder).
+- `TRADES_STRING_COLUMNS` — `('ticker', 'issuer_ticker', 'name', 'chamber',
+  'Member_Party', 'subholding', 'transaction_type', 'amount',
+  'signals_triggered', 'trade_score_breakdown', 'trade_warnings',
+  'Relevant_Sectors')` — derselbe Vertrag fuer Textspalten; verhindert, dass
+  App und Snapshot-Builder fuer dieselbe Spalte unterschiedliche Typen
+  ableiten (z. B. `float64` bei einer leeren, eigentlich textuellen Spalte).
+- `APP_AUTH_ENABLED` (env, Default aus) / `APP_PASSWORD` (env) /
+  `APP_AUTH_MAX_ATTEMPTS` (`5`) — Passwort-Gate vor dem Dashboard, bewusst
+  standardmaessig deaktiviert.
+- `APP_PUBLIC_MODE` (env, Default aus) — schaltet Scoring-Presets von
+  Datei-Persistenz (`data/config/scoring_presets.json`) auf einen In-Memory-
+  Store pro Browser-Session um (`app/scoring_presets.py`, optionaler
+  `store`-Parameter von `load_presets`/`save_preset`/`delete_preset`).
 
 ### `config/settings.py::UI_SCOPE_PREFIX` / `UI_SCOPE_HELP`
 Reine **Anzeige-Config** (kein Scoring-Parameter): Grundtexte für die
@@ -1890,6 +1924,61 @@ exit_status, export_ts
 
 ---
 
+## 7g. Deployment-Snapshot
+
+Eingefrorener Datenstand fuer die oeffentliche Streamlit-Instanz, gebaut von
+`scripts/build_deploy_snapshot.py` (eigenstaendiges Skript, **keine**
+Pipeline-Stage — Aufruf: `organisation/CLI_Bedienungsanleitung.md` Abschnitt
+14; Server-/ENV-Kontext: `organisation/DEPLOYMENT.md` Abschnitt 9). Alle drei
+Dateien liegen in `data/deploy/` und sind **gitignored** — der Ordner geht
+per rsync auf den Server, nicht ins Repo (schlanke Repo-Historie, Trade-Daten
+nicht dauerhaft oeffentlich auf GitHub).
+
+### `data/deploy/trades_snapshot.parquet` (gitignored)
+**Quelle**: `data/processed/trades_master_complete.csv`, per
+`scripts/build_deploy_snapshot.py` konvertiert.
+**Format**: Parquet (`zstd`-komprimiert), **identische 89 Spalten** wie der
+Master — Spaltendoku: Abschnitt 6 (`trades_master_complete.csv`). Unterschied
+ist nur die Speicherform: Wiederholungsspalten unterhalb
+`DEPLOY_SNAPSHOT_CATEGORY_MAX_UNIQUE` verschiedener Werte (Default `2000`,
+z. B. `Insider_Sectors` mit ~200 Werten bei ~114k Zeilen) laufen als
+`category`-Dtype statt als ausgeschriebener String. Effekt: ~645 MB CSV →
+~15 MB Datei, ~624 MB → ~76 MB RAM beim Laden.
+**Verwendung**: Der App-Loader (`app/streamlit_app.py`) nimmt diese Datei,
+wenn sie existiert, sonst unveraendert den Master-CSV.
+
+### `data/deploy/price_history.parquet` (gitignored)
+Kopie des Kurs-Caches `data/cache/price_history.parquet` (Spaltendoku dort),
+vom Snapshot-Builder mitkopiert. Ohne sie bleiben im Deployment alle
+Kursverlauf-Charts der Detail-Popups leer, da `data/cache/` auf dem Server
+nicht existiert. `app/member_detail.py::price_cache_path()` sucht den Cache
+zuerst am Normalort, dann hier.
+
+### `data/deploy/snapshot_manifest.json` (gitignored)
+Datenstand + Herkunft des Snapshots, Quelle der Datenstand-Anzeige unter dem
+App-Titel (`load_snapshot_manifest`). Felder:
+```json
+{
+  "built_at": "2026-08-30T12:00:00+00:00",
+  "source_file": "trades_master_complete.csv",
+  "data_as_of": "2026-08-29",
+  "rows": 114347,
+  "columns": 89,
+  "source_bytes": 645000000,
+  "snapshot_bytes": 15000000,
+  "memory_bytes_plain": 624000000,
+  "memory_bytes_snapshot": 76000000,
+  "price_cache_bytes": 26000000
+}
+```
+- `data_as_of` — juengstes `disclosure_date` im Snapshot (`null`, falls die
+  Spalte fehlt oder komplett leer ist).
+- `built_at` — ISO-Zeitstempel des Snapshot-Builds (UTC).
+- Die App warnt, wenn der Master-CSV neuer ist als `built_at` (veralteter
+  Snapshot).
+
+---
+
 ## Committee-Relevanz (Modul 4)
 
 `_apply_committee_relevance` schreibt `Insider_Sectors` und `Relevant_Sectors` in den Master.
@@ -1980,7 +2069,7 @@ Erzeugte damals:
 
 ## 8. Dokumentation
 
-### `organisation/Filter_Instanz_Parameter.md`
+### `config/settings.py` (`SCORING_*`)
 **Quelle**: Zusammenstellung aus config/settings.py
 **Format**: Markdown
 **Erstellt**: 2026-02-20 (umbenannt 2026-05-17)

@@ -1,7 +1,7 @@
 # signal_info.md — Signal-System & Suspicious-Output-Dateien
 
 **Zweck:** Vollständige Dokumentation des Signal-Systems — Architektur, Signal-Typen, Spalten-Schemas der Output-Dateien und Konfiguration.
-**Trigger-Logik der einzelnen Signale:** siehe `../Filter_Instanz_Parameter.md`.
+**Trigger-Logik der einzelnen Signale:** siehe `config/settings.py` (`SCORING_*`).
 
 ---
 
@@ -134,7 +134,7 @@ Veraltete Einträge fallen aus dieser View, bleiben aber in `suspicious_events.c
 | 8 | `directions` | str (Counter) | z. B. `"buy:4,sell:1"` | Hinweis auf Schwarm-/Conflict-Muster |
 | 9 | `chambers` | str (Counter) | z. B. `"House:3,Senate:1"` | Welche Kammer dominant |
 | 10 | `last_signal_type` | str | Signal-Typ des jüngsten Events | „Was war zuletzt los?" |
-| 11 | `score_avg` | float | Modul 8.4 — siehe `organisation/Filter_Instanz_Parameter.md` |  |
+| 11 | `score_avg` | float | Modul 8.4 — siehe `config/settings.py` (`SCORING_*`) |  |
 | 12 | `score_max` | int | Modul 8.4 |  |
 | 13 | `score_total` | int | Modul 8.4 |  |
 | 14 | `total_volume_usd` | int | Modul 8.4 |  |
@@ -160,7 +160,7 @@ Eine Zeile = **ein Member, der je in einem Signal auftauchte**. Kein Verfall —
 | 8 | `first_event_date` | ISO-Date | ältestes Event | „Wie lange auffällig?" |
 | 9 | `is_ex_officio_ever` | bool | bool-OR über alle Events | Mindestens einmal in Leadership |
 | 10 | `event_trade_pairs` | JSON-Liste | Alle `[signal_event_id, trade_id]`-Paare des Members | Vollständige Rückverfolgung zu den auslösenden Trades |
-| 11 | `score_avg` | float | Modul 8.4 — siehe `organisation/Filter_Instanz_Parameter.md` |  |
+| 11 | `score_avg` | float | Modul 8.4 — siehe `config/settings.py` (`SCORING_*`) |  |
 | 12 | `score_max` | int | Modul 8.4 |  |
 | 13 | `score_total` | int | Modul 8.4 |  |
 
@@ -257,7 +257,7 @@ swarm_events_stage.csv     ─┘            │  concat + (signal_event_id, tra
 
 ## Trade-Score-Formel
 
-**Hard-Gate (2026-06-27):** Triggert ein Trade kein Primärsignal (`SCORING_PRIMARY_SIGNALS`), gibt `compute_trade_score` sofort `(0, '', '')` zurück — Score 0, leerer Breakdown/Warnings. **Ausnahme (Bugfix 2026-07-02):** Triggert der Trade `swarm_paradox`, liefert das Gate stattdessen `(0, '', 'paradox_swarm')` — das Warning bleibt trotz Score 0 sichtbar. Kanonische Quelle: [Filter_Instanz_Parameter.md](../Filter_Instanz_Parameter.md).
+**Hard-Gate (2026-06-27):** Triggert ein Trade kein Primärsignal (`SCORING_PRIMARY_SIGNALS`), gibt `compute_trade_score` sofort `(0, '', '')` zurück — Score 0, leerer Breakdown/Warnings. **Ausnahme (Bugfix 2026-07-02):** Triggert der Trade `swarm_paradox`, liefert das Gate stattdessen `(0, '', 'paradox_swarm')` — das Warning bleibt trotz Score 0 sichtbar. Kanonische Quelle: `config/settings.py` (`SCORING_*`).
 
 ```
 trade_score = other_part + swarm_part + ex_officio_bonus + volume_part
@@ -281,7 +281,7 @@ trade_score = other_part + swarm_part + ex_officio_bonus + volume_part
 
 | Variable | Default | Wirkung |
 |---|---|---|
-| `SCORING_PRIMARY_SIGNALS` | `('committee_full', 'swarm_buy')` | **NEU (2026-06-27).** Hard-Gate-Tuple — s. Filter_Instanz_Parameter.md. |
+| `SCORING_PRIMARY_SIGNALS` | `('committee_full', 'swarm_buy')` | **NEU (2026-06-27).** Hard-Gate-Tuple — s. `config/settings.py`. |
 | ~~`COMMITTEE_THRESHOLD`~~ | entfernt | Trigger-Logik: `len(Relevant_Sectors) > 0` (kein Schwellwert mehr) |
 | `VOTE_TIMING_HIT_THRESHOLD` | 1 | Untergrenze `vote_timing_hit_count` für `floor_action` |
 | `CONTRARIAN_WINDOW_DAYS` | 30 | Max Tage zwischen Buy und Gegen-Sell |

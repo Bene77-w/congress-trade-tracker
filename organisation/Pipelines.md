@@ -422,7 +422,7 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
     → GOOGL und GOOG bekommen denselben CIK:1652044 (Alphabet).
     → Cache: data/cache/edgar_cik_map.json, TTL 7 Tage.
     → Bei API-Failure: strikter Abbruch (kein Fallback auf veralteten Cache).
-    → Doku: organisation/Ticker_Architektur.md
+    → Doku: organisation/tool_specific_md/Ticker_Architektur.md
          ↓
 [7] yfinance Sector/Industry (Rebuild T3)
     → utils/ticker_sector.TickerSectorEnricher.enrich_batch()
@@ -433,7 +433,7 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
       (Retry), GRUEN ⇒ echtes Delisting. Ersetzt die zirkulaere `_network_healthy`-
       Heuristik (jetzt LEGACY). Vor dem Schreiben von delisted_trades_stage.csv wird
       eine frische force_reprobe() erzwungen (ROT ⇒ Datei wird nicht geschrieben).
-      Details: organisation/Briefing_stage_post_trade_performance.md
+      Details: organisation/tool_specific_md/Briefing_stage_post_trade_performance.md
          ↓
 [8] Post-Trade Performance (Stage post_trade_performance, **2026-06-04: Exit-Entkopplung; 2026-06-06: Paper Returns**)
     
@@ -468,7 +468,7 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
       statt (ticker, 1900-01-01, NaN); Erkennung ueber NaN-close. last_checked-TTL
       POST_TRADE_DELISTED_RECHECK_DAYS (30 Tage) steuert Re-Check-Frequenz delisteter
       Ticker. exit_status='delisted' wird jetzt aus dem Preis-Lookup abgeleitet (None
-      ⇒ delisted). Details: organisation/Briefing_stage_post_trade_performance.md
+      ⇒ delisted). Details: organisation/tool_specific_md/Briefing_stage_post_trade_performance.md
     
     **Sub-Phase B: Paper Returns (Mark-to-Market für offene/frische Positionen, DELTA-UNABHÄNGIG)**
     → scoring/post_trade_returns.compute_paper_returns(df, cache_path, recent_window_days, max_price_age_bdays)
@@ -785,7 +785,7 @@ stabile Pipeline-Nummerierung stehen.
 | `utils/ticker_sector.py` | yfinance-Wrapper, liefert `SectorInfo` | 6 |
 | `utils/signal_event_id.py` | Hash-basierte Signal-Event-ID (SHA256[:16]) für Signal-Auslösungen (gruppiert Trades bei Schwärmen) — Konvention siehe `organisation/tool_specific_md/signal_info.md` | 14 |
 | `utils/issuer_ticker.py` | `resolve_issuer_ticker(row)` — Cross-Share-Class-Aufloesung mit Fallback-Kette `share_class_figi → ticker_base → ticker`. share_class_figi (OpenFIGI shareClassFIGI) ist der Erstkandidat, faellt bei Miss zurueck auf ticker_base, dann ticker. Aufrufer (alle Signal-Module + sequence-stage Grouping) erhalten garantiert nicht-leeren Identifier solange mindestens eine der drei Quellen gesetzt ist. | 17 |
-| `utils/network_canary.py` (NEU 2026-06-14) | Out-of-Band-Verdikt-Orakel fuer Netzwerk-Gesundheit: probt garantiert-live Ticker (CANARY_TICKERS) unabhaengig vom eigentlich abgefragten Ticker. `verdict()` (TTL-gecacht 60s), `force_reprobe()`, `wait_then_reprobe()`. Konsumiert von `scoring/post_trade_returns.py` + `utils/ticker_sector.py`. Details: `organisation/Briefing_stage_post_trade_performance.md` | (in `test_network_canary.py`) |
+| `utils/network_canary.py` (NEU 2026-06-14) | Out-of-Band-Verdikt-Orakel fuer Netzwerk-Gesundheit: probt garantiert-live Ticker (CANARY_TICKERS) unabhaengig vom eigentlich abgefragten Ticker. `verdict()` (TTL-gecacht 60s), `force_reprobe()`, `wait_then_reprobe()`. Konsumiert von `scoring/post_trade_returns.py` + `utils/ticker_sector.py`. Details: `organisation/tool_specific_md/Briefing_stage_post_trade_performance.md` | (in `test_network_canary.py`) |
 | `utils/network_retry.py` (NEU 2026-06-14) | Zentraler `retry_call`-Helfer (R1-R6): typ-basierte transient-Klassifikation (`is_transient_exception`), Backoff via `NETWORK_RETRY_BACKOFFS`, `NetworkRetryExhausted`, optionaler `is_empty`-Callback + `on_attempt_failed`-Hook. Genutzt von `utils/ticker_normalizer.py` + `utils/issuer_group_mapper.py` (ersetzt eigene Pattern-Listen). | (in `test_network_retry.py`) |
 | `signals/committee_signal.py` | Branch-1 Per-Trade-Signal: triggert bei `len(Relevant_Sectors) > 0` | 8 (in `test_branch1_signals.py`) |
 | `signals/committee_full_signal.py` | Branch-1 Per-Trade-Signal: triggert wenn mind. 1 Eintrag in `Relevant_Sectors` hat `match_type='full'` | (in `test_branch1_signals.py`) |
@@ -916,9 +916,24 @@ venv/bin/streamlit run app/streamlit_app.py --server.headless true
 ```
 **Inputs (read-only):**
 - `data/processed/trades_master.csv` — Haupt-Trades-Tabelle (gecached via `@st.cache_data`)
+- Im Deployment: `data/deploy/trades_snapshot.parquet`, wenn vorhanden (s. u.)
 
 **Outputs:** grundsätzlich Lese-UI; als manueller Schreibpfad steht der optionale
-Recent-Trades-CSV-Export zur Verfügung.
+Recent-Trades-CSV-Export zur Verfügung (im öffentlichen Modus ausgeblendet, s. u.).
+
+**Deployment-Modus:** Im öffentlichen Betrieb läuft die App nicht gegen den
+Master-CSV, sondern gegen einen eingefrorenen Snapshot in `data/deploy/`
+(`trades_snapshot.parquet` + `price_history.parquet` + `snapshot_manifest.json`).
+Der Loader nimmt den Snapshot automatisch, wenn die Datei existiert — lokal
+ändert sich also nichts, solange kein Snapshot gebaut wurde. Der Snapshot
+entsteht **außerhalb** dieser Pipeline, manuell nach einem
+Import-Pipeline-Durchlauf:
+```bash
+python scripts/build_deploy_snapshot.py
+```
+Details zum Skript: `organisation/CLI_Bedienungsanleitung.md` Abschnitt 14;
+Datenformat: `organisation/DATA_STRUCTURE.md` Abschnitt 7g; Server-Setup:
+`organisation/DEPLOYMENT.md` Abschnitt 9.
 
 **Optionaler Recent-Trades-CSV-Export:** Der Recent-Trades-Tab kann entweder den
 kompletten gefilterten `recent_pool` oder die per `st.dataframe` markierten Zeilen

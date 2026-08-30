@@ -962,6 +962,27 @@ Default-Port: **8501** → im Browser öffnen: `http://localhost:8501`
 > (via `scoring/trade_score.py`), damit Paradox-Dämpfung und Ex-Officio-Bonus konsistent
 > bleiben. Einfaches String-Filtern würde diese Interaktionen brechen.
 
+### Deployment-Snapshot (`scripts/build_deploy_snapshot.py`)
+
+Eigenständiges Skript, **keine** Pipeline-Stage. Baut aus
+`trades_master_complete.csv` den eingefrorenen Datenstand für die öffentliche
+Dashboard-Instanz (Datenformat: `organisation/DATA_STRUCTURE.md` Abschnitt 7g;
+Server-Kontext: `organisation/DEPLOYMENT.md` Abschnitt 9). Manuell nach einem
+Import-Pipeline-Durchlauf ausführen — nicht Teil der `Ausfuehrungsreihenfolge`.
+
+```bash
+# Standardaufruf (nutzt config/settings.py-Defaults für alle Pfade)
+python scripts/build_deploy_snapshot.py
+```
+
+| Flag | Default | Zweck |
+|---|---|---|
+| `--source` | `data/processed/trades_master_complete.csv` | Quell-CSV |
+| `--target` | `data/deploy/trades_snapshot.parquet` | Ziel-Parquet |
+| `--manifest` | `data/deploy/snapshot_manifest.json` | Ziel-Manifest |
+| `--price-cache` | `data/cache/price_history.parquet` | Kurs-Cache, wird nach `data/deploy/` kopiert |
+| `--skip-price-cache` | aus | Kurs-Cache nicht mitkopieren (Kursverlauf-Charts bleiben dann leer) |
+
 ---
 
 ## 15. Committee-Mapping-Agent (in Arbeit)
@@ -971,7 +992,7 @@ Default-Port: **8501** → im Browser öffnen: `http://localhost:8501`
 (Master des Committee-Tags, `config/committee_mapping.py`) reproduzierbar aus den Roh-Committee-Listen
 neu erzeugt — gegroundet (Zitatpflicht) und menschlich reviewbar (xlsx-Round-Trip).
 Architektur, Rollen/Modelle, Caches, Konfidenz-Logik: `DATA_STRUCTURE.md` Abschnitt 3a, Pipeline-Einordnung: `Pipelines.md` Pipeline 11.
-Manueller Review-Prozess (xlsx-Round-Trip): `manual_review_anleitung.md` Prozess 4.
+Manueller Review-Prozess (xlsx-Round-Trip): `CLI_Bedienungsanleitung.md` (Committee-Mapping-Agent).
 
 ```bash
 # venv aktiv, Projekt-Root
@@ -1060,3 +1081,4 @@ Congress Tracker stellt optional den neutralen CSV-Export aus Pipeline 10 bereit
 | Tests | `pytest tests/ -v` | Alle Unit-Tests |
 | Pipeline Reset | `python scripts/reset_pipeline.py --all --dry-run` | Logs/Caches/Stage/Processed reversibel zurücksetzen |
 | Streamlit Dashboard | `venv/bin/streamlit run app/streamlit_app.py` | Web-UI (Trades / Assets / Members) auf Port 8501 |
+| Deployment-Snapshot | `python scripts/build_deploy_snapshot.py` | Eingefrorenen Datenstand für die öffentliche Dashboard-Instanz bauen (s. Abschnitt 14) |
