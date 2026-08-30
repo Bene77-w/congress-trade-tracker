@@ -12,6 +12,7 @@ import pandas as pd
 import pytest
 
 from app import scoring_presets as sp
+from config import settings
 from scripts.build_deploy_snapshot import _categorical_columns, build_snapshot
 
 
@@ -71,9 +72,93 @@ def test_build_snapshot_roundtrip(tmp_path):
 
 
 def test_build_snapshot_missing_source(tmp_path):
-    with pytest.raises(SystemExit):
+    with pytest.raises(FileNotFoundError):
         build_snapshot(tmp_path / 'fehlt.csv', tmp_path / 'a.parquet',
                        tmp_path / 'b.json')
+
+
+def test_build_snapshot_copies_price_cache(tmp_path):
+    """Ohne Kurs-Cache blieben im Deployment alle Verlaufs-Charts leer."""
+    source = tmp_path / 'master.csv'
+    _master_frame().to_csv(source, index=False)
+    cache = tmp_path / 'price_history.parquet'
+    pd.DataFrame({'ticker': ['AAPL'], 'date': ['2025-01-02'],
+                  'close': [1.0]}).to_parquet(cache, index=False)
+
+    info = build_snapshot(source, tmp_path / 'deploy' / 'snap.parquet',
+                          tmp_path / 'deploy' / 'manifest.json',
+                          price_cache=cache)
+
+    assert (tmp_path / 'deploy' / 'price_history.parquet').is_file()
+    assert info['price_cache_bytes'] > 0
+
+
+def test_build_snapshot_without_price_cache(tmp_path):
+    source = tmp_path / 'master.csv'
+    _master_frame().to_csv(source, index=False)
+    info = build_snapshot(source, tmp_path / 'd' / 's.parquet',
+                          tmp_path / 'd' / 'm.json', price_cache=None)
+    assert info['price_cache_bytes'] is None
+
+
+def test_build_snapshot_without_disclosure_date(tmp_path):
+    """Fehlt die Spalte, bleibt der Datenstand leer statt zu scheitern."""
+    df = _master_frame().drop(columns=['disclosure_date'])
+    source = tmp_path / 'master.csv'
+    df.to_csv(source, index=False)
+    info = build_snapshot(source, tmp_path / 'd' / 's.parquet',
+                          tmp_path / 'd' / 'm.json')
+    assert info['data_as_of'] is None
+
+
+def test_build_snapshot_leaves_no_temp_files(tmp_path):
+    """Atomares Schreiben: keine .tmp-Reste nach einem erfolgreichen Lauf."""
+    source = tmp_path / 'master.csv'
+    _master_frame().to_csv(source, index=False)
+    out = tmp_path / 'deploy'
+    build_snapshot(source, out / 's.parquet', out / 'm.json')
+    assert not list(out.glob('*.tmp'))
+
+
+def test_category_exclude_covers_recompute_columns():
+    """Die vom Score-Recompute ersetzten Spalten duerfen nie category werden."""
+    from app.score_recompute import recompute_subset
+    import inspect
+    written = {line.split("out['")[1].split("']")[0]
+               for line in inspect.getsource(recompute_subset).splitlines()
+               if "out['" in line and '] =' in line}
+    excluded = set(settings.DEPLOY_SNAPSHOT_CATEGORY_EXCLUDE)
+    # trade_score ist numerisch und damit ohnehin kein category-Kandidat
+    assert written - {'trade_score'} <= excluded
+
+
+def test_snapshot_matches_csv_path(tmp_path):
+    """Kernrisiko des Deployments: Snapshot- und CSV-Pfad muessen dieselben
+    Werte und Typen liefern. Sonst zeigt die oeffentliche Instanz still
+    andere Zahlen als die lokale."""
+    source = tmp_path / 'master.csv'
+    _master_frame().to_csv(source, index=False)
+    target = tmp_path / 'deploy' / 'snap.parquet'
+    build_snapshot(source, target, tmp_path / 'deploy' / 'm.json')
+
+    via_csv = pd.read_csv(
+        source,
+        parse_dates=list(settings.TRADES_DATE_COLUMNS),
+        dtype={c: 'string' for c in settings.TRADES_STRING_COLUMNS
+               if c in _master_frame().columns},
+        low_memory=False,
+    )
+    via_snapshot = pd.read_parquet(target)
+
+    assert list(via_csv.columns) == list(via_snapshot.columns)
+    for col in via_csv.columns:
+        left = via_csv[col]
+        right = via_snapshot[col]
+        if isinstance(right.dtype, pd.CategoricalDtype):
+            right = right.astype(left.dtype)
+        pd.testing.assert_series_equal(
+            left, right, check_dtype=False, check_categorical=False,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -128,3 +213,112 @@ def test_default_preset_stays_reserved_in_store_mode(tmp_path, monkeypatch):
         sp.save_preset(sp.DEFAULT_PRESET_NAME, {}, store)
     with pytest.raises(ValueError):
         sp.delete_preset(sp.DEFAULT_PRESET_NAME, store)
+
+
+# ---------------------------------------------------------------------------
+# Passwort-Gate
+# ---------------------------------------------------------------------------
+# Diese Tests fahren die echte App per AppTest. Das ist billig, weil das Gate
+# vor dem Datenladen greift (``st.stop()``): der teure Snapshot-/CSV-Load wird
+# nie erreicht. Deshalb wird hier bewusst nur der gesperrte Zustand geprueft.
+
+def _app(monkeypatch, password: str = 'geheim'):
+    from streamlit.testing.v1 import AppTest
+    monkeypatch.setattr(settings, 'APP_AUTH_ENABLED', True)
+    monkeypatch.setattr(settings, 'APP_PASSWORD', password)
+    root = __import__('pathlib').Path(__file__).resolve().parent.parent
+    return AppTest.from_file(str(root / 'app' / 'streamlit_app.py'),
+                             default_timeout=60)
+
+
+def test_gate_blocks_without_password(monkeypatch):
+    at = _app(monkeypatch)
+    at.run()
+    assert not at.exception
+    assert len(at.text_input) == 1, 'nur das Passwortfeld darf sichtbar sein'
+    assert len(at.tabs) == 0, 'ohne Anmeldung duerfen keine Daten erscheinen'
+
+
+def test_gate_rejects_wrong_password(monkeypatch):
+    at = _app(monkeypatch)
+    at.run()
+    at.text_input[0].input('falsch')
+    at.button[0].click().run()
+    assert not at.exception
+    assert any('Falsches Passwort' in e.value for e in at.error)
+    assert at.session_state['auth_attempts'] == 1
+
+
+def test_gate_handles_non_ascii_password(monkeypatch):
+    """Umlaute im Passwort duerfen die Pruefung nicht sprengen.
+
+    ``hmac.compare_digest`` wirft bei str-Argumenten mit Nicht-ASCII einen
+    TypeError — mit ``showErrorDetails = "none"`` waere die App dann fuer alle
+    unbenutzbar, ohne erkennbaren Grund.
+    """
+    at = _app(monkeypatch, password='Schlüssel-öäü')
+    at.run()
+    at.text_input[0].input('Schlüssel-falsch')
+    at.button[0].click().run()
+    assert not at.exception, 'Nicht-ASCII-Passwort darf keine Exception werfen'
+    assert any('Falsches Passwort' in e.value for e in at.error)
+
+
+def test_gate_locks_after_max_attempts(monkeypatch):
+    """Nach dem letzten erlaubten Fehlversuch greift die Sperre beim naechsten
+    Aufruf des Formulars — der Nutzer sieht zuerst 'Falsches Passwort', dann
+    die Sperre."""
+    at = _app(monkeypatch)
+    monkeypatch.setattr(settings, 'APP_AUTH_MAX_ATTEMPTS', 2)
+    at.run()
+    for _ in range(2):
+        at.text_input[0].input('falsch')
+        at.button[0].click().run()
+    assert at.session_state['auth_attempts'] == 2
+    at.run()
+    assert not at.exception
+    assert any('Zu viele Fehlversuche' in e.value for e in at.error)
+    assert len(at.text_input) == 0, 'Formular muss verschwinden'
+
+
+def test_gate_reports_missing_password(monkeypatch):
+    at = _app(monkeypatch, password='')
+    at.run()
+    assert not at.exception
+    assert any('kein Passwort gesetzt' in e.value for e in at.error)
+    assert len(at.tabs) == 0
+
+
+# ---------------------------------------------------------------------------
+# Kurs-Cache im Deployment
+# ---------------------------------------------------------------------------
+
+def _touch_parquet(path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame({'ticker': ['AAPL'], 'date': ['2025-01-02'],
+                  'close': [1.0]}).to_parquet(path, index=False)
+
+
+def test_price_cache_prefers_normal_location(tmp_path, monkeypatch):
+    from app import member_detail as md
+    monkeypatch.setattr(md, 'ROOT', tmp_path)
+    _touch_parquet(tmp_path / settings.POST_TRADE_PRICE_CACHE)
+    _touch_parquet(tmp_path / settings.DEPLOY_PRICE_CACHE_PATH)
+    assert md.price_cache_path() == str(tmp_path / settings.POST_TRADE_PRICE_CACHE)
+
+
+def test_price_cache_falls_back_to_deploy_folder(tmp_path, monkeypatch):
+    """Auf dem Server gibt es data/cache/ nicht — ohne Fallback blieben alle
+    Kursverlauf-Charts leer, obwohl die Datei mitgeliefert wurde."""
+    from app import member_detail as md
+    monkeypatch.setattr(md, 'ROOT', tmp_path)
+    _touch_parquet(tmp_path / settings.DEPLOY_PRICE_CACHE_PATH)
+    assert md.price_cache_path() == str(tmp_path / settings.DEPLOY_PRICE_CACHE_PATH)
+
+
+def test_price_cache_missing_everywhere(tmp_path, monkeypatch):
+    """Fehlt der Cache ueberall, bleibt es beim Normalpfad — der Loader
+    liefert dann einen leeren Frame statt zu scheitern."""
+    from app import member_detail as md
+    monkeypatch.setattr(md, 'ROOT', tmp_path)
+    assert md.price_cache_path() == str(tmp_path / settings.POST_TRADE_PRICE_CACHE)

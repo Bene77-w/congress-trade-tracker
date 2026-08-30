@@ -17,12 +17,22 @@ services:
     environment:
       # Presets pro Browser-Session statt in einer geteilten Datei.
       APP_PUBLIC_MODE: "1"
-      # Nur wirksam, wenn APP_AUTH_ENABLED in config/settings.py auf True steht.
+      # Passwortschutz: beides in deploy/.env setzen (Default = offen).
+      APP_AUTH_ENABLED: "${APP_AUTH_ENABLED:-0}"
       APP_PASSWORD: "${APP_PASSWORD:-}"
     volumes:
       # Datenstand read-only: der Container soll ihn lesen, nie schreiben.
       - ../data/deploy:/app/data/deploy:ro
+      # Der Kurs-Cache liegt im selben Ordner (price_history.parquet); die App
+      # findet ihn dort, wenn data/cache/ fehlt. Ohne ihn blieben alle
+      # Kursverlauf-Charts in den Detail-Popups leer.
       - ../logs:/app/logs
+    # Speicher deckeln: eine Sitzung braucht ~800 MB, mehrere gleichzeitige
+    # Besucher entsprechend mehr. Ohne Grenze reisst ein Ausreisser den
+    # ganzen Server mit; mit Grenze startet nur dieser Container neu.
+    mem_limit: 2g
+    security_opt:
+      - no-new-privileges:true
     # Kein Port nach aussen: erreichbar ist nur Caddy, der intern
     # weiterleitet. Damit steht Streamlit nie ungeschuetzt im Netz.
     expose:
@@ -35,13 +45,19 @@ services:
     ports:
       - "80:80"
       - "443:443"
+    environment:
+      # Domain in deploy/.env setzen — das Caddyfile bleibt unveraendert,
+      # sonst kollidiert die Aenderung mit dem naechsten 'git pull'.
+      SITE_DOMAIN: "${SITE_DOMAIN:?SITE_DOMAIN fehlt — in deploy/.env setzen}"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data      # Let's-Encrypt-Zertifikate (ueberleben Neustarts)
       - caddy_config:/config
+      - caddy_logs:/var/log/caddy
     depends_on:
       - dashboard
 
 volumes:
   caddy_data:
   caddy_config:
+  caddy_logs:

@@ -18,6 +18,18 @@ RUN pip install --no-cache-dir -r requirements.txt
 # kommen zur Laufzeit als Volume dazu (s. deploy/docker-compose.prod.yml).
 COPY . .
 
+# Oeffentlicher Modus schon im Image: sonst faellt ein 'docker run' ohne
+# Compose still auf die geteilte Preset-Datei zurueck. Compose kann den Wert
+# weiterhin ueberschreiben.
+ENV APP_PUBLIC_MODE=1
+
+# Nicht als root laufen: ein Fehler in der App kann so nichts im Container
+# umschreiben, was ihm nicht gehoert.
+RUN useradd --create-home --uid 10001 appuser \
+    && mkdir -p /app/logs /app/data/cache \
+    && chown -R appuser:appuser /app/logs /app/data
+USER appuser
+
 EXPOSE 8501
 
 # Streamlit meldet unter /_stcore/health, ob der Server bereit ist. Docker

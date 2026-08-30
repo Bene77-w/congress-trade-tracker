@@ -24,7 +24,8 @@ umwerfen.
   Seitenaufruf aus und kann keinen Dauerprozess mit WebSocket betreiben —
   Streamlit laeuft dort grundsaetzlich nicht. Passend sind z. B. IONOS
   „VPS Linux" oder Hetzner „CX22": 2 Kerne, 4 GB RAM, ca. 4–6 EUR/Monat.
-  Das Dashboard selbst braucht davon nur rund 300 MB.
+  Das Dashboard braucht im Betrieb rund 800 MB Arbeitsspeicher pro aktiver
+  Sitzung; die Compose-Datei deckelt es bei 2 GB.
 - **Eine Domain** mit einem A-Record auf die IP-Adresse des Servers.
   Domain und Server muessen nicht beim selben Anbieter liegen.
 
@@ -37,13 +38,21 @@ source venv/bin/activate
 python scripts/build_deploy_snapshot.py
 ```
 
-Erzeugt aus dem Master-CSV (~645 MB):
+Erzeugt in `data/deploy/` alles, was der Server braucht:
 
-- `data/deploy/trades_snapshot.parquet` (~15 MB)
-- `data/deploy/snapshot_manifest.json` (Datenstand, Zeilenzahl — das Dashboard
-  zeigt den Datenstand unter dem Titel an)
+| Datei | Groesse | Zweck |
+|---|---|---|
+| `trades_snapshot.parquet` | ~15 MB | die Trades (aus dem 645-MB-Master) |
+| `price_history.parquet` | ~26 MB | Kursdaten fuer die Verlaufs-Charts |
+| `snapshot_manifest.json` | wenige Zeilen | Datenstand, den die App unter dem Titel anzeigt |
 
-Beide Dateien sind bewusst **nicht** im Git-Repo (`.gitignore`): So bleibt die
+Die App sucht den Kurs-Cache zuerst am Normalort (`data/cache/`, den es auf
+dem Server nicht gibt) und faellt dann auf `data/deploy/` zurueck — ein
+zusaetzlicher Mount ist nicht noetig. Fehlt die Datei ganz, laufen alle
+Detail-Popups weiter, zeigen statt der Kursverlaeufe aber nur den Hinweis,
+dass Kursdaten fehlen.
+
+Der Ordner ist bewusst **nicht** im Git-Repo (`.gitignore`): So bleibt die
 Repo-Historie schlank, und die Trade-Daten liegen nicht dauerhaft oeffentlich
 auf GitHub.
 
@@ -75,14 +84,24 @@ Zusaetzlich empfohlen: SSH-Login nur per Schluessel
 # Auf dem Server: Code holen
 git clone <repo-url> /srv/congress-tracker
 
-# Auf dem Entwicklungsrechner: Snapshot hochladen (~15 MB)
+# Auf dem Entwicklungsrechner: Datenstand hochladen (~41 MB)
 rsync -avz data/deploy/ root@<server-ip>:/srv/congress-tracker/data/deploy/
 ```
 
 ## 4. Domain eintragen und starten
 
-Auf dem Server in `deploy/Caddyfile` die erste Zeile auf die eigene Domain
-aendern (statt `congress-tracker.example.de`). Dann:
+Die Domain steht nicht im Caddyfile, sondern in einer `.env` — so bleiben alle
+versionierten Dateien unveraendert und `git pull` laeuft spaeter konfliktfrei.
+Auf dem Server `/srv/congress-tracker/deploy/.env` anlegen:
+
+```bash
+SITE_DOMAIN=deine-domain.de
+# Passwortschutz (optional, s. Abschnitt 7)
+APP_AUTH_ENABLED=0
+APP_PASSWORD=
+```
+
+Dann starten:
 
 ```bash
 cd /srv/congress-tracker
@@ -112,6 +131,8 @@ rsync -avz data/deploy/ root@<server-ip>:/srv/congress-tracker/data/deploy/
 ssh root@<server-ip> "docker restart congress-dashboard"
 ```
 
+Der Snapshot enthaelt den Kurs-Cache; ein separater Upload ist nicht noetig.
+
 Der Neustart ist noetig, weil Streamlit die Daten beim Start in den Cache
 laedt. Er dauert wenige Sekunden.
 
@@ -129,12 +150,18 @@ Das Dashboard ist absichtlich ohne Login erreichbar — ein Passwort haelt
 Betrachter ab, die sich die Arbeit nur ansehen sollen. Falls der Zugriff doch
 eingeschraenkt werden muss:
 
-1. In `config/settings.py`: `APP_AUTH_ENABLED = True`
-2. Auf dem Server eine `.env` neben der Compose-Datei anlegen mit
-   `APP_PASSWORD=<dein-passwort>`
-3. `docker compose -f deploy/docker-compose.prod.yml up -d --build`
+In `/srv/congress-tracker/deploy/.env` setzen:
 
-Das Passwort steht nie im Code, nur in der Umgebungsvariable.
+```bash
+APP_AUTH_ENABLED=1
+APP_PASSWORD=<dein-passwort>
+```
+
+Dann `docker compose -f deploy/docker-compose.prod.yml up -d`.
+
+Das Passwort steht nie im Code und in keiner versionierten Datei. Nach fuenf
+Fehlversuchen bleibt das Formular fuer diese Sitzung gesperrt
+(`APP_AUTH_MAX_ATTEMPTS` in `config/settings.py`).
 
 ## 8. Was auf dem Server bewusst fehlt
 
@@ -142,4 +169,7 @@ Das Passwort steht nie im Code, nur in der Umgebungsvariable.
   Laufzeit kein Netz und keine Schluessel; es liest nur den Snapshot.
 - **Kein Scraper, kein Import, kein OCR.** Deshalb enthaelt
   `deploy/Dockerfile.app` weder Tesseract noch Chromium (~600 MB gespart).
-- **Kein Schreibzugriff auf die Daten.** Der Snapshot ist als `:ro` gemountet.
+- **Kein Schreibzugriff auf die Daten.** Snapshot und Kurs-Cache sind `:ro`
+  gemountet, der Container laeuft als unprivilegierter Nutzer, und der
+  CSV-Export des Recent-Tabs ist im oeffentlichen Modus ausgeblendet — sonst
+  koennte jeder Besucher Dateien auf der Serverplatte anlegen.

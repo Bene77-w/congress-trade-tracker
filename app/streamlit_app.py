@@ -231,19 +231,20 @@ def load_trades() -> pd.DataFrame:
     # App unveraendert gegen den Master-CSV (lokaler Entwicklungsstand).
     if DEPLOY_SNAPSHOT.exists():
         df = pd.read_parquet(DEPLOY_SNAPSHOT)
+        # Lokal faellt sonst nicht auf, dass ein Pipeline-Lauf den Master
+        # aktualisiert hat, der Snapshot aber alt ist.
+        if (TRADES_CSV.exists()
+                and TRADES_CSV.stat().st_mtime
+                > DEPLOY_SNAPSHOT.stat().st_mtime):
+            st.warning(
+                'Der Master-CSV ist neuer als der geladene Snapshot. '
+                'Neu bauen mit: python scripts/build_deploy_snapshot.py'
+            )
     else:
         df = pd.read_csv(
             TRADES_CSV,
-            parse_dates=['transaction_date', 'disclosure_date'],
-            dtype={'ticker': 'string', 'issuer_ticker': 'string',
-                   'name': 'string', 'chamber': 'string',
-                   'Member_Party': 'string',
-                   'subholding': 'string',
-                   'transaction_type': 'string', 'amount': 'string',
-                   'signals_triggered': 'string',
-                   'trade_score_breakdown': 'string',
-                   'trade_warnings': 'string',
-                   'Relevant_Sectors': 'string'},
+            parse_dates=list(settings.TRADES_DATE_COLUMNS),
+            dtype={c: 'string' for c in settings.TRADES_STRING_COLUMNS},
             low_memory=False,
         )
     if 'Relevant_Sectors' in df.columns:
@@ -592,13 +593,27 @@ def _check_password() -> bool:
         )
         return False
 
-    entered = st.text_input('Passwort', type='password', key='auth_pw')
-    if st.button('Anmelden'):
+    max_attempts = int(getattr(settings, 'APP_AUTH_MAX_ATTEMPTS', 5))
+    attempts = int(st.session_state.get('auth_attempts', 0))
+    if max_attempts and attempts >= max_attempts:
+        st.error('Zu viele Fehlversuche. Bitte die Seite neu laden.')
+        return False
+
+    # Form statt Button: so loest auch die Eingabetaste die Pruefung aus.
+    with st.form('auth_form'):
+        entered = st.text_input('Passwort', type='password')
+        submitted = st.form_submit_button('Anmelden')
+
+    if submitted:
         # compare_digest statt '==': gleiche Laufzeit unabhaengig davon, an
-        # welcher Stelle das Passwort abweicht.
-        if hmac.compare_digest(entered, expected):
+        # welcher Stelle das Passwort abweicht. Beide Seiten als Bytes, sonst
+        # wirft compare_digest bei Umlauten einen TypeError.
+        if hmac.compare_digest(entered.encode('utf-8'),
+                               expected.encode('utf-8')):
             st.session_state['auth_ok'] = True
+            st.session_state['auth_attempts'] = 0
             st.rerun()
+        st.session_state['auth_attempts'] = attempts + 1
         st.error('Falsches Passwort.')
     return False
 
@@ -1440,7 +1455,8 @@ def render_trade_detail(trade, trade_rows, key_prefix: str) -> None:
         if scope_all else contextlib.nullcontext()
     )
     with spinner_ctx:
-        cache_path = str(ROOT / settings.POST_TRADE_PRICE_CACHE)
+        from app.member_detail import price_cache_path
+        cache_path = price_cache_path()
         cache = _load_price_cache(cache_path)
 
         # Gefilterte Menge der weiteren Trades am gleichen Issuer.
@@ -2187,37 +2203,44 @@ with tab_recent:
                 _recent_sel_rows = recent_sel_state.selection.get('rows', [])
             _n_sel = len(_recent_sel_rows)
 
-            st.markdown('**Recent Trades als CSV exportieren**')
-            st.caption('Legt die Auswahl als CSV im Exportordner ab.')
-            ex1, ex2 = st.columns(2)
-            with ex1:
-                if st.button(
-                    f'Alle gefilterten Zeilen exportieren '
-                    f'({len(recent_pool):,})',
-                    key='recent_export_all',
-                    width='stretch',
-                ):
-                    try:
-                        _path = export_selection(recent_pool)
-                        st.success(f'{len(recent_pool):,} Zeilen exportiert '
-                                   f'nach {_path}')
-                    except Exception as _exc:  # noqa: BLE001
-                        st.error(f'Export fehlgeschlagen: {_exc}')
-            with ex2:
-                if st.button(
-                    f'Auswahl exportieren ({_n_sel})',
-                    key='recent_export_sel',
-                    width='stretch',
-                    disabled=(_n_sel == 0),
-                ):
-                    _sel_idx = top_pool.index[_recent_sel_rows]
-                    _sel_df = recent_pool.loc[_sel_idx]
-                    try:
-                        _path = export_selection(_sel_df)
-                        st.success(f'{len(_sel_df):,} Zeilen exportiert nach '
-                                   f'{_path}')
-                    except Exception as _exc:  # noqa: BLE001
-                        st.error(f'Export fehlgeschlagen: {_exc}')
+            # Der Export legt eine Datei auf dem Server ab. Auf der
+            # oeffentlichen Instanz waere sie fuer Besucher unerreichbar,
+            # wuerde aber die Serverplatte fuellen -> dort ausblenden.
+            if settings.APP_PUBLIC_MODE:
+                st.caption('Der CSV-Export ist in der öffentlichen '
+                           'Ansicht deaktiviert.')
+            else:
+                st.markdown('**Recent Trades als CSV exportieren**')
+                st.caption('Legt die Auswahl als CSV im Exportordner ab.')
+                ex1, ex2 = st.columns(2)
+                with ex1:
+                    if st.button(
+                        f'Alle gefilterten Zeilen exportieren '
+                        f'({len(recent_pool):,})',
+                        key='recent_export_all',
+                        width='stretch',
+                    ):
+                        try:
+                            _path = export_selection(recent_pool)
+                            st.success(f'{len(recent_pool):,} Zeilen exportiert '
+                                       f'nach {_path}')
+                        except Exception as _exc:  # noqa: BLE001
+                            st.error(f'Export fehlgeschlagen: {_exc}')
+                with ex2:
+                    if st.button(
+                        f'Auswahl exportieren ({_n_sel})',
+                        key='recent_export_sel',
+                        width='stretch',
+                        disabled=(_n_sel == 0),
+                    ):
+                        _sel_idx = top_pool.index[_recent_sel_rows]
+                        _sel_df = recent_pool.loc[_sel_idx]
+                        try:
+                            _path = export_selection(_sel_df)
+                            st.success(f'{len(_sel_df):,} Zeilen exportiert nach '
+                                       f'{_path}')
+                        except Exception as _exc:  # noqa: BLE001
+                            st.error(f'Export fehlgeschlagen: {_exc}')
 
 
 # --- Score-Analyse: Helfer -------------------------------------------------

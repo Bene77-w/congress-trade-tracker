@@ -745,21 +745,41 @@ GLOBAL_WINDOW_DEFAULT = '30 Tage'
 # (Snapshot) statt gegen den 645-MB-Master-CSV: gleiche Spalten, aber als
 # Parquet mit category-Dtypes fuer die Wiederholungsspalten
 # (Insider_Sectors & Co. haben nur je ~200 verschiedene Werte bei ~114k
-# Zeilen). Effekt: 645 MB -> ~15 MB Datei, ~626 MB -> ~50 MB RAM.
+# Zeilen). Effekt: 645 MB -> ~15 MB Datei, ~624 MB -> ~76 MB RAM.
 # Erzeugt von: scripts/build_deploy_snapshot.py
 # Der Loader nimmt den Snapshot, wenn die Datei existiert, sonst den Master-CSV
 # — lokal aendert sich damit nichts, solange kein Snapshot gebaut wurde.
 DEPLOY_SNAPSHOT_PATH = 'data/deploy/trades_snapshot.parquet'
 DEPLOY_SNAPSHOT_MANIFEST = 'data/deploy/snapshot_manifest.json'
 
+# Kurs-Cache im Deployment-Ordner. Der Snapshot-Builder legt eine Kopie von
+# POST_TRADE_PRICE_CACHE hier ab, damit ein einziger Ordner alles enthaelt,
+# was der Server braucht. Die App nimmt diesen Pfad, wenn der Cache am
+# Normalort fehlt — ohne Kursdaten blieben alle Verlaufs-Charts leer.
+DEPLOY_PRICE_CACHE_PATH = 'data/deploy/price_history.parquet'
+
 # Spalten unterhalb dieser Zahl verschiedener Werte werden im Snapshot als
 # category gespeichert. 2000 deckt alle Member-/Committee-Attribute ab, laesst
 # aber hochkardinale Spalten (asset_name, IDs) als normale Strings.
 DEPLOY_SNAPSHOT_CATEGORY_MAX_UNIQUE = 2000
 
-# Diese Spalten bleiben immer normale Strings: der Score-Recompute im
-# Dashboard (app/score_recompute.py) schreibt sie neu, und neue Werte, die
-# nicht in den Kategorien stehen, wuerden bei category-Dtype scheitern.
+# Diese Spalten bleiben immer normale Strings. Der Score-Recompute im
+# Dashboard (app/score_recompute.py) ersetzt sie komplett — als category
+# gespeichert braechte das keinen Speichergewinn (die alten Kategorien werden
+# ohnehin verworfen), waere aber eine unnoetige Fehlerquelle, sobald jemand
+# einzelne Werte statt der ganzen Spalte setzt.
+# --- Dtype-Vertrag des Masters -------------------------------------------
+# Einmal definiert, von BEIDEN Lesepfaden verwendet: dem CSV-Loader des
+# Dashboards und dem Snapshot-Builder. Sonst koennten die Pfade fuer dieselbe
+# Spalte unterschiedliche Typen liefern (z.B. float64 fuer eine leere Spalte,
+# die als Text gemeint ist) — und der Unterschied faellt erst im Deployment auf.
+TRADES_DATE_COLUMNS = ('transaction_date', 'disclosure_date')
+TRADES_STRING_COLUMNS = (
+    'ticker', 'issuer_ticker', 'name', 'chamber', 'Member_Party',
+    'subholding', 'transaction_type', 'amount', 'signals_triggered',
+    'trade_score_breakdown', 'trade_warnings', 'Relevant_Sectors',
+)
+
 DEPLOY_SNAPSHOT_CATEGORY_EXCLUDE = (
     'signals_triggered',
     'trade_score_breakdown',
@@ -770,9 +790,17 @@ DEPLOY_SNAPSHOT_CATEGORY_EXCLUDE = (
 # Passwort-Gate vor dem Dashboard. Bewusst DEAKTIVIERT: ein Login schreckt
 # Betrachter ab, die die App nur ansehen sollen. Auf True setzen, wenn der
 # Zugriff eingeschraenkt werden muss (z.B. bei Lizenzfragen zu den Rohdaten).
-# Das Passwort kommt aus der Umgebung (APP_PASSWORD in .env), nie aus dem Code.
-APP_AUTH_ENABLED = False
+# Beides kommt aus der Umgebung (.env), nie aus dem Code — so laesst sich der
+# Schutz auf dem Server umlegen, ohne eine versionierte Datei zu aendern
+# (das wuerde beim naechsten 'git pull' kollidieren).
+APP_AUTH_ENABLED = os.getenv('APP_AUTH_ENABLED', '0').strip().lower() in (
+    '1', 'true', 'yes'
+)
 APP_PASSWORD = os.getenv('APP_PASSWORD', '')
+
+# Fehlversuche je Browser-Sitzung, danach bleibt das Formular gesperrt.
+# 0 = keine Begrenzung.
+APP_AUTH_MAX_ATTEMPTS = 5
 
 # --- Laufzeitmodus -------------------------------------------------------
 # True = oeffentliche Instanz: Scoring-Presets werden pro Browser-Session im
