@@ -1,0 +1,17 @@
+# HTTPS-Reverse-Proxy vor dem Streamlit-Dashboard.
+# Caddy holt und erneuert das Let's-Encrypt-Zertifikat selbst — Voraussetzung
+# ist nur, dass der A-Record der Domain auf die Server-IP zeigt.
+#
+# DOMAIN ANPASSEN: die Zeile unten auf die eigene Domain aendern.
+congress-tracker.example.de {
+    encode gzip
+
+    # Streamlit haelt die Verbindung per WebSocket offen; Caddy leitet
+    # Upgrade-Header automatisch weiter, hier ist nichts extra noetig.
+    reverse_proxy dashboard:8501
+
+    log {
+        output file /data/access.log
+        format console
+    }
+}

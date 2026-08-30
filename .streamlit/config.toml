@@ -1,0 +1,13 @@
+# Server-Einstellungen fuer den Betrieb hinter dem Caddy-Reverse-Proxy.
+[server]
+headless = true
+# Upload-Limit klein halten: die App nimmt keine Uploads entgegen.
+maxUploadSize = 5
+
+[browser]
+# Keine Nutzungsstatistik an Streamlit senden.
+gatherUsageStats = false
+
+[client]
+# Fehler-Details bleiben im Server-Log, Besucher sehen nur eine kurze Meldung.
+showErrorDetails = "none"

@@ -2,7 +2,14 @@
 
 Ein Preset speichert alle vom User editierbaren Scoring-Parameter (Gewichte +
 Paradox-Damper + Trade-Volume-Tiers + Ex-Officio-Rollen-Boni). Format: JSON in
-``data/config/scoring_presets.json``. Ein Preset namens ``Default`` wird beim
+``data/config/scoring_presets.json``.
+
+Alle drei Zugriffsfunktionen nehmen optional einen ``store``: ein Dict, das
+die Datei als Ablage ersetzt. Damit kann die oeffentliche Instanz die Presets
+pro Browser-Session im Arbeitsspeicher halten (``st.session_state``), statt
+sie in eine gemeinsame Datei zu schreiben, die sich mehrere Besucher
+gegenseitig ueberschreiben wuerden. ``store=None`` = unveraenderte
+Datei-Persistenz (lokaler Betrieb). Ein Preset namens ``Default`` wird beim
 ersten Laden synthetisch aus ``config.settings`` erzeugt, damit der User auch
 ohne vorhandene Datei umschalten kann.
 
@@ -148,15 +155,27 @@ def _write_file(data: dict[str, dict[str, Any]]) -> None:
         json.dump(data, fh, indent=2, sort_keys=True)
 
 
-def load_presets() -> dict[str, dict[str, Any]]:
-    """Liefert alle Presets inkl. synthetischem ``Default``-Eintrag."""
-    presets = _read_file()
+def load_presets(
+    store: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Liefert alle Presets inkl. synthetischem ``Default``-Eintrag.
+
+    ``store`` (optional): Dict-Ablage statt Datei — s. Modul-Docstring.
+    """
+    presets = dict(store) if store is not None else _read_file()
     presets.setdefault(DEFAULT_PRESET_NAME, default_payload())
     return presets
 
 
-def save_preset(name: str, payload: dict[str, Any]) -> None:
-    """Speichert ``payload`` unter ``name``. ``Default`` ist reserviert."""
+def save_preset(
+    name: str,
+    payload: dict[str, Any],
+    store: dict[str, dict[str, Any]] | None = None,
+) -> None:
+    """Speichert ``payload`` unter ``name``. ``Default`` ist reserviert.
+
+    ``store`` (optional): Dict-Ablage statt Datei — s. Modul-Docstring.
+    """
     name = (name or '').strip()
     if not name:
         raise ValueError('Preset-Name darf nicht leer sein.')
@@ -164,17 +183,29 @@ def save_preset(name: str, payload: dict[str, Any]) -> None:
         raise ValueError(
             f"Preset-Name '{DEFAULT_PRESET_NAME}' ist reserviert."
         )
+    if store is not None:
+        store[name] = payload
+        return
     data = _read_file()
     data[name] = payload
     _write_file(data)
 
 
-def delete_preset(name: str) -> None:
-    """Loescht ein Preset. ``Default`` ist reserviert und nicht loeschbar."""
+def delete_preset(
+    name: str,
+    store: dict[str, dict[str, Any]] | None = None,
+) -> None:
+    """Loescht ein Preset. ``Default`` ist reserviert und nicht loeschbar.
+
+    ``store`` (optional): Dict-Ablage statt Datei — s. Modul-Docstring.
+    """
     if name == DEFAULT_PRESET_NAME:
         raise ValueError(
             f"Preset '{DEFAULT_PRESET_NAME}' kann nicht geloescht werden."
         )
+    if store is not None:
+        store.pop(name, None)
+        return
     data = _read_file()
     if name in data:
         del data[name]

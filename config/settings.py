@@ -736,3 +736,51 @@ GLOBAL_WINDOW_OPTIONS = {
     'Alles': None,
 }
 GLOBAL_WINDOW_DEFAULT = '30 Tage'
+
+
+# ---------------------------------------------------------------------------
+# Deployment (oeffentliches Streamlit-Dashboard)
+# ---------------------------------------------------------------------------
+# Das Dashboard laeuft im Deployment gegen einen eingefrorenen Datenstand
+# (Snapshot) statt gegen den 645-MB-Master-CSV: gleiche Spalten, aber als
+# Parquet mit category-Dtypes fuer die Wiederholungsspalten
+# (Insider_Sectors & Co. haben nur je ~200 verschiedene Werte bei ~114k
+# Zeilen). Effekt: 645 MB -> ~15 MB Datei, ~626 MB -> ~50 MB RAM.
+# Erzeugt von: scripts/build_deploy_snapshot.py
+# Der Loader nimmt den Snapshot, wenn die Datei existiert, sonst den Master-CSV
+# — lokal aendert sich damit nichts, solange kein Snapshot gebaut wurde.
+DEPLOY_SNAPSHOT_PATH = 'data/deploy/trades_snapshot.parquet'
+DEPLOY_SNAPSHOT_MANIFEST = 'data/deploy/snapshot_manifest.json'
+
+# Spalten unterhalb dieser Zahl verschiedener Werte werden im Snapshot als
+# category gespeichert. 2000 deckt alle Member-/Committee-Attribute ab, laesst
+# aber hochkardinale Spalten (asset_name, IDs) als normale Strings.
+DEPLOY_SNAPSHOT_CATEGORY_MAX_UNIQUE = 2000
+
+# Diese Spalten bleiben immer normale Strings: der Score-Recompute im
+# Dashboard (app/score_recompute.py) schreibt sie neu, und neue Werte, die
+# nicht in den Kategorien stehen, wuerden bei category-Dtype scheitern.
+DEPLOY_SNAPSHOT_CATEGORY_EXCLUDE = (
+    'signals_triggered',
+    'trade_score_breakdown',
+    'trade_warnings',
+)
+
+# --- Zugangsschutz -------------------------------------------------------
+# Passwort-Gate vor dem Dashboard. Bewusst DEAKTIVIERT: ein Login schreckt
+# Betrachter ab, die die App nur ansehen sollen. Auf True setzen, wenn der
+# Zugriff eingeschraenkt werden muss (z.B. bei Lizenzfragen zu den Rohdaten).
+# Das Passwort kommt aus der Umgebung (APP_PASSWORD in .env), nie aus dem Code.
+APP_AUTH_ENABLED = False
+APP_PASSWORD = os.getenv('APP_PASSWORD', '')
+
+# --- Laufzeitmodus -------------------------------------------------------
+# True = oeffentliche Instanz: Scoring-Presets werden pro Browser-Session im
+# Arbeitsspeicher gehalten statt in data/config/scoring_presets.json.
+# Grund: Auf einer geteilten Instanz wuerden sich Besucher sonst gegenseitig
+# die Presets ueberschreiben, und bei einem Neustart waere die Datei weg.
+# Wird per Umgebungsvariable gesetzt (docker-compose des Servers), damit
+# lokal die Datei-Persistenz erhalten bleibt.
+APP_PUBLIC_MODE = os.getenv('APP_PUBLIC_MODE', '0').strip().lower() in (
+    '1', 'true', 'yes'
+)

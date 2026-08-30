@@ -1,0 +1,47 @@
+# Produktivbetrieb auf dem VPS: Dashboard + Caddy als HTTPS-Reverse-Proxy.
+#
+# Start:   docker compose -f deploy/docker-compose.prod.yml up -d --build
+# Logs:    docker compose -f deploy/docker-compose.prod.yml logs -f
+# Stop:    docker compose -f deploy/docker-compose.prod.yml down
+#
+# Voraussetzung: data/deploy/trades_snapshot.parquet liegt auf dem Server
+# (per rsync vom Entwicklungsrechner, s. deploy/README_deployment.md).
+services:
+  dashboard:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.app
+    image: congress-tracker-dashboard
+    container_name: congress-dashboard
+    restart: unless-stopped
+    environment:
+      # Presets pro Browser-Session statt in einer geteilten Datei.
+      APP_PUBLIC_MODE: "1"
+      # Nur wirksam, wenn APP_AUTH_ENABLED in config/settings.py auf True steht.
+      APP_PASSWORD: "${APP_PASSWORD:-}"
+    volumes:
+      # Datenstand read-only: der Container soll ihn lesen, nie schreiben.
+      - ../data/deploy:/app/data/deploy:ro
+      - ../logs:/app/logs
+    # Kein Port nach aussen: erreichbar ist nur Caddy, der intern
+    # weiterleitet. Damit steht Streamlit nie ungeschuetzt im Netz.
+    expose:
+      - "8501"
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: congress-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data      # Let's-Encrypt-Zertifikate (ueberleben Neustarts)
+      - caddy_config:/config
+    depends_on:
+      - dashboard
+
+volumes:
+  caddy_data:
+  caddy_config:
