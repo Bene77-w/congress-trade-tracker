@@ -1108,66 +1108,26 @@ Aufruf für diese Übernahme bleibt offen.
 
 ### Entwicklungs-Gold-Set labeln lassen (P9, außerhalb der Matcher-CLI)
 
-`scripts/committee_matcher_goldset_label.py` lässt die 22 Units der Stichprobe
-von einem headless Agenten labeln — wahlweise über Claude Code oder Codex,
-gleiche Eingabe, gleiches Ausgabeformat. Der Produktivpfad
-(`run plan|execute`) bleibt dabei ungenutzt: er ist der Prüfling. Die Labels
-sind ein Vorschlag; das Gold-Set entsteht erst durch die Abnahme.
+`committee_matcher/goldset_label.py` lässt die 22 Units der Stichprobe von
+einem headless Agenten labeln — wahlweise über Claude Code oder Codex, gleiche
+Eingabe, gleiches Ausgabeformat. Der Produktivpfad (`run plan|execute`) bleibt
+dabei ungenutzt: er ist der Prüfling. Die Labels sind ein Vorschlag; das
+Gold-Set entsteht erst durch die Abnahme.
 
 ```bash
-venv/bin/python scripts/committee_matcher_goldset_label.py prepare
-venv/bin/python scripts/committee_matcher_goldset_label.py preflight --engine claude
-venv/bin/python scripts/committee_matcher_goldset_label.py run --engine claude          # kostenpflichtig
-venv/bin/python scripts/committee_matcher_goldset_label.py collect --engine claude
-venv/bin/python scripts/committee_matcher_goldset_label.py merge --base claude --against codex
-venv/bin/python scripts/committee_matcher_goldset_label.py to-xlsx --source merged
-venv/bin/python scripts/committee_matcher_goldset_label.py verify --source merged --fix-case
+P="venv/bin/python committee_matcher/goldset_label.py"
+$P prepare
+$P preflight --engine claude
+$P run       --engine claude                  # kostenpflichtig
+$P collect   --engine claude
+$P merge     --base claude --against codex
+$P to-xlsx   --source merged
+$P verify    --source merged --fix-case
 ```
 
-| Kommando | Wirkung | Bezahlt |
-|---|---|---|
-| `prepare` | Aufgabenpaket je Unit nach `labeling/tasks/` | nein |
-| `preflight` | ein Kurzaufruf; prüft Engine, Anmeldung, Modellname, Denktiefe | minimal |
-| `run` | je Unit ein headless Lauf, Rohantwort und Log je Unit | ja |
-| `collect` | Rohantworten prüfen und als CSV sammeln | nein |
-| `merge` | zwei Engineläufe vergleichen, `disagreements.md` schreiben | nein |
-| `to-xlsx` | neue Reviewmappe aus den gesammelten Labels erzeugen | nein |
-| `verify` | bearbeitete Reviewdatei zurücklesen und prüfen | nein |
-
-`--source` wählt bei `to-xlsx` und `verify` die Zwischentabelle: `merged`
-(Default) oder ein Enginename. `to-xlsx` blockt auf eine vorhandene Zieldatei,
-da sie die Abnahmearbeit trägt; `--force` sichert sie vorher als
-`<name>.<zeitstempel>.bak.xlsx`. `verify --fix-case` repariert Schreibweise und
-Randleerraum, sichert die Datei vorher ebenfalls und weigert sich, solange der
-Sperrvermerk `.~lock.<name>#` daneben liegt. Jedes `verify` gibt zusätzlich
-eine Änderungsbilanz gegen `labels_<source>.csv` aus: geänderte Zellen mit alt
-und neu, neue und entfernte Zeilen.
-
-Modell und Denktiefe sind freie Parameter (`--model`, `--effort`) und werden
-roh an die CLI durchgereicht, damit künftige Modelle ohne Codeänderung
-funktionieren; Defaults stehen als `GOLDSET_LABEL_*` in `config/settings.py`.
-`--timeout` deckelt die einzelne Unit (Default 1800 s), `--total-timeout` den
-ganzen Satz (Default 43200 s); ein erneuter Aufruf setzt fort und überspringt
-vorhandene Antworten, sofern Modell, Denktiefe, Webzugang und Bindungshashes
-passen.
-
-WebSearch und WebFetch laufen ohne Zutun mit; `--web-access-off` schaltet sie
-für `preflight` und `run` ab. Der Zustand steht in der Antwortdatei und in der
-Spalte `web_access` der `info`-Tabelle. Bei geschlossenem Zugang entfällt der
-Befund `GS_WEBSEARCH_OFF`, und ein Satz lässt sich nicht mit Antworten aus dem
-jeweils anderen Zustand fortsetzen.
-
-Exit-Codes dieses Skripts: `0` erfolgreich · `1` blockiert (Bedienfehler,
-fehlende Voraussetzung) · `2` durchgelaufen, aber mit Befunden zu einzelnen
-Units. `preflight` gibt 2, wenn die CLI die Denktiefe nicht bestätigt (Codex);
-`merge` gibt 2, wenn eine Unit in bloß einem oder in keinem der beiden Läufe
-steht — Dissens allein ist das Ergebnis des Vergleichs und kein Befund. Die
-Quote im Bericht zählt nur verglichene Units; beidseitig fehlende stehen
-getrennt daneben, damit eine Lücke nicht als Konsens erscheint. Die Codes tragen das Präfix `GS_`; jeder Befund nennt Was, Warum,
-Abhilfe und die auslösende Codestelle.
-
-Für Tests ersetzt `GOLDSET_LABEL_FAKE_DIR=<verzeichnis>` beide CLIs durch
-vorbereitete Antwortdateien — kein Netz, kein Kontingent.
+Kanonische Bedienungsanleitung mit allen Kommandos, Optionen, Exit-Codes und
+Befunden: **`committee_matcher/GOLDSET_ANLEITUNG.md`**. Begründungen und die
+vollständige Fehlertabelle: `organisation/committee_matcher_goldset_labeling_plan.md`.
 
 Offen: `evaluate goldset`, `qualify holdout`, `full-run`,
 `report` + ihr Bedienablauf. Diese Kommandos bis zur Implementierung nicht

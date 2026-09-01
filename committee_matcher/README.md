@@ -83,5 +83,6 @@ und `scripts/import_trades.py` werden durch diesen Workflow nicht verändert.
 
 - Einstellungen: `config/settings.py`, Präfix `COMMITTEE_MATCHER_*`
 - Vollständige CLI: `organisation/CLI_Bedienungsanleitung.md`, Abschnitt 15
+- Gold-Set-Creator (P9): `GOLDSET_ANLEITUNG.md`
 - Entscheidungen: `organisation/committee_matcher_planung_entscheidungen_codex.md`
 - Phasen und Gates: `organisation/committee_matcher_v2_implementierungsplan.md`

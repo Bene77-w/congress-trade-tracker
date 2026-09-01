@@ -453,7 +453,7 @@ STRIPPED_LABEL_COLUMNS: frozenset[str] = frozenset({
 MIN_CONFIDENCE = 1
 MAX_CONFIDENCE = 4
 
-#: Vorgabe des Labelwerkzeugs (``scripts/committee_matcher_goldset_label.py``).
+#: Vorgabe des Labelwerkzeugs (``committee_matcher/goldset_label.py``).
 LABEL_WORKBOOK_NAME = "goldset_review.xlsx"
 
 DECISION_MAPPED = "mapped"
@@ -567,7 +567,7 @@ def read_labels(path: Path, collector: ErrorCollector) -> tuple[dict[str, str], 
             "EVAL_LABELS_MISSING", paths.relative_to_base(path),
             "Die Labeldatei existiert nicht.",
             "Pfad mit --labels angeben oder das Gold-Set mit "
-            "scripts/committee_matcher_goldset_label.py erzeugen.",
+            "committee_matcher/goldset_label.py erzeugen.",
             exit_code=ExitCode.REVIEW_IMPORT_REJECTED)
     suffix = path.suffix.lower()
     if suffix == ".xlsx":

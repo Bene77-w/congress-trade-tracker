@@ -826,7 +826,7 @@ COMMITTEE_MATCHER_EVALUATION_REPETITIONS = 3        # int 1..10
 # Budgetpruefung.
 COMMITTEE_MATCHER_EVALUATION_MAX_REPETITIONS = 5    # int, >= REPETITIONS
 
-# --- Gold-Set-Labeling (Verbraucher: scripts/committee_matcher_goldset_label.py)
+# --- Gold-Set-Labeling (Verbraucher: committee_matcher/goldset_label.py)
 # Bewusst ohne das Praefix COMMITTEE_MATCHER_: das Werkzeug laesst das
 # Entwicklungs-Gold-Set von einem headless Agenten labeln und ist nicht Teil
 # eines Matcherlaufs. Seine Werte gehoeren weder in settings_view noch in die

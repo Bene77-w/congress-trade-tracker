@@ -121,7 +121,7 @@ Fehler, Ermüdung, Reihenfolgeeffekt, ein Abbruch kostet den ganzen Satz).
 
 ## 5. Architektur
 
-`scripts/committee_matcher_goldset_label.py`
+`committee_matcher/goldset_label.py`
 
 | Kommando | Wirkung | Bezahlt |
 |---|---|---|
@@ -441,7 +441,7 @@ demselben Muster wie `committee_matcher/errors.py`, aber ohne dessen Import:
   Warum: Excel-Autokorrektur hat den ersten Buchstaben groß gesetzt.
   Abhilfe: 'verify --fix-case' korrigiert die Schreibweise; oder Zelle aus dem
            Blatt taxonomy auswählen.
-  Code: scripts/committee_matcher_goldset_label.py:412
+  Code: committee_matcher/goldset_label.py:412
 ```
 
 Die Codestelle wird zur Laufzeit aus dem Modul und der Zeilennummer der

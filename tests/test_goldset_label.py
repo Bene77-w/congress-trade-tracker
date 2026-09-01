@@ -1,4 +1,4 @@
-"""Tests des Gold-Set-Labelwerkzeugs (scripts/committee_matcher_goldset_label.py).
+"""Tests des Gold-Set-Labelwerkzeugs (committee_matcher/goldset_label.py).
 
 Netzwerk- und CLI-frei: der Trockenlauf ueber ``GOLDSET_LABEL_FAKE_DIR``
 ersetzt beide Engines durch vorbereitete Antwortdateien. Geprueft wird die
@@ -25,10 +25,9 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-sys.path.insert(0, str(ROOT / "scripts"))
-import committee_matcher_goldset_label as gs  # noqa: E402
+from committee_matcher import goldset_label as gs  # noqa: E402
 
-SCRIPT_PATH = ROOT / "scripts" / "committee_matcher_goldset_label.py"
+SCRIPT_PATH = ROOT / "committee_matcher" / "goldset_label.py"
 
 
 # -- Abgrenzung zum Pruefling ---------------------------------------------

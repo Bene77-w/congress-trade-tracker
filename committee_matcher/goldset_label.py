@@ -3664,7 +3664,7 @@ def engine_runner(engine: str):
 # -- CLI -------------------------------------------------------------------
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="committee_matcher_goldset_label",
+        prog="committee_matcher/goldset_label.py",
         description=(
             "Laesst die 22 Units der Gold-Set-Stichprobe von einem headless "
             "Agenten labeln. Die Labels sind ein Vorschlag; das Gold-Set "

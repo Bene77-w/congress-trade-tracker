@@ -583,7 +583,7 @@ unveränderlich (`REV_IMPORT_EXISTS`).
 
 #### `data/committee_matcher_v2/goldset/` (P9, Entwicklungs-Gold-Set)
 
-Erzeugt und geprüft von `scripts/committee_matcher_goldset_label.py`, nicht von
+Erzeugt und geprüft von `committee_matcher/goldset_label.py`, nicht von
 der Matcher-CLI: das Gold-Set ist die Referenz, gegen die der Produktivpfad
 gemessen wird, und entsteht deshalb unabhängig von ihm.
 
