@@ -11,6 +11,43 @@ Historie abgeschlossener Module/Phasen. **Aktiver WIP-Modul-Stand** steht im „
 
 ---
 
+## 2026-09-01 — Speicherverbrauch des Dashboards gesenkt
+
+Anlass: Der Kernel hat den Dashboard-Container im Livebetrieb wegen
+Speichermangels abgeschossen (2-GB-Limit). Messung im Container mit `AppTest`
+über sechs Reruns plus Filterinteraktionen: eine Sitzung pendelt sich bei
+**1158 MB** ein — kein Leck, aber ein hohes Plateau. Zwei gleichzeitige
+Besucher reißen damit die Grenze.
+
+Aufschlüsselung der Grundlast: Snapshot laden +187 MB RSS (der DataFrame selbst
+belegt nur 80 MB), Kurs-Cache +278 MB (4,07 Mio Zeilen, 49 MB Nutzdaten). Der
+Rest entsteht durch Aggregationen und Streamlit-Overhead pro Rerun.
+
+Drei Maßnahmen, einzeln gemessen:
+
+| Maßnahme | Plateau |
+|---|---|
+| Ausgangslage | 1158 MB |
+| `MALLOC_ARENA_MAX=2` + niedrigerer Trim-Schwellwert (`deploy/Dockerfile.app`) | 1005 MB |
+| Vollkopien in `aggregate_assets`/`aggregate_members`/`recent_window` entfernt | 957 MB |
+
+Der glibc-Allokator legt pro Thread eine eigene Arena an; Streamlit bedient
+jede Sitzung in einem eigenen Thread. Zwei Arenen genügen — das allein sind
+13 %. Die `df.copy()` in den Aggregationen waren überflüssig, weil `groupby`
+nur liest; sie kosteten je Aufruf 80 MB, und die Aggregationen laufen bei
+jedem Rerun neu.
+
+Betrieblich abgesichert: Limit von 2 auf 3 GB angehoben, dazu 4 GB Swap auf
+dem Server (`vm.swappiness=10`). Der Kernel lagert damit aus, statt den Prozess
+zu töten. Da `st.cache_data` prozessweit greift, teilen sich mehrere Besucher
+die Grundlast; die Sitzungskosten liegen bei ~450 MB.
+
+Testlauf im Container: 995 bestanden. Die verbleibenden Fehlschläge sind
+umgebungsbedingt (kein `git` im Image, `data/` bis auf `data/deploy/` nicht
+gemountet), nicht durch die Änderungen verursacht.
+
+---
+
 ## 2026-08-30 — Dashboard live auf eigenem Server
 
 Das Dashboard ist öffentlich erreichbar unter `https://congress-trading-tracker.com`

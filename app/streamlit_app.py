@@ -327,9 +327,9 @@ def aggregate_assets(df: pd.DataFrame, date_col: str,
             cols += ['avg_return_primary', 'max_return_primary',
                      'pct_profitable']
         return pd.DataFrame(columns=cols)
-    base = df.copy()
-    if date_col not in base.columns:
-        base[date_col] = pd.NaT
+    # Keine Vollkopie: groupby liest nur. Bei 114k Zeilen kostet ein .copy()
+    # rund 80 MB je Aufruf, und die Aggregationen laufen bei jedem Rerun neu.
+    base = df if date_col in df.columns else df.assign(**{date_col: pd.NaT})
     grp = base.groupby('issuer_ticker', dropna=False)
     agg_spec: dict = {
         'asset_name': ('asset_name_figi', lambda s: s.dropna().iloc[0]
@@ -374,9 +374,9 @@ def aggregate_members(df: pd.DataFrame, date_col: str,
         if has_returns:
             cols += ['avg_return_primary', 'pct_profitable']
         return pd.DataFrame(columns=cols)
-    base = df.copy()
-    if date_col not in base.columns:
-        base[date_col] = pd.NaT
+    # Keine Vollkopie: groupby liest nur. Bei 114k Zeilen kostet ein .copy()
+    # rund 80 MB je Aufruf, und die Aggregationen laufen bei jedem Rerun neu.
+    base = df if date_col in df.columns else df.assign(**{date_col: pd.NaT})
     grp = base.groupby(['name', 'chamber'], dropna=False)
     agg_spec: dict = {
         'Member_Party': ('Member_Party', lambda s: s.dropna().iloc[0]
