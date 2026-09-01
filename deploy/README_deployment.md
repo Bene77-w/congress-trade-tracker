@@ -133,8 +133,9 @@ hochzuladen:
 ```bash
 # Auf dem Entwicklungsrechner, aus dem Projektroot:
 rsync -az --delete \
-  --exclude='.git/' --exclude='venv/' --exclude='archive/' \
+  --exclude='.git/' --exclude='.env' --exclude='venv/' --exclude='archive/' \
   --exclude='__pycache__/' --exclude='data/' --exclude='logs/' \
+  --exclude='deploy/.env' \
   ./ root@<server-ip>:/srv/congress-tracker/
 
 # Datenstand separat (~41 MB)
@@ -184,29 +185,51 @@ docker compose -f deploy/docker-compose.prod.yml logs -f dashboard
 
 ## 5. Datenstand aktualisieren
 
-Auf dem Entwicklungsrechner Pipeline laufen lassen, dann:
+Ein Lauf von `scripts/import_trades.py` aktualisiert nur den Master auf dem
+Entwicklungsrechner. Die Website aendert sich dadurch noch nicht. Fuer einen
+neuen Datenstand auf der Website sind immer alle drei Schritte noetig:
+Snapshot neu bauen, `data/deploy/` hochladen und den Dashboard-Container neu
+starten.
+
+Auf dem Entwicklungsrechner nach dem vollstaendigen Import-Lauf:
 
 ```bash
-python scripts/build_deploy_snapshot.py
-rsync -avz data/deploy/ root@<server-ip>:/srv/congress-tracker/data/deploy/
-ssh root@<server-ip> "docker restart congress-dashboard"
+scripts/deploy_data.sh
 ```
 
-Der Snapshot enthaelt den Kurs-Cache; ein separater Upload ist nicht noetig.
+Das Skript baut den Snapshot samt Kurs-Cache, laedt `data/deploy/` hoch und
+erstellt das Dashboard neu. Es wartet bis zu 180 Sekunden auf einen gesunden
+Container und bricht sonst mit Fehler ab. Mit `scripts/deploy_data.sh
+--dry-run` werden die Befehle nur angezeigt. Abweichende Ziele lassen sich
+ueber `DEPLOY_TARGET` und `DEPLOY_PATH` setzen.
 
 Der Neustart ist noetig, weil Streamlit die Daten beim Start in den Cache
 laedt. Er dauert wenige Sekunden.
 
 ## 6. Code-Aenderungen ausrollen
 
+Ein `git push` aktualisiert die Website derzeit nicht automatisch. Der Server
+wird per `rsync` gepflegt, solange das Repository privat ist. Nach einem Push
+oder einem lokalen Commit deshalb aus dem Projektroot ausfuehren:
+
 ```bash
-# Bei per rsync gepflegtem Server (privates Repo):
-rsync -az --delete --exclude='.git/' --exclude='venv/' --exclude='archive/' \
-  --exclude='__pycache__/' --exclude='data/' --exclude='logs/' \
-  ./ root@<server-ip>:/srv/congress-tracker/
-ssh root@<server-ip> "cd /srv/congress-tracker && \
-  docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env up -d --build"
+scripts/deploy_code.sh
 ```
+
+Das Skript schuetzt die lokale Secret-Datei `.env`, `data/`, `logs/` und die
+serverseitige `deploy/.env`, baut die Container neu, wartet auf deren
+Healthchecks und zeigt danach den Status. Ausgerollt wird ausschliesslich der
+aktuelle Commit (`HEAD`); bei uncommitteten Aenderungen bricht das Skript ab.
+Vorab kann
+`scripts/deploy_code.sh --dry-run` verwendet werden. Enthaelt die Aenderung
+zugleich neue Daten, zuerst `scripts/deploy_data.sh`, danach
+`scripts/deploy_code.sh` ausfuehren und abschliessend die Website im Browser
+pruefen.
+
+Beide Skripte akzeptieren nur Zielpfade, die auf `/congress-tracker` enden,
+und pruefen vor dem Upload die vorhandene produktive Compose-Datei sowie
+`deploy/.env`. Das verhindert einen Upload in ein versehentlich falsch
+gesetztes Systemverzeichnis.
 
 ## 7. Passwortschutz (optional, standardmaessig aus)
 

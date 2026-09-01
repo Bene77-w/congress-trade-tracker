@@ -1934,6 +1934,10 @@ Dateien liegen in `data/deploy/` und sind **gitignored** — der Ordner geht
 per rsync auf den Server, nicht ins Repo (schlanke Repo-Historie, Trade-Daten
 nicht dauerhaft oeffentlich auf GitHub).
 
+Der manuelle Rollout ist in `scripts/deploy_data.sh` (Snapshot bauen,
+hochladen, Dashboard neu starten) und `scripts/deploy_code.sh` (Code hochladen,
+Container neu bauen) gekapselt; Bedienung siehe CLI-Dokumentation Abschnitt 14.
+
 ### `data/deploy/trades_snapshot.parquet` (gitignored)
 **Quelle**: `data/processed/trades_master_complete.csv`, per
 `scripts/build_deploy_snapshot.py` konvertiert.

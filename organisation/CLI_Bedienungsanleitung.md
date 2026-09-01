@@ -983,6 +983,26 @@ python scripts/build_deploy_snapshot.py
 | `--price-cache` | `data/cache/price_history.parquet` | Kurs-Cache, wird nach `data/deploy/` kopiert |
 | `--skip-price-cache` | aus | Kurs-Cache nicht mitkopieren (Kursverlauf-Charts bleiben dann leer) |
 
+### Website aktualisieren (`scripts/deploy_data.sh`, `scripts/deploy_code.sh`)
+
+```bash
+# Nach einem vollstaendigen Import: Snapshot bauen, hochladen, App neu starten
+scripts/deploy_data.sh
+
+# Nach Code-Aenderungen: Code hochladen, Container neu bauen, Status anzeigen
+scripts/deploy_code.sh
+```
+
+Beide Skripte verwenden standardmaessig den Live-VPS
+`deploy@server.example:/srv/congress-tracker`, akzeptieren `--dry-run` und lassen
+sich ueber `DEPLOY_TARGET` sowie `DEPLOY_PATH` umleiten. `deploy_data.sh`
+akzeptiert zusaetzlich `PYTHON_BIN`. Der Code-Upload schliesst insbesondere
+die lokale Secret-Datei `.env`, `data/`, `logs/` und `deploy/.env` aus. Beide
+Rollouts verlangen einen initialisierten Zielpfad mit Endung
+`/congress-tracker` und warten maximal 180 Sekunden auf erfolgreiche
+Container-Healthchecks. Der Code-Rollout uebertraegt ausschliesslich den
+aktuellen Commit (`HEAD`) und lehnt einen unsauberen Git-Worktree ab.
+
 ---
 
 ## 15. Committee-Mapping-Agent (in Arbeit)
@@ -1082,3 +1102,5 @@ Congress Tracker stellt optional den neutralen CSV-Export aus Pipeline 10 bereit
 | Pipeline Reset | `python scripts/reset_pipeline.py --all --dry-run` | Logs/Caches/Stage/Processed reversibel zurücksetzen |
 | Streamlit Dashboard | `venv/bin/streamlit run app/streamlit_app.py` | Web-UI (Trades / Assets / Members) auf Port 8501 |
 | Deployment-Snapshot | `python scripts/build_deploy_snapshot.py` | Eingefrorenen Datenstand für die öffentliche Dashboard-Instanz bauen (s. Abschnitt 14) |
+| Website-Daten ausrollen | `scripts/deploy_data.sh` | Snapshot bauen, auf den VPS laden und Dashboard neu starten |
+| Website-Code ausrollen | `scripts/deploy_code.sh` | Code auf den VPS laden, Container neu bauen und Status anzeigen |
