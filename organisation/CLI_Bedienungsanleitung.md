@@ -1160,8 +1160,10 @@ jeweils anderen Zustand fortsetzen.
 Exit-Codes dieses Skripts: `0` erfolgreich · `1` blockiert (Bedienfehler,
 fehlende Voraussetzung) · `2` durchgelaufen, aber mit Befunden zu einzelnen
 Units. `preflight` gibt 2, wenn die CLI die Denktiefe nicht bestätigt (Codex);
-`merge` gibt 2 nur, wenn eine Unit in bloß einem der beiden Läufe steht —
-Dissens allein ist das Ergebnis des Vergleichs und kein Befund. Die Codes tragen das Präfix `GS_`; jeder Befund nennt Was, Warum,
+`merge` gibt 2, wenn eine Unit in bloß einem oder in keinem der beiden Läufe
+steht — Dissens allein ist das Ergebnis des Vergleichs und kein Befund. Die
+Quote im Bericht zählt nur verglichene Units; beidseitig fehlende stehen
+getrennt daneben, damit eine Lücke nicht als Konsens erscheint. Die Codes tragen das Präfix `GS_`; jeder Befund nennt Was, Warum,
 Abhilfe und die auslösende Codestelle.
 
 Für Tests ersetzt `GOLDSET_LABEL_FAKE_DIR=<verzeichnis>` beide CLIs durch

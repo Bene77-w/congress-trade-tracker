@@ -190,7 +190,7 @@ def test_merge_meldet_dissens(sandbox, taxonomy, capsys) -> None:
     # Dissens allein ist das Ergebnis des Vergleichs, kein Befund.
     assert lauf("merge", "--base", "claude", "--against", "codex") == 0
     bericht = gs.MERGE_REPORT.read_text(encoding="utf-8")
-    assert "0 von 22 Units einig" in bericht
+    assert "0 von 22 verglichenen Units einig" in bericht
     assert f"nur codex: {zweite}" in bericht
 
     notizen = gs.notes_path("merged").read_text(encoding="utf-8")
@@ -1311,3 +1311,32 @@ def test_resume_trennt_recherchierte_von_nicht_recherchierten_antworten(paar) ->
     assert gs.resume_problem(offen, task, record) is None
     assert gs.resume_problem(dataclasses.replace(offen, web_access=False),
                              task, record) is not None
+
+
+# -- Zaehlung im Merge -----------------------------------------------------
+def test_merge_zaehlt_beidseitig_offene_units_nicht_als_einig() -> None:
+    """Fehlen von Widerspruch ist keine Zustimmung.
+
+    Zwei leere Haende ergeben dieselbe (leere) Entscheidung und dieselbe
+    (leere) ID-Menge; ohne eigenen Zweig zaehlte eine nirgends gelabelte Unit
+    als einig und die Quote im Bericht behauptete Konsens ueber eine Luecke.
+    """
+    assert gs._merge_quote(1, 1, 22, 20) == (
+        "1 von 2 verglichenen Units einig, 1 strittig. "
+        "20 von 22 Units sind in keinem Lauf gelabelt.")
+    assert gs._merge_quote(21, 1, 22, 0) == \
+        "21 von 22 verglichenen Units einig, 1 strittig."
+
+
+def test_merge_meldet_luecken_als_befund(sandbox, capsys) -> None:
+    """Ein Vergleich ueber unvollstaendigem Material ist kein sauberer Lauf."""
+    for engine in ("claude", "codex"):
+        gs.write_csv(gs.labels_path(engine), gs.LABEL_COLUMNS, [])
+        gs.write_csv(gs.notes_path(engine), gs.NOTE_COLUMNS, [])
+        gs.write_csv(gs.info_path(engine), gs.INFO_COLUMNS, [])
+    assert lauf("merge", "--base", "claude", "--against", "codex") == 2
+    ausgabe = capsys.readouterr().out
+    assert "0 von 0 verglichenen Units einig" in ausgabe
+    assert "in keinem der beiden Laeufe gelabelt" in ausgabe
+    bericht = gs.MERGE_REPORT.read_text(encoding="utf-8")
+    assert "in keinem der beiden Laeufe:" in bericht

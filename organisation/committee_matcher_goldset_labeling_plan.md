@@ -130,6 +130,16 @@ Fehler, Ermüdung, Reihenfolgeeffekt, ein Abbruch kostet den ganzen Satz).
 | `run --engine … [--model …] [--effort …]` | je Unit ein headless Lauf, Rohantwort und Log je Unit | ja |
 | `collect --engine …` | Rohantworten nach `labels_<engine>.csv`, formale Prüfung | nein |
 | `merge --base … --against …` | zwei Engineläufe vergleichen, `disagreements.md` erzeugen, `labels/notes/info_merged.csv` schreiben | nein |
+
+`merge` vergleicht je Unit zwei Dinge: die Entscheidung (`mapped` gegen
+`no_mapping`) und, wenn beide `mapped` sagen, die Menge der Industry-IDs.
+`disagreements.md` nennt je strittiger Unit beide Mengen und getrennt, welche
+ID nur die eine und welche nur die andere Engine vergeben hat; zur nur einseitig
+vergebenen ID steht deren Begründung als Lesehilfe darunter. Begründungstexte
+werden nicht verglichen — sie sind fast nie wörtlich gleich, ein Textabgleich
+meldete also Dissens, wo keiner ist. Beidseitig unbeantwortete Units zählen zu
+keiner Seite und stehen als eigener Befund im Bericht: gleiche Leere ist keine
+Übereinstimmung.
 | `to-xlsx [--source …] [--out …] [--force]` | neue Reviewmappe aus den CSV erzeugen, alle Zellen als Text | nein |
 | `verify [--source …] [--file …] [--fix-case]` | bearbeitete XLSX gegen Snapshot, Vertrag und Zwischentabelle prüfen | nein |
 

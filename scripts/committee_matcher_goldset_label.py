@@ -2861,6 +2861,15 @@ def _decision_of(rows: Sequence[Mapping[str, str]]) -> str:
     return "mapped"
 
 
+def _merge_quote(einig: int, strittig: int, gesamt: int, offen: int) -> str:
+    """Die Kopfzeile des Berichts; offene Units zaehlen zu keiner Seite."""
+    satz = f"{einig} von {gesamt - offen} verglichenen Units einig, " \
+           f"{strittig} strittig."
+    if offen:
+        satz += f" {offen} von {gesamt} Units sind in keinem Lauf gelabelt."
+    return satz
+
+
 def command_merge(args: argparse.Namespace) -> int:
     """Vergleicht zwei Engineläufe und schreibt den Dissens auf.
 
@@ -2898,6 +2907,8 @@ def command_merge(args: argparse.Namespace) -> int:
         "",
     ]
     dissens: dict[str, str] = {}
+    #: In beiden Laeufen unbeantwortet - kein Vergleichsfall.
+    beidseitig_offen: list[str] = []
     einig = 0
     for unit_id in order:
         mine = base_units.get(unit_id, [])
@@ -2906,6 +2917,12 @@ def command_merge(args: argparse.Namespace) -> int:
         their_ids = {row["industry_id"] for row in theirs if row["industry_id"]}
         my_decision = _decision_of(mine)
         their_decision = _decision_of(theirs)
+        # Zwei leere Haende sind keine Uebereinstimmung: ohne diesen Zweig
+        # zaehlte eine nirgends gelabelte Unit als einig, und die Quote im
+        # Bericht behauptete Konsens, wo nur eine Luecke steht.
+        if my_decision == "fehlt" and their_decision == "fehlt":
+            beidseitig_offen.append(unit_id)
+            continue
         if my_decision == their_decision and my_ids == their_ids:
             einig += 1
             continue
@@ -2939,16 +2956,18 @@ def command_merge(args: argparse.Namespace) -> int:
                              f"{row['no_mapping_reason']}")
         lines.append("")
 
-    if only_base or only_other:
+    if only_base or only_other or beidseitig_offen:
         lines.extend(["## Nicht in beiden Laeufen enthalten", ""])
         for unit_id in only_base:
             lines.append(f"- nur {base_engine}: {unit_id}")
         for unit_id in only_other:
             lines.append(f"- nur {other_engine}: {unit_id}")
+        for unit_id in beidseitig_offen:
+            lines.append(f"- in keinem der beiden Laeufe: {unit_id}")
         lines.append("")
 
-    lines.insert(4, f"{einig} von {len(order)} Units einig, "
-                    f"{len(dissens)} strittig.")
+    lines.insert(4, _merge_quote(einig, len(dissens), len(order),
+                                 len(beidseitig_offen)))
     MERGE_REPORT.parent.mkdir(parents=True, exist_ok=True)
     MERGE_REPORT.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -2980,15 +2999,19 @@ def command_merge(args: argparse.Namespace) -> int:
     write_csv(labels_path("merged"), LABEL_COLUMNS, base)
     write_csv(notes_path("merged"), NOTE_COLUMNS, notes)
     write_csv(info_path("merged"), INFO_COLUMNS, provenienz)
-    print(f"{einig} von {len(order)} Units einig, {len(dissens)} strittig.")
+    print(_merge_quote(einig, len(dissens), len(order),
+                       len(beidseitig_offen)))
     print(f"  {paths.relative_to_base(MERGE_REPORT)}")
     print(f"  {paths.relative_to_base(labels_path('merged'))}")
     if only_base or only_other:
         print(f"Befund: {len(only_base) + len(only_other)} Unit(s) stehen nur "
               "in einem der beiden Laeufe.")
+    if beidseitig_offen:
+        print(f"Befund: {len(beidseitig_offen)} Unit(s) sind in keinem der "
+              "beiden Laeufe gelabelt.")
     # Dissens allein ist kein Befund, sondern das Ergebnis des Vergleichs;
     # Exit 2 bliebe sonst der Normalfall und truege keine Auskunft mehr.
-    return 2 if only_base or only_other else 0
+    return 2 if only_base or only_other or beidseitig_offen else 0
 
 
 # -- Reviewdatei -----------------------------------------------------------
