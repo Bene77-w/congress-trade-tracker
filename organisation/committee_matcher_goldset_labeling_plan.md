@@ -251,9 +251,11 @@ Der Webzugang steht standardmäßig offen, weil Recherche zum Auftrag gehört;
 `--web-access-off` schließt ihn für `preflight` und `run`. Der Zustand steht in
 jeder Antwortdatei und in der Spalte `web_access` der `info`-Tabelle, denn er
 gehört zur Provenienz eines Labels. Zwei Folgen: `collect` meldet
-`GS_WEBSEARCH_OFF` nur bei offenem Zugang — bei geschlossenem wäre die leere
-Quellenliste die Folge der Einstellung und der Befund stünde sinnlos an allen
-22 Units; und das Fortsetzen eines Satzes bricht ab, wenn eine vorhandene
+`GS_WEBSEARCH_OFF` nur bei ausdrücklich offenem Zugang — bei geschlossenem wäre
+die leere Quellenliste die Folge der Einstellung und der Befund stünde sinnlos
+an allen 22 Units; trägt das Feld etwas anderes als einen Wahrheitswert, meldet
+`collect` das als `GS_ANSWER_FORMAT` und gibt die fehlende Quellenliste im
+Zweifel trotzdem aus; und das Fortsetzen eines Satzes bricht ab, wenn eine vorhandene
 Antwort mit anderem Zugang entstand (`GS_RESUME_MISMATCH`), damit kein Satz
 halb recherchiert und halb nicht entsteht.
 

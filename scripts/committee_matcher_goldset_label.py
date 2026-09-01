@@ -2140,8 +2140,9 @@ def resume_problem(config: EngineConfig, task: Mapping[str, Any],
                   and name != "prompt_delivery"]
     if record.get("prompt_delivery") != PROMPT_DELIVERY[config.engine]:
         abweichend.append("prompt_delivery")
-    # Antworten aus der Zeit vor dem Schalter entstanden mit offenem Zugang.
-    if bool(record.get("web_access", True)) is not config.web_access:
+    # Antworten aus der Zeit vor dem Schalter entstanden mit offenem Zugang;
+    # ein unlesbarer Wert gilt als Abweichung und wird nicht uebersprungen.
+    if web_access_of(record) is not config.web_access:
         abweichend.append("web_access")
     binding = record.get("binding") or {}
     abweichend += [name for name in RESUME_BINDING_FIELDS
@@ -2525,6 +2526,17 @@ def check_broad_scope(task: Mapping[str, Any], unit_id: str, decision: str,
     return found
 
 
+def web_access_of(record: Mapping[str, Any]) -> bool | None:
+    """Der Webzugang, unter dem eine abgelegte Antwort entstand.
+
+    ``None`` heisst: das Feld traegt etwas anderes als einen Wahrheitswert.
+    Fehlt es ganz, stammt die Antwort aus der Zeit vor dem Schalter, als der
+    Zugang immer offen stand.
+    """
+    wert = record.get("web_access", True)
+    return wert if isinstance(wert, bool) else None
+
+
 def _field_problem(unit_id: str, detail: str, abhilfe: str) -> Problem:
     return problem(
         "GS_SCHEMA_INVALID", unit_id, detail,
@@ -2710,9 +2722,22 @@ def check_answer(task: Mapping[str, Any], record: Mapping[str, Any],
             "no_mapping_reason": reason,
         })
 
+    zugang = web_access_of(record)
+    if zugang is None:
+        result.problems.append(problem(
+            "GS_ANSWER_FORMAT", unit_id,
+            f"web_access={record.get('web_access')!r} ist kein Wahrheitswert.",
+            "Der Webzugang gehoert zur Provenienz des Labels: ein unlesbarer "
+            "Wert stuende falsch in der info-Tabelle und entschiede zugleich "
+            "still darueber, ob die fehlende Quellenliste gemeldet wird.",
+            f"Unit mit 'run --unit-id {unit_id} --force' wiederholen.",
+            depth=2))
+
     sources = answer.get("sources")
     sources = sources if isinstance(sources, list) else []
-    if not sources and record.get("web_access", True):
+    # Nur der ausdruecklich geschlossene Zugang unterdrueckt den Befund; bei
+    # unlesbarem Wert wird im Zweifel gemeldet.
+    if not sources and zugang is not False:
         result.problems.append(problem(
             "GS_WEBSEARCH_OFF", unit_id,
             "Die Antwort nennt keine einzige Quelle.",
@@ -2747,7 +2772,7 @@ def check_answer(task: Mapping[str, Any], record: Mapping[str, Any],
         "model": text_value(record.get("model")),
         "effort": text_value(record.get("effort")),
         "prompt_delivery": text_value(record.get("prompt_delivery")),
-        "web_access": text_value(record.get("web_access", True)),
+        "web_access": text_value(zugang),
         "created_at": text_value(record.get("created_at")),
     }
     return result

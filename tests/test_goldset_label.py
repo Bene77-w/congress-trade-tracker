@@ -1295,6 +1295,69 @@ def test_kein_quellenbefund_bei_geschlossenem_zugang(paar, taxonomy) -> None:
     assert "GS_WEBSEARCH_OFF" in codes(task, record, taxonomy)
 
 
+def test_flag_erreicht_die_konfiguration() -> None:
+    """Parser und Aufloesung, der Weg vor jedem Enginelauf."""
+    parser = gs.build_parser()
+    offen = gs.engine_config(parser.parse_args(["run", "--engine", "claude"]),
+                             gs.load_label_settings())
+    assert offen.web_access is True
+    zu = gs.engine_config(
+        parser.parse_args(["run", "--engine", "claude", "--web-access-off"]),
+        gs.load_label_settings())
+    assert zu.web_access is False
+
+
+def test_preflight_reicht_den_zugang_an_den_kurzlauf_durch(monkeypatch, capsys) -> None:
+    """Der Preflight laeuft mit eigenem Deckel - aber nicht mit eigenem Zugang."""
+    gesehen: list[gs.EngineConfig] = []
+
+    def faenger(engine):
+        def runner(probe, config, workdir):
+            gesehen.append(config)
+            return gs.EngineResult(answer={"antwort": "bereit"}, exit_code=0,
+                                   duration_s=0.1, timed_out=False,
+                                   stdout='"effort":"high"', stderr="")
+        return runner
+
+    monkeypatch.setattr(gs, "engine_runner", faenger)
+    monkeypatch.setattr(gs, "assert_cli_available", lambda engine: "")
+    assert lauf("preflight", "--engine", "claude", "--web-access-off") == 0
+    capsys.readouterr()
+    assert gesehen[0].web_access is False
+
+
+def test_trockenlauf_dokumentiert_den_geschlossenen_zugang(sandbox, capsys) -> None:
+    """Vom Flag bis in die Provenienz: Antwortdatei und info-Tabelle."""
+    unit_id = "house--energy-and-commerce--energy"
+    assert lauf("run", "--engine", "claude", "--web-access-off",
+                "--unit-id", unit_id) == 0
+    record = json.loads(gs.answer_path("claude", unit_id).read_text(encoding="utf-8"))
+    assert record["web_access"] is False
+
+    lauf("collect", "--engine", "claude")
+    capsys.readouterr()
+    infos = {row["unit_id"]: row for row in
+             gs.read_csv(gs.info_path("claude"), gs.INFO_COLUMNS, was="Provenienz")}
+    assert infos[unit_id]["web_access"] == "nein"
+
+    # Derselbe Satz laesst sich nicht mit offenem Zugang fortsetzen.
+    assert lauf("run", "--engine", "claude", "--unit-id", unit_id) == 2
+    assert "GS_RESUME_MISMATCH" in capsys.readouterr().out
+
+
+def test_unlesbarer_web_access_wert_wird_gemeldet(paar, taxonomy) -> None:
+    """'false' als Text waere sonst wahr und stuende zugleich falsch in info."""
+    task, record = paar
+    record["answer"]["sources"] = []
+    record["web_access"] = "false"
+    found = gs.check_answer(task, record, taxonomy)
+    codes_ = {p.code for p in found.problems}
+    assert "GS_ANSWER_FORMAT" in codes_
+    # Im Zweifel wird die fehlende Quellenliste gemeldet, nicht unterdrueckt.
+    assert "GS_WEBSEARCH_OFF" in codes_
+    assert found.info["web_access"] == ""
+
+
 def test_resume_trennt_recherchierte_von_nicht_recherchierten_antworten(paar) -> None:
     """Ein halb recherchierter Satz waere genau der stille Mischstand."""
     task, record = paar
@@ -1312,6 +1375,10 @@ def test_resume_trennt_recherchierte_von_nicht_recherchierten_antworten(paar) ->
     assert gs.resume_problem(dataclasses.replace(offen, web_access=False),
                              task, record) is not None
 
+    # Ein unlesbarer Wert gilt als Abweichung: die Unit wird nicht uebersprungen.
+    record["web_access"] = 0
+    assert gs.resume_problem(offen, task, record) is not None
+
 
 # -- Zaehlung im Merge -----------------------------------------------------
 def test_merge_zaehlt_beidseitig_offene_units_nicht_als_einig() -> None:
@@ -1326,6 +1393,38 @@ def test_merge_zaehlt_beidseitig_offene_units_nicht_als_einig() -> None:
         "20 von 22 Units sind in keinem Lauf gelabelt.")
     assert gs._merge_quote(21, 1, 22, 0) == \
         "21 von 22 verglichenen Units einig, 1 strittig."
+
+
+def test_merge_zaehlt_nur_verglichene_units(sandbox, taxonomy, capsys) -> None:
+    """Der Mischfall: zwei belegte Units neben zwanzig Luecken.
+
+    Genau hier log die alte Zaehlung - die beidseitig offenen Units hatten
+    dieselbe leere Entscheidung und galten als einig.
+    """
+    einig_unit = "house--energy-and-commerce--energy"
+    strittig_unit = "house--ways-and-means--health"
+    beide = ("--unit-id", einig_unit, "--unit-id", strittig_unit)
+    assert lauf("run", "--engine", "claude", *beide) == 0
+    lauf("collect", "--engine", "claude")
+
+    fake = gs.fake_dir()
+    assert fake is not None
+    pfad = fake / f"{strittig_unit}.json"
+    payload = json.loads(pfad.read_text(encoding="utf-8"))
+    payload["assignments"][0]["industry_id"] = sorted(taxonomy.ids)[1]
+    pfad.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    assert lauf("run", "--engine", "codex", *beide) == 0
+    lauf("collect", "--engine", "codex")
+    capsys.readouterr()
+
+    assert lauf("merge", "--base", "claude", "--against", "codex") == 2
+    ausgabe = capsys.readouterr().out
+    assert "1 von 2 verglichenen Units einig, 1 strittig." in ausgabe
+    assert "20 von 22 Units sind in keinem Lauf gelabelt." in ausgabe
+    bericht = gs.MERGE_REPORT.read_text(encoding="utf-8")
+    assert f"## {strittig_unit}" in bericht
+    assert f"## {einig_unit}" not in bericht
+    assert f"in keinem der beiden Laeufe: {einig_unit}" not in bericht
 
 
 def test_merge_meldet_luecken_als_befund(sandbox, capsys) -> None:
