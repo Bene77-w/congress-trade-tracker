@@ -1,118 +1,157 @@
-# Gold-Set-Creator — Bedienungsanleitung
+# Gold-Set-Creator — Bedienung
 
 `committee_matcher/goldset_label.py` lässt die 22 Units der Entwicklungs-
 Stichprobe von einem headless Agenten labeln, wahlweise über Claude Code oder
 Codex. Ergebnis ist das Entwicklungs-Gold-Set, gegen das P9 den Matcher misst.
 
-Der Produktivpfad `run plan|execute` bleibt dabei ungenutzt — er ist der
-Prüfling. Die Labels sind ein Vorschlag; das Gold-Set entsteht erst durch die
-Abnahme in der Reviewmappe.
+Der Produktivpfad `run plan|execute` bleibt ungenutzt — er ist der Prüfling.
+Die Labels sind ein Vorschlag; das Gold-Set entsteht erst durch die Abnahme.
 
-Hintergrund und Begründungen: `organisation/committee_matcher_goldset_labeling_plan.md`.
+Begründungen und vollständige Fehlertabelle:
+`organisation/committee_matcher_goldset_labeling_plan.md`.
 
 ## Ablauf
 
-```bash
+```
 P="venv/bin/python committee_matcher/goldset_label.py"
 
-$P prepare                                        # Aufgabenpakete bauen
-$P preflight --engine claude                      # Engine und Modell prüfen
-$P run      --engine claude                       # KOSTENPFLICHTIG
-$P collect  --engine claude                       # prüfen und sammeln
-# dieselben drei Schritte mit --engine codex
-$P merge    --base claude --against codex         # vergleichen
-$P to-xlsx  --source merged                       # Reviewmappe erzeugen
-# Mappe in Excel/LibreOffice abnehmen
-$P verify   --source merged --fix-case            # zurücklesen und prüfen
+$P prepare                                    Werkzeug
+  |   liest Korpus, Units, Taxonomie-Snapshot und Modellvertrag
+  |   schreibt je Unit ein Aufgabenpaket samt Bindungshashes
+  v
+$P preflight --engine claude                  Werkzeug + CLI   minimal bezahlt
+  |   Ein-Token-Lauf: Aufrufweg, Anmeldung, Modellname, Denktiefe
+  v
+$P run --engine claude                        Agent            BEZAHLT
+  |   je Unit ein eigener headless Lauf, Rohantwort und Log je Unit
+  |   Abbruch jederzeit; erneuter Aufruf setzt fort
+  v
+$P collect --engine claude                    Werkzeug
+  |   prüft jede Antwort gegen Vertrag, Taxonomie und Belegtext
+  |   schreibt labels_/notes_/info_<engine>.csv
+  v
+  +-- dieselben drei Schritte mit --engine codex
+  v
+$P merge --base claude --against codex        Werkzeug
+  |   vergleicht beide Läufe, schreibt disagreements.md
+  |   und die merged-Tabellen als Arbeitsstand
+  v
+$P to-xlsx --source merged                    Werkzeug
+  |   baut goldset_review.xlsx: labels, jurisdiction,
+  |   taxonomy, agent_notes, info; alle Zellen als Text
+  v
+  Reviewmappe abnehmen                        DU
+  |   jede Zeile ändern, löschen, ergänzen; Auswahlliste im
+  |   Blatt labels; disagreements.md nennt die strittigen Units
+  v
+$P verify --source merged --fix-case          Werkzeug
+  |   liest zurück, prüft erneut gegen den Vertrag,
+  |   repariert Schreibweise und Randleerraum,
+  |   nennt jede Abweichung gegen den Arbeitsstand
+  v
+python -m committee_matcher evaluate import   Matcher
+      übernimmt die abgenommene Mappe in die Evaluationsrevision
 ```
+
+## Wie ein Lauf funktioniert
+
+Ein Lauf ist **eine Unit, ein Prozess, ein Agent**. Kein Batch, keine
+gemeinsame Sitzung, kein Gedächtnis zwischen Units — jede Unit bekommt
+dieselbe Ausgangslage, damit keine Unit von der Antwort einer anderen lernt.
+
+```
+Aufgabenpaket (aus prepare)
+  Systemprompt = Modellvertrag + Rechercheauftrag
+  Nutzerprompt = Unit, Zuständigkeitstext, Taxonomiekatalog
+  Ausgabeschema = erzwungenes JSON
+        |
+        v
+headless CLI im temporären Verzeichnis
+  ohne Projektkontext, ohne CLAUDE.md/AGENTS.md, ohne Skills
+  nur WebSearch und WebFetch als Werkzeuge, keine Datei- oder Bashrechte
+        |
+        v
+Antwort: decision, assignments[], sources[], Unsicherheitsnotiz
+        |
+        v
+abgelegt als runs/<engine>/<unit_id>.json samt Provenienz
+  Engine, Modell, Denktiefe, Webzugang, Bindungshashes, Dauer, Turns
+```
+
+Der Vertrag, gegen den `collect` und `verify` prüfen: jede Zuordnung braucht
+ein wörtliches Zitat aus dem Zuständigkeitstext, Confidence 1 bis 4 und eine
+Begründung. Regulär sind zwei Zuordnungen je Unit; bis fünf nur mit
+ausdrücklicher Broad-Scope-Ausnahme, eigener Begründung, Confidence ab 3 und
+je Zuordnung eigenem Zitat. Enge Unittypen — Ausschusskern und Units ohne
+Zuständigkeitstext — bleiben immer bei zwei, dort ist die Ausnahme unzulässig. Entweder Zuordnungen **oder** `no_mapping_reason`,
+nie beides.
+
+`merge` vergleicht die Entscheidung (`mapped` gegen `no_mapping`) und, wenn
+beide `mapped` sagen, die Menge der Industry-IDs. Begründungstexte und
+Confidence werden nicht verglichen — sie sind nie wörtlich gleich.
+Übereinstimmung heißt nicht Richtigkeit: zwei Modelle können denselben Irrtum
+teilen. Die Richtigkeitsprüfung sind der Vertrag und deine Abnahme.
 
 ## Kommandos
 
 | Kommando | Wirkung | Bezahlt |
 |---|---|---|
-| `prepare` | Aufgabenpaket je Unit nach `data/committee_matcher_v2/goldset/labeling/tasks/` | nein |
-| `preflight` | Ein-Token-Lauf; prüft Aufrufweg, Anmeldung, Modellname, Denktiefe | minimal |
-| `run` | je Unit ein headless Lauf; Rohantwort und Log nach `labeling/runs/<engine>/` | **ja** |
-| `collect` | Rohantworten gegen Vertrag, Taxonomie und Belegtext prüfen, als CSV sammeln | nein |
-| `merge` | zwei Engineläufe vergleichen, `disagreements.md` und die `merged`-Tabellen schreiben | nein |
-| `to-xlsx` | neue Reviewmappe aus den Zwischentabellen erzeugen | nein |
-| `verify` | bearbeitete Reviewmappe zurücklesen und erneut prüfen | nein |
+| `prepare` | Aufgabenpaket je Unit nach `labeling/tasks/` | nein |
+| `preflight` | Ein-Token-Lauf; prüft Engine, Anmeldung, Modell, Denktiefe | minimal |
+| `run` | je Unit ein headless Lauf; Antwort und Log nach `labeling/runs/<engine>/` | **ja** |
+| `collect` | Antworten prüfen und als CSV sammeln | nein |
+| `merge` | zwei Engineläufe vergleichen, `disagreements.md` schreiben | nein |
+| `to-xlsx` | Reviewmappe aus den Zwischentabellen bauen | nein |
+| `verify` | bearbeitete Reviewmappe zurücklesen und prüfen | nein |
 
-## Optionen
+## Flags
 
-**Engine, Modell, Denktiefe** (`preflight`, `run`)
+| Flag | Kommando | Wirkung |
+|---|---|---|
+| `--engine claude\|codex` | `preflight`, `run`, (`collect`) | welche CLI labelt |
+| `--model <name>` | `preflight`, `run` | roh an die CLI; keine Auswahlliste, damit künftige Modelle ohne Codeänderung laufen |
+| `--effort <stufe>` | `preflight`, `run` | Denktiefe, ebenfalls roh durchgereicht. Codex bestätigt sie nie — die Provenienz weist sie dann als `unbestaetigt` aus |
+| `--web-access-off` | `preflight`, `run` | schaltet WebSearch und WebFetch ab. Standard ist offen, weil Recherche zum Auftrag gehört |
+| `--timeout <s>` | `run` | Deckel je Unit, Default 1800 |
+| `--total-timeout <s>` | `run` | Deckel für den ganzen Satz, Default 43200. Erreicht endet der Lauf geordnet, ein erneuter Aufruf setzt fort |
+| `--unit-id <id>` | `run` | einzelne Unit, mehrfach zulässig. Ohne Angabe die ganze Stichprobe |
+| `--force` | `run` | vorhandene Antworten neu erzeugen statt überspringen |
+| `--source merged\|<engine>` | `to-xlsx`, `verify` | welche Zwischentabelle gilt; Default `merged` |
+| `--force` | `to-xlsx` | vorhandene Zieldatei vorher als `<name>.<zeitstempel>.bak.xlsx` sichern |
+| `--file <pfad>` | `verify` | Mappe an anderer Stelle prüfen |
+| `--fix-case` | `verify` | Schreibweise und Randleerraum reparieren; sichert vorher |
+| `--show` | `prepare` | Auszug des ersten Aufgabenpakets ausgeben |
 
-`--engine claude|codex` · `--model <name>` · `--effort <stufe>`. Modell und
-Denktiefe gehen roh an die CLI durch, damit künftige Modelle ohne Codeänderung
-laufen; ein Tippfehler fällt deshalb erst beim Aufruf auf — dagegen steht
-`preflight`. Defaults als `GOLDSET_LABEL_*` in `config/settings.py`.
+Defaults für Engine, Modell, Denktiefe und Deckel stehen als `GOLDSET_LABEL_*`
+in `config/settings.py`.
 
-**Webzugang** (`preflight`, `run`)
+**Wiederaufnahme:** `run` überspringt vorhandene Antworten nur, wenn Modell,
+Denktiefe, Webzugang und Bindungshashes passen; sonst `GS_RESUME_MISMATCH`.
+Ein Satz aus zwei Modellen oder halber Recherche entsteht so nicht versehentlich.
 
-WebSearch und WebFetch laufen ohne Zutun mit, weil Recherche zum Auftrag
-gehört. `--web-access-off` schaltet sie ab. Der Zustand gehört zur Provenienz:
-er steht in der Antwortdatei und in der Spalte `web_access` der `info`-Tabelle.
-
-**Zeit** (`run`)
-
-`--timeout` deckelt die einzelne Unit (Default 1800 s), `--total-timeout` den
-ganzen Satz (Default 43200 s). Ist der Gesamtdeckel erreicht, endet der Lauf
-geordnet; ein erneuter Aufruf setzt fort.
-
-**Auswahl und Wiederholung** (`run`)
-
-`--unit-id <id>` mehrfach für einzelne Units. Ohne Angabe die ganze Stichprobe.
-Vorhandene Antworten werden übersprungen — aber nur, wenn Modell, Denktiefe,
-Webzugang und Bindungshashes passen; sonst `GS_RESUME_MISMATCH`. `--force`
-erzeugt neu.
-
-**Quelle** (`to-xlsx`, `verify`)
-
-`--source merged` (Default) oder ein Enginename.
-
-**Mappe** (`to-xlsx`, `verify`)
-
-`to-xlsx` blockt auf eine vorhandene Zieldatei, da sie deine Abnahmearbeit
-trägt; `--force` sichert sie vorher als `<name>.<zeitstempel>.bak.xlsx`.
-`verify --fix-case` repariert Schreibweise und Randleerraum, sichert ebenfalls
-vorher und weigert sich, solange der Sperrvermerk `.~lock.<name>#` daneben
-liegt — das geöffnete Programm verwürfe die Änderung sonst beim Speichern.
-`--file <pfad>` prüft eine Mappe an anderer Stelle.
-
-## Was `merge` vergleicht
-
-Je Unit die Entscheidung (`mapped` gegen `no_mapping`) und, wenn beide
-`mapped` sagen, die Menge der Industry-IDs. `disagreements.md` nennt beide
-Mengen und getrennt, welche ID nur die eine und welche nur die andere Engine
-vergeben hat. Begründungstexte und `confidence` werden **nicht** verglichen —
-sie sind nie wörtlich gleich, ein Textabgleich meldete Dissens, wo keiner ist.
-Beidseitig unbeantwortete Units zählen zu keiner Seite.
-
-Übereinstimmung heißt nicht Richtigkeit: zwei Modelle können denselben Irrtum
-teilen. Die Richtigkeitsprüfung sind der Vertrag (`collect`, `verify`) und
-deine Abnahme.
+**Schreibschutz:** `to-xlsx` blockt auf eine vorhandene Zieldatei, weil sie
+deine Abnahmearbeit trägt. `verify --fix-case` weigert sich, solange der
+Sperrvermerk `.~lock.<name>#` daneben liegt — das geöffnete Tabellenprogramm
+verwürfe die Änderung sonst beim nächsten Speichern.
 
 ## Exit-Codes
 
 `0` erfolgreich · `1` blockiert (Bedienfehler, fehlende Voraussetzung) ·
 `2` durchgelaufen, aber mit Befunden zu einzelnen Units.
 
-`preflight` gibt 2, wenn die CLI die Denktiefe nicht bestätigt (Codex tut das
-nie). `merge` gibt 2, wenn eine Unit in bloß einem oder in keinem der beiden
-Läufe steht; Dissens allein ist das Ergebnis des Vergleichs und kein Befund.
+`preflight` gibt 2, wenn die CLI die Denktiefe nicht bestätigt. `merge` gibt 2,
+wenn eine Unit in bloß einem oder in keinem der beiden Läufe steht; Dissens
+allein ist das Ergebnis des Vergleichs und kein Befund.
 
 Jeder Befund trägt einen `GS_`-Code und nennt Was, Warum, Abhilfe und die
-auslösende Codestelle. Die vollständige Codetabelle steht in
-`organisation/committee_matcher_goldset_labeling_plan.md`.
-
-## Häufige Befunde
+auslösende Codestelle.
 
 | Code | Bedeutung | Abhilfe |
 |---|---|---|
 | `GS_WEBSEARCH_OFF` | Antwort ohne Quelle, obwohl der Zugang offen stand | Log der Unit auf `web_search` prüfen; fehlt es dort auch, greift der Schalter nicht und der Satz ist zu wiederholen |
 | `GS_INDUSTRY_CASE` | `industry_id` weicht nur in der Schreibweise ab | `verify --fix-case`; Ursache ist meist die Excel-Autokorrektur |
 | `GS_RESUME_MISMATCH` | vorhandene Antwort entstand unter anderen Parametern | Antwort prüfen, mit `run --unit-id … --force` neu erzeugen |
-| `GS_UNIT_MISSING` | eine Unit der Stichprobe fehlt | fehlende Unit nachlaufen lassen oder Zeile in der Mappe ergänzen |
+| `GS_UNIT_MISSING` | eine Unit der Stichprobe fehlt | Unit nachlaufen lassen oder Zeile in der Mappe ergänzen |
 | `GS_XLSX_OVERWRITE` | Zieldatei vorhanden | `--force`, das sichert die alte Mappe |
 
 ## Test ohne Kosten
