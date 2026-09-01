@@ -12,6 +12,7 @@ Taxonomie, Vertrag und Korpus nicht pruefen, die das Werkzeug herstellen soll.
 from __future__ import annotations
 
 import ast
+import dataclasses
 import copy
 import json
 import sys
@@ -1233,3 +1234,80 @@ def test_verify_nennt_die_unicodevariante(sandbox, taxonomy, capsys) -> None:
     assert "GS_INDUSTRY_UNKNOWN" in ausgabe
     assert "Unicodeform" in ausgabe
     assert repr(echt) in ausgabe
+
+
+# -- Schalter fuer den Webzugang ------------------------------------------
+def kommandozeile(monkeypatch, **abweichung) -> list[str]:
+    """Faengt die Kommandozeile ab, die ``run_claude`` aufbauen wuerde."""
+    gesehen: list[str] = []
+
+    def falle(command, **kwargs):
+        gesehen.extend(command)
+        return gs.EngineResult(answer=None, exit_code=0, duration_s=0.0,
+                               timed_out=False, stdout="", stderr="")
+
+    monkeypatch.setattr(gs, "_spawn", falle)
+    task = gs.load_task("house--energy-and-commerce--energy")
+    gs.run_claude(task, dataclasses.replace(config("claude"), **abweichung),
+                  Path("/tmp"))
+    return gesehen
+
+
+def test_webzugang_steht_ohne_flag_offen(monkeypatch) -> None:
+    command = kommandozeile(monkeypatch)
+    assert command[command.index("--tools") + 1] == "WebSearch,WebFetch"
+
+
+def test_web_access_off_nimmt_claude_alle_werkzeuge(monkeypatch) -> None:
+    """Der leere Wert heisst 'kein einziges Werkzeug'.
+
+    Ein weggelassenes ``--tools`` gaebe dem Agenten stattdessen den vollen
+    Satz samt Bash und Editierwerkzeugen.
+    """
+    command = kommandozeile(monkeypatch, web_access=False)
+    assert command[command.index("--tools") + 1] == ""
+
+
+def test_web_access_off_schaltet_codex_die_suche_ab(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("PATH", str(codex_stub(tmp_path, antwort_schreiben(
+        '{"unit_id": "x"}', echo=True))))
+    monkeypatch.delenv(gs.FAKE_DIR_ENV, raising=False)
+    workdir = tmp_path / "arbeit"
+    workdir.mkdir()
+    result = gs.run_codex(gs.load_task("house--energy-and-commerce--energy"),
+                          dataclasses.replace(config("codex"), web_access=False),
+                          workdir)
+    assert "tools.web_search=false" in result.stderr
+    assert "tools.web_search=true" not in result.stderr
+
+
+def test_kein_quellenbefund_bei_geschlossenem_zugang(paar, taxonomy) -> None:
+    """Ohne Webzugang ist die leere Quellenliste die Folge der Einstellung.
+
+    Der Befund verlangt eine Logpruefung; bei abgeschaltetem Zugang stuende er
+    an allen 22 Units und verdeckte die echten Befunde.
+    """
+    task, record = paar
+    record["answer"]["sources"] = []
+    record["web_access"] = False
+    assert "GS_WEBSEARCH_OFF" not in codes(task, record, taxonomy)
+    record["web_access"] = True
+    assert "GS_WEBSEARCH_OFF" in codes(task, record, taxonomy)
+
+
+def test_resume_trennt_recherchierte_von_nicht_recherchierten_antworten(paar) -> None:
+    """Ein halb recherchierter Satz waere genau der stille Mischstand."""
+    task, record = paar
+    record.update(prompt_delivery=gs.PROMPT_DELIVERY["claude"], web_access=True)
+    offen = config("claude")
+    assert gs.resume_problem(offen, task, record) is None
+    found = gs.resume_problem(dataclasses.replace(offen, web_access=False),
+                              task, record)
+    assert found is not None and found.code == "GS_RESUME_MISMATCH"
+    assert "web_access" in found.was
+
+    # Antworten aus der Zeit vor dem Schalter entstanden mit offenem Zugang.
+    del record["web_access"]
+    assert gs.resume_problem(offen, task, record) is None
+    assert gs.resume_problem(dataclasses.replace(offen, web_access=False),
+                             task, record) is not None

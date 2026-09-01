@@ -1148,7 +1148,14 @@ roh an die CLI durchgereicht, damit künftige Modelle ohne Codeänderung
 funktionieren; Defaults stehen als `GOLDSET_LABEL_*` in `config/settings.py`.
 `--timeout` deckelt die einzelne Unit (Default 1800 s), `--total-timeout` den
 ganzen Satz (Default 43200 s); ein erneuter Aufruf setzt fort und überspringt
-vorhandene Antworten, sofern Modell, Denktiefe und Bindungshashes passen.
+vorhandene Antworten, sofern Modell, Denktiefe, Webzugang und Bindungshashes
+passen.
+
+WebSearch und WebFetch laufen ohne Zutun mit; `--web-access-off` schaltet sie
+für `preflight` und `run` ab. Der Zustand steht in der Antwortdatei und in der
+Spalte `web_access` der `info`-Tabelle. Bei geschlossenem Zugang entfällt der
+Befund `GS_WEBSEARCH_OFF`, und ein Satz lässt sich nicht mit Antworten aus dem
+jeweils anderen Zustand fortsetzen.
 
 Exit-Codes dieses Skripts: `0` erfolgreich · `1` blockiert (Bedienfehler,
 fehlende Voraussetzung) · `2` durchgelaufen, aber mit Befunden zu einzelnen

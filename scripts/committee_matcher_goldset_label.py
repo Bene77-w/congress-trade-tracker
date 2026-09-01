@@ -120,7 +120,7 @@ NOTE_COLUMNS: tuple[str, ...] = (
 INFO_COLUMNS: tuple[str, ...] = (
     "unit_id", "snapshot_id", "taxonomy_content_hash", "mapping_input_hash",
     "prompt_sha256", "prompt_version", "engine", "model", "effort",
-    "prompt_delivery", "created_at",
+    "prompt_delivery", "web_access", "created_at",
 )
 
 #: Lesehilfe: der Volltext, gegen den Bene die Zitate prueft.
@@ -1238,6 +1238,10 @@ class EngineConfig:
     total_timeout_seconds: int = MAX_TIMEOUT_SECONDS
     #: Wurde ``timeout_seconds`` von der Restzeit des Gesamtdeckels gekappt?
     capped: bool = False
+    #: Duerfen WebSearch und WebFetch mitlaufen? Recherche ist Teil des
+    #: Auftrags, deshalb steht der Zugang standardmaessig offen;
+    #: ``--web-access-off`` schliesst ihn.
+    web_access: bool = True
 
 
 #: Wie der Modellvertrag die Engine erreicht. Die Wege sind bewusst
@@ -1746,7 +1750,8 @@ def run_claude(task: dict, config: EngineConfig, workdir: Path) -> EngineResult:
     der Agent unter den Projektregeln dieses Repos. ``--system-prompt`` ersetzt
     den mitgelieferten Coding-Systemprompt durch den Modellvertrag, und
     ``--tools`` laesst genau die Websuche uebrig - keine Datei-, Bash- oder
-    Editierwerkzeuge.
+    Editierwerkzeuge. Bei ``--web-access-off`` steht dort der leere Wert, den
+    die CLI als 'kein einziges Werkzeug' liest.
     """
     command = [
         cli_name("claude"), "-p", task["user_prompt"],
@@ -1755,7 +1760,7 @@ def run_claude(task: dict, config: EngineConfig, workdir: Path) -> EngineResult:
         "--output-format", "json",
         "--model", config.model,
         "--effort", config.effort,
-        "--tools", "WebSearch,WebFetch",
+        "--tools", "WebSearch,WebFetch" if config.web_access else "",
         "--safe-mode",
         "--no-session-persistence",
         "--strict-mcp-config",
@@ -1800,8 +1805,8 @@ def run_codex(task: dict, config: EngineConfig, workdir: Path) -> EngineResult:
     Projektdatei fern. Codex exec nimmt keinen Systemprompt entgegen, deshalb
     steht der Vertrag am Anfang derselben Eingabe.
 
-    Die Websuche kommt ueber ``-c tools.web_search=true``; ein Flag ``--search``
-    kennt ``codex exec`` in Fassung 0.150 nicht. Dass die Einstellung wirkt,
+    Die Websuche kommt ueber ``-c tools.web_search=<an|aus>``; ein Flag
+    ``--search`` kennt ``codex exec`` in Fassung 0.150 nicht. Dass die Einstellung wirkt,
     zeigen die ``web_search``-Ereignisse im JSONL-Protokoll - ohne sie faengt
     ``collect`` den Fall ueber die fehlende Quellenliste.
     """
@@ -1829,7 +1834,7 @@ def run_codex(task: dict, config: EngineConfig, workdir: Path) -> EngineResult:
         "--sandbox", "read-only",
         "--skip-git-repo-check",
         "--ignore-user-config",
-        "-c", "tools.web_search=true",
+        "-c", f"tools.web_search={'true' if config.web_access else 'false'}",
         "--color", "never",
         "-C", str(workdir),
         "-m", config.model,
@@ -1910,7 +1915,8 @@ def engine_config(args: argparse.Namespace, settings: LabelSettings) -> EngineCo
               "Gesamtdeckel mindestens auf den Wert je Unit anheben.")
     return EngineConfig(engine=engine, model=model, effort=effort,
                         timeout_seconds=unit_deckel,
-                        total_timeout_seconds=gesamt)
+                        total_timeout_seconds=gesamt,
+                        web_access=not getattr(args, "web_access_off", False))
 
 
 # -- preflight -------------------------------------------------------------
@@ -1940,7 +1946,8 @@ def command_preflight(args: argparse.Namespace) -> int:
         # Der Preflight laeuft mit einem kurzen eigenen Deckel: haengt die CLI
         # hier, hilft kein halbstuendiges Warten.
         short = EngineConfig(config.engine, config.model, config.effort,
-                             min(config.timeout_seconds, 300))
+                             min(config.timeout_seconds, 300),
+                             web_access=config.web_access)
         result = engine_runner(config.engine)(probe, short, workdir)
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
@@ -2085,6 +2092,7 @@ def store_answer(config: EngineConfig, task: dict, result: EngineResult,
         "requested_effort": config.effort,
         "effort_confirmation": effort_confirmation(result, config),
         "prompt_delivery": PROMPT_DELIVERY[config.engine],
+        "web_access": config.web_access,
         "binding": task["binding"],
         "answer": result.answer,
         "meta": {
@@ -2132,6 +2140,9 @@ def resume_problem(config: EngineConfig, task: Mapping[str, Any],
                   and name != "prompt_delivery"]
     if record.get("prompt_delivery") != PROMPT_DELIVERY[config.engine]:
         abweichend.append("prompt_delivery")
+    # Antworten aus der Zeit vor dem Schalter entstanden mit offenem Zugang.
+    if bool(record.get("web_access", True)) is not config.web_access:
+        abweichend.append("web_access")
     binding = record.get("binding") or {}
     abweichend += [name for name in RESUME_BINDING_FIELDS
                    if binding.get(name) != task["binding"].get(name)]
@@ -2240,7 +2251,8 @@ def command_run(args: argparse.Namespace) -> int:
             engine=config.engine, model=config.model, effort=config.effort,
             timeout_seconds=min(config.timeout_seconds, rest),
             total_timeout_seconds=config.total_timeout_seconds,
-            capped=rest < config.timeout_seconds)
+            capped=rest < config.timeout_seconds,
+            web_access=config.web_access)
 
         started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
         print(f"[{index}/{len(wanted)}] {unit_id}: laeuft ...", flush=True)
@@ -2700,7 +2712,7 @@ def check_answer(task: Mapping[str, Any], record: Mapping[str, Any],
 
     sources = answer.get("sources")
     sources = sources if isinstance(sources, list) else []
-    if not sources:
+    if not sources and record.get("web_access", True):
         result.problems.append(problem(
             "GS_WEBSEARCH_OFF", unit_id,
             "Die Antwort nennt keine einzige Quelle.",
@@ -2735,6 +2747,7 @@ def check_answer(task: Mapping[str, Any], record: Mapping[str, Any],
         "model": text_value(record.get("model")),
         "effort": text_value(record.get("effort")),
         "prompt_delivery": text_value(record.get("prompt_delivery")),
+        "web_access": text_value(record.get("web_access", True)),
         "created_at": text_value(record.get("created_at")),
     }
     return result
@@ -3633,6 +3646,9 @@ def build_parser() -> argparse.ArgumentParser:
         target.add_argument("--total-timeout", type=int, metavar="SEKUNDEN",
                             help="Zeitdeckel fuer den ganzen Satz; Default aus "
                                  "config/settings.py")
+        target.add_argument("--web-access-off", action="store_true",
+                            help="WebSearch und WebFetch abschalten; ohne "
+                                 "dieses Flag recherchiert der Agent")
 
     preflight = actions.add_parser(
         "preflight", help="Engine, Modell und Denktiefe mit einem kurzen "

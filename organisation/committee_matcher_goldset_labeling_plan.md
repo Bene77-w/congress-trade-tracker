@@ -224,15 +224,28 @@ Sitzungseinstellung ebenfalls nur für den Lauf.
   --output-format json --model … --effort … --tools WebSearch,WebFetch
   --safe-mode --no-session-persistence --strict-mcp-config`. `--safe-mode` hält
   CLAUDE.md, Skills, Plugins, Hooks und MCP-Server draußen, `--tools` lässt
-  genau die Websuche übrig: keine Datei-, Bash- oder Editierwerkzeuge.
+  genau die Websuche übrig: keine Datei-, Bash- oder Editierwerkzeuge. Mit
+  `--web-access-off` steht dort der leere Wert, den die CLI als „kein einziges
+  Werkzeug" liest; ein weggelassenes `--tools` gäbe stattdessen den vollen
+  Satz frei.
 - Codex (umgesetzt): `codex exec --output-schema <schema>
   --output-last-message <datei> --json --sandbox read-only
   --skip-git-repo-check --ignore-user-config -C <tmpdir> -m … -c
-  model_reasoning_effort="…" -c tools.web_search=true`, dazu ein eigenes
+  model_reasoning_effort="…" -c tools.web_search=<an|aus>`, dazu ein eigenes
   `CODEX_HOME` je Lauf im Arbeitsverzeichnis mit `auth.json` als Symlink.
   `--search` kennt `codex exec` in Fassung 0.150 nicht; die Websuche wirkt
   ausschließlich über den Konfigurationsschlüssel, nachgewiesen an den
   `web_search`-Ereignissen im Protokoll.
+
+Der Webzugang steht standardmäßig offen, weil Recherche zum Auftrag gehört;
+`--web-access-off` schließt ihn für `preflight` und `run`. Der Zustand steht in
+jeder Antwortdatei und in der Spalte `web_access` der `info`-Tabelle, denn er
+gehört zur Provenienz eines Labels. Zwei Folgen: `collect` meldet
+`GS_WEBSEARCH_OFF` nur bei offenem Zugang — bei geschlossenem wäre die leere
+Quellenliste die Folge der Einstellung und der Befund stünde sinnlos an allen
+22 Units; und das Fortsetzen eines Satzes bricht ab, wenn eine vorhandene
+Antwort mit anderem Zugang entstand (`GS_RESUME_MISMATCH`), damit kein Satz
+halb recherchiert und halb nicht entsteht.
 
 Verbleibende Grenze bei Codex, offen: die globalen Skills aus
 `~/.agents/skills/` werden auch mit eigenem `CODEX_HOME` geladen; ein
@@ -429,7 +442,7 @@ prüfenden Funktion ermittelt, nicht von Hand gepflegt.
 | `GS_MODEL_UNKNOWN` | Modellname von der CLI abgelehnt | `preflight` mit korrigiertem `--model` |
 | `GS_EFFORT_REJECTED` | Claude verwirft den Effortwert und rechnet mit der Standardstufe | zulässige Stufe setzen; die Warnung nennt sie |
 | `GS_EFFORT_UNCONFIRMED` | Die CLI nennt die Denktiefe nicht zurück (Codex) | Stufe gegen die CLI-Dokumentation prüfen; Provenienz weist sie als unbestätigt aus |
-| `GS_WEBSEARCH_OFF` | Antwort ohne `sources` | Log der Unit auf `web_search`-Ereignisse prüfen; fehlen sie, greift der Suchschalter nicht und der Satz ist zu wiederholen |
+| `GS_WEBSEARCH_OFF` | Antwort ohne `sources`, obwohl der Zugang offen stand | Log der Unit auf `web_search`-Ereignisse prüfen; fehlen sie, greift der Suchschalter nicht und der Satz ist zu wiederholen |
 | `GS_TIMEOUT` | Deckel je Unit erreicht | Unit einzeln wiederholen; Satz bleibt erhalten |
 | `GS_RATE_LIMITED` | Abo-Ratenlimit | Lauf später fortsetzen, `run` nimmt wieder auf |
 | `GS_SCHEMA_INVALID` | Antwort verletzt das JSON-Schema | Rohantwort im Log, Unit wiederholen |

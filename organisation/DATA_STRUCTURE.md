@@ -592,11 +592,11 @@ gemessen wird, und entsteht deshalb unabhängig von ihm.
 | `sample_units.json` | die 22 Units der Stichprobe: `nr`, `unit_id`, `chamber`, `committee_name`, `unit_name`, `input_basis`, `focus`; Feld `expected_unit_count` |
 | `labeling/tasks/<unit_id>.json` | Aufgabenpaket je Unit: Systemprompt, Userprompt, Ausgabeschema, `binding` (Snapshot-, Prompt- und Eingabehashes); ohne `focus` |
 | `labeling/tasks/index.json` | Verzeichnis der Pakete |
-| `labeling/runs/<engine>/<unit_id>.json` | Rohantwort samt Provenienz: Engine, Modell, `requested_effort`, `effort_confirmation`, `prompt_delivery`, `binding`, Dauer, Turns |
+| `labeling/runs/<engine>/<unit_id>.json` | Rohantwort samt Provenienz: Engine, Modell, `requested_effort`, `effort_confirmation`, `prompt_delivery`, `web_access`, `binding`, Dauer, Turns |
 | `labeling/runs/<engine>/<unit_id>.log` | Rohausgabe der CLI, einzige Quelle bei unklarem Fehlschlag |
 | `labeling/collected/labels_<engine>.csv` | Long-Format je Zuordnung: `unit_id`, `industry_id`, `confidence`, `evidence_excerpt`, `rationale_short`, `no_mapping_reason` |
 | `labeling/collected/notes_<engine>.csv` | `unit_id`, `engine`, `model`, `label_uncertain`, `uncertainty_note`, `broad_scope`, `broad_scope_reason`, `sources`, `dissens` |
-| `labeling/collected/info_<engine>.csv` | Provenienz je Unit: `snapshot_id`, `taxonomy_content_hash`, `mapping_input_hash`, `prompt_sha256`, `prompt_version`, `engine`, `model`, `effort`, `prompt_delivery`, `created_at`; `info_merged.csv` trägt beide Läufe, also zwei Zeilen je Unit |
+| `labeling/collected/info_<engine>.csv` | Provenienz je Unit: `snapshot_id`, `taxonomy_content_hash`, `mapping_input_hash`, `prompt_sha256`, `prompt_version`, `engine`, `model`, `effort`, `prompt_delivery`, `web_access`, `created_at`; `info_merged.csv` trägt beide Läufe, also zwei Zeilen je Unit |
 | `labeling/disagreements.md` | Dissens zweier Engineläufe, je strittige Unit mit beiden Urteilen und Begründungen |
 | `goldset_review.xlsx` | die Datei, die Bene bearbeitet; Blätter `labels`, `jurisdiction`, `taxonomy`, `agent_notes`, `info` |
 | `<name>.<zeitstempel>.bak.xlsx` | Sicherung, die `to-xlsx --force` und `verify --fix-case` vor jedem Überschreiben neben die Zieldatei legen |
