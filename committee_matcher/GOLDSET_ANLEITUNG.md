@@ -1,180 +1,182 @@
-# Gold-Set-Creator — Bedienung
+# Gold-Set-Creator
 
-`committee_matcher/goldset_label.py` lässt die 22 Units der Entwicklungs-
-Stichprobe von einem headless Agenten labeln, wahlweise über Claude Code oder
-Codex. Ergebnis ist das Entwicklungs-Gold-Set, gegen das P9 den Matcher misst.
+## Was das Werkzeug tut
 
-Der Produktivpfad `run plan|execute` bleibt ungenutzt — er ist der Prüfling.
-Die Labels sind ein Vorschlag; das Gold-Set entsteht erst durch die Abnahme.
+Der Committee Matcher ordnet jedem Ausschuss die Branchen zu, die er
+reguliert. Um zu wissen, wie gut er das tut, braucht es eine Referenz: 22
+Ausschüsse, von Hand geprüft, mit der richtigen Antwort daneben. Das ist das
+**Gold-Set**.
 
-Begründungen und vollständige Fehlertabelle:
-`organisation/committee_matcher_goldset_labeling_plan.md`.
+Dieses Werkzeug erstellt es. Es lässt einen starken KI-Agenten die 22
+Ausschüsse bearbeiten, prüft dessen Antworten gegen feste Regeln und legt sie
+dir als Excel-Tabelle zur Abnahme vor. Erst deine Abnahme macht daraus das
+Gold-Set — der Agent liefert einen Vorschlag, kein Ergebnis.
 
-## Ablauf
+Der Matcher selbst wird dabei nicht benutzt. Er ist der Prüfling; wenn er sein
+eigenes Prüfmaß erstellte, wäre die Messung wertlos.
 
-Jeder Kasten ist genau ein Terminalbefehl, in dieser Reihenfolge auszuführen.
-Alle Aufrufe laufen aus dem Projektwurzelverzeichnis.
-
-```
-venv/bin/python committee_matcher/goldset_label.py prepare
-  |   Werkzeug: liest Korpus, Units, Taxonomie-Snapshot und Modellvertrag,
-  |   schreibt je Unit ein Aufgabenpaket samt Bindungshashes
-  v
-venv/bin/python committee_matcher/goldset_label.py preflight --engine claude
-  |   Werkzeug + CLI, minimal bezahlt: Ein-Token-Lauf prüft Aufrufweg,
-  |   Anmeldung, Modellname und Denktiefe
-  v
-venv/bin/python committee_matcher/goldset_label.py run --engine claude
-  |   Agent, BEZAHLT: je Unit ein eigener headless Lauf, Rohantwort und Log
-  |   je Unit. Abbruch jederzeit; erneuter Aufruf setzt fort
-  v
-venv/bin/python committee_matcher/goldset_label.py collect --engine claude
-  |   Werkzeug: prüft jede Antwort gegen Vertrag, Taxonomie und Belegtext,
-  |   schreibt labels_/notes_/info_claude.csv
-  v
-venv/bin/python committee_matcher/goldset_label.py preflight --engine codex
-venv/bin/python committee_matcher/goldset_label.py run      --engine codex
-venv/bin/python committee_matcher/goldset_label.py collect  --engine codex
-  |   dieselben drei Schritte mit der zweiten Engine
-  v
-venv/bin/python committee_matcher/goldset_label.py merge --base claude --against codex
-  |   Werkzeug: vergleicht beide Läufe, schreibt disagreements.md
-  |   und die merged-Tabellen als Arbeitsstand
-  v
-venv/bin/python committee_matcher/goldset_label.py to-xlsx --source merged
-  |   Werkzeug: baut goldset_review.xlsx mit den Blättern labels,
-  |   jurisdiction, taxonomy, agent_notes, info; alle Zellen als Text
-  v
-xdg-open data/committee_matcher_v2/goldset/goldset_review.xlsx
-  |   DU: jede Zeile ändern, löschen, ergänzen; Auswahlliste im Blatt
-  |   labels; disagreements.md nennt die strittigen Units.
-  |   Datei vor dem nächsten Schritt schließen
-  v
-venv/bin/python committee_matcher/goldset_label.py verify --source merged --fix-case
-  |   Werkzeug: liest zurück, prüft erneut gegen den Vertrag, repariert
-  |   Schreibweise und Randleerraum, nennt jede Abweichung mit Zelladresse.
-  |   Wiederholen, bis keine Befunde mehr stehen
-  v
-venv/bin/python -m committee_matcher evaluate export --eval-id eval-2026-09-02
-  |   Matcher: Evaluationsrevision eröffnen, Taxonomie, Stichprobe, Inputs
-  |   und Prompts einfrieren; kein Modellaufruf
-  v
-venv/bin/python -m committee_matcher evaluate import --eval-id eval-2026-09-02
-      Matcher: übernimmt die abgenommene Mappe validiert in die Revision.
-      Ein Verstoß lehnt den gesamten Import ab (Exit 7)
-```
-
-Die `--eval-id` ist frei wählbar, muss aber in `export` und `import` dieselbe
-sein. Ohne `--labels` liest der Import die Arbeitsdatei des Werkzeugs,
-`data/committee_matcher_v2/goldset/goldset_review.xlsx`.
-
-## Wie ein Lauf funktioniert
-
-Ein Lauf ist **eine Unit, ein Prozess, ein Agent**. Kein Batch, keine
-gemeinsame Sitzung, kein Gedächtnis zwischen Units — jede Unit bekommt
-dieselbe Ausgangslage, damit keine Unit von der Antwort einer anderen lernt.
+## Der ganze Ablauf
 
 ```
-Aufgabenpaket (aus prepare)
-  Systemprompt = Modellvertrag + Rechercheauftrag
-  Nutzerprompt = Unit, Zuständigkeitstext, Taxonomiekatalog
-  Ausgabeschema = erzwungenes JSON
-        |
-        v
-headless CLI im temporären Verzeichnis
-  ohne Projektkontext, ohne CLAUDE.md/AGENTS.md, ohne Skills
-  nur WebSearch und WebFetch als Werkzeuge, keine Datei- oder Bashrechte
-        |
-        v
-Antwort: decision, assignments[], sources[], Unsicherheitsnotiz
-        |
-        v
-abgelegt als runs/<engine>/<unit_id>.json samt Provenienz
-  Engine, Modell, Denktiefe, Webzugang, Bindungshashes, Dauer, Turns
+1.  venv/bin/python committee_matcher/goldset_label.py label
+
+    Der Agent bearbeitet alle 22 Ausschüsse. Am Ende liegt
+    data/committee_matcher_v2/goldset/goldset_review.xlsx bereit.
+    KOSTET GELD. Dauer: etwa eine Stunde.
+
+2.  xdg-open data/committee_matcher_v2/goldset/goldset_review.xlsx
+
+    Du gehst die Tabelle durch: Zeilen ändern, löschen, ergänzen.
+    Danach speichern und schließen.
+
+3.  venv/bin/python committee_matcher/goldset_label.py finish --eval-id eval-2026-09-02
+
+    Deine Fassung wird geprüft und als Gold-Set übernommen.
+    Kostet nichts.
 ```
 
-Der Vertrag, gegen den `collect` und `verify` prüfen: jede Zuordnung braucht
-ein wörtliches Zitat aus dem Zuständigkeitstext, Confidence 1 bis 4 und eine
-Begründung. Regulär sind zwei Zuordnungen je Unit; bis fünf nur mit
-ausdrücklicher Broad-Scope-Ausnahme, eigener Begründung, Confidence ab 3 und
-je Zuordnung eigenem Zitat. Enge Unittypen — Ausschusskern und Units ohne
-Zuständigkeitstext — bleiben immer bei zwei, dort ist die Ausnahme unzulässig. Entweder Zuordnungen **oder** `no_mapping_reason`,
-nie beides.
+Mehr ist es nicht. Alles dazwischen erledigt das Werkzeug selbst.
 
-`merge` vergleicht die Entscheidung (`mapped` gegen `no_mapping`) und, wenn
-beide `mapped` sagen, die Menge der Industry-IDs. Begründungstexte und
-Confidence werden nicht verglichen — sie sind nie wörtlich gleich.
-Übereinstimmung heißt nicht Richtigkeit: zwei Modelle können denselben Irrtum
-teilen. Die Richtigkeitsprüfung sind der Vertrag und deine Abnahme.
+## Schritt 1: `label`
 
-## Kommandos
+Ein Aufruf, der intern fünf Dinge tut:
 
-| Kommando | Wirkung | Bezahlt |
+| | Was passiert | Warum |
 |---|---|---|
-| `prepare` | Aufgabenpaket je Unit nach `labeling/tasks/` | nein |
-| `preflight` | Ein-Token-Lauf; prüft Engine, Anmeldung, Modell, Denktiefe | minimal |
-| `run` | je Unit ein headless Lauf; Antwort und Log nach `labeling/runs/<engine>/` | **ja** |
-| `collect` | Antworten prüfen und als CSV sammeln | nein |
-| `merge` | zwei Engineläufe vergleichen, `disagreements.md` schreiben | nein |
-| `to-xlsx` | Reviewmappe aus den Zwischentabellen bauen | nein |
-| `verify` | bearbeitete Reviewmappe zurücklesen und prüfen | nein |
+| 1 | **Aufgaben bauen** | Jeder Ausschuss bekommt ein eigenes Paket: sein Zuständigkeitstext, die Liste aller 145 Branchen, die Regeln, das Antwortformat. |
+| 2 | **Engine prüfen** | Ein Miniaufruf klärt, ob die KI erreichbar ist und den Modellnamen kennt. Schützt davor, dass 22 Läufe an einem Tippfehler scheitern. |
+| 3 | **Labeln lassen** | Für jeden Ausschuss ein eigener KI-Lauf, mit Internetrecherche. Hier entstehen die Kosten. |
+| 4 | **Antworten prüfen** | Jede Antwort wird gegen die Regeln gehalten: Steht das Zitat wirklich im Text? Sind es nicht zu viele Branchen? Fehlt eine Begründung? |
+| 5 | **Tabelle schreiben** | Alles landet in einer Excel-Datei, die du bearbeiten kannst. |
 
-## Flags
+**Der Lauf ist unterbrechbar.** Strg-C, Netzausfall, Kontingent leer — beim
+nächsten `label` macht das Werkzeug dort weiter, wo es aufgehört hat. Fertige
+Ausschüsse werden übersprungen, nicht neu bezahlt.
 
-| Flag | Kommando | Wirkung |
+**Meldungen sind kein Abbruch.** Findet die Prüfung Regelverstöße, läuft der
+Rest trotzdem durch und die Tabelle entsteht. Die Meldungen sind deine
+Arbeitsliste für Schritt 2 — sie sagen dir, wo du hinschauen musst.
+
+## Schritt 2: die Tabelle abnehmen
+
+Die Excel-Datei hat fünf Blätter:
+
+- **labels** — hier arbeitest du. Eine Zeile je zugeordnete Branche. Die
+  Spalte `industry_id` hat eine Auswahlliste, damit du dich nicht vertippst.
+- **jurisdiction** — der volle Zuständigkeitstext jedes Ausschusses. Dagegen
+  prüfst du, ob ein Zitat stimmt.
+- **taxonomy** — alle 145 Branchen mit Beschreibung.
+- **agent_notes** — wo der Agent selbst unsicher war und warum. Lies das; er
+  nennt oft genau die Zuordnung, über die du auch stolperst.
+- **info** — Herkunft der Labels: Modell, Denktiefe, Zeitstempel, Hashes.
+  Nicht anfassen.
+
+Du darfst alles ändern: Zeilen löschen, neue eintragen, Begründungen
+umschreiben. Regeln, die auch für deine Änderungen gelten:
+
+- Jede Zuordnung braucht ein **wörtliches Zitat** aus dem Zuständigkeitstext
+  (Spalte `evidence_excerpt`), eine **Sicherheit von 1 bis 4** und eine kurze
+  **Begründung**.
+- **Zwei Zuordnungen** je Ausschuss sind der Normalfall. Bis fünf gehen nur,
+  wenn der Ausschuss wirklich mehrere getrennte Bereiche abdeckt — dann
+  braucht es dafür eine eigene Begründung und Sicherheit mindestens 3.
+- Ein Ausschuss hat **entweder** Zuordnungen **oder** einen Grund in
+  `no_mapping_reason`. Nie beides.
+- **Jeder** der 22 Ausschüsse braucht eine Zeile. Auch „keine Branche" ist
+  eine Aussage und muss dastehen.
+
+Schreib Branchennamen nie von Hand ab — nimm die Auswahlliste. Excel korrigiert
+sonst still `packaged-foods` zu `Packaged-foods`, und das ist dann eine andere,
+unbekannte Branche. (Das ist wirklich passiert.)
+
+**Datei schließen, bevor du Schritt 3 startest.** Ein offenes Excel würde die
+Reparaturen des Werkzeugs beim nächsten Speichern überschreiben.
+
+## Schritt 3: `finish`
+
+Ein Aufruf, der drei Dinge tut:
+
+| | Was passiert | Warum |
 |---|---|---|
-| `--engine claude\|codex` | `preflight`, `run`, (`collect`) | welche CLI labelt |
-| `--model <name>` | `preflight`, `run` | roh an die CLI; keine Auswahlliste, damit künftige Modelle ohne Codeänderung laufen |
-| `--effort <stufe>` | `preflight`, `run` | Denktiefe, ebenfalls roh durchgereicht. Codex bestätigt sie nie — die Provenienz weist sie dann als `unbestaetigt` aus |
-| `--web-access-off` | `preflight`, `run` | schaltet WebSearch und WebFetch ab. Standard ist offen, weil Recherche zum Auftrag gehört |
-| `--timeout <s>` | `run` | Deckel je Unit, Default 1800 |
-| `--total-timeout <s>` | `run` | Deckel für den ganzen Satz, Default 43200. Erreicht endet der Lauf geordnet, ein erneuter Aufruf setzt fort |
-| `--unit-id <id>` | `run` | einzelne Unit, mehrfach zulässig. Ohne Angabe die ganze Stichprobe |
-| `--force` | `run` | vorhandene Antworten neu erzeugen statt überspringen |
-| `--source merged\|<engine>` | `to-xlsx`, `verify` | welche Zwischentabelle gilt; Default `merged` |
-| `--force` | `to-xlsx` | vorhandene Zieldatei vorher als `<name>.<zeitstempel>.bak.xlsx` sichern |
-| `--file <pfad>` | `verify` | Mappe an anderer Stelle prüfen |
-| `--fix-case` | `verify` | Schreibweise und Randleerraum reparieren; sichert vorher |
-| `--show` | `prepare` | Auszug des ersten Aufgabenpakets ausgeben |
+| 1 | **Zurücklesen und prüfen** | Dieselben Regeln wie in Schritt 1, jetzt auf deine Fassung. Kleinigkeiten wie Groß-/Kleinschreibung und Leerzeichen am Rand repariert es selbst. |
+| 2 | **Revision eröffnen** | Ein Ablageort für diese Evaluation wird angelegt und der Stand von Taxonomie und Texten eingefroren. Passiert nur beim ersten Mal. |
+| 3 | **Übernehmen** | Deine Tabelle wird zum Gold-Set. |
 
-Defaults für Engine, Modell, Denktiefe und Deckel stehen als `GOLDSET_LABEL_*`
-in `config/settings.py`.
+**Bleibt ein Verstoß stehen, bricht `finish` ab** und übernimmt nichts. Das ist
+Absicht: Zitatpflicht, Anzahlgrenze und die Regel für breite Ausschüsse werden
+danach nie wieder geprüft. Was hier durchrutscht, verfälscht später jede Zahl.
 
-**Wiederaufnahme:** `run` überspringt vorhandene Antworten nur, wenn Modell,
-Denktiefe, Webzugang und Bindungshashes passen; sonst `GS_RESUME_MISMATCH`.
-Ein Satz aus zwei Modellen oder halber Recherche entsteht so nicht versehentlich.
+Jede Meldung nennt die genaue Stelle, meist als Zelladresse:
 
-**Schreibschutz:** `to-xlsx` blockt auf eine vorhandene Zieldatei, weil sie
-deine Abnahmearbeit trägt. `verify --fix-case` weigert sich, solange der
-Sperrvermerk `.~lock.<name>#` daneben liegt — das geöffnete Tabellenprogramm
-verwürfe die Änderung sonst beim nächsten Speichern.
+```
+[GS_INDUSTRY_CASE]     labels!B3       'Healthcare-plans' statt 'healthcare-plans'
+[GS_SCHEMA_INVALID]    labels!C4       confidence='7' ist keine ganze Zahl zwischen 1 und 4
+[GS_DECISION_CONFLICT] labels!Zeile 7  traegt biotechnology und zugleich eine no_mapping-Begruendung
+```
 
-## Exit-Codes
+Korrigieren, speichern, schließen, `finish` erneut aufrufen. So oft, bis nichts
+mehr kommt.
 
-`0` erfolgreich · `1` blockiert (Bedienfehler, fehlende Voraussetzung) ·
-`2` durchgelaufen, aber mit Befunden zu einzelnen Units.
+## Optionen
 
-`preflight` gibt 2, wenn die CLI die Denktiefe nicht bestätigt. `merge` gibt 2,
-wenn eine Unit in bloß einem oder in keinem der beiden Läufe steht; Dissens
-allein ist das Ergebnis des Vergleichs und kein Befund.
+Es gibt drei, mehr braucht der Normalbetrieb nicht.
 
-Jeder Befund trägt einen `GS_`-Code und nennt Was, Warum, Abhilfe und die
-auslösende Codestelle.
+| Option | Wirkung |
+|---|---|
+| `--engine claude` | Nur Claude labelt. **Standard**, wenn du nichts angibst. |
+| `--engine codex` | Nur Codex labelt. |
+| `--compared` | Beide labeln unabhängig, das Werkzeug vergleicht sie und schreibt `disagreements.md` mit den Stellen, an denen sie sich uneinig sind. Kostet doppelt und dauert doppelt. |
+| `--force` | Nur bei `label`: alles neu erzeugen statt fortzusetzen. Bezahlt die 22 Läufe erneut. Die alte Tabelle wird vorher gesichert. |
 
-| Code | Bedeutung | Abhilfe |
+`--engine` und `--compared` müssen bei `label` und `finish` **gleich** sein —
+`finish` muss wissen, welchen Stand es prüfen soll:
+
+```bash
+venv/bin/python committee_matcher/goldset_label.py label  --compared
+venv/bin/python committee_matcher/goldset_label.py finish --compared --eval-id eval-2026-09-02
+```
+
+Lohnt sich `--compared`? Wo beide Engines dasselbe sagen, kannst du schnell
+durchgehen; wo sie sich unterscheiden, weißt du, wo genau hinzuschauen ist.
+Einigkeit heißt aber nicht Richtigkeit — zwei Modelle können denselben Irrtum
+teilen.
+
+Modell, Denktiefe und Zeitgrenzen stehen als `GOLDSET_LABEL_*` in
+`config/settings.py` und werden nicht über die Kommandozeile gesetzt.
+
+## Wenn etwas schiefgeht
+
+Rückmeldung des Werkzeugs: `0` alles sauber · `1` Abbruch, es fehlt eine
+Voraussetzung · `2` durchgelaufen, aber es gibt Meldungen. Jede Meldung trägt
+einen `GS_`-Code und sagt, was los ist, warum es zählt und was zu tun ist.
+
+| Meldung | Bedeutet | Zu tun |
 |---|---|---|
-| `GS_WEBSEARCH_OFF` | Antwort ohne Quelle, obwohl der Zugang offen stand | Log der Unit auf `web_search` prüfen; fehlt es dort auch, greift der Schalter nicht und der Satz ist zu wiederholen |
-| `GS_INDUSTRY_CASE` | `industry_id` weicht nur in der Schreibweise ab | `verify --fix-case`; Ursache ist meist die Excel-Autokorrektur |
-| `GS_RESUME_MISMATCH` | vorhandene Antwort entstand unter anderen Parametern | Antwort prüfen, mit `run --unit-id … --force` neu erzeugen |
-| `GS_UNIT_MISSING` | eine Unit der Stichprobe fehlt | Unit nachlaufen lassen oder Zeile in der Mappe ergänzen |
-| `GS_XLSX_OVERWRITE` | Zieldatei vorhanden | `--force`, das sichert die alte Mappe |
+| `GS_INDUSTRY_CASE` | Excel hat einen Branchennamen umgeschrieben | nichts — `finish` repariert das selbst |
+| `GS_EVIDENCE_NOT_VERBATIM` | Das Zitat steht so nicht im Zuständigkeitstext | Zitat aus dem Blatt `jurisdiction` übernehmen |
+| `GS_UNIT_MISSING` | Ein Ausschuss hat keine Zeile | Zeile ergänzen: Branche eintragen oder `no_mapping_reason` füllen |
+| `GS_WEBSEARCH_OFF` | Der Agent hat keine Quelle genannt | meist harmlos; er hielt den vorliegenden Text für ausreichend |
+| `GS_RESUME_MISMATCH` | Eine alte Antwort passt nicht zum aktuellen Lauf | mit `--force` neu erzeugen oder die alte Antwort prüfen |
 
-## Test ohne Kosten
+**Einzelne Schritte von Hand.** Für den Ausnahmefall gibt es die Bausteine
+weiterhin einzeln — `prepare`, `preflight`, `run`, `collect`, `merge`,
+`to-xlsx`, `verify` — jeweils mit eigenen Optionen. Ein einzelner Ausschuss
+noch einmal:
 
-`GOLDSET_LABEL_FAKE_DIR` ersetzt beide CLIs durch vorbereitete Antwortdateien
-`<unit_id>.json` — kein Netz, kein Kontingent:
+```bash
+venv/bin/python committee_matcher/goldset_label.py run --engine claude \
+  --unit-id house--energy-and-commerce--health --force
+```
+
+`goldset_label.py <kommando> --help` zeigt zu jedem Baustein seine Optionen.
+
+**Probelauf ohne Kosten.** `GOLDSET_LABEL_FAKE_DIR` ersetzt die KI durch
+vorbereitete Antwortdateien:
 
 ```bash
 GOLDSET_LABEL_FAKE_DIR=/pfad/zu/antworten \
-  venv/bin/python committee_matcher/goldset_label.py run --engine claude
+  venv/bin/python committee_matcher/goldset_label.py label
 ```
+
+Hintergrund, Begründungen und die vollständige Meldungstabelle:
+`organisation/committee_matcher_goldset_labeling_plan.md`.

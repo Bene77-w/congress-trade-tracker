@@ -125,11 +125,23 @@ Fehler, Ermüdung, Reihenfolgeeffekt, ein Abbruch kostet den ganzen Satz).
 
 | Kommando | Wirkung | Bezahlt |
 |---|---|---|
+| `label` | Sammelaufruf: `prepare`, `preflight`, `run`, `collect`, Vergleich, `to-xlsx` | ja |
+| `finish --eval-id …` | Sammelaufruf: `verify`, `evaluate export` (nur beim ersten Mal), `evaluate import` | nein |
 | `prepare` | Aufgabenpaket je Unit nach `data/committee_matcher_v2/goldset/labeling/tasks/` | nein |
 | `preflight --engine … --model …` | Ein-Token-Lauf; prüft, ob Engine, Modell und Effort existieren | minimal |
 | `run --engine … [--model …] [--effort …]` | je Unit ein headless Lauf, Rohantwort und Log je Unit | ja |
 | `collect --engine …` | Rohantworten nach `labels_<engine>.csv`, formale Prüfung | nein |
 | `merge --base … --against …` | zwei Engineläufe vergleichen, `disagreements.md` erzeugen, `labels/notes/info_merged.csv` schreiben | nein |
+| `to-xlsx [--source …] [--out …] [--force]` | neue Reviewmappe aus den CSV erzeugen, alle Zellen als Text | nein |
+| `verify [--source …] [--file …] [--fix-case]` | bearbeitete XLSX gegen Snapshot, Vertrag und Zwischentabelle prüfen | nein |
+
+`label` und `finish` sind die vorgesehene Bedienung; sie rufen genau dieselben
+Funktionen wie die Einzelkommandos, damit kein zweiter Weg durch dieselbe
+Logik entsteht. `--engine` (Default `claude`) und `--compared` bestimmen den
+Umfang und müssen bei beiden Aufrufen übereinstimmen. Der weiche Befund des
+Preflights zählt im Sammelaufruf nicht mit: Codex bestätigt die Denktiefe nie,
+der Satz endete sonst immer mit Exit 2. `finish` ruft die Matcher-CLI als
+eigenen Prozess auf — kein Import, die Unabhängigkeit vom Prüfling bleibt.
 
 `merge` vergleicht je Unit zwei Dinge: die Entscheidung (`mapped` gegen
 `no_mapping`) und, wenn beide `mapped` sagen, die Menge der Industry-IDs.
@@ -140,8 +152,6 @@ werden nicht verglichen — sie sind fast nie wörtlich gleich, ein Textabgleich
 meldete also Dissens, wo keiner ist. Beidseitig unbeantwortete Units zählen zu
 keiner Seite und stehen als eigener Befund im Bericht: gleiche Leere ist keine
 Übereinstimmung.
-| `to-xlsx [--source …] [--out …] [--force]` | neue Reviewmappe aus den CSV erzeugen, alle Zellen als Text | nein |
-| `verify [--source …] [--file …] [--fix-case]` | bearbeitete XLSX gegen Snapshot, Vertrag und Zwischentabelle prüfen | nein |
 
 `--source` ist bei `to-xlsx` und `verify` gleichbedeutend: `merged` (Default)
 oder ein Enginename.

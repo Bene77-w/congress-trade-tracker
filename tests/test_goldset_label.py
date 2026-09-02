@@ -1438,3 +1438,75 @@ def test_merge_meldet_luecken_als_befund(sandbox, capsys) -> None:
     assert "in keinem der beiden Laeufe gelabelt" in ausgabe
     bericht = gs.MERGE_REPORT.read_text(encoding="utf-8")
     assert "in keinem der beiden Laeufe:" in bericht
+
+
+# -- Sammelkommandos -------------------------------------------------------
+def test_label_fuehrt_eine_engine_bis_zur_reviewmappe(sandbox, capsys) -> None:
+    """Ein Aufruf statt fuenf; ohne --compared entfaellt der Vergleich."""
+    assert lauf("label", "--engine", "claude") == 0
+    ausgabe = capsys.readouterr().out
+    assert "beide Laeufe vergleichen" not in ausgabe
+    assert gs.WORKBOOK_PATH.exists()
+    assert not gs.labels_path("merged").exists()
+    assert "finish --engine claude" in ausgabe
+
+
+def test_label_compared_vergleicht_beide_engines(sandbox, capsys) -> None:
+    assert lauf("label", "--compared") == 0
+    ausgabe = capsys.readouterr().out
+    assert "beide Laeufe vergleichen" in ausgabe
+    assert gs.labels_path("merged").exists()
+    assert gs.MERGE_REPORT.exists()
+    assert "finish --compared" in ausgabe
+
+
+def test_label_und_compared_schliessen_einander_aus(capsys) -> None:
+    with pytest.raises(SystemExit):
+        lauf("label", "--engine", "claude", "--compared")
+
+
+def test_finish_haelt_bei_befunden_an(sandbox, monkeypatch, capsys) -> None:
+    """Der Vertrag ist die Bedingung der Uebernahme, nicht ihr Nachtrag."""
+    assert lauf("label", "--engine", "claude") == 0
+    book = load_workbook(gs.WORKBOOK_PATH)
+    book[gs.SHEET_LABELS]["C2"] = "9"
+    book.save(gs.WORKBOOK_PATH)
+    gerufen: list[str] = []
+    monkeypatch.setattr(gs, "_matcher",
+                        lambda schritt, eval_id: gerufen.append(schritt) or 0)
+    capsys.readouterr()
+
+    assert lauf("finish", "--engine", "claude", "--eval-id", "eval-x") == 2
+    assert gerufen == []
+    assert "Das Gold-Set entsteht nicht" in capsys.readouterr().out
+
+
+def test_finish_eroeffnet_die_revision_nur_einmal(sandbox, monkeypatch, capsys) -> None:
+    # Die Revision liegt in der Sandbox: ein Test schreibt nicht ins echte
+    # Datenverzeichnis.
+    manifest = sandbox / "evaluations" / "eval-x" / gs.EXPORT_MANIFEST
+    monkeypatch.setattr(gs, "export_manifest_path", lambda eval_id: manifest)
+    assert lauf("label", "--engine", "claude") == 0
+    gerufen: list[str] = []
+    monkeypatch.setattr(gs, "_matcher",
+                        lambda schritt, eval_id: gerufen.append(schritt) or 0)
+    capsys.readouterr()
+
+    assert lauf("finish", "--engine", "claude", "--eval-id", "eval-x") == 0
+    assert gerufen == ["export", "import"]
+
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text("{}", encoding="utf-8")
+    gerufen.clear()
+    assert lauf("finish", "--engine", "claude", "--eval-id", "eval-x") == 0
+    assert gerufen == ["import"]
+
+
+def test_finish_reicht_den_fehlercode_des_matchers_durch(sandbox, monkeypatch,
+                                                         capsys) -> None:
+    """Exit 7 heisst abgelehnter Import; das darf nicht zu 2 verflachen."""
+    assert lauf("label", "--engine", "claude") == 0
+    monkeypatch.setattr(gs, "_matcher",
+                        lambda schritt, eval_id: 0 if schritt == "export" else 7)
+    capsys.readouterr()
+    assert lauf("finish", "--engine", "claude", "--eval-id", "eval-x") == 7

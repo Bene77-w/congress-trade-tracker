@@ -3633,7 +3633,15 @@ def fake_dir() -> Path | None:
 
 def run_fake(root: Path, task: dict, config: EngineConfig) -> EngineResult:
     """Liest die Antwort aus einer Datei statt aus einer CLI."""
-    path = root / f"{task['unit_id']}.json"
+    unit_id = task.get("unit_id")
+    if unit_id is None:
+        # Der Preflight fragt keine Unit ab, sondern nur, ob die Engine
+        # antwortet; im Trockenlauf tut sie das immer.
+        return EngineResult(
+            answer={"antwort": "bereit"}, exit_code=0, duration_s=0.0,
+            timed_out=False, stdout="", stderr="", num_turns=1, cost_usd=0.0,
+            session_id="fake")
+    path = root / f"{unit_id}.json"
     payload = read_json(path)
     if not isinstance(payload, dict):
         return EngineResult(
@@ -3661,6 +3669,135 @@ def engine_runner(engine: str):
     return lambda task, config, workdir: run_fake(root, task, config)
 
 
+# -- Sammelkommandos -------------------------------------------------------
+#: Ablageort der Evaluationsrevisionen. Nur als Pfad geprueft, nicht
+#: importiert: ``evaluate`` ist ein anderes Modul und bleibt es.
+EVALUATIONS_DIR = "evaluations"
+EXPORT_MANIFEST = "export_manifest.json"
+
+
+def export_manifest_path(eval_id: str) -> Path:
+    """Marke einer bereits eroeffneten Evaluationsrevision."""
+    return paths.artifact_path(EVALUATIONS_DIR, eval_id, EXPORT_MANIFEST)
+
+
+def _teilargs(**werte: Any) -> argparse.Namespace:
+    """Der Namespace, den die Einzelkommandos erwarten.
+
+    Die Sammelkommandos rufen dieselben Funktionen auf wie die Einzelaufrufe;
+    ein zweiter Weg durch dieselbe Logik waere sonst irgendwann ein zweites
+    Verhalten.
+    """
+    basis: dict[str, Any] = dict(
+        engine=None, model=None, effort=None, timeout=None, total_timeout=None,
+        web_access_off=False, unit_id=[], force=False, show=False,
+        source="merged", out=None, file=None, fix_case=False,
+        base="claude", against="codex")
+    basis.update(werte)
+    return argparse.Namespace(**basis)
+
+
+def _schritt(text: str) -> None:
+    print(f"\n--- {text} ---", flush=True)
+
+
+def _quelle(args: argparse.Namespace) -> str:
+    """Welche Zwischentabelle gilt: der Vergleich oder eine einzelne Engine."""
+    if getattr(args, "compared", False):
+        return "merged"
+    return resolve_engine(args, load_label_settings())
+
+
+def command_label(args: argparse.Namespace) -> int:
+    """Von den Aufgabenpaketen bis zur Reviewmappe in einem Aufruf.
+
+    Der Weg ist immer derselbe und die Zwischenschritte tragen keine
+    Entscheidung; sie einzeln tippen zu muessen war Aufwand ohne Gegenwert.
+    Befunde brechen nicht ab - sie sind die Arbeitsliste fuer das Review und
+    stehen in der Mappe, die dieser Aufruf am Ende schreibt.
+    """
+    engines = list(ENGINES) if args.compared else [_quelle(args)]
+    ergebnis = 0
+
+    _schritt("Aufgabenpakete erzeugen")
+    ergebnis = max(ergebnis, command_prepare(_teilargs()))
+    for engine in engines:
+        # Der Preflight schuetzt vor 22 Fehllaeufen; sein weicher Befund
+        # zaehlt nicht mit. Codex bestaetigt die Denktiefe nie, der Satz
+        # endete sonst immer mit 2 und die Zahl truege keine Auskunft mehr.
+        _schritt(f"{engine}: Engine, Modell und Denktiefe pruefen")
+        command_preflight(_teilargs(engine=engine))
+        _schritt(f"{engine}: Units labeln lassen (bezahlt)")
+        ergebnis = max(ergebnis, command_run(
+            _teilargs(engine=engine, force=args.force)))
+        _schritt(f"{engine}: Antworten pruefen und sammeln")
+        ergebnis = max(ergebnis, command_collect(_teilargs(engine=engine)))
+
+    if len(engines) > 1:
+        _schritt("beide Laeufe vergleichen")
+        ergebnis = max(ergebnis, command_merge(
+            _teilargs(base=engines[0], against=engines[1])))
+
+    quelle = "merged" if len(engines) > 1 else engines[0]
+    _schritt("Reviewmappe schreiben")
+    ergebnis = max(ergebnis, command_to_xlsx(
+        _teilargs(source=quelle, force=args.force)))
+
+    weiter = "--compared" if args.compared else f"--engine {engines[0]}"
+    print(f"\nJetzt {paths.relative_to_base(WORKBOOK_PATH)} oeffnen und "
+          "abnehmen.")
+    if ergebnis == 2:
+        print("Die Befunde oben nennen jede Stelle, die dabei Aufmerksamkeit "
+              "braucht.")
+    print(f"Danach: goldset_label.py finish {weiter} --eval-id <name>")
+    return ergebnis
+
+
+def _matcher(schritt: str, eval_id: str) -> int:
+    """Ruft die Matcher-CLI als eigenen Prozess auf.
+
+    Bewusst kein Import: das Labelwerkzeug entsteht unabhaengig vom Matcher
+    und soll es bleiben. Der Aufruf reicht dessen Ausgabe und Exit-Code
+    unveraendert durch.
+    """
+    command = [sys.executable, "-m", "committee_matcher", "evaluate", schritt,
+               "--eval-id", eval_id]
+    print(f"$ {' '.join(command[1:])}", flush=True)
+    return subprocess.run(command, cwd=BASE_DIR, check=False).returncode
+
+
+def command_finish(args: argparse.Namespace) -> int:
+    """Von der abgenommenen Mappe bis zum Gold-Set in einem Aufruf.
+
+    Die Pruefung steht vorne und ist die Bedingung: ein Befund haelt die
+    Uebernahme an, denn Belegregel, Anzahlgrenze und Broad-Scope-Bedingungen
+    prueft danach niemand mehr.
+    """
+    quelle = _quelle(args)
+    _schritt("Reviewmappe zuruecklesen und pruefen")
+    ergebnis = command_verify(_teilargs(source=quelle, fix_case=True))
+    if ergebnis != 0:
+        print("\nDas Gold-Set entsteht nicht: die Mappe traegt noch Befunde.")
+        print("Befunde in der Mappe beheben, dann 'finish' erneut aufrufen.")
+        return ergebnis
+
+    if not export_manifest_path(args.eval_id).exists():
+        _schritt(f"Evaluationsrevision {args.eval_id} eroeffnen")
+        code = _matcher("export", args.eval_id)
+        if code != 0:
+            print(f"\nAbgebrochen: 'evaluate export' endete mit {code}.")
+            return code
+
+    _schritt("Gold-Set uebernehmen")
+    code = _matcher("import", args.eval_id)
+    if code != 0:
+        print(f"\nDas Gold-Set entsteht nicht: 'evaluate import' endete mit "
+              f"{code}. Die Meldungen oben nennen jeden Grund.")
+        return code
+    print(f"\nGold-Set steht in der Revision {args.eval_id}.")
+    return 0
+
+
 # -- CLI -------------------------------------------------------------------
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -3672,6 +3809,31 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     actions = parser.add_subparsers(dest="action", required=True, metavar="AKTION")
+
+    def add_scope_flags(target: argparse.ArgumentParser) -> None:
+        umfang = target.add_mutually_exclusive_group()
+        umfang.add_argument("--engine", choices=ENGINES,
+                            help="nur diese CLI labelt; Vergleichsschritte "
+                                 "entfallen. Default aus config/settings.py")
+        umfang.add_argument("--compared", action="store_true",
+                            help="beide CLIs labeln und werden verglichen")
+
+    label = actions.add_parser(
+        "label", help="alles bis zur Reviewmappe: prepare, preflight, run, "
+                      "collect, vergleichen, to-xlsx (bezahlt)")
+    add_scope_flags(label)
+    label.add_argument("--force", action="store_true",
+                       help="vorhandene Antworten und Reviewmappe neu "
+                            "erzeugen; die alte Mappe wird vorher gesichert")
+    label.set_defaults(handler=command_label)
+
+    finish = actions.add_parser(
+        "finish", help="alles ab der abgenommenen Mappe: verify, Revision "
+                       "eroeffnen, Gold-Set uebernehmen")
+    add_scope_flags(finish)
+    finish.add_argument("--eval-id", required=True, metavar="NAME",
+                        help="Evaluationsrevision, in die das Gold-Set kommt")
+    finish.set_defaults(handler=command_finish)
 
     prepare = actions.add_parser(
         "prepare", help="Aufgabenpakete je Unit erzeugen (kostenfrei)")

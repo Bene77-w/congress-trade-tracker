@@ -1115,15 +1115,17 @@ dabei ungenutzt: er ist der Prüfling. Die Labels sind ein Vorschlag; das
 Gold-Set entsteht erst durch die Abnahme.
 
 ```bash
-P="venv/bin/python committee_matcher/goldset_label.py"
-$P prepare
-$P preflight --engine claude
-$P run       --engine claude                  # kostenpflichtig
-$P collect   --engine claude
-$P merge     --base claude --against codex
-$P to-xlsx   --source merged
-$P verify    --source merged --fix-case
+G="venv/bin/python committee_matcher/goldset_label.py"
+$G label                                      # kostenpflichtig
+xdg-open data/committee_matcher_v2/goldset/goldset_review.xlsx
+$G finish --eval-id eval-2026-09-02
 ```
+
+`label` fasst `prepare`, `preflight`, `run`, `collect`, den Vergleich und
+`to-xlsx` zusammen; `finish` fasst `verify` sowie `evaluate export|import`
+zusammen. `--engine claude` ist Default, `--engine codex` labelt nur mit
+Codex, `--compared` lässt beide laufen und vergleicht sie; die Angabe muss bei
+`label` und `finish` gleich sein. Die Bausteine bleiben einzeln aufrufbar.
 
 Kanonische Bedienungsanleitung mit allen Kommandos, Optionen, Exit-Codes und
 Befunden: **`committee_matcher/GOLDSET_ANLEITUNG.md`**. Begründungen und die
