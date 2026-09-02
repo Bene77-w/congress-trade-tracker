@@ -1149,9 +1149,16 @@ kommen. Der Wiederaufsatz ist derselbe wie beim Gold-Set: ein erneuter Aufruf
 `finish --fullrun` ruft statt `evaluate export|import` das Modul
 `committee_matcher/fullrun_import.py` auf. Ergebnis:
 `data/committee_matcher_v2/reviews/<review_id>/reviewed_assignments.csv` — die
-Datei, die auch der reguläre Reviewpfad erzeugt und die an `import_trades`
-übergeben wird. `--eval-id` und `--review-id` gehören zu je einer Betriebsart
-und werden gegeneinander abgewiesen.
+Datei, die auch der reguläre Reviewpfad erzeugt. Die Übergabe an
+`import_trades` ist damit vorbereitet, aber nicht vollzogen: die Pipeline liest
+weiterhin `data/mappings/subcommittee_sector_industry_mapping.csv` über
+`CommitteeTag()` (siehe oben, „der genaue Aufruf für diese Übernahme bleibt
+offen"). `--eval-id` und `--review-id` gehören zu je einer Betriebsart und
+werden gegeneinander abgewiesen.
+
+Bei `--compared` bindet die Übernahme die Herkunft an den Basislauf
+(`merge --base`, Vorgabe `claude`): die Basistabelle trägt dessen Zeilen, die
+Provenienzdatei dagegen beide Läufe.
 
 Kanonische Bedienungsanleitung mit allen Kommandos, Optionen, Exit-Codes und
 Befunden: **`committee_matcher/GOLDSET_ANLEITUNG.md`**. Begründungen und die

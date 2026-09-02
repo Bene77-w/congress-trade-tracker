@@ -1608,6 +1608,31 @@ def test_ratenlimit_wird_erkannt() -> None:
     assert not gs.rate_limited(_erfolg(), _config())
 
 
+def test_ratenlimit_im_zeitdeckel_wird_erkannt() -> None:
+    """Ein 429 bleibt eines, auch wenn der Unitdeckel darueber reisst.
+
+    Die Claude-CLI wiederholt ein Ratenlimit zuerst selbst und wartet dabei
+    die gemeldete Verzoegerung ab; genau dieser Fall darf nicht als blosser
+    Zeitueberlauf durchgehen, sonst laeuft der Fullrun an seinem Zweck vorbei.
+    """
+    gedeckelt = gs.EngineResult(answer=None, exit_code=1, duration_s=1800.0,
+                                timed_out=True, stdout="", stderr=RATE_LIMIT_TEXT)
+    assert gs.rate_limited(gedeckelt, _config())
+
+    ohne_grund = gs.EngineResult(answer=None, exit_code=1, duration_s=1800.0,
+                                 timed_out=True, stdout="", stderr="still busy")
+    assert not gs.rate_limited(ohne_grund, _config())
+
+
+def test_plattenfehler_ist_kein_ratenlimit() -> None:
+    """'Disk quota exceeded' darf keine endlose Warteschleife ausloesen."""
+    assert not gs.rate_limited(_fehlschlag("write failed: Disk quota exceeded"),
+                               _config())
+    # Die Kontingentmeldung der API bleibt dagegen erkannt.
+    assert gs.rate_limited(_fehlschlag("Error code: insufficient_quota"),
+                           _config())
+
+
 def test_fullrun_wartet_das_ratenlimit_aus(monkeypatch, capsys) -> None:
     """Zweimal Limit, dann Antwort: die Unit gilt am Ende als gelabelt."""
     geschlafen: list[int] = []
@@ -1766,6 +1791,11 @@ def test_review_id_und_eval_id_gehoeren_zu_je_einer_betriebsart(capsys) -> None:
     with pytest.raises(SystemExit):
         gs.main(["finish", "--review-id", "map-x"])
     assert "--review-id gilt nur mit --fullrun" in capsys.readouterr().err
+    vorher = {name: getattr(gs, name) for name in UMGESCHALTETE_PFADE}
     with pytest.raises(SystemExit):
         gs.main(["finish", "--fullrun", "--eval-id", "eval-x"])
     assert "--eval-id gilt nur ohne --fullrun" in capsys.readouterr().err
+    # Der abgewiesene Aufruf laesst die Ablage, wie sie war: haette er
+    # umgeschaltet, schriebe der naechste Aufruf desselben Prozesses in die
+    # Fullrun-Ablage, ohne dass jemand das verlangt hat.
+    assert {name: getattr(gs, name) for name in UMGESCHALTETE_PFADE} == vorher

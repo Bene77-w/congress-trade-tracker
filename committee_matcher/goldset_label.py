@@ -114,6 +114,11 @@ def use_fullrun_paths() -> None:
     WORKBOOK_PATH = FULLRUN_ROOT / "fullrun_review.xlsx"
 
 
+#: Lauf, dessen Zeilen ``merge`` in die Basistabelle uebernimmt. Als Konstante
+#: gefuehrt, weil die Uebernahme des Fullruns dieselbe Wahl treffen muss: sie
+#: bindet die Herkunft an genau diesen Lauf.
+MERGE_BASE_ENGINE = "claude"
+
 #: Fassung der Aufgabenpakete. Wird in jedes Paket geschrieben; ``run`` und
 #: ``collect`` lehnen fremde Fassungen ab, statt gegen ein anderes Format zu
 #: arbeiten.
@@ -1472,7 +1477,8 @@ FAILURE_MARKS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("GS_CLI_UNAUTHORIZED", ("not logged in", "please run /login", "unauthorized",
                              "authentication", "nicht angemeldet")),
     ("GS_RATE_LIMITED", ("rate limit", "rate_limit", "too many requests",
-                         "usage limit", "quota")),
+                         "usage limit", "insufficient_quota",
+                         "exceeded your current quota")),
 )
 
 #: HTTP-Status zu Ursache. 404 allein sagt nur, dass ein Endpunkt fehlt;
@@ -2253,15 +2259,30 @@ def store_log(config: EngineConfig, unit_id: str, result: EngineResult) -> None:
 RATE_LIMIT_WAIT_SECONDS = 600
 
 
+#: Die Merkmale des Ratenlimits aus ``FAILURE_MARKS``, nicht daneben gefuehrt:
+#: eine zweite Liste urteilte frueher oder spaeter anders als der Bericht.
+RATE_LIMIT_MARKS: tuple[str, ...] = dict(FAILURE_MARKS)["GS_RATE_LIMITED"]
+
+
 def rate_limited(result: EngineResult, config: EngineConfig) -> bool:
     """Ist dieser Fehlschlag ein erreichtes Ratenlimit des Abos?
 
-    Gefragt wird dieselbe Klassifikation, die auch den Befund schreibt; eine
-    zweite Merkmalsliste wuerde frueher oder spaeter anders urteilen als der
-    Bericht, den Bene liest.
+    Gefragt wird dieselbe Klassifikation, die auch den Befund schreibt.
+
+    Der Zeitdeckel ist der Sonderfall: die Claude-CLI wiederholt ein 429
+    zuerst selbst und wartet dabei die gemeldete ``retry_delay_ms`` ab. Reisst
+    sie darueber den Unitdeckel, meldet die Klassifikation nur noch den Deckel,
+    obwohl der Grund im Protokoll steht. Ohne diese Ausnahme liefe der Fullrun
+    genau am Ratenlimit vorbei, gegen das er gebaut ist.
     """
-    if result.answer is not None or result.timed_out:
+    if result.answer is not None:
         return False
+    if result.timed_out:
+        digest = failure_digest(config.engine, result)
+        status = STATUS_PATTERN.search(digest)
+        return (_looks_like(digest, *RATE_LIMIT_MARKS)
+                or (status is not None
+                    and STATUS_CODES.get(status.group(1)) == "GS_RATE_LIMITED"))
     return classify_failure(config.engine, result, config).code == "GS_RATE_LIMITED"
 
 
@@ -4073,7 +4094,7 @@ def build_parser() -> argparse.ArgumentParser:
     merge = actions.add_parser(
         "merge", help="zwei Enginelaeufe vergleichen und den Dissens "
                       "aufschreiben")
-    merge.add_argument("--base", choices=ENGINES, default="claude",
+    merge.add_argument("--base", choices=ENGINES, default=MERGE_BASE_ENGINE,
                        help="Lauf, dessen Zeilen die Basistabelle bilden")
     merge.add_argument("--against", choices=ENGINES, default="codex",
                        help="Lauf, gegen den verglichen wird")
@@ -4114,16 +4135,17 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    # Der Umschalter steht vor jedem Handler: ab hier zeigen alle Pfade dieses
-    # Prozesses in die Ablage der gewaehlten Betriebsart.
-    if is_fullrun(args):
-        use_fullrun_paths()
     if getattr(args, "review_id", None) and not is_fullrun(args):
         parser.error("--review-id gilt nur mit --fullrun; das Gold-Set kommt "
                      "mit --eval-id in eine Evaluationsrevision")
     if is_fullrun(args) and getattr(args, "eval_id", None):
         parser.error("--eval-id gilt nur ohne --fullrun; das Mapping des "
                      "Fullruns kommt mit --review-id in eine Reviewrevision")
+    # Der Umschalter steht hinter der Bedienpruefung und vor jedem Handler: ein
+    # abgewiesener Aufruf laesst die Pfade, wie sie waren, ab hier zeigen sie
+    # in die Ablage der gewaehlten Betriebsart.
+    if is_fullrun(args):
+        use_fullrun_paths()
     try:
         return int(args.handler(args))
     except GoldsetBlocked as blocked:

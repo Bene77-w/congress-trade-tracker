@@ -44,9 +44,14 @@ Exportmodul. Was darueber hinausgeht, braucht einen Grund.
   `null`; die Auslastung ist bei Codex nicht auslesbar, nur die Fehlermeldung.
 
 **Folge:** Die vorhandene Erkennung ueber Status 429 und die Textmarken
-`rate limit`, `rate_limit`, `too many requests`, `usage limit`, `quota` bleibt
-der einzige belastbare Weg und deckt beide Formulierungen ab. Es wird keine
-Exitcode-Logik ergaenzt, die es nicht gibt.
+`rate limit`, `rate_limit`, `too many requests`, `usage limit`,
+`insufficient_quota`, `exceeded your current quota` bleibt der einzige
+belastbare Weg und deckt beide Formulierungen ab. Es wird keine Exitcode-Logik
+ergaenzt, die es nicht gibt.
+
+Die Marke `quota` allein waere zu weit: sie traefe auch `Disk quota exceeded`
+und schickte den Fullrun wegen eines lokalen Plattenfehlers in eine
+Warteschleife, die nie endet.
 
 ## Soll
 
@@ -108,6 +113,11 @@ Falschaussage. `assignment_source` ist `model` bei einer unveraenderten Zeile
 und `manual`, sobald Bene sie in der Mappe angefasst hat; verglichen wird gegen
 die gesammelte CSV.
 
+Bei `--compared` traegt `info_merged.csv` beide Laeufe, `labels_merged.csv`
+dagegen nur die Basis. Die Herkunft wird deshalb an die Basisengine gebunden
+(`MERGE_BASE_ENGINE`); ohne diese Bindung nennte sie die alphabetisch letzte
+Engine und behauptete ein Modell, das die Zeile nie erzeugt hat.
+
 `run_id` und `review_id` tragen denselben Wert: es gab keinen Matcherlauf, dem
 ein eigener `run_id` zustuende.
 
@@ -148,3 +158,40 @@ Netzwerk- und CLI-frei ueber den vorhandenen Trockenlauf
 | `finish --fullrun` | ruft das Exportmodul, nicht `evaluate import` |
 | `fullrun_import` | Spalten und Reihenfolge wie `reviewed_assignments.csv` |
 | Herkunft | unveraenderte Zeile `model`, geaenderte `manual` |
+| Herkunft bei `--compared` | Provenienz stammt vom Basislauf, nicht vom Vergleichslauf |
+| Ratenlimit im Zeitdeckel | 429 plus Deckelriss gilt als Ratenlimit, nicht als Zeitueberlauf |
+| lokaler Plattenfehler | `Disk quota exceeded` loest keine Warteschleife aus |
+| unbekannte Industry-ID | Uebernahme blockiert, statt leere Namen zu schreiben |
+| Modellzeile ohne Provenienz | Uebernahme blockiert |
+| Broad-Scope-Zelle | nur `ja` zaehlt, wie in `verify` |
+| beschaedigte Mappe | Blockiermeldung statt Traceback |
+| abgewiesener Aufruf | laesst die Pfade des Prozesses unveraendert |
+
+## Nachbesserung nach dem Funktionsreview (2026-09-02)
+
+Behoben: Herkunft bei `--compared` an die Basisengine gebunden; Ratenlimit
+auch bei gerissenem Unitdeckel erkannt; Textmarke `quota` praezisiert;
+`industry_id` gegen den freigegebenen Snapshot geprueft; Modellzeilen ohne
+Provenienz blockieren; Broad-Scope-Zelle wird gelesen wie in `verify`;
+beschaedigte Mappe meldet statt abzustuerzen; ein abgewiesener Aufruf schaltet
+die Ablage nicht mehr um.
+
+Verworfen mit Grund:
+
+- **Gesamtdeckel im Fullrun nicht mehr validieren.** Ein ungueltiger Wert in
+  `settings.py` soll gemeldet werden, auch wenn er hier nicht wirkt.
+- **`import_manifest.json` streichen.** Es ist der Marker, an dem ein zweiter
+  Aufruf einen vorhandenen Stand erkennt.
+- **`verify` zusaetzlich `true`/`1` akzeptieren lassen.** Vereinheitlicht wurde
+  in die andere Richtung: eine Schreibweise, die `to-xlsx` auch erzeugt.
+- **Prompt-Fassung aus der Aufgabenbindung statt aus der Provenienzdatei.** Die
+  Provenienz haelt fest, was tatsaechlich lief; die Bindung nur, was geplant war.
+- **Umschalter am Ende von `main()` zuruecksetzen.** Der Umschalter ersetzt
+  Modulglobals, die Tests direkt umlenken; ein Ruecksetzer schriebe sie auf die
+  echte Ablage zurueck. Ein Aufruf bedient eine Betriebsart, das genuegt.
+
+Offen und Bene vorgelegt: `scripts/import_trades.py` liest weiterhin
+`data/mappings/subcommittee_sector_industry_mapping.csv` ueber `CommitteeTag()`
+und nicht `reviewed_assignments.csv`. Das ist ein vorbestehender offener Punkt
+des Matchers (`CLI_Bedienungsanleitung.md`: "der genaue Aufruf fuer diese
+Uebernahme bleibt offen") und liegt ausserhalb dieses Fullrun-Wegs.

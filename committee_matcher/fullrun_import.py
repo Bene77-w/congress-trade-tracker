@@ -105,7 +105,14 @@ def _by_unit(rows: Sequence[Mapping[str, str]]) -> dict[str, list[dict[str, str]
 
 
 def _wahrheit(wert: str) -> bool:
-    return wert.strip().lower() in ("true", "ja", "1", "wahr")
+    """Broad-Scope-Zelle als Wahrheitswert, exakt wie ``verify`` sie liest.
+
+    Bewusst nur ``ja``: ``to-xlsx`` schreibt ``ja``/``nein``, und ``verify``
+    prueft auf ``ja``. Ein zusaetzlich akzeptiertes ``true`` waere die
+    Umgehung - die Pruefung auf die Pflichtbegruendung liefe daran vorbei, die
+    Uebernahme setzte die Ausnahme trotzdem.
+    """
+    return wert.strip().casefold() == "ja"
 
 
 def _unveraendert(row: Mapping[str, str], vorlage: Mapping[str, str]) -> bool:
@@ -154,10 +161,25 @@ def build_units(labels: Sequence[Mapping[str, str]],
     return units
 
 
+def base_engine_of(source: str) -> str:
+    """Der Lauf, dessen Zeilen unter ``source`` uebernommen werden.
+
+    ``info_merged.csv`` traegt beide Laeufe, ``labels_merged.csv`` dagegen nur
+    die Basis. Ohne diese Bindung nennte die Herkunft irgendeine der beiden
+    Engines - in der Praxis die alphabetisch letzte - und behauptete damit ein
+    Modell, das die Zeile nie erzeugt hat.
+    """
+    return gs.MERGE_BASE_ENGINE if source == "merged" else source
+
+
 def origins_from(infos: Sequence[Mapping[str, str]],
                  tasks: Mapping[str, Mapping[str, Any]],
+                 engine: str,
                  ) -> dict[str, dict[str, str]]:
     """Die Herkunft je Unit, so weit ein CLI-Lauf sie belegen kann.
+
+    Gelesen werden ausschliesslich die Zeilen von ``engine``: nur dieser Lauf
+    hat die uebernommenen Labels erzeugt.
 
     ``call_id``, ``generation_id`` und ``from_repair`` bleiben leer: die CLIs
     kennen sie nicht, und ein gefuellter Wert waere eine Falschaussage ueber
@@ -165,10 +187,12 @@ def origins_from(infos: Sequence[Mapping[str, str]],
     """
     herkunft: dict[str, dict[str, str]] = {}
     for info in infos:
+        if info.get("engine", "") != engine:
+            continue
         unit_id = info["unit_id"]
         binding = (tasks.get(unit_id) or {}).get("binding") or {}
         herkunft[unit_id] = {
-            "provider": PROVIDER.get(info.get("engine", ""), info.get("engine", "")),
+            "provider": PROVIDER.get(engine, engine),
             "model": info.get("model", ""),
             "prompt_id": str(binding.get("prompt_id", "")),
             "prompt_version": info.get("prompt_version", ""),
@@ -205,6 +229,14 @@ def _unbekannte_units(units: Mapping[str, Any],
     return sorted(unit_id for unit_id in units if unit_id not in corpus)
 
 
+def _unbekannte_industries(units: Mapping[str, Any], snapshot) -> list[str]:
+    bekannt = snapshot.industry_ids()
+    return sorted({entry.industry_id
+                   for state in units.values()
+                   for entry in state.assignments
+                   if entry.industry_id not in bekannt})
+
+
 def import_fullrun(review_id: str, source: str) -> dict[str, Any]:
     """Schreibt das Mapping der abgenommenen Fullrun-Mappe.
 
@@ -223,7 +255,14 @@ def import_fullrun(review_id: str, source: str) -> dict[str, Any]:
             "Anderen Namen waehlen; ein vorhandener Stand wird nicht "
             "ueberschrieben.")
 
-    book = load_workbook(mappe, data_only=False)
+    try:
+        book = load_workbook(mappe, data_only=False)
+    except Exception as fehler:  # openpyxl wirft je nach Schaden anderes
+        raise _blocked(
+            f"Die Reviewmappe {paths.relative_to_base(mappe)} ist nicht "
+            f"lesbar: {type(fehler).__name__}: {fehler}.",
+            "Mappe in Excel oeffnen und als .xlsx speichern, oder mit "
+            "'goldset_label.py to-xlsx --fullrun' neu erzeugen.") from fehler
     labels = read_sheet(book, gs.SHEET_LABELS, gs.LABEL_COLUMNS)
     notes = {row["unit_id"]: row
              for row in read_sheet(book, gs.SHEET_NOTES, gs.NOTE_COLUMNS)}
@@ -240,7 +279,7 @@ def import_fullrun(review_id: str, source: str) -> dict[str, Any]:
                         was=f"mit der Provenienz von {source}")
 
     unit_ids = sorted({row["unit_id"] for row in labels})
-    herkunft = origins_from(infos, load_tasks(unit_ids))
+    herkunft = origins_from(infos, load_tasks(unit_ids), base_engine_of(source))
     units = build_units(labels, notes, gelaufen, herkunft)
 
     corpus = gs.load_corpus_units()
@@ -252,6 +291,34 @@ def import_fullrun(review_id: str, source: str) -> dict[str, Any]:
             "Korpus und Mappe stammen aus verschiedenen Staenden; Fullrun mit "
             "'prepare --fullrun' auf den aktuellen Korpus bringen.")
     snapshot = _snapshot()
+
+    # Der Export holt Industry- und Sektornamen aus dem Snapshot. Eine ID, die
+    # er nicht kennt, faellt dabei nicht auf: die Zeile entstuende mit leeren
+    # Namen und ginge als gueltiges Mapping in die Pipeline.
+    unbekannt = _unbekannte_industries(units, snapshot)
+    if unbekannt:
+        raise _blocked(
+            f"{len(unbekannt)} Industry-IDs der Mappe stehen nicht in der "
+            "freigegebenen Taxonomie: "
+            + ", ".join(unbekannt[:5]) + (" ..." if len(unbekannt) > 5 else "")
+            + ".",
+            "IDs gegen den freigegebenen Snapshot pruefen; Schreibweise "
+            "beachten (Excel korrigiert Bindestrichnamen gern eigenmaechtig).")
+
+    # Eine Zeile gilt als Modellurteil, wenn sie unveraendert aus dem Lauf
+    # kommt. Fehlt dazu die Provenienz, ist die Sammlung unvollstaendig - die
+    # Zeile behauptete sonst ein Modell, das niemand mehr benennen kann.
+    ohne_beleg = sorted(unit_id for unit_id, state in units.items()
+                        if any(entry.source == "model" and not entry.origin
+                               for entry in state.assignments))
+    if ohne_beleg:
+        raise _blocked(
+            f"{len(ohne_beleg)} Units tragen Modellzeilen ohne Provenienz: "
+            + ", ".join(ohne_beleg[:3])
+            + (" ..." if len(ohne_beleg) > 3 else "") + ".",
+            f"'goldset_label.py collect --fullrun --engine "
+            f"{base_engine_of(source)}' wiederholen; die Provenienzdatei ist "
+            "unvollstaendig.")
 
     zuordnungen = sum(len(state.assignments) for state in units.values())
     manuell = sum(1 for state in units.values() for entry in state.assignments

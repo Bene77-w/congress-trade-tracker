@@ -200,6 +200,94 @@ def test_umgebaute_mappe_wird_abgelehnt(mappe, revisionen, capsys) -> None:
     assert "Kopfzeile" in capsys.readouterr().err
 
 
+def _info(unit_id: str, engine: str, model: str) -> dict[str, str]:
+    zeile = {spalte: "" for spalte in gs.INFO_COLUMNS}
+    zeile.update(unit_id=unit_id, engine=engine, model=model,
+                 prompt_version="v1", prompt_sha256="abc")
+    return zeile
+
+
+def test_herkunft_folgt_der_basisengine() -> None:
+    """Aus 'merged' zaehlt der Lauf, dessen Zeilen die Basistabelle traegt.
+
+    ``info_merged.csv`` fuehrt beide Laeufe. Ohne Bindung an die Basis nennte
+    die Herkunft die alphabetisch letzte Engine und behauptete ein Modell,
+    das die uebernommene Zeile nie erzeugt hat.
+    """
+    infos = [_info("u1", "claude", "opus"), _info("u1", "codex", "gpt")]
+
+    assert fullrun_import.base_engine_of("merged") == gs.MERGE_BASE_ENGINE
+    assert fullrun_import.base_engine_of("codex") == "codex"
+
+    herkunft = fullrun_import.origins_from(infos, {}, "claude")
+    assert herkunft["u1"]["provider"] == "claude-cli"
+    assert herkunft["u1"]["model"] == "opus"
+    # Ein Einzellauf bleibt unberuehrt davon.
+    assert fullrun_import.origins_from(infos, {}, "codex")["u1"]["model"] == "gpt"
+
+
+def test_unbekannte_industry_haelt_die_uebernahme_an(mappe, revisionen, sample,
+                                                     capsys) -> None:
+    """Eine ID ausserhalb der Taxonomie erzeugte sonst leere Namen."""
+    blatt_setzen(mappe, sample[0].unit_id, "industry_id", "gibt-es-nicht")
+
+    assert uebernehmen() == 1
+    fehler = capsys.readouterr().err
+    assert "nicht in der freigegebenen Taxonomie" in fehler
+    assert "gibt-es-nicht" in fehler
+    assert not (revisionen / REVIEW_ID).exists()
+
+
+def test_modellzeile_ohne_provenienz_haelt_an(mappe, revisionen, capsys) -> None:
+    """Ohne Provenienz kann niemand mehr sagen, welches Modell geurteilt hat."""
+    gs.write_csv(gs.info_path("claude"), gs.INFO_COLUMNS, [])
+
+    assert uebernehmen() == 1
+    fehler = capsys.readouterr().err
+    assert "Modellzeilen ohne Provenienz" in fehler
+    assert not (revisionen / REVIEW_ID).exists()
+
+
+def test_broad_scope_gilt_nur_als_ja(mappe, revisionen, sample, capsys) -> None:
+    """Die Uebernahme liest den Wert genau so, wie 'verify' ihn prueft.
+
+    Ein zusaetzlich akzeptiertes 'true' waere die Umgehung: die Pruefung auf
+    die Pflichtbegruendung liefe daran vorbei, die Ausnahme stuende trotzdem
+    im Mapping.
+    """
+    unit_id = sample[0].unit_id
+    book = load_workbook(mappe)
+    sheet = book[gs.SHEET_NOTES]
+    spalte = list(gs.NOTE_COLUMNS).index("broad_scope") + 1
+    for line in range(2, sheet.max_row + 1):
+        if sheet.cell(row=line, column=1).value == unit_id:
+            zelle = sheet.cell(row=line, column=spalte)
+            zelle.value = "true"
+            zelle.data_type = "s"
+            break
+    book.save(mappe)
+
+    assert uebernehmen() == 0
+    capsys.readouterr()
+    coverage = {row["unit_id"]: row for row in
+                zeilen(revisionen / REVIEW_ID / review.REVIEWED_COVERAGE_FILENAME)}
+    assert coverage[unit_id]["broad_scope_exception"].strip().casefold() \
+        not in ("true", "ja", "1")
+    assert not fullrun_import._wahrheit("true")
+    assert fullrun_import._wahrheit("Ja")
+
+
+def test_unlesbare_mappe_meldet_statt_abzustuerzen(mappe, revisionen,
+                                                   capsys) -> None:
+    """Eine beschaedigte Datei ist ein Bedienfall, kein Traceback."""
+    mappe.write_bytes(b"kein gueltiges xlsx")
+
+    assert uebernehmen() == 1
+    fehler = capsys.readouterr().err
+    assert "nicht lesbar" in fehler
+    assert "to-xlsx --fullrun" in fehler
+
+
 def test_spaltenvertrag_stammt_aus_dem_matcher() -> None:
     """Der Export erfindet keine eigene Spaltenfolge."""
     assert review.REVIEWED_COLUMNS == artifacts.ASSIGNMENT_COLUMNS + ("review_id",)
