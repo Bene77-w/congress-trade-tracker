@@ -326,8 +326,8 @@ Seit 2026-08-30 live unter `https://congress-trading-tracker.com` (auch `www`).
 
 | Merkmal | Wert |
 |---|---|
-| Server | privater VPS (4 vCore, 4 GB RAM, 120 GB), Ubuntu 24.04 LTS, `server.example` |
-| Projektpfad | `/srv/congress-tracker` |
+| Server | Privater VPS; Details nur in der lokalen `.deploy.env` |
+| Projektpfad | Lokal über `DEPLOY_PATH` in `.deploy.env` konfiguriert |
 | Container | `congress-dashboard` (healthy, Deckel 2 GB) + `congress-caddy`, beide `restart: unless-stopped` |
 | Datenstand | 114.347 Trades, Stand 2026-07-21, 80 MB im Speicher |
 | HTTPS | Let's Encrypt via Caddy, automatische Erneuerung |

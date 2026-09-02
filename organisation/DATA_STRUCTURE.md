@@ -1938,6 +1938,13 @@ Der manuelle Rollout ist in `scripts/deploy_data.sh` (Snapshot bauen,
 hochladen, Dashboard neu starten) und `scripts/deploy_code.sh` (Code hochladen,
 Container neu bauen) gekapselt; Bedienung siehe CLI-Dokumentation Abschnitt 14.
 
+### `.deploy.env.example` / `.deploy.env`
+
+| Datei | Git-Status | Zweck |
+|---|---|---|
+| `.deploy.env.example` | versioniert | Neutrale Vorlage für `DEPLOY_TARGET`, `DEPLOY_PATH`, `DEPLOY_COMPOSE_PROJECT`, `E2E_REMOTE_BASE`, `E2E_MASTER_SOURCE` und `E2E_PYTHON_BIN` |
+| `.deploy.env` | gitignored | Private lokale Server-, Pfad- und E2E-Konfiguration; zusätzlich aus Docker-Buildkontext und Code-Rollout ausgeschlossen |
+
 ### `data/deploy/trades_snapshot.parquet` (gitignored)
 **Quelle**: `data/processed/trades_master_complete.csv`, per
 `scripts/build_deploy_snapshot.py` konvertiert.

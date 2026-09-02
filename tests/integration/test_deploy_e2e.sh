@@ -9,6 +9,8 @@ fi
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd -- "$SCRIPT_DIR/../.." && pwd)"
+DEPLOY_CONFIG_FILE="${DEPLOY_CONFIG_FILE:-$PROJECT_ROOT/.deploy.env}"
+[[ ! -f "$DEPLOY_CONFIG_FILE" ]] || source "$DEPLOY_CONFIG_FILE"
 FIXTURE="$PROJECT_ROOT/tests/fixtures/docker-compose.deploy-e2e.yml"
 REMOTE_CLEANUP_SCRIPT="$PROJECT_ROOT/tests/integration/remote_cleanup_deploy_e2e.sh"
 REMOTE_PREFLIGHT_SCRIPT="$PROJECT_ROOT/tests/integration/remote_preflight_deploy_e2e.sh"
@@ -30,12 +32,13 @@ for required_path in \
     exit 1
   }
 done
-DEPLOY_TARGET="${DEPLOY_TARGET:-deploy@server.example}"
-E2E_MASTER_SOURCE="${E2E_MASTER_SOURCE:-/path/to/congress_tracker/data/processed/trades_master_complete.csv}"
-E2E_PYTHON_BIN="${E2E_PYTHON_BIN:-/path/to/congress_tracker/venv/bin/python}"
+: "${DEPLOY_TARGET:?DEPLOY_TARGET fehlt; .deploy.env.example nach .deploy.env kopieren}"
+: "${E2E_REMOTE_BASE:?E2E_REMOTE_BASE fehlt; .deploy.env.example nach .deploy.env kopieren}"
+: "${E2E_MASTER_SOURCE:?E2E_MASTER_SOURCE fehlt; .deploy.env.example nach .deploy.env kopieren}"
+E2E_PYTHON_BIN="${E2E_PYTHON_BIN:-python3}"
 
 RUN_ID="$(date -u +%Y%m%d%H%M%S)-$$"
-REMOTE_PARENT="/srv/congress-tracker-e2e-$RUN_ID"
+REMOTE_PARENT="$E2E_REMOTE_BASE/congress-tracker-e2e-$RUN_ID"
 REMOTE_PATH="$REMOTE_PARENT/congress-tracker"
 E2E_PROJECT_NAME="congress-tracker-e2e-$RUN_ID"
 E2E_CONTAINER_NAME="congress-dashboard-e2e-$RUN_ID"
@@ -58,7 +61,7 @@ production_state() {
 }
 
 preflight_no_orphans() {
-  ssh "$DEPLOY_TARGET" bash -s < "$REMOTE_PREFLIGHT_SCRIPT"
+  ssh "$DEPLOY_TARGET" bash -s -- "$E2E_REMOTE_BASE" < "$REMOTE_PREFLIGHT_SCRIPT"
 }
 
 remote_cleanup_resources() {
@@ -125,7 +128,8 @@ for command_name in git ssh rsync curl; do
     exit 1
   }
 done
-[[ -x "$E2E_PYTHON_BIN" ]] || { echo "Python fehlt: $E2E_PYTHON_BIN" >&2; exit 1; }
+E2E_PYTHON_BIN="$(command -v -- "$E2E_PYTHON_BIN")" \
+  || { echo "Python fehlt: $E2E_PYTHON_BIN" >&2; exit 1; }
 [[ -s "$E2E_MASTER_SOURCE" ]] || { echo "Master fehlt: $E2E_MASTER_SOURCE" >&2; exit 1; }
 [[ -s "$FIXTURE" ]] || { echo "Compose-Fixture fehlt: $FIXTURE" >&2; exit 1; }
 [[ "$DEPLOY_TARGET" =~ ^([A-Za-z0-9._][A-Za-z0-9._-]*@)?[A-Za-z0-9._][A-Za-z0-9._-]*$ ]] || {
@@ -136,7 +140,16 @@ done
   echo "Ungueltiger E2E_PORT: $E2E_PORT" >&2
   exit 2
 }
-[[ "$REMOTE_PARENT" =~ ^/srv/congress-tracker-e2e-[0-9]{14}-[0-9]+$ ]] || exit 1
+[[ "$E2E_REMOTE_BASE" =~ ^/[A-Za-z0-9._/-]+$ \
+   && "$E2E_REMOTE_BASE" != "/" \
+   && "$E2E_REMOTE_BASE" != */ \
+   && "$E2E_REMOTE_BASE" != *"//"* \
+   && "$E2E_REMOTE_BASE" != *"/./"* \
+   && "$E2E_REMOTE_BASE" != *"/." \
+   && "$E2E_REMOTE_BASE" != *"/../"* \
+   && "$E2E_REMOTE_BASE" != *".."* ]] || exit 1
+[[ "$REMOTE_PARENT" =~ ^/[A-Za-z0-9._/-]+/congress-tracker-e2e-[0-9]{14}-[0-9]+$ \
+   && "$REMOTE_PARENT" == "$E2E_REMOTE_BASE"/* ]] || exit 1
 [[ "$REMOTE_PATH" == "$REMOTE_PARENT/congress-tracker" ]] || exit 1
 [[ "$E2E_PROJECT_NAME" == "congress-tracker-e2e-$RUN_ID" ]] || exit 1
 [[ "$E2E_CONTAINER_NAME" == "congress-dashboard-e2e-$RUN_ID" ]] || exit 1

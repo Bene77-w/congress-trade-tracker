@@ -15,3 +15,4 @@ logs/
 
 # Secrets nie ins Image backen — kommen ueber env_file in den Container.
 .env
+.deploy.env

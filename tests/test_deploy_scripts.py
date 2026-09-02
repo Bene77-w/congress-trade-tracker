@@ -11,6 +11,11 @@ ROOT = Path(__file__).resolve().parent.parent
 
 def _run(script: str, *args: str, **env: str) -> subprocess.CompletedProcess[str]:
     run_env = os.environ.copy()
+    run_env.update({
+        "DEPLOY_CONFIG_FILE": str(ROOT / ".missing-deploy-env-for-tests"),
+        "DEPLOY_TARGET": "deploy@example.org",
+        "DEPLOY_PATH": "/srv/congress-tracker",
+    })
     run_env.update(env)
     return subprocess.run(
         ["bash", str(ROOT / "scripts" / script), *args],
@@ -36,6 +41,7 @@ def test_deploy_code_dry_run_protects_remote_state():
     assert "test\\ -f" in result.stdout
     assert "--delete" in result.stdout
     assert "--exclude=.env" in result.stdout
+    assert "--exclude=.deploy.env" in result.stdout
     assert "--exclude=deploy/.env" in result.stdout
     assert "--exclude=data/" in result.stdout
     assert "git-archive:HEAD" in result.stdout
@@ -83,6 +89,18 @@ def test_deploy_scripts_reject_unknown_arguments():
         result = _run(script, "--unbekannt")
         assert result.returncode == 2
         assert "Aufruf:" in result.stderr
+
+
+def test_deploy_scripts_help_needs_no_private_config():
+    for script in ("deploy_code.sh", "deploy_data.sh"):
+        result = _run(
+            script,
+            "--help",
+            DEPLOY_TARGET="",
+            DEPLOY_PATH="",
+        )
+        assert result.returncode == 0
+        assert "Aufruf:" in result.stdout
 
 
 def test_deploy_scripts_reject_ssh_option_as_target():

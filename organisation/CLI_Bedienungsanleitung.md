@@ -985,6 +985,10 @@ python scripts/build_deploy_snapshot.py
 
 ### Website aktualisieren (`scripts/deploy_data.sh`, `scripts/deploy_code.sh`)
 
+Einmalig `.deploy.env.example` nach `.deploy.env` kopieren, mit den privaten
+Zielwerten befüllen und die Rechte mit `chmod 600 .deploy.env` beschränken.
+Die Zieldatei wird weder von Git noch vom Docker-Buildkontext erfasst.
+
 ```bash
 # Nach einem vollstaendigen Import: Snapshot bauen, hochladen, App neu starten
 scripts/deploy_data.sh
@@ -993,10 +997,10 @@ scripts/deploy_data.sh
 scripts/deploy_code.sh
 ```
 
-Beide Skripte verwenden standardmaessig den Live-VPS
-`deploy@server.example:/srv/congress-tracker`, akzeptieren `--dry-run` und lassen
-sich ueber `DEPLOY_TARGET` sowie `DEPLOY_PATH` umleiten. `deploy_data.sh`
-akzeptiert zusaetzlich `PYTHON_BIN`. Der Code-Upload schliesst insbesondere
+Beide Skripte lesen das Ziel aus der ignorierten `.deploy.env`, akzeptieren
+`--dry-run` und lassen sich über `DEPLOY_TARGET` sowie `DEPLOY_PATH`
+überschreiben. Vorlage: `.deploy.env.example`. `deploy_data.sh` akzeptiert
+zusätzlich `PYTHON_BIN`. Der Code-Upload schliesst insbesondere
 die lokale Secret-Datei `.env`, `data/`, `logs/` und `deploy/.env` aus. Beide
 Rollouts verlangen einen initialisierten Zielpfad mit Endung
 `/congress-tracker` und warten maximal 180 Sekunden auf erfolgreiche

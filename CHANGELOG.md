@@ -51,8 +51,8 @@ gemountet), nicht durch die Änderungen verursacht.
 ## 2026-08-30 — Dashboard live auf eigenem Server
 
 Das Dashboard ist öffentlich erreichbar unter `https://congress-trading-tracker.com`
-(auch `www`). Server: privater VPS (4 vCore, 4 GB RAM, 120 GB SSD),
-Ubuntu 24.04 LTS, `server.example`, Projekt unter `/srv/congress-tracker`.
+(auch `www`). Konkrete Server-, Zugangs- und Pfadangaben liegen ausschliesslich
+in der nicht versionierten `.deploy.env`.
 
 Aufbau: System aktualisiert, Docker 29.7.2 + Compose v5.5.0 aus dem offiziellen
 Repo, `ufw` auf 22/80/443, SSH nur per Schlüssel (`00-hardening.conf` — Ubuntu

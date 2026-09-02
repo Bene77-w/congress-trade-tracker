@@ -126,6 +126,18 @@ kommt.
 
 ## 3. Code und Datenstand auf den Server bringen
 
+Die private Zielkonfiguration wird einmalig aus der Vorlage erstellt und
+nicht versioniert:
+
+```bash
+cp .deploy.env.example .deploy.env
+chmod 600 .deploy.env
+```
+
+Danach `DEPLOY_TARGET`, `DEPLOY_PATH` und bei Bedarf die E2E-Werte lokal
+eintragen. `.deploy.env` ist sowohl in Git als auch im Docker-Buildkontext
+ausgeschlossen.
+
 Bei oeffentlichem Repo genuegt ein Clone. Solange das Repo **privat** ist,
 braeuchte der Server einen Deploy-Key — einfacher ist es, den Code direkt
 hochzuladen:
@@ -133,13 +145,14 @@ hochzuladen:
 ```bash
 # Auf dem Entwicklungsrechner, aus dem Projektroot:
 rsync -az --delete \
-  --exclude='.git/' --exclude='.env' --exclude='venv/' --exclude='archive/' \
+  --exclude='.git/' --exclude='.env' --exclude='.deploy.env' \
+  --exclude='venv/' --exclude='archive/' \
   --exclude='__pycache__/' --exclude='data/' --exclude='logs/' \
   --exclude='deploy/.env' \
-  ./ root@<server-ip>:/srv/congress-tracker/
+  ./ deploy@server.example:/srv/congress-tracker/
 
 # Datenstand separat (~41 MB)
-rsync -az --mkpath data/deploy/ root@<server-ip>:/srv/congress-tracker/data/deploy/
+rsync -az --mkpath data/deploy/ deploy@server.example:/srv/congress-tracker/data/deploy/
 ```
 
 Der Ausschluss von `data/` ist wichtig: Sonst wandert der 645-MB-Master mit.
@@ -148,7 +161,7 @@ Der Ausschluss von `data/` ist wichtig: Sonst wandert der 645-MB-Master mit.
 
 Die Domain steht nicht im Caddyfile, sondern in einer `.env` — so bleiben alle
 versionierten Dateien unveraendert und `git pull` laeuft spaeter konfliktfrei.
-Auf dem Server `/srv/congress-tracker/deploy/.env` anlegen:
+Auf dem Server `$DEPLOY_PATH/deploy/.env` anlegen:
 
 ```bash
 SITE_DOMAIN=deine-domain.de, www.deine-domain.de
@@ -216,8 +229,8 @@ oder einem lokalen Commit deshalb aus dem Projektroot ausfuehren:
 scripts/deploy_code.sh
 ```
 
-Das Skript schuetzt die lokale Secret-Datei `.env`, `data/`, `logs/` und die
-serverseitige `deploy/.env`, baut die Container neu, wartet auf deren
+Das Skript schuetzt die lokalen Dateien `.env` und `.deploy.env`, `data/`,
+`logs/` und die serverseitige `deploy/.env`, baut die Container neu, wartet auf deren
 Healthchecks und zeigt danach den Status. Ausgerollt wird ausschliesslich der
 aktuelle Commit (`HEAD`); bei uncommitteten Aenderungen bricht das Skript ab.
 Vorab kann
@@ -258,7 +271,7 @@ Das Dashboard ist absichtlich ohne Login erreichbar — ein Passwort haelt
 Betrachter ab, die sich die Arbeit nur ansehen sollen. Falls der Zugriff doch
 eingeschraenkt werden muss:
 
-In `/srv/congress-tracker/deploy/.env` setzen:
+In `$DEPLOY_PATH/deploy/.env` setzen:
 
 ```bash
 APP_AUTH_ENABLED=1

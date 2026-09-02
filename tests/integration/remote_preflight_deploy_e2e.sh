@@ -4,7 +4,16 @@ set -euo pipefail
 
 docker info >/dev/null 2>&1
 shopt -s nullglob
-paths=(/srv/congress-tracker-e2e-*)
+remote_base="${1:-}"
+[[ "$remote_base" =~ ^/[A-Za-z0-9._/-]+$ \
+   && "$remote_base" != "/" \
+   && "$remote_base" != */ \
+   && "$remote_base" != *"//"* \
+   && "$remote_base" != *"/./"* \
+   && "$remote_base" != *"/." \
+   && "$remote_base" != *"/../"* \
+   && "$remote_base" != *".."* ]] || exit 2
+paths=("$remote_base"/congress-tracker-e2e-*)
 all_containers="$(docker ps -a --format '{{.Names}}')"
 all_images="$(docker image ls --format '{{.Repository}}:{{.Tag}}')"
 all_networks="$(docker network ls --format '{{.Name}} {{.Labels}}')"

@@ -4,8 +4,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
-DEPLOY_TARGET="${DEPLOY_TARGET:-deploy@server.example}"
-DEPLOY_PATH="${DEPLOY_PATH:-/srv/congress-tracker}"
+DEPLOY_CONFIG_FILE="${DEPLOY_CONFIG_FILE:-$PROJECT_ROOT/.deploy.env}"
+[[ ! -f "$DEPLOY_CONFIG_FILE" ]] || source "$DEPLOY_CONFIG_FILE"
 DEPLOY_COMPOSE_PROJECT="${DEPLOY_COMPOSE_PROJECT:-congress-tracker}"
 PYTHON_BIN="${PYTHON_BIN:-python}"
 DRY_RUN=0
@@ -21,6 +21,9 @@ case "${1:-}" in
   *) usage >&2; exit 2 ;;
 esac
 [[ $# -le 1 ]] || { usage >&2; exit 2; }
+
+: "${DEPLOY_TARGET:?DEPLOY_TARGET fehlt; .deploy.env.example nach .deploy.env kopieren}"
+: "${DEPLOY_PATH:?DEPLOY_PATH fehlt; .deploy.env.example nach .deploy.env kopieren}"
 
 if [[ ! "$DEPLOY_TARGET" =~ ^([A-Za-z0-9._][A-Za-z0-9._-]*@)?[A-Za-z0-9._][A-Za-z0-9._-]*$ ]]; then
   echo "Ungueltiges DEPLOY_TARGET: $DEPLOY_TARGET" >&2

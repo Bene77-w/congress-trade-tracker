@@ -9,7 +9,11 @@ project_name="${4:-}"
 container_name="${5:-}"
 image_name="${6:-}"
 
-if [[ "$remote_parent" =~ ^/srv/congress-tracker-e2e-([0-9]{14}-[0-9]+)$ ]]; then
+if [[ "$remote_parent" =~ ^/[A-Za-z0-9._/-]+/congress-tracker-e2e-([0-9]{14}-[0-9]+)$ \
+      && "$remote_parent" != *"//"* \
+      && "$remote_parent" != *"/./"* \
+      && "$remote_parent" != *"/../"* \
+      && "$remote_parent" != *".."* ]]; then
   scope_id="${BASH_REMATCH[1]}"
 elif [[ "$remote_parent" =~ ^/tmp/congress-tracker-e2e-unit-([A-Za-z0-9._-]+)$ ]]; then
   scope_id="unit-${BASH_REMATCH[1]}"

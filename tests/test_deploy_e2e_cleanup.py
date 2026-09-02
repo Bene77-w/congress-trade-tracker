@@ -152,9 +152,25 @@ def test_orphan_preflight_propagates_docker_query_failure(tmp_path):
     env["PATH"] = f"{fake_bin}:{env['PATH']}"
     env["FAKE_DOCKER_MODE"] = "preflight_query_fail"
     result = subprocess.run(
-        ["bash", PREFLIGHT], env=env, text=True, capture_output=True, check=False,
+        ["bash", PREFLIGHT, "/tmp"],
+        env=env, text=True, capture_output=True, check=False,
     )
     assert result.returncode != 0
+
+
+def test_orphan_preflight_rejects_root_aliases(tmp_path):
+    fake_bin = _fake_docker(tmp_path)
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+    for remote_base in (
+        "/", "//", "/.", "/./", "/tmp/", "/tmp/.",
+        "/tmp//safe", "/tmp/./safe", "/tmp/../safe",
+    ):
+        result = subprocess.run(
+            ["bash", PREFLIGHT, remote_base],
+            env=env, text=True, capture_output=True, check=False,
+        )
+        assert result.returncode == 2, remote_base
 
 
 def test_cleanup_rejects_parent_traversal_and_preserves_sentinel(tmp_path):

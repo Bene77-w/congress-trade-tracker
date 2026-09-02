@@ -47,7 +47,7 @@ def test_e2e_has_failure_safe_cleanup_contract():
     assert "fremde Tags und bleibt erhalten" in cleanup
     assert 'ledger_ids="$(sort -u' in cleanup
     assert "Ledger bleibt erhalten" in cleanup
-    assert "^/srv/congress-tracker-e2e-" in cleanup
+    assert "congress-tracker-e2e-" in cleanup
     assert "scope_id" in cleanup
     assert 'rm -rf -- "$remote_parent"' in cleanup
     assert "cleanup_rc=0" in cleanup
@@ -56,12 +56,14 @@ def test_e2e_has_failure_safe_cleanup_contract():
     assert "docker volume rm" in cleanup
     assert cleanup.count("docker info") >= 1
     assert "remote_cleanup_is_complete" in text
-    assert "/srv/congress-tracker-e2e-$RUN_ID" in text
+    assert 'REMOTE_PARENT="$E2E_REMOTE_BASE/congress-tracker-e2e-$RUN_ID"' in text
+    assert '"$E2E_REMOTE_BASE" < "$REMOTE_PREFLIGHT_SCRIPT"' in text
     assert "PROD_BEFORE" in text and "production_state" in text
     assert "RestartCount" in text
     assert "dashboard-health {{.State.Health.Status}}" in text
     assert "Ungueltiges DEPLOY_TARGET" in text
     assert "Ungueltiger E2E_PORT" in text
+    assert 'command -v -- "$E2E_PYTHON_BIN"' in text
     assert "docker exec -i '$E2E_CONTAINER_NAME' python - '$expected'" in text
     assert "pd.read_parquet" in text
     assert 'manifest["rows"] == expected' in text
