@@ -3717,6 +3717,9 @@ def command_label(args: argparse.Namespace) -> int:
     stehen in der Mappe, die dieser Aufruf am Ende schreibt.
     """
     engines = list(ENGINES) if args.compared else [_quelle(args)]
+    # Modell und Denktiefe gehen roh an beide Aufrufe; ohne Angabe gelten die
+    # Werte aus config/settings.py.
+    wahl = {"model": args.model, "effort": args.effort}
     ergebnis = 0
 
     _schritt("Aufgabenpakete erzeugen")
@@ -3726,10 +3729,10 @@ def command_label(args: argparse.Namespace) -> int:
         # zaehlt nicht mit. Codex bestaetigt die Denktiefe nie, der Satz
         # endete sonst immer mit 2 und die Zahl truege keine Auskunft mehr.
         _schritt(f"{engine}: Engine, Modell und Denktiefe pruefen")
-        command_preflight(_teilargs(engine=engine))
+        command_preflight(_teilargs(engine=engine, **wahl))
         _schritt(f"{engine}: Units labeln lassen (bezahlt)")
         ergebnis = max(ergebnis, command_run(
-            _teilargs(engine=engine, force=args.force)))
+            _teilargs(engine=engine, force=args.force, **wahl)))
         _schritt(f"{engine}: Antworten pruefen und sammeln")
         ergebnis = max(ergebnis, command_collect(_teilargs(engine=engine)))
 
@@ -3822,6 +3825,13 @@ def build_parser() -> argparse.ArgumentParser:
         "label", help="alles bis zur Reviewmappe: prepare, preflight, run, "
                       "collect, vergleichen, to-xlsx (bezahlt)")
     add_scope_flags(label)
+    label.add_argument("--model", metavar="NAME",
+                       help="Modellname der gewaehlten CLI, z.B. 'opus' oder "
+                            "'claude-opus-5' bzw. 'gpt-5.6-sol'; Default aus "
+                            "config/settings.py")
+    label.add_argument("--effort", metavar="STUFE",
+                       help="Denktiefe, z.B. 'high' oder 'xhigh'; Default aus "
+                            "config/settings.py")
     label.add_argument("--force", action="store_true",
                        help="vorhandene Antworten und Reviewmappe neu "
                             "erzeugen; die alte Mappe wird vorher gesichert")

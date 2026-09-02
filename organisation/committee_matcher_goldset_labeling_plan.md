@@ -125,7 +125,7 @@ Fehler, Ermüdung, Reihenfolgeeffekt, ein Abbruch kostet den ganzen Satz).
 
 | Kommando | Wirkung | Bezahlt |
 |---|---|---|
-| `label` | Sammelaufruf: `prepare`, `preflight`, `run`, `collect`, Vergleich, `to-xlsx` | ja |
+| `label [--engine …\|--compared] [--model …] [--effort …] [--force]` | Sammelaufruf: `prepare`, `preflight`, `run`, `collect`, Vergleich, `to-xlsx` | ja |
 | `finish --eval-id …` | Sammelaufruf: `verify`, `evaluate export` (nur beim ersten Mal), `evaluate import` | nein |
 | `prepare` | Aufgabenpaket je Unit nach `data/committee_matcher_v2/goldset/labeling/tasks/` | nein |
 | `preflight --engine … --model …` | Ein-Token-Lauf; prüft, ob Engine, Modell und Effort existieren | minimal |
@@ -138,7 +138,8 @@ Fehler, Ermüdung, Reihenfolgeeffekt, ein Abbruch kostet den ganzen Satz).
 `label` und `finish` sind die vorgesehene Bedienung; sie rufen genau dieselben
 Funktionen wie die Einzelkommandos, damit kein zweiter Weg durch dieselbe
 Logik entsteht. `--engine` (Default `claude`) und `--compared` bestimmen den
-Umfang und müssen bei beiden Aufrufen übereinstimmen. Der weiche Befund des
+Umfang und müssen bei beiden Aufrufen übereinstimmen; `--model` und `--effort`
+gelten nur für `label` und gehen roh an beide Aufrufe der gewählten CLI. Der weiche Befund des
 Preflights zählt im Sammelaufruf nicht mit: Codex bestätigt die Denktiefe nie,
 der Satz endete sonst immer mit Exit 2. `finish` ruft die Matcher-CLI als
 eigenen Prozess auf — kein Import, die Unabhängigkeit vom Prüfling bleibt.

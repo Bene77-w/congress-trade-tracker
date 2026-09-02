@@ -119,30 +119,78 @@ mehr kommt.
 
 ## Optionen
 
-Es gibt drei, mehr braucht der Normalbetrieb nicht.
+| Option | Gilt für | Wirkung |
+|---|---|---|
+| `--engine claude` | `label`, `finish` | Nur Claude labelt. **Standard**, wenn du nichts angibst. |
+| `--engine codex` | `label`, `finish` | Nur Codex labelt. |
+| `--compared` | `label`, `finish` | Beide labeln unabhängig, das Werkzeug vergleicht sie und schreibt `disagreements.md` mit den Stellen, an denen sie sich uneinig sind. Kostet doppelt und dauert doppelt. |
+| `--model NAME` | `label` | Welches Modell genau. Ohne Angabe der Wert aus `config/settings.py`. |
+| `--effort STUFE` | `label` | Wie gründlich es denkt. Ohne Angabe der Wert aus `config/settings.py`. |
+| `--force` | `label` | Alles neu erzeugen statt fortzusetzen. Bezahlt die 22 Läufe erneut. Die alte Tabelle wird vorher gesichert. |
+| `--eval-id NAME` | `finish` | Name der Evaluationsrevision, in die das Gold-Set kommt. Pflichtangabe. |
 
-| Option | Wirkung |
-|---|---|
-| `--engine claude` | Nur Claude labelt. **Standard**, wenn du nichts angibst. |
-| `--engine codex` | Nur Codex labelt. |
-| `--compared` | Beide labeln unabhängig, das Werkzeug vergleicht sie und schreibt `disagreements.md` mit den Stellen, an denen sie sich uneinig sind. Kostet doppelt und dauert doppelt. |
-| `--force` | Nur bei `label`: alles neu erzeugen statt fortzusetzen. Bezahlt die 22 Läufe erneut. Die alte Tabelle wird vorher gesichert. |
+### Vollständiges Beispiel
 
-`--engine` und `--compared` müssen bei `label` und `finish` **gleich** sein —
-`finish` muss wissen, welchen Stand es prüfen soll:
+Beide Engines, jeweils mit ausdrücklich gewähltem Modell und höchster
+Denktiefe:
 
 ```bash
-venv/bin/python committee_matcher/goldset_label.py label  --compared
-venv/bin/python committee_matcher/goldset_label.py finish --compared --eval-id eval-2026-09-02
+venv/bin/python committee_matcher/goldset_label.py label \
+  --compared \
+  --model claude-opus-5 \
+  --effort xhigh
+
+xdg-open data/committee_matcher_v2/goldset/goldset_review.xlsx
+
+venv/bin/python committee_matcher/goldset_label.py finish \
+  --compared \
+  --eval-id eval-2026-09-02
 ```
+
+Nur Codex, ein bestimmtes Modell, normale Denktiefe:
+
+```bash
+venv/bin/python committee_matcher/goldset_label.py label \
+  --engine codex \
+  --model gpt-5.6-sol \
+  --effort high
+
+venv/bin/python committee_matcher/goldset_label.py finish \
+  --engine codex \
+  --eval-id eval-2026-09-02
+```
+
+`--engine` beziehungsweise `--compared` müssen bei `label` und `finish`
+**gleich** sein — `finish` muss wissen, welchen Stand es prüfen soll. `--model`
+und `--effort` braucht `finish` nicht; dort wird nicht mehr gelabelt.
+
+### Welche Werte gibt es
+
+**Claude.** Modell als Kurzname für die jeweils neueste Fassung — `opus`,
+`sonnet`, `fable` — oder als vollständiger Name wie `claude-opus-5`. Denktiefe:
+`low`, `medium`, `high`, `xhigh`, `max`. Lehnt die CLI eine Stufe ab, meldet
+das Werkzeug es und nennt die gültigen.
+
+**Codex.** Modell als vollständiger Name, etwa `gpt-5.6-sol`. Die Denktiefe
+geht als `model_reasoning_effort` durch. Achtung: **Codex bestätigt die Stufe
+nicht.** Es nimmt jeden Wert kommentarlos an, auch einen Tippfehler, und
+rechnet dann mit seiner Standardstufe. Das Werkzeug meldet das als
+`GS_EFFORT_UNCONFIRMED` und vermerkt die Stufe in der Herkunft als
+„unbestaetigt".
+
+Beide Namen werden unverändert an die jeweilige CLI weitergereicht. Es gibt
+bewusst keine Liste erlaubter Werte im Werkzeug — sonst müsste jedes neue
+Modell erst eingetragen werden. Der Preis dafür: ein Tippfehler fällt erst beim
+Aufruf auf. Genau dagegen steht die Engineprüfung am Anfang von `label`, die
+einen Fehler nach Sekunden meldet statt nach 22 Läufen.
 
 Lohnt sich `--compared`? Wo beide Engines dasselbe sagen, kannst du schnell
 durchgehen; wo sie sich unterscheiden, weißt du, wo genau hinzuschauen ist.
 Einigkeit heißt aber nicht Richtigkeit — zwei Modelle können denselben Irrtum
 teilen.
 
-Modell, Denktiefe und Zeitgrenzen stehen als `GOLDSET_LABEL_*` in
-`config/settings.py` und werden nicht über die Kommandozeile gesetzt.
+Zeitgrenzen und der Webzugang stehen als `GOLDSET_LABEL_*` in
+`config/settings.py`.
 
 ## Wenn etwas schiefgeht
 

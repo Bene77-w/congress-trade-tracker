@@ -1510,3 +1510,22 @@ def test_finish_reicht_den_fehlercode_des_matchers_durch(sandbox, monkeypatch,
                         lambda schritt, eval_id: 0 if schritt == "export" else 7)
     capsys.readouterr()
     assert lauf("finish", "--engine", "claude", "--eval-id", "eval-x") == 7
+
+
+def test_label_reicht_modell_und_denktiefe_durch(sandbox, monkeypatch, capsys) -> None:
+    """Die Wahl gilt fuer den Preflight und fuer jeden Unitlauf."""
+    gesehen: list[gs.EngineConfig] = []
+    echt = gs.run_fake
+
+    def merken(root, task, config):
+        gesehen.append(config)
+        return echt(root, task, config)
+
+    monkeypatch.setattr(gs, "run_fake", merken)
+    assert lauf("label", "--engine", "claude", "--model", "claude-opus-5",
+                "--effort", "xhigh") == 0
+    capsys.readouterr()
+    assert {config.model for config in gesehen} == {"claude-opus-5"}
+    assert {config.effort for config in gesehen} == {"xhigh"}
+    # Preflight plus 22 Units.
+    assert len(gesehen) == 23
