@@ -327,9 +327,9 @@ def aggregate_assets(df: pd.DataFrame, date_col: str,
             cols += ['avg_return_primary', 'max_return_primary',
                      'pct_profitable']
         return pd.DataFrame(columns=cols)
-    base = df.copy()
-    if date_col not in base.columns:
-        base[date_col] = pd.NaT
+    # Keine Vollkopie: groupby liest nur. Bei 114k Zeilen kostet ein .copy()
+    # rund 80 MB je Aufruf, und die Aggregationen laufen bei jedem Rerun neu.
+    base = df if date_col in df.columns else df.assign(**{date_col: pd.NaT})
     grp = base.groupby('issuer_ticker', dropna=False)
     agg_spec: dict = {
         'asset_name': ('asset_name_figi', lambda s: s.dropna().iloc[0]
@@ -374,9 +374,9 @@ def aggregate_members(df: pd.DataFrame, date_col: str,
         if has_returns:
             cols += ['avg_return_primary', 'pct_profitable']
         return pd.DataFrame(columns=cols)
-    base = df.copy()
-    if date_col not in base.columns:
-        base[date_col] = pd.NaT
+    # Keine Vollkopie: groupby liest nur. Bei 114k Zeilen kostet ein .copy()
+    # rund 80 MB je Aufruf, und die Aggregationen laufen bei jedem Rerun neu.
+    base = df if date_col in df.columns else df.assign(**{date_col: pd.NaT})
     grp = base.groupby(['name', 'chamber'], dropna=False)
     agg_spec: dict = {
         'Member_Party': ('Member_Party', lambda s: s.dropna().iloc[0]
@@ -636,7 +636,9 @@ if _manifest.get('data_as_of'):
     _as_of_txt = (_as_of.strftime('%d.%m.%Y')
                   if pd.notna(_as_of) else _manifest['data_as_of'])
     st.caption(
-        f"Datenstand: {_as_of_txt} · {_manifest.get('rows', 0):,} Trades"
+        f"Datenstand: {_as_of_txt} · {_manifest.get('rows', 0):,} Trades · "
+        "Alle Informationen sind zu journalistischen Zwecken aufbereitet "
+        "und stellen keine Anlageberatung dar."
         .replace(',', '.')
     )
 
@@ -1863,7 +1865,7 @@ with tab_assets:
     a2.metric('Max score_max',
               f'{int(assets_df["score_max"].max()) if len(assets_df) else 0}',
               help=help_for('score'))
-    a3.metric('Σ Volumen (USD)',
+    a3.metric('GESAMTVOLUMEN (USD)',
               f'{int(assets_df["total_volume_usd"].sum()) if len(assets_df) else 0:,}')
 
     asset_display_cols = [c for c in ASSET_DISPLAY_COLS
@@ -1896,7 +1898,7 @@ with tab_members:
     m2.metric('Max score_max',
               f'{int(members_df["score_max"].max()) if len(members_df) else 0}',
               help=help_for('score'))
-    m3.metric('Σ Volumen (USD)',
+    m3.metric('GESAMTVOLUMEN (USD)',
               f'{int(members_df["total_volume_usd"].sum()) if len(members_df) else 0:,}')
 
     member_display_cols = [c for c in MEMBER_DISPLAY_COLS

@@ -27,10 +27,14 @@ services:
       # findet ihn dort, wenn data/cache/ fehlt. Ohne ihn blieben alle
       # Kursverlauf-Charts in den Detail-Popups leer.
       - ../logs:/app/logs
-    # Speicher deckeln: eine Sitzung braucht ~800 MB, mehrere gleichzeitige
-    # Besucher entsprechend mehr. Ohne Grenze reisst ein Ausreisser den
-    # ganzen Server mit; mit Grenze startet nur dieser Container neu.
-    mem_limit: 2g
+    # Speicher deckeln: eine Sitzung braucht im Betrieb deutlich mehr als der
+    # Snapshot selbst (~80 MB) — beim ersten Livelauf hat der Kernel den
+    # Container bei 2 GB abgeschossen. Grenze deshalb auf 3 GB, dazu 4 GB Swap
+    # auf dem Server (s. deploy/README_deployment.md, Abschnitt 2): Der Kernel
+    # lagert dann aus, statt den Prozess zu toeten. Ohne Grenze ueberhaupt
+    # wuerde ein Ausreisser den ganzen Server mitreissen; mit Grenze startet
+    # nur dieser Container neu.
+    mem_limit: 3g
     security_opt:
       - no-new-privileges:true
     # Kein Port nach aussen: erreichbar ist nur Caddy, der intern

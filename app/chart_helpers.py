@@ -112,15 +112,17 @@ def build_recent_pool(
     else:
         reference_date = pd.Timestamp(reference_date).normalize()
 
-    out = df.copy()
-    if date_col not in out.columns:
+    # Erst filtern, dann kopieren: die Vollkopie vorab waere bei 114k Zeilen
+    # rund 80 MB, von denen das Fenster meist nur einen Bruchteil behaelt.
+    if date_col not in df.columns:
+        out = df.iloc[0:0].copy()
         out['days_since_trade'] = pd.Series(dtype='float64')
-        return out.iloc[0:0]
+        return out
 
-    dates = pd.to_datetime(out[date_col], errors='coerce')
+    dates = pd.to_datetime(df[date_col], errors='coerce')
     cutoff = reference_date - pd.Timedelta(days=window_days)
     mask = dates.notna() & (dates >= cutoff)
-    out = out[mask].copy()
+    out = df[mask].copy()
     out['days_since_trade'] = (
         reference_date - pd.to_datetime(out[date_col], errors='coerce')
     ).dt.days

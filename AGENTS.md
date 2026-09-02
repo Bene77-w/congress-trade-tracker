@@ -51,7 +51,7 @@ git merge --no-ff agent/<name> -m "Merge agent/<name>: ..."
 ## Aktueller Stand
 
 - Programm läuft: Pipeline, Scoring und Dashboard funktionsfähig
-- Deployment-Fundament steht (Snapshot-Builder, App-Anpassungen, Server-Artefakte); offen: Git-Historie bereinigen (braucht Nutzerfreigabe) und Serverbetrieb aufsetzen (VPS + Domain vorhanden)
+- Dashboard seit 2026-08-30 live: `https://congress-trading-tracker.com` (privater VPS, Docker + Caddy, Datenstand 2026-07-21); Serverdetails liegen nur in `.deploy.env`
 - Committee Matcher V2; P0-P8 + S1-S5 implementiert; Gate B am 2026-08-21 beschlossen (Modell `deepseek/deepseek-v4-flash-0731`, freie Providerwahl, Kostenwache)
 - Providersettings gesetzt + Routing-Preflight `provider check` live; Contract-Smoke am 2026-08-22 live bestanden (Routing `Morph`, 0,000018 USD, Exit 0)
 - Kern vollstaendig: `mapping.py` + `validation.py` (P6), `workflow.py` (P7a), `artifacts.py` (P7b), Laufkommandos `run plan|execute|reconcile` (P7c), Review-Roundtrip `review export|import` (P7d), Live-Terminalstatus fuer alle Vorgaenge (S4)
