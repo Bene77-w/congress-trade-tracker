@@ -1001,7 +1001,23 @@ die lokale Secret-Datei `.env`, `data/`, `logs/` und `deploy/.env` aus. Beide
 Rollouts verlangen einen initialisierten Zielpfad mit Endung
 `/congress-tracker` und warten maximal 180 Sekunden auf erfolgreiche
 Container-Healthchecks. Der Code-Rollout uebertraegt ausschliesslich den
-aktuellen Commit (`HEAD`) und lehnt einen unsauberen Git-Worktree ab.
+aktuellen Commit (`HEAD`) und lehnt einen unsauberen Git-Worktree ab. Der
+Compose-Projektname ist explizit (`DEPLOY_COMPOSE_PROJECT`, Default
+`congress-tracker`) und kann daher nicht durch eine Server-Umgebungsvariable
+ueberschrieben werden.
+
+Der echte Rollback-Test ist bewusst opt-in und nutzt eine isolierte
+VPS-Testinstanz mit eigenem Container, Image, Compose-Projekt, localhost-Port
+und Remote-Pfad. Er deployt Code- und Datenaenderung, rollt beide zurueck und
+entfernt alle Testartefakte per EXIT-Cleanup:
+
+```bash
+RUN_DEPLOY_E2E=1 tests/integration/test_deploy_e2e.sh
+```
+
+Der Test verlangt einen sauberen Git-Worktree und prueft ausschliesslich den
+committeten Stand. Produktionspfad, Produktionscontainer und Ports 80/443
+werden nicht verwendet.
 
 ---
 

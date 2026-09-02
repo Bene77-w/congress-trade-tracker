@@ -231,6 +231,27 @@ und pruefen vor dem Upload die vorhandene produktive Compose-Datei sowie
 `deploy/.env`. Das verhindert einen Upload in ein versehentlich falsch
 gesetztes Systemverzeichnis.
 
+Ein echter Code-/Daten-Rollback-Test steht opt-in unter
+`tests/integration/test_deploy_e2e.sh`. Er arbeitet auf demselben VPS, aber mit
+eigenem Testpfad, Container, Image, Compose-Projekt und localhost-Port. Sein
+EXIT-Cleanup entfernt diese Ressourcen bei Erfolg, Fehler und Abbruch; die
+Produktionsinstanz wird vor und nach dem Lauf auf unveraenderten Zustand
+geprueft. Die Datenpruefung liest sowohl Manifest als auch Parquet direkt im
+laufenden Testcontainer; der HTTP-Test prueft Streamlits Health-Endpunkt.
+Vor jeder Mutation bricht der Test ab, wenn er verwaiste
+`congress-tracker-e2e-*`-Pfade, Container, Images, Netzwerke oder Volumes
+findet. Ein hart beendeter Client (`SIGKILL`/Rechnerausfall) kann den lokalen
+EXIT-Cleanup nicht ausfuehren; die gemeldete Run-ID muss dann vor einem neuen
+Lauf mit `tests/integration/remote_cleanup_deploy_e2e.sh` bereinigt werden.
+Jedes Datendeployment muss zudem eine neue, anschliessend gesunde Container-ID
+erzeugen.
+
+Live-Verifikation am 02.09.2026: Codeaenderung und Datenaenderung (80 auf 81
+Trades) wurden auf der isolierten VPS-Instanz deployt und jeweils erfolgreich
+zurueckgerollt. Das Cleanup entfernte Testcontainer, Testimage, Netzwerk,
+Volumes und Testpfad; Dashboard und Caddy der Produktion blieben gesund und
+unveraendert.
+
 ## 7. Passwortschutz (optional, standardmaessig aus)
 
 Das Dashboard ist absichtlich ohne Login erreichbar — ein Passwort haelt

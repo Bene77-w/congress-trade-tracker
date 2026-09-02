@@ -28,6 +28,7 @@ def test_deploy_code_dry_run_protects_remote_state():
         "--dry-run",
         DEPLOY_TARGET="deploy@example.org",
         DEPLOY_PATH="/srv/congress-tracker",
+        DEPLOY_COMPOSE_PROJECT="e2e-project",
         TMPDIR="/nicht-vorhanden",
     )
 
@@ -40,6 +41,7 @@ def test_deploy_code_dry_run_protects_remote_state():
     assert "git-archive:HEAD" in result.stdout
     assert "deploy@example.org:/srv/congress-tracker/" in result.stdout
     assert "up\\ -d\\ --build" in result.stdout
+    assert "-p\\ \\'e2e-project\\'" in result.stdout
     assert "--wait\\ --wait-timeout\\ 180" in result.stdout
     assert "deploy/.env\\ ps" in result.stdout
 
@@ -50,6 +52,7 @@ def test_deploy_data_dry_run_covers_complete_sequence():
         "--dry-run",
         DEPLOY_TARGET="deploy@example.org",
         DEPLOY_PATH="/srv/congress-tracker",
+        DEPLOY_COMPOSE_PROJECT="e2e-project",
         PYTHON_BIN="/opt/venv/bin/python",
     )
 
@@ -61,6 +64,7 @@ def test_deploy_data_dry_run_covers_complete_sequence():
     assert "data/deploy/" in lines[2]
     assert "deploy@example.org:/srv/congress-tracker/data/deploy/" in lines[2]
     assert "--force-recreate" in lines[3]
+    assert "-p\\ \\'e2e-project\\'" in lines[3]
     assert "--wait\\ --wait-timeout\\ 180\\ dashboard" in lines[3]
     assert "ps\\ dashboard" in lines[3]
 
@@ -91,6 +95,18 @@ def test_deploy_scripts_reject_ssh_option_as_target():
         )
         assert result.returncode == 2
         assert "Ungueltiges DEPLOY_TARGET" in result.stderr
+
+
+def test_deploy_scripts_reject_unsafe_compose_project():
+    for script in ("deploy_code.sh", "deploy_data.sh"):
+        result = _run(
+            script,
+            "--dry-run",
+            DEPLOY_PATH="/srv/congress-tracker",
+            DEPLOY_COMPOSE_PROJECT="../congress-tracker",
+        )
+        assert result.returncode == 2
+        assert "Ungueltiges DEPLOY_COMPOSE_PROJECT" in result.stderr
 
 
 def test_deploy_code_rejects_dirty_worktree(tmp_path):

@@ -6,6 +6,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 DEPLOY_TARGET="${DEPLOY_TARGET:-deploy@server.example}"
 DEPLOY_PATH="${DEPLOY_PATH:-/srv/congress-tracker}"
+DEPLOY_COMPOSE_PROJECT="${DEPLOY_COMPOSE_PROJECT:-congress-tracker}"
 PYTHON_BIN="${PYTHON_BIN:-python}"
 DRY_RUN=0
 
@@ -28,6 +29,10 @@ fi
 if [[ ! "$DEPLOY_PATH" =~ ^/[A-Za-z0-9._/-]+/congress-tracker$ \
       || "$DEPLOY_PATH" == *".."* ]]; then
   echo "Unsicherer DEPLOY_PATH: $DEPLOY_PATH" >&2
+  exit 2
+fi
+if [[ ! "$DEPLOY_COMPOSE_PROJECT" =~ ^[a-z0-9][a-z0-9_-]*$ ]]; then
+  echo "Ungueltiges DEPLOY_COMPOSE_PROJECT: $DEPLOY_COMPOSE_PROJECT" >&2
   exit 2
 fi
 
@@ -67,5 +72,5 @@ if (( ! DRY_RUN )); then
 fi
 
 run rsync -avz data/deploy/ "$DEPLOY_TARGET:$DEPLOY_PATH/data/deploy/"
-REMOTE_CMD="cd '$DEPLOY_PATH' && docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env up -d --force-recreate --wait --wait-timeout 180 dashboard && docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env ps dashboard"
+REMOTE_CMD="cd '$DEPLOY_PATH' && docker compose -p '$DEPLOY_COMPOSE_PROJECT' -f deploy/docker-compose.prod.yml --env-file deploy/.env up -d --force-recreate --wait --wait-timeout 180 dashboard && docker compose -p '$DEPLOY_COMPOSE_PROJECT' -f deploy/docker-compose.prod.yml --env-file deploy/.env ps dashboard"
 run ssh "$DEPLOY_TARGET" "$REMOTE_CMD"

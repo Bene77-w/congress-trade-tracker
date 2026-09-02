@@ -1,0 +1,21 @@
+name: "__E2E_PROJECT_NAME__"
+
+services:
+  dashboard:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.app
+    image: "__E2E_IMAGE__"
+    container_name: "__E2E_CONTAINER_NAME__"
+    restart: "no"
+    environment:
+      APP_PUBLIC_MODE: "1"
+      APP_AUTH_ENABLED: "0"
+      APP_PASSWORD: ""
+    volumes:
+      - ../data/deploy:/app/data/deploy:ro
+    ports:
+      - "127.0.0.1:__E2E_PORT__:8501"
+    mem_limit: 1g
+    security_opt:
+      - no-new-privileges:true
