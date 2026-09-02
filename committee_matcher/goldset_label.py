@@ -90,6 +90,30 @@ SAMPLE_PATH = GOLDSET_ROOT / "sample_units.json"
 TAXONOMY_PATH = paths.ARTIFACT_ROOT / "taxonomy" / "approved_baseline.json"
 MAPPING_PROMPT_PATH = paths.PROMPT_ROOT / "mapping_system.md"
 
+#: Wurzel des Fullruns. Getrennt vom Gold-Set, weil beide dieselben Dateinamen
+#: benutzen: ein Fullrun ueber 225 Units wuerde sonst die 22 Antworten
+#: ueberschreiben, an denen die Pipeline gemessen wird.
+FULLRUN_ROOT = paths.ARTIFACT_ROOT / "fullrun"
+
+
+def use_fullrun_paths() -> None:
+    """Schaltet die Ablage dieses Prozesses auf den Fullrun um.
+
+    Die Pfade bleiben Modulglobals und werden hier einmal ersetzt, statt als
+    Parameter durch zwei Dutzend Funktionen zu wandern. Der Grund ist der
+    Fehlerfall: ein vergessener Parameter schriebe einen Fullrun in die
+    Gold-Set-Ablage und entwertete die Referenz still. Ein Aufruf bedient
+    genau eine Betriebsart, deshalb genuegt der einmalige Umschalter in
+    ``main()``.
+    """
+    global TASK_ROOT, RUN_ROOT, COLLECT_ROOT, MERGE_REPORT, WORKBOOK_PATH
+    TASK_ROOT = FULLRUN_ROOT / "tasks"
+    RUN_ROOT = FULLRUN_ROOT / "runs"
+    COLLECT_ROOT = FULLRUN_ROOT / "collected"
+    MERGE_REPORT = FULLRUN_ROOT / "disagreements.md"
+    WORKBOOK_PATH = FULLRUN_ROOT / "fullrun_review.xlsx"
+
+
 #: Fassung der Aufgabenpakete. Wird in jedes Paket geschrieben; ``run`` und
 #: ``collect`` lehnen fremde Fassungen ab, statt gegen ein anderes Format zu
 #: arbeiten.
@@ -526,6 +550,42 @@ def load_sample() -> tuple[SampleUnit, ...]:
             "Entweder die fehlende Unit ergaenzen oder "
             "'expected_unit_count' bewusst anpassen.")
     return tuple(sample)
+
+
+def fullrun_units(corpus: Mapping[str, Any]) -> tuple[SampleUnit, ...]:
+    """Alle Units des Korpus als Laufmenge, nach ``unit_id`` sortiert.
+
+    Die feste Sortierung ist keine Kosmetik: ein Fullrun laeuft ueber Stunden
+    und wird mehrfach fortgesetzt; ohne stabile Folge zeigte die Zaehlung
+    ``[17/225]`` bei jedem Aufruf auf eine andere Unit.
+
+    ``focus`` beschreibt in der Stichprobe die Fallabdeckung. Hier gibt es
+    keine Auswahl, die etwas abdecken muesste - der Satz ist vollstaendig.
+    """
+    return tuple(
+        SampleUnit(nr=nr, unit_id=unit.unit_id, chamber=unit.chamber,
+                   committee_name=unit.committee_name, unit_name=unit.unit_name,
+                   input_basis=unit.input_basis.value, focus="fullrun")
+        for nr, unit in enumerate(
+            (corpus[unit_id] for unit_id in sorted(corpus)), start=1))
+
+
+def is_fullrun(args: argparse.Namespace) -> bool:
+    return bool(getattr(args, "fullrun", False))
+
+
+def label_units(args: argparse.Namespace,
+                corpus: Mapping[str, Any] | None = None) -> tuple[SampleUnit, ...]:
+    """Die Units, die dieser Aufruf bearbeitet.
+
+    ``corpus`` nimmt einen bereits geladenen Korpus entgegen; wer keinen hat,
+    laesst ihn laden. Der Ladevorgang kostet ein bis zwei Sekunden und faellt
+    neben einem Lauf ueber 225 Units nicht ins Gewicht - eine zweite Quelle
+    fuer dieselbe Unitliste dagegen waere eine zweite Wahrheit.
+    """
+    if not is_fullrun(args):
+        return load_sample()
+    return fullrun_units(corpus if corpus is not None else load_corpus_units())
 
 
 @dataclass(frozen=True)
@@ -1116,9 +1176,9 @@ def assert_task_root_sane() -> None:
 
 def command_prepare(args: argparse.Namespace) -> int:
     assert_task_root_sane()
-    sample = load_sample()
-    taxonomy = load_taxonomy()
     corpus = load_corpus_units()
+    sample = label_units(args, corpus)
+    taxonomy = load_taxonomy()
     contract = load_contract()
 
     report = TaskReport()
@@ -2186,14 +2246,64 @@ def store_log(config: EngineConfig, unit_id: str, result: EngineResult) -> None:
     ]), encoding="utf-8")
 
 
+#: Abstand zwischen zwei Anfragen, waehrend das Abo-Fenster erschoepft ist.
+#: Beide CLIs nennen den Zeitpunkt der Freigabe nicht verlaesslich - Codex
+#: liefert im exec-Modus gar keine Auslastung -, deshalb wird schlicht in
+#: festem Takt gefragt, bis wieder eine Antwort kommt.
+RATE_LIMIT_WAIT_SECONDS = 600
+
+
+def rate_limited(result: EngineResult, config: EngineConfig) -> bool:
+    """Ist dieser Fehlschlag ein erreichtes Ratenlimit des Abos?
+
+    Gefragt wird dieselbe Klassifikation, die auch den Befund schreibt; eine
+    zweite Merkmalsliste wuerde frueher oder spaeter anders urteilen als der
+    Bericht, den Bene liest.
+    """
+    if result.answer is not None or result.timed_out:
+        return False
+    return classify_failure(config.engine, result, config).code == "GS_RATE_LIMITED"
+
+
+def run_until_quota(runner, task: dict, config: EngineConfig, *,
+                    wait: bool) -> tuple[EngineResult, int]:
+    """Laesst eine Unit laufen und wartet ein Ratenlimit aus.
+
+    Liefert das Ergebnis und die Zahl der gewarteten Sekunden. Ohne ``wait``
+    kommt das erste Ergebnis unveraendert zurueck - der Gold-Set-Satz soll bei
+    einem Limit abbrechen und nicht stundenlang stillstehen.
+
+    Die Wartezeit liegt ausserhalb des Unterprozesses und zaehlt deshalb nicht
+    gegen den Unitdeckel. Eine Obergrenze gibt es bewusst nicht: ein Fullrun
+    soll das Abo-Fenster ueberdauern, und abbrechen kann Bene selbst.
+    """
+    gewartet = 0
+    versuch = 0
+    while True:
+        versuch += 1
+        workdir = Path(tempfile.mkdtemp(prefix="goldset-label-"))
+        try:
+            result = runner(task, config, workdir)
+        finally:
+            shutil.rmtree(workdir, ignore_errors=True)
+        if not wait or not rate_limited(result, config):
+            return result, gewartet
+        minuten = RATE_LIMIT_WAIT_SECONDS // 60
+        print(f"    Ratenlimit erreicht (Versuch {versuch}); neue Anfrage in "
+              f"{minuten} min. Bisher {gewartet // 60} min gewartet.",
+              flush=True)
+        time.sleep(RATE_LIMIT_WAIT_SECONDS)
+        gewartet += RATE_LIMIT_WAIT_SECONDS
+
+
 def command_run(args: argparse.Namespace) -> int:
     settings = load_label_settings()
     config = engine_config(args, settings)
     assert_cli_available(config.engine)
 
-    sample = load_sample()
-    taxonomy = load_taxonomy()
     corpus = load_corpus_units()
+    sample = label_units(args, corpus)
+    taxonomy = load_taxonomy()
     contract = load_contract()
 
     wanted = list(args.unit_id) if args.unit_id else [item.unit_id for item in sample]
@@ -2201,14 +2311,21 @@ def command_run(args: argparse.Namespace) -> int:
     unknown = [unit_id for unit_id in wanted if unit_id not in known]
     if unknown:
         block("GS_UNIT_UNKNOWN", ", ".join(unknown),
-              "Die genannten Units stehen nicht in der Stichprobe.",
-              "Gelabelt wird ausschliesslich die eingefrorene Stichprobe.",
-              "Unit-ID gegen "
-              f"{paths.relative_to_base(SAMPLE_PATH)} pruefen.")
+              "Die genannten Units stehen nicht in der Laufmenge.",
+              "Gelabelt wird ausschliesslich die Menge, die 'prepare' erzeugt "
+              "hat - im Fullrun der Korpus, sonst die eingefrorene Stichprobe.",
+              "Unit-ID gegen den Korpus pruefen." if is_fullrun(args) else
+              f"Unit-ID gegen {paths.relative_to_base(SAMPLE_PATH)} pruefen.")
 
     runner = engine_runner(config.engine)
-    total_deadline = time.monotonic() + config.total_timeout_seconds
+    fullrun = is_fullrun(args)
+    # Der Gesamtdeckel ist die Notbremse eines Satzes, der an einem Stueck
+    # durchlaufen soll. Ein Fullrun ueber 225 Units laeuft ueber Tage und wartet
+    # dabei auf Abo-Fenster; ein Deckel wuerde ihn planmaessig abschneiden.
+    total_deadline = None if fullrun else \
+        time.monotonic() + config.total_timeout_seconds
     done = failed = skipped = 0
+    gewartet_s = 0
     offen: list[str] = []
     problems: list[Problem] = []
     # Die Belastbarkeit der Denktiefe steht erst nach dem Lauf fest und wird
@@ -2216,7 +2333,8 @@ def command_run(args: argparse.Namespace) -> int:
     print(f"Lauf {config.engine}: Modell {config.model}, Denktiefe "
           f"{config.effort}, "
           f"{len(wanted)} Units, Deckel {config.timeout_seconds} s je Unit, "
-          f"{config.total_timeout_seconds} s gesamt")
+          + ("ohne Gesamtdeckel (Fullrun)"
+             if fullrun else f"{config.total_timeout_seconds} s gesamt"))
 
     for index, unit_id in enumerate(wanted, start=1):
         task = load_task(unit_id)
@@ -2241,7 +2359,8 @@ def command_run(args: argparse.Namespace) -> int:
         # einen vollen Unitdeckel ueberzogen werden.
         # Aufgerundet: bei ``gesamt == unit_deckel`` haette schon die
         # Millisekunde bis hierher den ersten Lauf verhindert.
-        rest = math.ceil(total_deadline - time.monotonic())
+        rest = (config.timeout_seconds if total_deadline is None
+                else math.ceil(total_deadline - time.monotonic()))
         if rest < MIN_TIMEOUT_SECONDS:
             offen.extend(wanted[index - 1:])
             print(f"Gesamtdeckel von {config.total_timeout_seconds} s erreicht; "
@@ -2257,11 +2376,9 @@ def command_run(args: argparse.Namespace) -> int:
 
         started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
         print(f"[{index}/{len(wanted)}] {unit_id}: laeuft ...", flush=True)
-        workdir = Path(tempfile.mkdtemp(prefix="goldset-label-"))
-        try:
-            result = runner(task, laufconfig, workdir)
-        finally:
-            shutil.rmtree(workdir, ignore_errors=True)
+        result, wartezeit = run_until_quota(runner, task, laufconfig,
+                                            wait=fullrun)
+        gewartet_s += wartezeit
         store_log(laufconfig, unit_id, result)
         assert_effort_accepted(result, laufconfig)
 
@@ -2301,7 +2418,9 @@ def command_run(args: argparse.Namespace) -> int:
               + (f", {result.num_turns} Turns" if result.num_turns else ""))
 
     print(f"\nFertig: {done} gelabelt, {skipped} uebersprungen, {failed} "
-          f"fehlgeschlagen")
+          f"fehlgeschlagen"
+          + (f", {gewartet_s // 60} min auf das Abo gewartet"
+             if gewartet_s else ""))
     print(f"Ablage: {paths.relative_to_base(RUN_ROOT / config.engine)}")
     if offen:
         eindeutig = list(dict.fromkeys(offen))
@@ -2782,9 +2901,9 @@ def command_collect(args: argparse.Namespace) -> int:
     settings = load_label_settings()
     engine = resolve_engine(args, settings)
 
-    sample = load_sample()
-    taxonomy = load_taxonomy()
     corpus = load_corpus_units()
+    sample = label_units(args, corpus)
+    taxonomy = load_taxonomy()
     contract = load_contract()
 
     rows: list[dict[str, str]] = []
@@ -2918,7 +3037,7 @@ def command_merge(args: argparse.Namespace) -> int:
     base_units = _by_unit(base)
     other_units = _by_unit(other)
 
-    sample = load_sample()
+    sample = label_units(args)
     order = [item.unit_id for item in sample]
     only_base = sorted(set(base_units) - set(other_units))
     only_other = sorted(set(other_units) - set(base_units))
@@ -3171,9 +3290,9 @@ def command_to_xlsx(args: argparse.Namespace) -> int:
                      was=f"mit den Notizen von {source}")
     infos = read_csv(info_path(source), INFO_COLUMNS,
                      was=f"mit der Provenienz von {source}")
-    sample = load_sample()
-    taxonomy = load_taxonomy()
     corpus = load_corpus_units()
+    sample = label_units(args, corpus)
+    taxonomy = load_taxonomy()
 
     taxonomy_rows = [{
         "industry_id": industry.industry_id,
@@ -3403,7 +3522,7 @@ def command_verify(args: argparse.Namespace) -> int:
                   "uebertragen.")
 
     taxonomy = load_taxonomy()
-    sample = load_sample()
+    sample = label_units(args)
     known = taxonomy.ids
     # Zwei Nachschlagewerke: die Schreibweise allein (Autokorrektur) und
     # zusaetzlich die Unicodeform. Ein aus dem Browser kopierter
@@ -3692,7 +3811,7 @@ def _teilargs(**werte: Any) -> argparse.Namespace:
         engine=None, model=None, effort=None, timeout=None, total_timeout=None,
         web_access_off=False, unit_id=[], force=False, show=False,
         source="merged", out=None, file=None, fix_case=False,
-        base="claude", against="codex")
+        base="claude", against="codex", fullrun=False)
     basis.update(werte)
     return argparse.Namespace(**basis)
 
@@ -3720,10 +3839,17 @@ def command_label(args: argparse.Namespace) -> int:
     # Modell und Denktiefe gehen roh an beide Aufrufe; ohne Angabe gelten die
     # Werte aus config/settings.py.
     wahl = {"model": args.model, "effort": args.effort}
+    # Die Betriebsart gilt fuer jeden Teilschritt: sie bestimmt zugleich die
+    # Unitmenge und die Ablage, in die geschrieben wird.
+    umfang = {"fullrun": is_fullrun(args)}
     ergebnis = 0
 
+    if umfang["fullrun"]:
+        print(f"Fullrun: der ganze Korpus, Ablage "
+              f"{paths.relative_to_base(FULLRUN_ROOT)}. Ein Ratenlimit haelt "
+              f"den Lauf an, statt ihn zu beenden.")
     _schritt("Aufgabenpakete erzeugen")
-    ergebnis = max(ergebnis, command_prepare(_teilargs()))
+    ergebnis = max(ergebnis, command_prepare(_teilargs(**umfang)))
     for engine in engines:
         # Der Preflight schuetzt vor 22 Fehllaeufen; sein weicher Befund
         # zaehlt nicht mit. Codex bestaetigt die Denktiefe nie, der Satz
@@ -3732,27 +3858,31 @@ def command_label(args: argparse.Namespace) -> int:
         command_preflight(_teilargs(engine=engine, **wahl))
         _schritt(f"{engine}: Units labeln lassen (bezahlt)")
         ergebnis = max(ergebnis, command_run(
-            _teilargs(engine=engine, force=args.force, **wahl)))
+            _teilargs(engine=engine, force=args.force, **wahl, **umfang)))
         _schritt(f"{engine}: Antworten pruefen und sammeln")
-        ergebnis = max(ergebnis, command_collect(_teilargs(engine=engine)))
+        ergebnis = max(ergebnis, command_collect(
+            _teilargs(engine=engine, **umfang)))
 
     if len(engines) > 1:
         _schritt("beide Laeufe vergleichen")
         ergebnis = max(ergebnis, command_merge(
-            _teilargs(base=engines[0], against=engines[1])))
+            _teilargs(base=engines[0], against=engines[1], **umfang)))
 
     quelle = "merged" if len(engines) > 1 else engines[0]
     _schritt("Reviewmappe schreiben")
     ergebnis = max(ergebnis, command_to_xlsx(
-        _teilargs(source=quelle, force=args.force)))
+        _teilargs(source=quelle, force=args.force, **umfang)))
 
     weiter = "--compared" if args.compared else f"--engine {engines[0]}"
+    if umfang["fullrun"]:
+        weiter = "--fullrun " + weiter
+    ziel = "--review-id <name>" if umfang["fullrun"] else "--eval-id <name>"
     print(f"\nJetzt {paths.relative_to_base(WORKBOOK_PATH)} oeffnen und "
           "abnehmen.")
     if ergebnis == 2:
         print("Die Befunde oben nennen jede Stelle, die dabei Aufmerksamkeit "
               "braucht.")
-    print(f"Danach: goldset_label.py finish {weiter} --eval-id <name>")
+    print(f"Danach: goldset_label.py finish {weiter} {ziel}")
     return ergebnis
 
 
@@ -3769,20 +3899,49 @@ def _matcher(schritt: str, eval_id: str) -> int:
     return subprocess.run(command, cwd=BASE_DIR, check=False).returncode
 
 
+def _fullrun_import(review_id: str, source: str) -> int:
+    """Uebergibt die abgenommene Fullrun-Mappe an das Exportmodul.
+
+    Wieder ein eigener Prozess statt eines Imports: das Exportmodul darf die
+    Matcher-Vertraege benutzen - es schreibt ja in dessen Ablage -, dieses
+    Werkzeug darf es nicht. Der Aufruf haelt die Trennung, die den ganzen
+    Gold-Set-Weg traegt.
+    """
+    command = [sys.executable, "-m", "committee_matcher.fullrun_import",
+               "--review-id", review_id, "--source", source]
+    print(f"$ {' '.join(command[1:])}", flush=True)
+    return subprocess.run(command, cwd=BASE_DIR, check=False).returncode
+
+
 def command_finish(args: argparse.Namespace) -> int:
-    """Von der abgenommenen Mappe bis zum Gold-Set in einem Aufruf.
+    """Von der abgenommenen Mappe bis zum Ergebnis in einem Aufruf.
 
     Die Pruefung steht vorne und ist die Bedingung: ein Befund haelt die
     Uebernahme an, denn Belegregel, Anzahlgrenze und Broad-Scope-Bedingungen
     prueft danach niemand mehr.
+
+    Das Ziel haengt an der Betriebsart. Der Gold-Set-Weg endet in einer
+    Evaluationsrevision, der Fullrun im Mapping, das die Pipeline liest.
     """
     quelle = _quelle(args)
     _schritt("Reviewmappe zuruecklesen und pruefen")
-    ergebnis = command_verify(_teilargs(source=quelle, fix_case=True))
+    ergebnis = command_verify(_teilargs(source=quelle, fix_case=True,
+                                        fullrun=is_fullrun(args)))
     if ergebnis != 0:
-        print("\nDas Gold-Set entsteht nicht: die Mappe traegt noch Befunde.")
+        was = "Das Mapping" if is_fullrun(args) else "Das Gold-Set"
+        print(f"\n{was} entsteht nicht: die Mappe traegt noch Befunde.")
         print("Befunde in der Mappe beheben, dann 'finish' erneut aufrufen.")
         return ergebnis
+
+    if is_fullrun(args):
+        _schritt(f"Mapping in die Reviewrevision {args.review_id} schreiben")
+        code = _fullrun_import(args.review_id, quelle)
+        if code != 0:
+            print(f"\nDas Mapping entsteht nicht: der Export endete mit "
+                  f"{code}. Die Meldungen oben nennen jeden Grund.")
+            return code
+        print(f"\nMapping steht in der Revision {args.review_id}.")
+        return 0
 
     if not export_manifest_path(args.eval_id).exists():
         _schritt(f"Evaluationsrevision {args.eval_id} eroeffnen")
@@ -3808,10 +3967,19 @@ def build_parser() -> argparse.ArgumentParser:
         description=(
             "Laesst die 22 Units der Gold-Set-Stichprobe von einem headless "
             "Agenten labeln. Die Labels sind ein Vorschlag; das Gold-Set "
-            "entsteht erst durch die Abnahme."
+            "entsteht erst durch die Abnahme. Mit '--fullrun' laeuft "
+            "stattdessen der ganze Korpus, und das abgenommene Ergebnis wird "
+            "zum Mapping."
         ),
     )
     actions = parser.add_subparsers(dest="action", required=True, metavar="AKTION")
+
+    def add_fullrun_flag(target: argparse.ArgumentParser) -> None:
+        target.add_argument(
+            "--fullrun", action="store_true",
+            help="den ganzen Korpus statt der Gold-Set-Stichprobe; eigene "
+                 f"Ablage unter {paths.relative_to_base(FULLRUN_ROOT)}, kein "
+                 "Gesamtdeckel, Ratenlimit wird ausgewartet")
 
     def add_scope_flags(target: argparse.ArgumentParser) -> None:
         umfang = target.add_mutually_exclusive_group()
@@ -3820,6 +3988,7 @@ def build_parser() -> argparse.ArgumentParser:
                                  "entfallen. Default aus config/settings.py")
         umfang.add_argument("--compared", action="store_true",
                             help="beide CLIs labeln und werden verglichen")
+        add_fullrun_flag(target)
 
     label = actions.add_parser(
         "label", help="alles bis zur Reviewmappe: prepare, preflight, run, "
@@ -3841,14 +4010,19 @@ def build_parser() -> argparse.ArgumentParser:
         "finish", help="alles ab der abgenommenen Mappe: verify, Revision "
                        "eroeffnen, Gold-Set uebernehmen")
     add_scope_flags(finish)
-    finish.add_argument("--eval-id", required=True, metavar="NAME",
-                        help="Evaluationsrevision, in die das Gold-Set kommt")
+    ziel = finish.add_mutually_exclusive_group(required=True)
+    ziel.add_argument("--eval-id", metavar="NAME",
+                      help="Evaluationsrevision, in die das Gold-Set kommt")
+    ziel.add_argument("--review-id", metavar="NAME",
+                      help="Reviewrevision, in die das Mapping des Fullruns "
+                           "kommt; nur mit --fullrun")
     finish.set_defaults(handler=command_finish)
 
     prepare = actions.add_parser(
         "prepare", help="Aufgabenpakete je Unit erzeugen (kostenfrei)")
     prepare.add_argument("--show", action="store_true",
                          help="Auszug des ersten Pakets ausgeben")
+    add_fullrun_flag(prepare)
     prepare.set_defaults(handler=command_prepare)
 
     def add_engine_flags(target: argparse.ArgumentParser) -> None:
@@ -3885,6 +4059,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--force", action="store_true",
                      help="vorhandene Antworten neu erzeugen statt "
                           "ueberspringen")
+    add_fullrun_flag(run)
     run.set_defaults(handler=command_run)
 
     collect = actions.add_parser(
@@ -3892,6 +4067,7 @@ def build_parser() -> argparse.ArgumentParser:
     collect.add_argument("--engine", choices=ENGINES,
                          help="Lauf, der gesammelt wird; Default aus "
                               "config/settings.py")
+    add_fullrun_flag(collect)
     collect.set_defaults(handler=command_collect)
 
     merge = actions.add_parser(
@@ -3901,6 +4077,7 @@ def build_parser() -> argparse.ArgumentParser:
                        help="Lauf, dessen Zeilen die Basistabelle bilden")
     merge.add_argument("--against", choices=ENGINES, default="codex",
                        help="Lauf, gegen den verglichen wird")
+    add_fullrun_flag(merge)
     merge.set_defaults(handler=command_merge)
 
     to_xlsx = actions.add_parser(
@@ -3914,6 +4091,7 @@ def build_parser() -> argparse.ArgumentParser:
     to_xlsx.add_argument("--force", action="store_true",
                          help="vorhandene Zieldatei ersetzen; die bisherige "
                               "Fassung wird vorher als '.bak.xlsx' gesichert")
+    add_fullrun_flag(to_xlsx)
     to_xlsx.set_defaults(handler=command_to_xlsx)
 
     verify = actions.add_parser(
@@ -3928,6 +4106,7 @@ def build_parser() -> argparse.ArgumentParser:
     verify.add_argument("--fix-case", action="store_true",
                         help="Schreibweise bekannter industry_id "
                              "zurueckschreiben")
+    add_fullrun_flag(verify)
     verify.set_defaults(handler=command_verify)
     return parser
 
@@ -3935,6 +4114,16 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    # Der Umschalter steht vor jedem Handler: ab hier zeigen alle Pfade dieses
+    # Prozesses in die Ablage der gewaehlten Betriebsart.
+    if is_fullrun(args):
+        use_fullrun_paths()
+    if getattr(args, "review_id", None) and not is_fullrun(args):
+        parser.error("--review-id gilt nur mit --fullrun; das Gold-Set kommt "
+                     "mit --eval-id in eine Evaluationsrevision")
+    if is_fullrun(args) and getattr(args, "eval_id", None):
+        parser.error("--eval-id gilt nur ohne --fullrun; das Mapping des "
+                     "Fullruns kommt mit --review-id in eine Reviewrevision")
     try:
         return int(args.handler(args))
     except GoldsetBlocked as blocked:

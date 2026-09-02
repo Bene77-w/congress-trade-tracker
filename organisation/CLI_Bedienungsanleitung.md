@@ -1127,9 +1127,39 @@ zusammen. `--engine claude` ist Default, `--engine codex` labelt nur mit
 Codex, `--compared` lässt beide laufen und vergleicht sie; die Angabe muss bei
 `label` und `finish` gleich sein. Die Bausteine bleiben einzeln aufrufbar.
 
+### Fullrun über die CLI-Abos (alle 225 Units)
+
+Dasselbe Werkzeug mit `--fullrun` labelt den ganzen Korpus statt der
+Stichprobe; das abgenommene Ergebnis wird zum Mapping und nicht zum Gold-Set.
+
+```bash
+G="venv/bin/python committee_matcher/goldset_label.py"
+$G label --fullrun                            # kostenpflichtig, Stunden bis Tage
+xdg-open data/committee_matcher_v2/fullrun/fullrun_review.xlsx
+$G finish --fullrun --review-id map-2026-09-02
+```
+
+Unterschiede zum Gold-Set-Weg: eigene Ablage unter
+`data/committee_matcher_v2/fullrun/`, kein Gesamtdeckel (ein Mehrtageslauf
+würde sonst planmäßig abgeschnitten), und ein erreichtes Ratenlimit beendet den
+Lauf nicht — das Werkzeug wartet 600 s und fragt erneut, bis wieder Antworten
+kommen. Der Wiederaufsatz ist derselbe wie beim Gold-Set: ein erneuter Aufruf
+überspringt fertige Units.
+
+`finish --fullrun` ruft statt `evaluate export|import` das Modul
+`committee_matcher/fullrun_import.py` auf. Ergebnis:
+`data/committee_matcher_v2/reviews/<review_id>/reviewed_assignments.csv` — die
+Datei, die auch der reguläre Reviewpfad erzeugt und die an `import_trades`
+übergeben wird. `--eval-id` und `--review-id` gehören zu je einer Betriebsart
+und werden gegeneinander abgewiesen.
+
 Kanonische Bedienungsanleitung mit allen Kommandos, Optionen, Exit-Codes und
 Befunden: **`committee_matcher/GOLDSET_ANLEITUNG.md`**. Begründungen und die
 vollständige Fehlertabelle: `organisation/committee_matcher_goldset_labeling_plan.md`.
+
+Nicht zu verwechseln: `python -m committee_matcher full-run` ist der
+Produktivpfad über OpenRouter (kostenpflichtig je Aufruf),
+`goldset_label.py --fullrun` derselbe Umfang über die CLI-Abos.
 
 Offen: `evaluate goldset`, `qualify holdout`, `full-run`,
 `report` + ihr Bedienablauf. Diese Kommandos bis zur Implementierung nicht

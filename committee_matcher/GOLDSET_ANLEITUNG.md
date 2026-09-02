@@ -15,6 +15,11 @@ Gold-Set — der Agent liefert einen Vorschlag, kein Ergebnis.
 Der Matcher selbst wird dabei nicht benutzt. Er ist der Prüfling; wenn er sein
 eigenes Prüfmaß erstellte, wäre die Messung wertlos.
 
+Dasselbe Werkzeug kann mit `--fullrun` auch die Arbeit selbst erledigen statt
+nur den Maßstab dafür: dann bearbeitet der Agent **alle 225 Ausschüsse**, und
+deine abgenommene Tabelle wird zum Mapping, mit dem das Programm rechnet. Siehe
+[Der Fullrun](#der-fullrun-alle-225-ausschüsse).
+
 ## Der ganze Ablauf
 
 ```
@@ -117,6 +122,66 @@ Jede Meldung nennt die genaue Stelle, meist als Zelladresse:
 Korrigieren, speichern, schließen, `finish` erneut aufrufen. So oft, bis nichts
 mehr kommt.
 
+## Der Fullrun: alle 225 Ausschüsse
+
+Der normale Ablauf erzeugt den Maßstab — 22 Ausschüsse als Referenz. Mit
+`--fullrun` läuft derselbe Ablauf über den **ganzen Korpus**, und was du
+abnimmst, wird nicht zum Gold-Set, sondern zum Mapping, das die Pipeline
+benutzt.
+
+```
+1.  venv/bin/python committee_matcher/goldset_label.py label --fullrun
+
+    Der Agent bearbeitet alle 225 Ausschüsse. Am Ende liegt
+    data/committee_matcher_v2/fullrun/fullrun_review.xlsx bereit.
+    KOSTET GELD. Dauer: mehrere Stunden bis Tage.
+
+2.  xdg-open data/committee_matcher_v2/fullrun/fullrun_review.xlsx
+
+    Wie beim Gold-Set: durchgehen, ändern, speichern, schließen.
+
+3.  venv/bin/python committee_matcher/goldset_label.py finish --fullrun \
+        --review-id map-2026-09-02
+
+    Deine Fassung wird geprüft und als Mapping übernommen. Ergebnis:
+    data/committee_matcher_v2/reviews/map-2026-09-02/reviewed_assignments.csv
+```
+
+Drei Dinge sind anders als beim Gold-Set:
+
+**Eigene Ablage.** Alles liegt unter `data/committee_matcher_v2/fullrun/`. Der
+Fullrun fasst keine Datei des Gold-Sets an — sonst wäre die Referenz
+überschrieben, an der die Pipeline gemessen wird.
+
+**Kein Gesamtdeckel.** Der Zeitdeckel von zwölf Stunden für den ganzen Satz
+entfällt; er würde einen Mehrtageslauf planmäßig abschneiden. Der Deckel je
+Ausschuss bleibt — er ist die Notbremse gegen einen hängenden Prozess.
+
+**Das Kontingent wird ausgewartet.** Meldet Claude oder Codex ein erreichtes
+Ratenlimit, bricht der Lauf nicht ab. Er wartet zehn Minuten und fragt erneut,
+so lange, bis wieder Antworten kommen. Am Ende sagt er dir, wie lange er
+insgesamt gewartet hat:
+
+```
+    Ratenlimit erreicht (Versuch 3); neue Anfrage in 10 min. Bisher 20 min gewartet.
+    ...
+Fertig: 225 gelabelt, 0 uebersprungen, 0 fehlgeschlagen, 90 min auf das Abo gewartet
+```
+
+Willst du früher aufhören: Strg-C. Der nächste `label --fullrun` setzt bei den
+offenen Ausschüssen fort und bezahlt die fertigen nicht erneut.
+
+**Ziel des `finish`.** `--eval-id` und `--review-id` gehören zu je einer
+Betriebsart und lassen sich nicht vertauschen: das Gold-Set kommt in eine
+Evaluationsrevision, das Mapping in eine Reviewrevision. Der falsche Parameter
+ist ein Bedienfehler und wird gemeldet, statt still das Falsche zu tun.
+
+In der übernommenen Tabelle steht je Zuordnung, woher sie stammt: `model` für
+eine Zeile, die der Agent so geliefert hat, `manual`, sobald du an Wert,
+Zitat oder Begründung etwas geändert hast. Als Herkunft steht `claude-cli`
+beziehungsweise `codex-cli` — die Abrechnung läuft über das Abo, deshalb gibt
+es weder Anbieter noch Generation-ID.
+
 ## Optionen
 
 | Option | Gilt für | Wirkung |
@@ -124,10 +189,12 @@ mehr kommt.
 | `--engine claude` | `label`, `finish` | Nur Claude labelt. **Standard**, wenn du nichts angibst. |
 | `--engine codex` | `label`, `finish` | Nur Codex labelt. |
 | `--compared` | `label`, `finish` | Beide labeln unabhängig, das Werkzeug vergleicht sie und schreibt `disagreements.md` mit den Stellen, an denen sie sich uneinig sind. Kostet doppelt und dauert doppelt. |
+| `--fullrun` | alle Kommandos | Alle 225 Ausschüsse statt der 22 der Stichprobe, eigene Ablage, kein Gesamtdeckel, Ratenlimit wird ausgewartet. |
 | `--model NAME` | `label` | Welches Modell genau. Ohne Angabe der Wert aus `config/settings.py`. |
 | `--effort STUFE` | `label` | Wie gründlich es denkt. Ohne Angabe der Wert aus `config/settings.py`. |
-| `--force` | `label` | Alles neu erzeugen statt fortzusetzen. Bezahlt die 22 Läufe erneut. Die alte Tabelle wird vorher gesichert. |
-| `--eval-id NAME` | `finish` | Name der Evaluationsrevision, in die das Gold-Set kommt. Pflichtangabe. |
+| `--force` | `label` | Alles neu erzeugen statt fortzusetzen. Bezahlt alle Läufe erneut. Die alte Tabelle wird vorher gesichert. |
+| `--eval-id NAME` | `finish` | Name der Evaluationsrevision, in die das Gold-Set kommt. Ohne `--fullrun` Pflichtangabe. |
+| `--review-id NAME` | `finish --fullrun` | Name der Reviewrevision, in die das Mapping kommt. Mit `--fullrun` Pflichtangabe. |
 
 ### Vollständiges Beispiel
 
@@ -160,9 +227,27 @@ venv/bin/python committee_matcher/goldset_label.py finish \
   --eval-id eval-2026-09-02
 ```
 
+Der ganze Korpus, nur mit Claude, höchste Denktiefe:
+
+```bash
+venv/bin/python committee_matcher/goldset_label.py label \
+  --fullrun \
+  --engine claude \
+  --model claude-opus-5 \
+  --effort xhigh
+
+xdg-open data/committee_matcher_v2/fullrun/fullrun_review.xlsx
+
+venv/bin/python committee_matcher/goldset_label.py finish \
+  --fullrun \
+  --engine claude \
+  --review-id map-2026-09-02
+```
+
 `--engine` beziehungsweise `--compared` müssen bei `label` und `finish`
-**gleich** sein — `finish` muss wissen, welchen Stand es prüfen soll. `--model`
-und `--effort` braucht `finish` nicht; dort wird nicht mehr gelabelt.
+**gleich** sein — `finish` muss wissen, welchen Stand es prüfen soll. Dasselbe
+gilt für `--fullrun`: ohne das Flag suchte `finish` die Gold-Set-Tabelle.
+`--model` und `--effort` braucht `finish` nicht; dort wird nicht mehr gelabelt.
 
 ### Welche Werte gibt es
 
@@ -205,6 +290,7 @@ einen `GS_`-Code und sagt, was los ist, warum es zählt und was zu tun ist.
 | `GS_UNIT_MISSING` | Ein Ausschuss hat keine Zeile | Zeile ergänzen: Branche eintragen oder `no_mapping_reason` füllen |
 | `GS_WEBSEARCH_OFF` | Der Agent hat keine Quelle genannt | meist harmlos; er hielt den vorliegenden Text für ausreichend |
 | `GS_RESUME_MISMATCH` | Eine alte Antwort passt nicht zum aktuellen Lauf | mit `--force` neu erzeugen oder die alte Antwort prüfen |
+| `GS_RATE_LIMITED` | Das Kontingent des Abos ist erschöpft | im Fullrun nichts — er wartet selbst; sonst später fortsetzen |
 
 **Einzelne Schritte von Hand.** Für den Ausnahmefall gibt es die Bausteine
 weiterhin einzeln — `prepare`, `preflight`, `run`, `collect`, `merge`,
@@ -215,6 +301,9 @@ noch einmal:
 venv/bin/python committee_matcher/goldset_label.py run --engine claude \
   --unit-id house--energy-and-commerce--health --force
 ```
+
+Jeder Baustein nimmt `--fullrun` entgegen und arbeitet dann in der
+Fullrun-Ablage.
 
 `goldset_label.py <kommando> --help` zeigt zu jedem Baustein seine Optionen.
 

@@ -65,6 +65,24 @@ def test_fehlercodes_stehen_im_katalog() -> None:
     assert set(gs.ERROR_CATALOG) - benutzt == set()
 
 
+#: Pfade, die ``use_fullrun_paths`` als Modulglobals ersetzt.
+UMGESCHALTETE_PFADE = ("TASK_ROOT", "RUN_ROOT", "COLLECT_ROOT", "MERGE_REPORT",
+                       "WORKBOOK_PATH")
+
+
+@pytest.fixture(autouse=True)
+def pfade_zuruecksetzen(monkeypatch):
+    """Kein Test erbt die Ablage eines anderen.
+
+    ``use_fullrun_paths`` ersetzt Modulglobals; monkeypatch stellt nur wieder
+    her, was es kennt. Ohne diese Wache reichte ein einziger Aufruf ohne
+    Sandbox - etwa aus einem Test der Bedienfehler - und alle folgenden Tests
+    schrieben in das echte Datenverzeichnis.
+    """
+    for name in UMGESCHALTETE_PFADE:
+        monkeypatch.setattr(gs, name, getattr(gs, name))
+
+
 # -- Trockenlauf -----------------------------------------------------------
 @pytest.fixture(scope="module")
 def taxonomy():
@@ -1529,3 +1547,225 @@ def test_label_reicht_modell_und_denktiefe_durch(sandbox, monkeypatch, capsys) -
     assert {config.effort for config in gesehen} == {"xhigh"}
     # Preflight plus 22 Units.
     assert len(gesehen) == 23
+
+
+# -- Fullrun ---------------------------------------------------------------
+def test_use_fullrun_paths_legt_alles_unter_die_fullrun_wurzel(monkeypatch,
+                                                               tmp_path) -> None:
+    """Ein Fullrun darf keine Datei der Gold-Set-Ablage anfassen."""
+    monkeypatch.setattr(gs, "FULLRUN_ROOT", tmp_path / "fullrun")
+    vorher = {name: getattr(gs, name) for name in UMGESCHALTETE_PFADE}
+
+    gs.use_fullrun_paths()
+
+    for name in UMGESCHALTETE_PFADE:
+        neu = getattr(gs, name)
+        assert neu != vorher[name]
+        assert (tmp_path / "fullrun") in neu.parents
+
+
+def test_fullrun_units_deckt_den_ganzen_korpus_ab() -> None:
+    """Alle Units, sortiert, fortlaufend nummeriert - und mehr als die Probe."""
+    corpus = gs.load_corpus_units()
+    units = gs.fullrun_units(corpus)
+
+    assert [item.unit_id for item in units] == sorted(corpus)
+    assert [item.nr for item in units] == list(range(1, len(corpus) + 1))
+    assert len(units) > len(gs.load_sample())
+    # Die Eingabebasis kommt aus dem Korpus und nicht aus einer zweiten Liste.
+    assert all(item.input_basis == corpus[item.unit_id].input_basis.value
+               for item in units)
+
+
+def test_label_units_ohne_flag_bleibt_die_stichprobe(sample) -> None:
+    assert gs.label_units(gs._teilargs()) == sample
+
+
+# -- Warteschleife bei Ratenlimit ------------------------------------------
+def _config(engine: str = "claude") -> gs.EngineConfig:
+    return gs.EngineConfig(engine=engine, model="opus", effort="high",
+                           timeout_seconds=60)
+
+
+def _fehlschlag(text: str) -> gs.EngineResult:
+    return gs.EngineResult(answer=None, exit_code=1, duration_s=1.0,
+                           timed_out=False, stdout="", stderr=text)
+
+
+def _erfolg() -> gs.EngineResult:
+    return gs.EngineResult(answer={"unit_id": "x"}, exit_code=0, duration_s=1.0,
+                           timed_out=False, stdout="", stderr="")
+
+
+RATE_LIMIT_TEXT = '{"status":429} You\'ve hit your usage limit.'
+
+
+def test_ratenlimit_wird_erkannt() -> None:
+    """Beide Formulierungen der CLIs; ein Erfolg ist nie ein Ratenlimit."""
+    assert gs.rate_limited(_fehlschlag(RATE_LIMIT_TEXT), _config())
+    assert gs.rate_limited(_fehlschlag("Error: rate_limit_exceeded"), _config("codex"))
+    assert not gs.rate_limited(_fehlschlag("some other failure"), _config())
+    assert not gs.rate_limited(_erfolg(), _config())
+
+
+def test_fullrun_wartet_das_ratenlimit_aus(monkeypatch, capsys) -> None:
+    """Zweimal Limit, dann Antwort: die Unit gilt am Ende als gelabelt."""
+    geschlafen: list[int] = []
+    monkeypatch.setattr(gs.time, "sleep", geschlafen.append)
+    antworten = [_fehlschlag(RATE_LIMIT_TEXT), _fehlschlag(RATE_LIMIT_TEXT),
+                 _erfolg()]
+
+    result, gewartet = gs.run_until_quota(
+        lambda task, config, workdir: antworten.pop(0), {}, _config(), wait=True)
+
+    assert result.answer is not None
+    assert geschlafen == [gs.RATE_LIMIT_WAIT_SECONDS] * 2
+    assert gewartet == 2 * gs.RATE_LIMIT_WAIT_SECONDS
+    assert "Ratenlimit erreicht (Versuch 2)" in capsys.readouterr().out
+
+
+def test_ohne_fullrun_wird_nicht_gewartet(monkeypatch) -> None:
+    """Der Gold-Set-Satz soll abbrechen statt stundenlang stillzustehen."""
+    monkeypatch.setattr(gs.time, "sleep",
+                        lambda _: pytest.fail("es darf nicht gewartet werden"))
+    result, gewartet = gs.run_until_quota(
+        lambda task, config, workdir: _fehlschlag(RATE_LIMIT_TEXT), {},
+        _config(), wait=False)
+    assert result.answer is None
+    assert gewartet == 0
+
+
+def test_anderer_fehler_wartet_auch_im_fullrun_nicht(monkeypatch) -> None:
+    """Ein unbekanntes Modell wird durch Warten nicht bekannter."""
+    monkeypatch.setattr(gs.time, "sleep",
+                        lambda _: pytest.fail("es darf nicht gewartet werden"))
+    result, gewartet = gs.run_until_quota(
+        lambda task, config, workdir: _fehlschlag("unknown model"), {},
+        _config(), wait=True)
+    assert result.answer is None
+    assert gewartet == 0
+
+
+@pytest.fixture()
+def fullrun_sandbox(tmp_path, monkeypatch, taxonomy, sample):
+    """Die Fullrun-Ablage in tmp_path, mit der Stichprobe als Laufmenge.
+
+    Der echte Fullrun umfasst 225 Units; hier laufen die 22 der Stichprobe.
+    Geprueft wird die Betriebsart - Ablage, Deckel, Warteschleife -, nicht die
+    Menge: ein Testlauf ueber 225 Aufgabenpakete kostete Minuten und wiese
+    nichts nach, was 'test_fullrun_units_deckt_den_ganzen_korpus_ab' nicht
+    schon zeigt.
+    """
+    monkeypatch.setattr(gs, "FULLRUN_ROOT", tmp_path / "fullrun")
+    monkeypatch.setattr(gs, "fullrun_units", lambda corpus: sample)
+
+    industry = sorted(taxonomy.ids)[0]
+    fake = tmp_path / "antworten"
+    fake.mkdir()
+    for item in sample:
+        task = gs.load_task(item.unit_id)
+        (fake / f"{item.unit_id}.json").write_text(
+            json.dumps(build_answer(task, industry), ensure_ascii=False),
+            encoding="utf-8")
+    monkeypatch.setenv(gs.FAKE_DIR_ENV, str(fake))
+    gs.use_fullrun_paths()
+    return tmp_path
+
+
+def test_fullrun_schreibt_nur_in_die_eigene_ablage(fullrun_sandbox, capsys) -> None:
+    """Die Referenz bleibt unberuehrt; alles Neue liegt unter fullrun/."""
+    goldset_stand = sorted(p.name for p in gs.GOLDSET_ROOT.iterdir())
+
+    assert lauf("label", "--fullrun", "--engine", "claude") == 0
+    capsys.readouterr()
+
+    assert (fullrun_sandbox / "fullrun" / "fullrun_review.xlsx").exists()
+    assert (fullrun_sandbox / "fullrun" / "tasks" / "index.json").exists()
+    assert sorted(p.name for p in gs.GOLDSET_ROOT.iterdir()) == goldset_stand
+
+
+def test_fullrun_kennt_keinen_gesamtdeckel(fullrun_sandbox, monkeypatch,
+                                           capsys) -> None:
+    """Ohne Flag schneidet der Deckel ab, mit Flag laeuft der Satz durch."""
+    assert lauf("prepare", "--fullrun") == 0
+    stand = {"t": 0.0}
+    # Jeder Blick auf die Uhr springt eine Stunde weiter: der Gesamtdeckel
+    # waere nach der ersten Unit erschoepft.
+    monkeypatch.setattr(gs.time, "monotonic",
+                        lambda: stand.__setitem__("t", stand["t"] + 3600) or stand["t"])
+    capsys.readouterr()
+
+    assert lauf("run", "--fullrun", "--engine", "claude") == 0
+    ausgabe = capsys.readouterr().out
+    assert "ohne Gesamtdeckel (Fullrun)" in ausgabe
+    assert "Gesamtdeckel von" not in ausgabe
+
+
+def test_ohne_fullrun_greift_der_gesamtdeckel(sandbox, monkeypatch, capsys) -> None:
+    stand = {"t": 0.0}
+    monkeypatch.setattr(gs.time, "monotonic",
+                        lambda: stand.__setitem__("t", stand["t"] + 3600) or stand["t"])
+    assert lauf("run", "--engine", "claude", "--total-timeout", "3600") == 2
+    assert "Gesamtdeckel von 3600 s erreicht" in capsys.readouterr().out
+
+
+def test_run_wartet_im_fullrun_und_labelt_danach(fullrun_sandbox, monkeypatch,
+                                                 capsys) -> None:
+    """Ein Limit bei der ersten Unit haelt den Satz an, statt ihn zu beenden."""
+    assert lauf("prepare", "--fullrun") == 0
+    capsys.readouterr()
+    geschlafen: list[int] = []
+    monkeypatch.setattr(gs.time, "sleep", geschlafen.append)
+    echt = gs.run_fake
+    zustand = {"limit": True}
+
+    def einmal_limit(root, task, config):
+        if zustand["limit"]:
+            zustand["limit"] = False
+            return _fehlschlag(RATE_LIMIT_TEXT)
+        return echt(root, task, config)
+
+    monkeypatch.setattr(gs, "run_fake", einmal_limit)
+    assert lauf("run", "--fullrun", "--engine", "claude") == 0
+    ausgabe = capsys.readouterr().out
+    assert geschlafen == [gs.RATE_LIMIT_WAIT_SECONDS]
+    assert "10 min auf das Abo gewartet" in ausgabe
+    assert "GS_RATE_LIMITED" not in ausgabe
+
+
+def test_ratenlimit_ohne_fullrun_bricht_den_satz_ab(sandbox, monkeypatch,
+                                                    capsys) -> None:
+    monkeypatch.setattr(gs, "run_fake",
+                        lambda root, task, config: _fehlschlag(RATE_LIMIT_TEXT))
+    assert lauf("run", "--engine", "claude") == 2
+    ausgabe = capsys.readouterr().out
+    assert "GS_RATE_LIMITED" in ausgabe
+    assert "bricht ab" in ausgabe
+
+
+def test_finish_fullrun_ruft_das_exportmodul(fullrun_sandbox, monkeypatch,
+                                             capsys) -> None:
+    """Der Fullrun endet im Mapping, nicht in einer Evaluationsrevision."""
+    assert lauf("label", "--fullrun", "--engine", "claude") == 0
+    gerufen: list[tuple[str, str]] = []
+    monkeypatch.setattr(gs, "_fullrun_import",
+                        lambda review_id, source: gerufen.append(
+                            (review_id, source)) or 0)
+    monkeypatch.setattr(gs, "_matcher",
+                        lambda schritt, eval_id: pytest.fail(
+                            "der Fullrun geht nicht ueber 'evaluate'"))
+    capsys.readouterr()
+
+    assert lauf("finish", "--fullrun", "--engine", "claude",
+                "--review-id", "map-x") == 0
+    assert gerufen == [("map-x", "claude")]
+
+
+def test_review_id_und_eval_id_gehoeren_zu_je_einer_betriebsart(capsys) -> None:
+    """Der falsche Zielparameter ist ein Bedienfehler, kein stiller Umweg."""
+    with pytest.raises(SystemExit):
+        gs.main(["finish", "--review-id", "map-x"])
+    assert "--review-id gilt nur mit --fullrun" in capsys.readouterr().err
+    with pytest.raises(SystemExit):
+        gs.main(["finish", "--fullrun", "--eval-id", "eval-x"])
+    assert "--eval-id gilt nur ohne --fullrun" in capsys.readouterr().err
