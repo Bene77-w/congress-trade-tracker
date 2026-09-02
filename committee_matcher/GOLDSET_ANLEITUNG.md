@@ -12,46 +12,61 @@ Begründungen und vollständige Fehlertabelle:
 
 ## Ablauf
 
-```
-P="venv/bin/python committee_matcher/goldset_label.py"
+Jeder Kasten ist genau ein Terminalbefehl, in dieser Reihenfolge auszuführen.
+Alle Aufrufe laufen aus dem Projektwurzelverzeichnis.
 
-$P prepare                                    Werkzeug
-  |   liest Korpus, Units, Taxonomie-Snapshot und Modellvertrag
+```
+venv/bin/python committee_matcher/goldset_label.py prepare
+  |   Werkzeug: liest Korpus, Units, Taxonomie-Snapshot und Modellvertrag,
   |   schreibt je Unit ein Aufgabenpaket samt Bindungshashes
   v
-$P preflight --engine claude                  Werkzeug + CLI   minimal bezahlt
-  |   Ein-Token-Lauf: Aufrufweg, Anmeldung, Modellname, Denktiefe
+venv/bin/python committee_matcher/goldset_label.py preflight --engine claude
+  |   Werkzeug + CLI, minimal bezahlt: Ein-Token-Lauf prüft Aufrufweg,
+  |   Anmeldung, Modellname und Denktiefe
   v
-$P run --engine claude                        Agent            BEZAHLT
-  |   je Unit ein eigener headless Lauf, Rohantwort und Log je Unit
-  |   Abbruch jederzeit; erneuter Aufruf setzt fort
+venv/bin/python committee_matcher/goldset_label.py run --engine claude
+  |   Agent, BEZAHLT: je Unit ein eigener headless Lauf, Rohantwort und Log
+  |   je Unit. Abbruch jederzeit; erneuter Aufruf setzt fort
   v
-$P collect --engine claude                    Werkzeug
-  |   prüft jede Antwort gegen Vertrag, Taxonomie und Belegtext
-  |   schreibt labels_/notes_/info_<engine>.csv
+venv/bin/python committee_matcher/goldset_label.py collect --engine claude
+  |   Werkzeug: prüft jede Antwort gegen Vertrag, Taxonomie und Belegtext,
+  |   schreibt labels_/notes_/info_claude.csv
   v
-  +-- dieselben drei Schritte mit --engine codex
+venv/bin/python committee_matcher/goldset_label.py preflight --engine codex
+venv/bin/python committee_matcher/goldset_label.py run      --engine codex
+venv/bin/python committee_matcher/goldset_label.py collect  --engine codex
+  |   dieselben drei Schritte mit der zweiten Engine
   v
-$P merge --base claude --against codex        Werkzeug
-  |   vergleicht beide Läufe, schreibt disagreements.md
+venv/bin/python committee_matcher/goldset_label.py merge --base claude --against codex
+  |   Werkzeug: vergleicht beide Läufe, schreibt disagreements.md
   |   und die merged-Tabellen als Arbeitsstand
   v
-$P to-xlsx --source merged                    Werkzeug
-  |   baut goldset_review.xlsx: labels, jurisdiction,
-  |   taxonomy, agent_notes, info; alle Zellen als Text
+venv/bin/python committee_matcher/goldset_label.py to-xlsx --source merged
+  |   Werkzeug: baut goldset_review.xlsx mit den Blättern labels,
+  |   jurisdiction, taxonomy, agent_notes, info; alle Zellen als Text
   v
-  Reviewmappe abnehmen                        DU
-  |   jede Zeile ändern, löschen, ergänzen; Auswahlliste im
-  |   Blatt labels; disagreements.md nennt die strittigen Units
+xdg-open data/committee_matcher_v2/goldset/goldset_review.xlsx
+  |   DU: jede Zeile ändern, löschen, ergänzen; Auswahlliste im Blatt
+  |   labels; disagreements.md nennt die strittigen Units.
+  |   Datei vor dem nächsten Schritt schließen
   v
-$P verify --source merged --fix-case          Werkzeug
-  |   liest zurück, prüft erneut gegen den Vertrag,
-  |   repariert Schreibweise und Randleerraum,
-  |   nennt jede Abweichung gegen den Arbeitsstand
+venv/bin/python committee_matcher/goldset_label.py verify --source merged --fix-case
+  |   Werkzeug: liest zurück, prüft erneut gegen den Vertrag, repariert
+  |   Schreibweise und Randleerraum, nennt jede Abweichung mit Zelladresse.
+  |   Wiederholen, bis keine Befunde mehr stehen
   v
-python -m committee_matcher evaluate import   Matcher
-      übernimmt die abgenommene Mappe in die Evaluationsrevision
+venv/bin/python -m committee_matcher evaluate export --eval-id eval-2026-09-02
+  |   Matcher: Evaluationsrevision eröffnen, Taxonomie, Stichprobe, Inputs
+  |   und Prompts einfrieren; kein Modellaufruf
+  v
+venv/bin/python -m committee_matcher evaluate import --eval-id eval-2026-09-02
+      Matcher: übernimmt die abgenommene Mappe validiert in die Revision.
+      Ein Verstoß lehnt den gesamten Import ab (Exit 7)
 ```
+
+Die `--eval-id` ist frei wählbar, muss aber in `export` und `import` dieselbe
+sein. Ohne `--labels` liest der Import die Arbeitsdatei des Werkzeugs,
+`data/committee_matcher_v2/goldset/goldset_review.xlsx`.
 
 ## Wie ein Lauf funktioniert
 
@@ -156,5 +171,10 @@ auslösende Codestelle.
 
 ## Test ohne Kosten
 
-`GOLDSET_LABEL_FAKE_DIR=<verzeichnis>` ersetzt beide CLIs durch vorbereitete
-Antwortdateien `<unit_id>.json` — kein Netz, kein Kontingent.
+`GOLDSET_LABEL_FAKE_DIR` ersetzt beide CLIs durch vorbereitete Antwortdateien
+`<unit_id>.json` — kein Netz, kein Kontingent:
+
+```bash
+GOLDSET_LABEL_FAKE_DIR=/pfad/zu/antworten \
+  venv/bin/python committee_matcher/goldset_label.py run --engine claude
+```
