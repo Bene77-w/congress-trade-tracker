@@ -6,11 +6,14 @@ Offline-Preflight der Settings aus, blockiert jeden Providerpfad mit
 unvollstaendigen Providersettings und gibt in jedem Fall den Terminalbericht
 aus.
 
-Stages, die erst in spaeteren Phasen entstehen, melden ``CLI_STAGE_NOT_IMPLEMENTED``
-und beenden mit Exit-Code 4 (Preflight blockiert). Das ist bewusst kein neuer
-Exit-Code: die Codeliste ist Vertrag und wird nicht erweitert.
+Jedes registrierte Kommando hat einen Handler. Bleibt eines ohne, meldet der
+Lauf ``CLI_STAGE_NOT_IMPLEMENTED`` und beendet mit Exit-Code 4 (Preflight
+blockiert). Das ist bewusst kein neuer Exit-Code: die Codeliste ist Vertrag und
+wird nicht erweitert.
 
-Es gibt weiterhin kein ``promote``, ``finalize``, ``research`` oder LLM-``review``.
+Nicht gebaut werden Evaluationslauf, Holdout-Qualifikation und Auswertungs-
+bericht; die Begruendung steht in ``AUFGEGEBENER_PLANTEIL.md``. Es gibt
+weiterhin kein ``promote``, ``finalize``, ``research`` oder LLM-``review``.
 """
 from __future__ import annotations
 
@@ -139,19 +142,11 @@ COMMANDS: tuple[Command, ...] = (
             network=True),
     Command("evaluate", "import", Stage.EVALUATION, "P9", True,
             "gelabeltes Entwicklungs-Gold-Set validiert in die Revision uebernehmen"),
-    Command("evaluate", "run", Stage.EVALUATION, "P9", True,
-            "Prueflauf der Variantenmatrix gegen das Gold-Set (kostenpflichtig)",
-            network=True),
-    Command("qualify", "holdout", Stage.EVALUATION, "P10", True,
-            "unabhaengiges Holdout qualifizieren"),
-    Command("full-run", None, Stage.WORKFLOW, "P11", True,
-            "qualifizierten, filterlosen Full-Run ueber die Unit-Sollmenge starten"),
-    Command("report", None, Stage.ARTIFACTS, "P7", False,
-            "Fehler-, Kosten- und Coverage-Bericht einer Revision ausgeben"),
 )
 
-#: Zielangaben, die ausschliesslich Entwicklungsruns erlauben (Plan 2.6).
-DEVELOPMENT_TARGET_FLAGS = ("--chamber", "--committee", "--unit-id")
+#: Zielangaben eines Runs. ``--all-units`` nimmt die gesamte Sollmenge; die
+#: uebrigen drei schneiden sie zu.
+RUN_TARGET_FLAGS = ("--all-units", "--chamber", "--committee", "--unit-id")
 
 
 class _Parser(argparse.ArgumentParser):
@@ -228,11 +223,16 @@ def _add_common_flags(parser: argparse.ArgumentParser, command: Command) -> None
                  "Arbeitsdatei des Labelwerkzeugs",
         )
     if command.family == "run":
-        parser.add_argument("--chamber", help="nur Entwicklungsruns: Kammerfilter")
-        parser.add_argument("--committee", help="nur Entwicklungsruns: Committee-Filter")
+        parser.add_argument(
+            "--all-units", action="store_true",
+            help="die gesamte Unit-Sollmenge mappen (kostenpflichtig; "
+                 "'run plan' nennt vorher den Preis)",
+        )
+        parser.add_argument("--chamber", help="Kammerfilter")
+        parser.add_argument("--committee", help="Committee-Filter")
         parser.add_argument(
             "--unit-id", action="append", default=[],
-            help="nur Entwicklungsruns: einzelne Unit-ID (mehrfach zulaessig)",
+            help="einzelne Unit-ID (mehrfach zulaessig)",
         )
 
 
@@ -711,6 +711,7 @@ def _selection(namespace: argparse.Namespace,
     verlangen. Eine abweichende Angabe faellt spaeter als Manifestdrift auf.
     """
     given = {
+        "all_units": bool(getattr(namespace, "all_units", False)),
         "chamber": getattr(namespace, "chamber", None) or None,
         "committee": getattr(namespace, "committee", None) or None,
         "unit_ids": sorted(set(getattr(namespace, "unit_id", []) or [])),
@@ -718,6 +719,7 @@ def _selection(namespace: argparse.Namespace,
     if any(given.values()) or not isinstance(frozen, Mapping):
         return given
     return {
+        "all_units": bool(frozen.get("all_units")),
         "chamber": frozen.get("chamber") or None,
         "committee": frozen.get("committee") or None,
         "unit_ids": sorted(frozen.get("unit_ids") or []),
@@ -726,23 +728,36 @@ def _selection(namespace: argparse.Namespace,
 
 def _targets(collector: ErrorCollector, units: Sequence[MatcherUnit],
              selection: Mapping[str, object]) -> tuple[MatcherUnit, ...] | None:
-    """Waehlt die Units des Entwicklungsruns aus.
+    """Waehlt die Units des Runs aus.
 
-    Ohne Zielangabe laeuft nichts: ein filterloser Lauf ueber die Sollmenge ist
-    der Full-Run und braucht die Qualifikation aus P10. Ein versehentlich
-    filterloser ``run execute`` waere der teuerste Bedienfehler des Werkzeugs.
+    Ohne Zielangabe laeuft nichts. Der Lauf ueber die gesamte Sollmenge ist der
+    teuerste des Werkzeugs und wird deshalb ausdruecklich mit ``--all-units``
+    verlangt, statt sich aus fehlenden Filtern zu ergeben.
     """
+    all_units = bool(selection.get("all_units"))
     chamber = selection.get("chamber")
     committee = selection.get("committee")
     unit_ids = tuple(selection.get("unit_ids") or ())
-    if not (chamber or committee or unit_ids):
+    if not (all_units or chamber or committee or unit_ids):
         _run_blocker(
             collector, "CLI_RUN_TARGET_REQUIRED", "run",
-            "Ein Entwicklungsrun braucht eine Zielangabe.",
-            "--chamber, --committee oder --unit-id setzen; der filterlose Lauf "
-            "ueber die gesamte Sollmenge ist 'full-run' und ab P11 verfuegbar.",
+            "Ein Run braucht eine Zielangabe.",
+            "--all-units fuer die gesamte Sollmenge setzen oder mit --chamber, "
+            "--committee bzw. --unit-id zuschneiden.",
         )
         return None
+    if all_units and (chamber or committee or unit_ids):
+        # Sonst hiesse ``--all-units`` im Manifest etwas anderes als im Lauf:
+        # die Coverage wiese eine Teilmenge als vollstaendig aus.
+        _run_blocker(
+            collector, "CLI_RUN_TARGET_CONFLICT", "run",
+            "--all-units schliesst jeden Filter aus.",
+            "Entweder --all-units oder --chamber/--committee/--unit-id "
+            "angeben, nicht beides.",
+        )
+        return None
+    if all_units:
+        return tuple(units)
 
     def matches(unit: MatcherUnit) -> bool:
         if chamber and unit.chamber.casefold() != str(chamber).casefold():
@@ -2217,8 +2232,8 @@ def run_command(command: Command, namespace: argparse.Namespace) -> int:
             "Providerpfad blockiert: die Providersettings sind unvollstaendig "
             "oder ungueltig.",
             "Fehlende COMMITTEE_MATCHER_*-Werte in config/settings.py "
-            "ergaenzen; die providerfreien Familien input, roster, snapshot, "
-            "review und report laufen unabhaengig davon.",
+            "ergaenzen; die providerfreien Familien input, roster, snapshot "
+            "und review laufen unabhaengig davon.",
         )
     elif handler is None or settings is None:
         if settings is not None:

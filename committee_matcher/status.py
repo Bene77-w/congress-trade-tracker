@@ -58,7 +58,6 @@ class WorkflowState(str, Enum):
     RUNNING = "running"
     AWAITING_TAXONOMY_APPROVAL = "awaiting_taxonomy_approval"
     AWAITING_DEVELOPMENT_GOLDSET = "awaiting_development_goldset"
-    AWAITING_HOLDOUT = "awaiting_holdout"
     AWAITING_MANUAL_REVIEW = "awaiting_manual_review"
     FAILED = "failed"
     OUTCOME_UNKNOWN = "outcome_unknown"
@@ -71,7 +70,6 @@ HUMAN_HANDOFF_STATES: frozenset[WorkflowState] = frozenset(
     {
         WorkflowState.AWAITING_TAXONOMY_APPROVAL,
         WorkflowState.AWAITING_DEVELOPMENT_GOLDSET,
-        WorkflowState.AWAITING_HOLDOUT,
         WorkflowState.AWAITING_MANUAL_REVIEW,
     }
 )
@@ -91,7 +89,6 @@ EXIT_CODE_FOR_STATE: dict[WorkflowState, ExitCode] = {
     WorkflowState.RUNNING: ExitCode.INTERNAL_ERROR,
     WorkflowState.AWAITING_TAXONOMY_APPROVAL: ExitCode.AWAITING_TAXONOMY_APPROVAL,
     WorkflowState.AWAITING_DEVELOPMENT_GOLDSET: ExitCode.SUCCESS,
-    WorkflowState.AWAITING_HOLDOUT: ExitCode.SUCCESS,
     WorkflowState.AWAITING_MANUAL_REVIEW: ExitCode.SUCCESS,
     WorkflowState.FAILED: ExitCode.FAILED_MAPPING_UNITS,
     WorkflowState.OUTCOME_UNKNOWN: ExitCode.OUTCOME_UNKNOWN,

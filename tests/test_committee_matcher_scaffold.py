@@ -61,7 +61,7 @@ def test_exit_code_matrix_is_frozen():
 def test_workflow_states_cover_the_required_minimum():
     required = {
         "pending", "running", "awaiting_taxonomy_approval",
-        "awaiting_development_goldset", "awaiting_holdout",
+        "awaiting_development_goldset",
         "awaiting_manual_review", "failed", "outcome_unknown", "completed",
     }
     assert {state.value for state in WorkflowState} == required
@@ -861,32 +861,27 @@ def test_cli_families_match_the_plan():
     families = {command.family for command in cli.COMMANDS}
     assert families == {
         "input", "roster", "snapshot", "provider", "run", "review", "evaluate",
-        "qualify", "full-run", "report",
     }
+    # Evaluationslauf, Holdout und Auswertungsbericht sind aufgegeben; die
+    # Begruendung steht in committee_matcher/AUFGEGEBENER_PLANTEIL.md.
+    assert not families & {"qualify", "full-run", "report"}
     forbidden = {"promote", "finalize", "research"}
     assert not families & forbidden
     assert not any(command.action == "review" and command.family == "run" for command in cli.COMMANDS)
 
 
-#: Stufenweise implementiert; noch offene Kommandos bleiben Stubs mit Exit 4.
-STUB_COMMANDS = [c for c in cli.COMMANDS if c.name not in cli.HANDLERS]
+def test_every_registered_command_has_a_handler():
+    """Kein registriertes Kommando ist mehr ein Stub."""
+    assert [c.name for c in cli.COMMANDS if c.name not in cli.HANDLERS] == []
 
 
-@pytest.mark.parametrize("command", STUB_COMMANDS, ids=lambda c: c.name.replace(" ", "-"))
-def test_every_open_command_is_reachable_and_blocks_with_exit_four(command, capsys, artifact_sandbox):
-    argv = [command.family] + ([command.action] if command.action else [])
-    if command.family == "evaluate":
-        # Die Kennung ist bei jeder Evaluationsaktion Pflicht; ohne sie
-        # blockiert schon der Parser und der Stub waere nicht erreichbar.
-        argv += ["--eval-id", "eval-stub"]
-    assert cli.main(argv) == int(ExitCode.PREFLIGHT_BLOCKED)
+def test_a_command_without_a_handler_still_blocks_with_exit_four(capsys, artifact_sandbox, monkeypatch):
+    """Die Stubsicherung bleibt scharf, falls je ein Handler fehlt."""
+    monkeypatch.setitem(cli.HANDLERS, "input validate", None)
+    assert cli.main(["input", "validate"]) == int(ExitCode.PREFLIGHT_BLOCKED)
     out = capsys.readouterr().out
-    assert command.name in out
     assert "CLI_STAGE_NOT_IMPLEMENTED" in out
-    assert "CLI_PROVIDER_GATE_CLOSED" not in out, (
-        "Providersettings sind seit Gate B vollstaendig; das Gate darf nicht "
-        "mehr schliessen"
-    )
+    assert "CLI_PROVIDER_GATE_CLOSED" not in out
 
 
 #: Implementierte Kommandos ohne Netzwerk; die Taxonomieabrufe pruefen die
@@ -922,15 +917,16 @@ def test_provider_families_name_the_missing_settings(capsys, artifact_sandbox, m
 
 
 def test_provider_free_families_do_not_mention_the_provider_gate(capsys, artifact_sandbox):
-    # 'report' steht stellvertretend fuer eine providerfreie, noch offene Aktion.
-    assert cli.main(["report"]) == int(ExitCode.PREFLIGHT_BLOCKED)
+    # 'review export' ohne Revision steht stellvertretend fuer einen
+    # providerfreien Lauf, der im Preflight blockiert.
+    assert cli.main(["review", "export"]) == int(ExitCode.PREFLIGHT_BLOCKED)
     out = capsys.readouterr().out
     assert "CLI_PROVIDER_GATE_CLOSED" not in out
     assert "Phase:    P7" in out
 
 
 def test_report_is_printed_for_every_command(capsys, artifact_sandbox):
-    cli.main(["report"])
+    cli.main(["review", "export"])
     out = capsys.readouterr().out
     assert "Kosten: 0.00 USD" in out
     assert "Exit-Code: 4" in out
@@ -950,22 +946,24 @@ def test_version_reports_the_scaffold_version(capsys):
     assert SCAFFOLD_VERSION in capsys.readouterr().out
 
 
-def test_development_target_flags_only_exist_for_development_runs():
+def test_run_target_flags_exist_only_for_the_run_family():
     parser = cli.build_parser()
     namespace = parser.parse_args(["run", "execute", "--chamber", "house"])
     assert namespace.chamber == "house"
+    assert namespace.all_units is False
+    assert parser.parse_args(["run", "plan", "--all-units"]).all_units is True
     with pytest.raises(SystemExit) as excinfo:
-        parser.parse_args(["full-run", "--chamber", "house"])
+        parser.parse_args(["review", "export", "--all-units"])
     assert excinfo.value.code == int(ExitCode.PREFLIGHT_BLOCKED)
 
 
 def test_every_run_persists_its_findings(artifact_sandbox, capsys):
     """Plan 2.7: jeder CLI-Lauf persistiert die Fehler strukturiert."""
-    assert cli.main(["report"]) == int(ExitCode.PREFLIGHT_BLOCKED)
-    target = artifact_sandbox / "reports" / "report" / "errors.json"
+    assert cli.main(["review", "export"]) == int(ExitCode.PREFLIGHT_BLOCKED)
+    target = artifact_sandbox / "reports" / "review_export" / "errors.json"
     payload = json.loads(target.read_text(encoding="utf-8"))
-    assert [f["code"] for f in payload["findings"]] == ["CLI_STAGE_NOT_IMPLEMENTED"]
-    assert "reports/report/errors.json" in capsys.readouterr().out
+    assert [f["code"] for f in payload["findings"]] == ["CLI_RUN_ID_REQUIRED"]
+    assert "reports/review_export/errors.json" in capsys.readouterr().out
 
 
 def test_usage_error_still_produces_a_report(artifact_sandbox, capsys):
@@ -980,10 +978,10 @@ def test_failing_persistence_warns_but_does_not_break_the_run(monkeypatch, capsy
         raise OSError("Dateisystem voll")
 
     monkeypatch.setattr(paths, "artifact_path", refuse)
-    assert cli.main(["report"]) == int(ExitCode.PREFLIGHT_BLOCKED)
+    assert cli.main(["review", "export"]) == int(ExitCode.PREFLIGHT_BLOCKED)
     out = capsys.readouterr().out
     assert "CLI_REPORT_NOT_PERSISTED" in out
-    assert "CLI_STAGE_NOT_IMPLEMENTED" in out
+    assert "CLI_RUN_ID_REQUIRED" in out
 
 
 def test_unexpected_error_maps_to_exit_ten(monkeypatch, capsys, artifact_sandbox):

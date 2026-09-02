@@ -1157,20 +1157,21 @@ Kanonische Bedienungsanleitung mit allen Kommandos, Optionen, Exit-Codes und
 Befunden: **`committee_matcher/GOLDSET_ANLEITUNG.md`**. Begründungen und die
 vollständige Fehlertabelle: `organisation/committee_matcher_goldset_labeling_plan.md`.
 
-Nicht zu verwechseln: `python -m committee_matcher full-run` ist der
-Produktivpfad über OpenRouter (kostenpflichtig je Aufruf),
-`goldset_label.py --fullrun` derselbe Umfang über die CLI-Abos.
+Nicht zu verwechseln: `python -m committee_matcher run plan|execute
+--all-units` ist derselbe Umfang über OpenRouter (kostenpflichtig je Aufruf),
+`goldset_label.py --fullrun` über die CLI-Abos.
 
-Offen: `evaluate goldset`, `qualify holdout`, `full-run`,
-`report` + ihr Bedienablauf. Diese Kommandos bis zur Implementierung nicht
-ausführen; sie enden derzeit mit Exit 4.
+Aufgegeben: `evaluate run`, `qualify holdout`, die Familie `full-run` und
+`report`. Begründung und Ersatzwege:
+`committee_matcher/AUFGEGEBENER_PLANTEIL.md`.
 
 ```bash
 python -m committee_matcher --help
 python -m committee_matcher input validate      # Corpus + Units + Sollmenge
 python -m committee_matcher roster validate     # Roster-Coverage gegen die Units
 python -m committee_matcher provider check      # Endpointverfügbarkeit, kostenlos
-python -m committee_matcher run plan --run-id run-1 --committee "Committee on Agriculture"
+python -m committee_matcher run plan --run-id run-1 --all-units   # gesamte Sollmenge
+python -m committee_matcher run plan --run-id run-2 --committee "Committee on Agriculture"
 python -m committee_matcher run execute --run-id run-1   # kostenpflichtig
 python -m committee_matcher review export --run-id run-1 # Workbook für den Review
 ```
@@ -1178,8 +1179,9 @@ python -m committee_matcher review export --run-id run-1 # Workbook für den Rev
 `input validate` und `roster validate` sind seit P3 implementiert, die
 `snapshot`-Familie seit P4, `provider check` und `provider smoke` seit dem
 Gate-B-Beschluss, `run plan|execute|reconcile` seit P7c und
-`review export|import` seit P7d; `evaluate`, `qualify`, `full-run` und `report`
-melden weiterhin `CLI_STAGE_NOT_IMPLEMENTED` mit ihrer Phase.
+`review export|import` seit P7d und `evaluate export|import` seit P9. Jedes
+registrierte Kommando hat einen Handler; `CLI_STAGE_NOT_IMPLEMENTED` kann nur
+noch auftreten, wenn ein Handler fehlt.
 
 **Familien** (vollständig, Plan 2.7 — es gibt kein `promote`, `finalize`,
 `research` oder LLM-`review`):
@@ -1193,19 +1195,20 @@ melden weiterhin `CLI_STAGE_NOT_IMPLEMENTED` mit ihrer Phase.
 | `provider smoke` | P5 | ja | Contract-Smoke: ein kostenpflichtiger Minimalcall |
 | `run plan\|execute\|reconcile` | P7 | ja | Entwicklungsrun planen, ausführen, `outcome_unknown` klären |
 | `review export\|import` | P7 | nein | Review-XLSX exportieren und validiert zurückimportieren |
-| `evaluate goldset` | P9 | ja | Entwicklungs-Gold-Set auswerten |
-| `qualify holdout` | P10 | ja | unabhängiges Holdout qualifizieren |
-| `full-run` | P11 | ja | qualifizierter, filterloser Full-Run |
-| `report` | P7 | nein | Fehler-, Kosten- und Coverage-Bericht einer Revision |
+| `evaluate export\|import` | P9 | ja | Gold-Set-Revision eröffnen, gelabeltes Gold-Set übernehmen |
 
-Die Zielangaben `--chamber`, `--committee` und `--unit-id` existieren nur bei
-`run` und `evaluate`; `full-run` lehnt sie schon beim Parsen ab (Exit 4).
+Die Zielangaben existieren nur bei `run`: `--all-units` nimmt die gesamte
+Sollmenge, `--chamber`, `--committee` und `--unit-id` schneiden sie zu. Beides
+zugleich ist ein Bedienfehler (`CLI_RUN_TARGET_CONFLICT`), keine Angabe
+ebenfalls (`CLI_RUN_TARGET_REQUIRED`). Die Auswahl steht in der `selection` des
+Runmanifests, sodass `run execute` genau den Umfang ausführt, den `run plan`
+bepreist hat.
 
 **Exit-Codes** (verbindliche Matrix, Plan 2.7): `0` erfolgreich oder erwartete
 Human-Übergabe · `2` erfolgreich mit Warnungen · `3` finale fehlgeschlagene
 Mapping-Units · `4` Input-/Prompt-/Config-Preflight blockiert ·
 `5` `awaiting_taxonomy_approval` · `6` Kostenlimit überschritten ·
-`7` Review-/Gold-Set-/Holdout-Import abgelehnt · `8` `outcome_unknown` ·
+`7` Review-/Gold-Set-Import abgelehnt · `8` `outcome_unknown` ·
 `9` nicht-retrybarer Providerfehler · `10` interner Fehler · `130` Abbruch.
 `1` bleibt unbelegt; ein Bedienfehler von argparse liefert bewusst `4` statt `2`.
 
