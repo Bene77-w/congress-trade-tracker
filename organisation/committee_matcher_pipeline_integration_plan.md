@@ -20,19 +20,21 @@ Löwenanteil Löschung. Was darüber hinausgeht, braucht einen Grund.
 1. **Taxonomie je Lauf frisch.** Gold-Set und Fullrun holen Industries und
    Sektoren samt Beschreibung vor dem Lauf neu über denselben yfinance-Weg,
    den der API-Matcher benutzt. Kein Arbeiten gegen einen alten Snapshot.
-2. **Archiv.** Der abgelöste `approved_baseline.json` wird bei jedem neuen
-   Snapshot in ein Archivverzeichnis innerhalb des Taxonomieverzeichnisses
-   kopiert, benannt nach seiner `snapshot_id`. Gleiches gilt einmalig für die
-   Legacy-Mapping-CSV.
+2. **Der alte Mapper wird sichtbar abgetrennt.** Alle Legacy-Artefakte wandern
+   in ein Archivverzeichnis, sind aus dem laufenden Programm nicht mehr
+   erreichbar und lassen sich später in einem Zug löschen. Zusätzlich wird der
+   jeweils abgelöste `approved_baseline.json` bei jedem Build unter seiner
+   `snapshot_id` archiviert.
 3. **Eine Mappingquelle.** Die Pipeline liest das Ergebnis des Matchers.
    `data/mappings/subcommittee_sector_industry_mapping.csv` wird nicht mehr
    gelesen.
 4. **`Konfidenz` entfällt.** Die Rolle übernimmt `confidence` (1–4) aus dem
    Matcher. Auch `Sector_Rank` entfällt: seine einzige Aufgabe (Dublettenwahl)
    übernimmt `confidence`.
-5. **`confidence` wirkt auf den Score.** Über `config/settings.py` einstellbar,
-   mit tatsächlicher Wirkung auf den Committee-Anteil des `trade_score` —
-   nicht als reines Beifeld.
+5. **`confidence` wirkt auf den Score.** Der Committee-Beitrag lautet
+   `Basisbetrag × Faktor(confidence)`, je Stufe in `config/settings.py`
+   einstellbar. Bei mehreren relevanten Treffern zählt die höchste Konfidenz —
+   dasselbe MAX-Prinzip wie beim Ex-Officio-Bonus.
 6. **Altintegration entfernt**, danach Funktionsprüfung an echten Daten.
 
 ## Codeanalyse: der Ist-Zustand
@@ -89,7 +91,8 @@ Artefakt; sein Pendant ist die Mapping-CSV.
 
 `goldset_label.py` erhält vor `prepare` einen Snapshotschritt über den
 vorhandenen Weg (`snapshot build` + `approve`), kein zweiter Abrufcode. Der
-abgelöste `approved_baseline.json` wandert vorher nach
+Abruf läuft bei **jedem** Build, ohne Altersschwelle. Der abgelöste
+`approved_baseline.json` wandert vorher nach
 `data/committee_matcher_v2/taxonomy/archiv/approved_baseline_<snapshot_id>.json`.
 
 Gate A: Fullrun-Trockenlauf zeigt einen frischen Snapshot, das Archiv trägt den
@@ -106,30 +109,61 @@ die Signale und das Dashboard unverändert bleiben.
 Gate B: Gegenüberstellung alt/neu — Zahl der Units, Sektoren je Unit, und die
 Liste der Ausschüsse, die nur eine der beiden Quellen kennt.
 
-### P3 — Altintegration entfernen (~60 Zeilen, überwiegend Löschung)
+### P3 — Alten Mapper abtrennen (~60 Zeilen, überwiegend Löschung)
 
 `Konfidenz` und `Sector_Rank` fallen weg; Dedup entscheidet nach `confidence`.
-Legacy-CSV nach `data/mappings/archiv/` verschoben, `COMMITTEE_MAPPING_FILE`
-und der Eintrag in `reset_pipeline.py:120` folgen der neuen Quelle.
+Die Legacy-CSV wandert nach `data/mappings/archiv/`, der Legacy-Ladeweg in
+`committee_mapping.py` wird entfernt statt umgeschaltet — danach führt kein
+Codepfad mehr zur alten Quelle. `COMMITTEE_MAPPING_FILE` und der Schutzeintrag
+in `reset_pipeline.py:120` folgen der neuen Quelle. Das Archiv ist so
+geschnitten, dass ein späteres `rm -r` es vollständig entfernt.
 
 Gate C: Pipelinelauf auf echten Trades; `Relevant_Sectors` und
 `ex_officio_role_keys` entstehen wie zuvor, Trefferzahl gegen den alten Stand.
 
-### P4 — `confidence` in den Score (~90 Zeilen)
+### P4 — `confidence` in den Score (~110 Zeilen)
+
+Zielformel, wie besprochen:
+
+```
+Committee-Beitrag = SCORING_WEIGHTS['committee_full'] × CONFIDENCE_FAKTOR
+```
 
 Neu in `config/settings.py`:
 
 ```python
-COMMITTEE_CONFIDENCE_MIN = 2          # darunter zählt eine Zuordnung nicht
-COMMITTEE_CONFIDENCE_FACTORS = {4: 1.0, 3: 0.8, 2: 0.55, 1: 0.3}
+SCORING_COMMITTEE_CONFIDENCE_FACTORS = {
+    4: 1.00,   # confidence_4_faktor
+    3: 0.75,
+    2: 0.50,
+    1: 0.25,
+}
+SCORING_COMMITTEE_CONFIDENCE_DEFAULT = 1.0   # Faktor ohne bekannte Konfidenz
 ```
 
-`CommitteeTag` reicht `confidence` je Eintrag durch und schreibt die höchste
-relevante Konfidenz in eine Masterspalte; `scoring/trade_score.py` multipliziert
-den `committee_full`-Beitrag mit dem Faktor. Ein Faktor `1.0` für alle Stufen
-reproduziert das heutige Verhalten — die Umstellung ist damit messbar.
+Der Basisbetrag bleibt `SCORING_WEIGHTS['committee_full']` und wird von 5 auf
+**25** angehoben; damit ergibt Konfidenz 4 genau 25 Punkte.
 
-Gate D: Scoreverteilung vor/nach, an denselben Trades.
+Die Trägerkette ist die eigentliche Arbeit, nicht die Formel:
+
+| Ort | Änderung |
+| --- | --- |
+| `committee_mapping.py` | `confidence` je Eintrag statt `rank`/`Konfidenz` |
+| `committee_tag.py` | reicht `confidence` je Treffer durch; Dedup nach MAX |
+| `import_trades.py` | neue Masterspalte `Committee_Confidence_Max` |
+| `scoring/trade_score.py:198` | `w = weights[sig] × faktor` für die Committee-Signale |
+| `compute_trade_scores` | liest die neue Spalte, gibt sie durch |
+| `app/score_recompute.py`, `app/scoring_presets.py` | UI-Neuberechnung kennt den Faktor, sonst rechnet das Dashboard anders als die Pipeline |
+
+`compute_trade_score` bekommt den Wert als fünften Parameter mit Default, damit
+die vorhandenen Tests unverändert bleiben. Der Breakdown weist den Faktor aus
+(`committee_full(c3 x0.75):19`), sonst wäre der Score im Detail-Popup nicht mehr
+nachvollziehbar.
+
+Gate D: Scoreverteilung vor/nach an denselben Trades. Zu prüfen ist die
+Balance — heute steht `swarm_buy` auf 20 und `committee_full` auf 5; nach der
+Anhebung dominiert der Committee-Filter das Primärsignal-Paar. Das ist eine
+Kalibrierentscheidung, keine technische Frage.
 
 ### P5 — Funktionsprüfung
 
@@ -145,13 +179,11 @@ Zwischenstand.
   von `CommitteeMapper` gehalten wird.
 - Keine Migration historischer Master-Zeilen; der nächste Lauf schreibt neu.
 
-## Zu klären vor P1
+## Entschieden (2026-09-03)
 
-1. **Archivlesart.** Ich lese „Baseline des alten Matchers" als den jeweils
-   abgelösten `approved_baseline.json` — es gibt kein Taxonomie-Artefakt des
-   alten Trackers. Trifft das zu?
-2. **Snapshot je Lauf und Kosten.** `snapshot build` ist ein Netzwerkabruf über
-   145 Industries mit Pause und Retry; er verlängert jeden Fullrun-Start.
-   Soll er unbedingt laufen oder ab einem Alter (z. B. 24 h)?
-3. **`COMMITTEE_CONFIDENCE_MIN`.** Vorschlag 2: Konfidenz 1 ist im Matcher die
-   schwächste Stufe und trüge sonst denselben Filter wie ein Volltreffer.
+- Archiv trennt den **alten Mapper** sichtbar ab und bleibt als Ganzes
+  löschbar; der abgelöste Taxonomie-Snapshot wird mitarchiviert.
+- `snapshot build` läuft bei jedem Build, ohne Altersschwelle.
+- Keine Mindestkonfidenz. Statt eine Stufe auszuschließen, entscheidet der
+  Faktor je Stufe über den Beitrag; ein Faktor `0` schließt eine Stufe aus,
+  ohne dass es dafür einen zweiten Schalter braucht.
