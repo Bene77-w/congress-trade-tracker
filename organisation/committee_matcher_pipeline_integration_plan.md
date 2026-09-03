@@ -12,11 +12,6 @@ Ergebnis des Matchers und entfernt die alte Integration.
   `trade_score` in allen Trades — deshalb bleibt der alte Stand bis zur
   bestandenen Funktionsprüfung im Archiv abrufbar.
 
-**Zeilenbudget:** rund 350 Zeilen Produktivcode über alle Phasen, davon der
-Löwenanteil Löschung. Was darüber hinausgeht, braucht einen Grund. Prüfwerk,
-das nur einen selbst ausgelösten Vorgang absichert, zählt nicht als Grund:
-das Mapping entsteht 1–4× im Jahr unter Sicht.
-
 ## Zielspezifikation
 
 1. **Taxonomie je Lauf frisch.** Submapper und Fullrun holen Industries und
@@ -109,7 +104,7 @@ Artefakt; sein Pendant ist die Mapping-CSV.
 Der Schnitt folgt dem Review: kein Schritt entfernt eine Referenz, bevor der
 Vergleich gegen sie gelaufen ist.
 
-### P1 — Taxonomie-Refresh atomar und resume-sicher (~90 Zeilen)
+### P1 — Taxonomie-Refresh atomar und resume-sicher
 
 `submapper.py` erhält vor `prepare` einen Snapshotschritt über den vorhandenen
 Weg (`snapshot build` → Driftvergleich → `approve`), kein zweiter Abrufcode.
@@ -135,7 +130,7 @@ Gate A: Trockenlauf zeigt frischen Snapshot, unveränderte Baseline bei
 simuliertem Abruffehler, Archiveintrag genau bei Freigabe, `resume` bleibt auf
 seiner `snapshot_id`.
 
-### P2 — Produktionsrevision erzeugen und binden (~50 Zeilen)
+### P2 — Produktionsrevision erzeugen und binden
 
 Heute existiert nur ein Probeartefakt: `reviews/review-p8-run2/` mit 7 Units
 und 9 Zuordnungen (`import_manifest.json:8`). Das Produktionsmapping über 225
@@ -165,7 +160,7 @@ Gate B: Loader nimmt die vollständige Revision an und weist jede unvollständig
 Variante (Manifest fehlt, Status `open`, Zeilenzahl abweichend, unbekannte
 `industry_id`) mit eindeutigem Fehlercode ab.
 
-### P3 — V2-Adapter bauen und im Schatten messen (~130 Zeilen)
+### P3 — V2-Adapter bauen und im Schatten messen
 
 `config/committee_mapping.py` liest `reviewed_assignments.csv` statt der
 Legacy-CSV, **ohne** den Legacy-Weg schon zu entfernen. Wert je Eintrag
@@ -211,7 +206,7 @@ Parent-Core-Abgrenzung und Dedup nach `confidence` sind grün, die
 Gegenüberstellung liegt vor, Bene gibt die gemessene Verschiebung ausdrücklich
 frei. Ohne diese Freigabe findet kein Cutover statt.
 
-### P4 — Atomarer Cutover mit Confidence-Scoring (~130 Zeilen)
+### P4 — Atomarer Cutover mit Confidence-Scoring
 
 Erst hier fällt der Legacy-Weg. Zielformel, wie besprochen:
 
