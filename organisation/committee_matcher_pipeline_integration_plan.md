@@ -81,18 +81,22 @@ Artefakt; sein Pendant ist die Mapping-CSV.
 - **`Konfidenz` ist tot.** Downstream liest sie niemand (geprüft in `tags/`,
   `signals/`, `scoring/`, `app/`).
 - **`Sector_Rank` hat genau einen Zweck**, Dublettenwahl an zwei Stellen.
-- **Abdeckung gemessen** (mit `CommitteeMapper._normalize` auf beiden Seiten):
-  Legacy kennt 147 distinkte `(Chamber, Committee, Subcommittee)`, der Matcher
-  225 Units. Nur **5 Legacy-Ausschüsse** haben keine Namensentsprechung:
+- **Committee-Ebene wird beidseitig anders dargestellt.** Die Legacy-CSV lässt
+  `Subcommittee` leer; der Matcher setzt `unit_name = committee_name`. Der
+  Lookup-Bau in P2 muss das umsetzen, sonst findet keine Unit der
+  Ausschussebene ihren Schlüssel.
+- **Abdeckung gemessen** (mit `CommitteeMapper._normalize` auf beiden Seiten,
+  Committee-Ebene wie oben abgebildet): Legacy kennt 147 distinkte
+  `(Chamber, Committee, Subcommittee)`, der Matcher 225 Units. Nur **3
+  Legacy-Ausschüsse** haben keine Entsprechung:
 
   | Fehlender Schlüssel | Ursache |
   | --- | --- |
-  | `joint committee on taxation`, `joint economic committee` | Legacy führt sie unter `Chamber=House`, der Matcher unter `chamber=joint` (4 Units) |
-  | `permanent select committee on intelligence`, `select committee on the strategic competition …` | `_normalize` strippt `committee on`, aber nicht `permanent select` / `select` |
-  | `natural resources / water, wildlife and fisheries` | Subcommittee umbenannt |
+  | `joint committee on taxation`, `joint economic committee` | Legacy führt sie unter `Chamber=House`, der Matcher unter `chamber=joint`; Namen sind identisch |
+  | `natural resources / water, wildlife and fisheries` | Subcommittee umbenannt; löst sich mit dem neueren Korpus |
 
-  Die ersten beiden Gruppen brauchen eine Entscheidung, die dritte löst sich mit
-  dem neueren Korpus. Der Matcher deckt mehr ab, nicht weniger.
+  Der Matcher deckt mehr ab, nicht weniger. Die Ausschussnamen selbst passen
+  auf beiden Seiten wortgleich, auch die Select- und Permanent-Select-Gremien.
 
 ## Phasen
 
@@ -188,15 +192,13 @@ Zwischenstand.
    Artefakt keine Datengrundlage. Entweder erst der Fullrun (Stunden bis Tage
    Abo-Zeit), oder die Integration entsteht gegen ein Probeartefakt und wird
    danach gegen das echte gemessen.
-2. **Joint Committees.** Die Trade-Seite liefert `Member_Chamber` als
-   `house`/`senate`; der Matcher führt 4 Joint-Units unter `joint`. Ohne Regel
-   greift der Lookup für sie nie. Vorschlag: `joint` trifft beide Kammern.
-3. **Select-Präfixe.** `_normalize` um `permanent select committee on` und
-   `select committee on` erweitern — zwei Zeilen, betrifft beide Quellen gleich.
-4. **Rückwirkendes Rescoring.** `trade_score` steht in der Master-CSV. Nach P4
-   ändern sich die Scores aller historischen Trades. Vollständige
-   Neuberechnung über `app/score_recompute.py`, und ist die rückwirkende
-   Änderung gewollt (Vergleichbarkeit über die Zeit)?
+2. **Joint Committees — entschieden 2026-09-03.** Die Trade-Seite liefert
+   `Member_Chamber` als `house`/`senate`; der Matcher führt 4 Joint-Units unter
+   `joint`. Regel: `joint` trifft beide Kammern.
+3. **Rückwirkendes Rescoring — entschieden 2026-09-03.** `trade_score` steht in
+   der Master-CSV; nach P4 ändern sich die Scores aller historischen Trades.
+   Die rückwirkende Änderung ist gewollt; die Neuberechnung läuft über
+   `app/score_recompute.py`.
 
 ## Nicht-Ziele
 
