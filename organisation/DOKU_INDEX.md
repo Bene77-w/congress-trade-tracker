@@ -4,7 +4,7 @@
 Andere Dateien verlinken nur darauf, kein paralleles Duplizieren.
 
 Schneller Themen-Einstieg (kanonische Quelle pro Thema):
-- **Spalten** (CSV/JSON/XLSX) → `DATA_STRUCTURE.md` · **Gate/Tag/Signal + Score-Formel** → `Filter_Instanz_Parameter.md` · **Pipeline-/CLI-Abläufe** → `CLI_Bedienungsanleitung.md` · **Signal-Schema** → `tool_specific_md/signal_info.md` · **Ticker/Issuer** → `Ticker_Architektur.md` · **Gold-Set-Creator (Bedienung)** → `committee_matcher/GOLDSET_ANLEITUNG.md`
+- **Spalten** (CSV/JSON/XLSX) → `DATA_STRUCTURE.md` · **Gate/Tag/Signal + Score-Formel** → `Filter_Instanz_Parameter.md` · **Pipeline-/CLI-Abläufe** → `CLI_Bedienungsanleitung.md` · **Signal-Schema** → `tool_specific_md/signal_info.md` · **Ticker/Issuer** → `Ticker_Architektur.md` · **submapper (Bedienung)** → `committee_matcher/SUBMAPPER_ANLEITUNG.md` · **api_mapper vs. submapper (Benennung)** → `CLI_Bedienungsanleitung.md`, Abschnitt 15
 - **Phasen-Historie (fertige Module)** → `CHANGELOG.md` · **Aktiver Modul-Stand (WIP)** → `AGENTS.md` · **Offene Pläne** → `~/.claude/plans/*.md`
 
 Bei Code-Änderungen die folgenden Tabellen prüfen — die „Aktualisieren bei"-Spalte

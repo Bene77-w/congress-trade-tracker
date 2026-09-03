@@ -102,7 +102,7 @@ Artefakt; sein Pendant ist die Mapping-CSV.
 
 ### P1 — Taxonomie je Lauf frisch, mit Archiv (~80 Zeilen)
 
-`goldset_label.py` erhält vor `prepare` einen Snapshotschritt über den
+`submapper.py` erhält vor `prepare` einen Snapshotschritt über den
 vorhandenen Weg (`snapshot build` + `approve`), kein zweiter Abrufcode. Der
 Abruf läuft bei **jedem** Build, ohne Altersschwelle. Der abgelöste
 `approved_baseline.json` wandert vorher nach

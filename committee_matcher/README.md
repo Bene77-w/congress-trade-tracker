@@ -1,9 +1,13 @@
 # Committee Matcher V2 – Kurzbedienung
 
-Der Workflow wird über die CLI gesteuert. Verfügbar sind Inputprüfung,
-Roster-Coverage, Taxonomie-Snapshots (P0–P4) sowie Routing-Preflight und
-Contract-Smoke des Providers (P5). Mapping-, Review- und Evaluationsläufe
-folgen ab P6.
+Dieses Paket ist der **api_mapper**: er mappt über OpenRouter und rechnet je
+Aufruf ab. Den zweiten Weg über die CLI-Abos stellt der **submapper**
+(`submapper.py`, eigene Anleitung). Benennung und Abgrenzung:
+`organisation/CLI_Bedienungsanleitung.md`, Abschnitt 15.
+
+Der Workflow wird über die CLI gesteuert. Der Mappingweg ist vollständig:
+Inputprüfung, Roster-Coverage, Taxonomie-Snapshots, Providerpreflight,
+Mappinglauf und manueller XLSX-Roundtrip.
 
 ## Schnellstart
 
@@ -62,27 +66,46 @@ Abgebrochenen Abruf aus dem Checkpoint fortsetzen:
 venv/bin/python -m committee_matcher snapshot resume --run-id "$RUN_ID"
 ```
 
-## Noch nicht implementiert
+## Mappen
 
-Die folgenden Familien sind bereits sichtbar, aber bis zu ihrer Phase
-gesperrt:
-
-```text
-run plan|execute|reconcile  → Entwicklungsrun und Kostenkontrolle
-review export|import        → manueller XLSX-Roundtrip
-evaluate goldset            → Entwicklungsevaluation
-qualify holdout             → unabhängige Qualifikation
-full-run                    → qualifizierter Lauf über alle 225 Units
-report                      → Revisionsbericht
+```bash
+venv/bin/python -m committee_matcher run plan    --run-id "$RUN_ID" --all-units
+venv/bin/python -m committee_matcher run execute --run-id "$RUN_ID"
 ```
 
-Nicht verfügbare Stages enden mit Exit-Code `4`. Der produktive Mapping-Master
-und `scripts/import_trades.py` werden durch diesen Workflow nicht verändert.
+`run plan` ist providerfrei und nennt den Worst Case in USD; erst `run execute`
+sendet kostenpflichtige Calls. Statt `--all-units` schneiden `--chamber`,
+`--committee` und `--unit-id` die Zielmenge zu; beides zugleich ist ein
+Bedienfehler. Ohne Zielangabe läuft nichts.
+
+Bleibt ein Call mit offenem Ausgang, klärt ihn
+`run reconcile --run-id "$RUN_ID"` über die Generation-ID nach.
+
+## Review-Roundtrip
+
+```bash
+venv/bin/python -m committee_matcher review export --run-id "$RUN_ID"
+venv/bin/python -m committee_matcher review import --run-id "$RUN_ID"
+```
+
+Der Import schreibt `reviewed_assignments.csv` — die Datei, die
+`scripts/import_trades.py` liest. Der produktive Mapping-Master wird durch
+diesen Workflow nicht verändert.
+
+## Nicht gebaut
+
+Evaluationslauf (`evaluate run`), Holdout-Qualifikation (`qualify holdout`),
+eine eigene `full-run`-Familie und der Auswertungsbericht (`report`) entfallen.
+Begründung und Ersatzwege: `AUFGEGEBENER_PLANTEIL.md`.
+
+Das produktive Mapping aller 225 Units läuft über die CLI-Abos; siehe
+`SUBMAPPER_ANLEITUNG.md` und `organisation/committee_matcher_fullrun_plan.md`.
 
 ## Konfiguration und Referenzen
 
 - Einstellungen: `config/settings.py`, Präfix `COMMITTEE_MATCHER_*`
 - Vollständige CLI: `organisation/CLI_Bedienungsanleitung.md`, Abschnitt 15
-- Gold-Set-Creator (P9): `GOLDSET_ANLEITUNG.md`
+- submapper (Gold-Set und Fullrun): `SUBMAPPER_ANLEITUNG.md`
 - Entscheidungen: `organisation/committee_matcher_planung_entscheidungen_codex.md`
 - Phasen und Gates: `organisation/committee_matcher_v2_implementierungsplan.md`
+- Aufgegebener Planteil: `AUFGEGEBENER_PLANTEIL.md`

@@ -3,7 +3,7 @@
 Stand: 2026-08-28
 Scope: Implementierung von P9 des Hauptplans
 (`organisation/committee_matcher_v2_implementierungsplan.md`, Abschnitt P9)
-Labelherkunft: `organisation/committee_matcher_goldset_labeling_plan.md`
+Labelherkunft: `organisation/committee_matcher_submappering_plan.md`
 
 ## Ziel
 

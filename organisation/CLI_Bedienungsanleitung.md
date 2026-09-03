@@ -1039,6 +1039,23 @@ Default-Port: **8501** → im Browser öffnen: `http://localhost:8501`
 
 ## 15. Committee Matcher V2 – CLI und Settings (P2-Gerüst, P3-Kern, P4-Snapshot)
 
+### Die zwei Mapper — verbindliche Benennung
+
+Beide erzeugen dasselbe Ergebnis (`reviewed_assignments.csv`) und arbeiten
+gegen denselben Korpus und dieselbe Taxonomie. Sie unterscheiden sich darin,
+wer das Modell aufruft und wie abgerechnet wird.
+
+| Name | Einstieg | Modellzugang | Abrechnung |
+| --- | --- | --- | --- |
+| **api_mapper** | `python -m committee_matcher run plan\|execute` | OpenRouter über `provider.py` | je Aufruf kostenpflichtig; `run plan` nennt den Worst Case vorab |
+| **submapper** | `committee_matcher/submapper.py` | CLI-Abos: Claude Code, Codex | keine Abrechnung je Aufruf; dafür greifen Abo-Ratenlimits |
+
+Der **submapper** hat zwei Betriebsarten: ohne Flag labelt er die 22 Units der
+Gold-Set-Stichprobe (Referenzmessung für den api_mapper), mit `--fullrun` alle
+225 Units als Produktivmapping.
+
+„Gold-Set" bleibt der Name der Referenzstichprobe, nicht des Werkzeugs.
+
 **Paket:** `committee_matcher/` · **Einstieg:** `python -m committee_matcher`
 **Zweck:** Providerfreier Kern des neu implementierten Matchers plus der
 Routing-Preflight; kennt alle CLI-Familien, prüft die Settings und blockiert
@@ -1106,16 +1123,16 @@ Ergebnis nach erfolgreichem Import:
 Diese Datei ist die vorgesehene Übergabe an `import_trades`; der genaue
 Aufruf für diese Übernahme bleibt offen.
 
-### Entwicklungs-Gold-Set labeln lassen (P9, außerhalb der Matcher-CLI)
+### submapper: Entwicklungs-Gold-Set labeln lassen (P9, außerhalb der Matcher-CLI)
 
-`committee_matcher/goldset_label.py` lässt die 22 Units der Stichprobe von
+`committee_matcher/submapper.py` lässt die 22 Units der Stichprobe von
 einem headless Agenten labeln — wahlweise über Claude Code oder Codex, gleiche
 Eingabe, gleiches Ausgabeformat. Der Produktivpfad (`run plan|execute`) bleibt
 dabei ungenutzt: er ist der Prüfling. Die Labels sind ein Vorschlag; das
 Gold-Set entsteht erst durch die Abnahme.
 
 ```bash
-G="venv/bin/python committee_matcher/goldset_label.py"
+G="venv/bin/python committee_matcher/submapper.py"
 $G label                                      # kostenpflichtig
 xdg-open data/committee_matcher_v2/goldset/goldset_review.xlsx
 $G finish --eval-id eval-2026-09-02
@@ -1127,20 +1144,58 @@ zusammen. `--engine claude` ist Default, `--engine codex` labelt nur mit
 Codex, `--compared` lässt beide laufen und vergleicht sie; die Angabe muss bei
 `label` und `finish` gleich sein. Die Bausteine bleiben einzeln aufrufbar.
 
-Kanonische Bedienungsanleitung mit allen Kommandos, Optionen, Exit-Codes und
-Befunden: **`committee_matcher/GOLDSET_ANLEITUNG.md`**. Begründungen und die
-vollständige Fehlertabelle: `organisation/committee_matcher_goldset_labeling_plan.md`.
+### submapper --fullrun: alle 225 Units über die CLI-Abos
 
-Offen: `evaluate goldset`, `qualify holdout`, `full-run`,
-`report` + ihr Bedienablauf. Diese Kommandos bis zur Implementierung nicht
-ausführen; sie enden derzeit mit Exit 4.
+Dasselbe Werkzeug mit `--fullrun` labelt den ganzen Korpus statt der
+Stichprobe; das abgenommene Ergebnis wird zum Mapping und nicht zum Gold-Set.
+
+```bash
+G="venv/bin/python committee_matcher/submapper.py"
+$G label --fullrun                            # kostenpflichtig, Stunden bis Tage
+xdg-open data/committee_matcher_v2/fullrun/fullrun_review.xlsx
+$G finish --fullrun --review-id map-2026-09-02
+```
+
+Unterschiede zum Gold-Set-Weg: eigene Ablage unter
+`data/committee_matcher_v2/fullrun/`, kein Gesamtdeckel (ein Mehrtageslauf
+würde sonst planmäßig abgeschnitten), und ein erreichtes Ratenlimit beendet den
+Lauf nicht — das Werkzeug wartet 600 s und fragt erneut, bis wieder Antworten
+kommen. Der Wiederaufsatz ist derselbe wie beim Gold-Set: ein erneuter Aufruf
+überspringt fertige Units.
+
+`finish --fullrun` ruft statt `evaluate export|import` das Modul
+`committee_matcher/fullrun_import.py` auf. Ergebnis:
+`data/committee_matcher_v2/reviews/<review_id>/reviewed_assignments.csv` — die
+Datei, die auch der reguläre Reviewpfad erzeugt. Die Übergabe an
+`import_trades` ist damit vorbereitet, aber nicht vollzogen: die Pipeline liest
+weiterhin `data/mappings/subcommittee_sector_industry_mapping.csv` über
+`CommitteeTag()` (siehe oben, „der genaue Aufruf für diese Übernahme bleibt
+offen"). `--eval-id` und `--review-id` gehören zu je einer Betriebsart und
+werden gegeneinander abgewiesen.
+
+Bei `--compared` bindet die Übernahme die Herkunft an den Basislauf
+(`merge --base`, Vorgabe `claude`): die Basistabelle trägt dessen Zeilen, die
+Provenienzdatei dagegen beide Läufe.
+
+Kanonische Bedienungsanleitung mit allen Kommandos, Optionen, Exit-Codes und
+Befunden: **`committee_matcher/SUBMAPPER_ANLEITUNG.md`**. Begründungen und die
+vollständige Fehlertabelle: `organisation/committee_matcher_submappering_plan.md`.
+
+Nicht zu verwechseln: `python -m committee_matcher run plan|execute
+--all-units` ist derselbe Umfang über OpenRouter (kostenpflichtig je Aufruf),
+`submapper.py --fullrun` über die CLI-Abos.
+
+Aufgegeben: `evaluate run`, `qualify holdout`, die Familie `full-run` und
+`report`. Begründung und Ersatzwege:
+`committee_matcher/AUFGEGEBENER_PLANTEIL.md`.
 
 ```bash
 python -m committee_matcher --help
 python -m committee_matcher input validate      # Corpus + Units + Sollmenge
 python -m committee_matcher roster validate     # Roster-Coverage gegen die Units
 python -m committee_matcher provider check      # Endpointverfügbarkeit, kostenlos
-python -m committee_matcher run plan --run-id run-1 --committee "Committee on Agriculture"
+python -m committee_matcher run plan --run-id run-1 --all-units   # gesamte Sollmenge
+python -m committee_matcher run plan --run-id run-2 --committee "Committee on Agriculture"
 python -m committee_matcher run execute --run-id run-1   # kostenpflichtig
 python -m committee_matcher review export --run-id run-1 # Workbook für den Review
 ```
@@ -1148,8 +1203,9 @@ python -m committee_matcher review export --run-id run-1 # Workbook für den Rev
 `input validate` und `roster validate` sind seit P3 implementiert, die
 `snapshot`-Familie seit P4, `provider check` und `provider smoke` seit dem
 Gate-B-Beschluss, `run plan|execute|reconcile` seit P7c und
-`review export|import` seit P7d; `evaluate`, `qualify`, `full-run` und `report`
-melden weiterhin `CLI_STAGE_NOT_IMPLEMENTED` mit ihrer Phase.
+`review export|import` seit P7d und `evaluate export|import` seit P9. Jedes
+registrierte Kommando hat einen Handler; `CLI_STAGE_NOT_IMPLEMENTED` kann nur
+noch auftreten, wenn ein Handler fehlt.
 
 **Familien** (vollständig, Plan 2.7 — es gibt kein `promote`, `finalize`,
 `research` oder LLM-`review`):
@@ -1163,19 +1219,20 @@ melden weiterhin `CLI_STAGE_NOT_IMPLEMENTED` mit ihrer Phase.
 | `provider smoke` | P5 | ja | Contract-Smoke: ein kostenpflichtiger Minimalcall |
 | `run plan\|execute\|reconcile` | P7 | ja | Entwicklungsrun planen, ausführen, `outcome_unknown` klären |
 | `review export\|import` | P7 | nein | Review-XLSX exportieren und validiert zurückimportieren |
-| `evaluate goldset` | P9 | ja | Entwicklungs-Gold-Set auswerten |
-| `qualify holdout` | P10 | ja | unabhängiges Holdout qualifizieren |
-| `full-run` | P11 | ja | qualifizierter, filterloser Full-Run |
-| `report` | P7 | nein | Fehler-, Kosten- und Coverage-Bericht einer Revision |
+| `evaluate export\|import` | P9 | ja | Gold-Set-Revision eröffnen, gelabeltes Gold-Set übernehmen |
 
-Die Zielangaben `--chamber`, `--committee` und `--unit-id` existieren nur bei
-`run` und `evaluate`; `full-run` lehnt sie schon beim Parsen ab (Exit 4).
+Die Zielangaben existieren nur bei `run`: `--all-units` nimmt die gesamte
+Sollmenge, `--chamber`, `--committee` und `--unit-id` schneiden sie zu. Beides
+zugleich ist ein Bedienfehler (`CLI_RUN_TARGET_CONFLICT`), keine Angabe
+ebenfalls (`CLI_RUN_TARGET_REQUIRED`). Die Auswahl steht in der `selection` des
+Runmanifests, sodass `run execute` genau den Umfang ausführt, den `run plan`
+bepreist hat.
 
 **Exit-Codes** (verbindliche Matrix, Plan 2.7): `0` erfolgreich oder erwartete
 Human-Übergabe · `2` erfolgreich mit Warnungen · `3` finale fehlgeschlagene
 Mapping-Units · `4` Input-/Prompt-/Config-Preflight blockiert ·
 `5` `awaiting_taxonomy_approval` · `6` Kostenlimit überschritten ·
-`7` Review-/Gold-Set-/Holdout-Import abgelehnt · `8` `outcome_unknown` ·
+`7` Review-/Gold-Set-Import abgelehnt · `8` `outcome_unknown` ·
 `9` nicht-retrybarer Providerfehler · `10` interner Fehler · `130` Abbruch.
 `1` bleibt unbelegt; ein Bedienfehler von argparse liefert bewusst `4` statt `2`.
 

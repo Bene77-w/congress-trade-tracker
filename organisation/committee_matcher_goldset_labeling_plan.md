@@ -121,7 +121,7 @@ Fehler, Ermüdung, Reihenfolgeeffekt, ein Abbruch kostet den ganzen Satz).
 
 ## 5. Architektur
 
-`committee_matcher/goldset_label.py`
+`committee_matcher/submapper.py`
 
 | Kommando | Wirkung | Bezahlt |
 |---|---|---|
@@ -452,7 +452,7 @@ demselben Muster wie `committee_matcher/errors.py`, aber ohne dessen Import:
   Warum: Excel-Autokorrektur hat den ersten Buchstaben groß gesetzt.
   Abhilfe: 'verify --fix-case' korrigiert die Schreibweise; oder Zelle aus dem
            Blatt taxonomy auswählen.
-  Code: committee_matcher/goldset_label.py:412
+  Code: committee_matcher/submapper.py:412
 ```
 
 Die Codestelle wird zur Laufzeit aus dem Modul und der Zeilennummer der
@@ -490,7 +490,7 @@ prüfenden Funktion ermittelt, nicht von Hand gepflegt.
 | `GS_XLSX_LOCKED` | Sperrvermerk `.~lock.<name>#` daneben; Datei geöffnet | Datei schließen und wiederholen |
 | `GS_LABELS_MISSING` / `GS_LABELS_FORMAT` | Zwischentabelle fehlt oder hat fremde Spaltenfolge | vorherigen Schritt wiederholen |
 | `GS_MERGE_SCOPE` | Vergleich zweier Läufe nicht durchführbar | zwei verschiedene Engines angeben |
-| `GS_FAKE_MODE` | `GOLDSET_LABEL_FAKE_DIR` zeigt ins Leere | Variable auf ein Verzeichnis setzen oder löschen |
+| `GS_FAKE_MODE` | `SUBMAPPER_FAKE_DIR` zeigt ins Leere | Variable auf ein Verzeichnis setzen oder löschen |
 | `GS_SETTING_INVALID` | aufgelöster Laufparameter unbrauchbar | Wert an der genannten Stelle korrigieren |
 | `GS_TASK_MISSING` / `GS_TASK_FORMAT` / `GS_TASK_LAYOUT` | Aufgabenpaket fehlt, hat fremde Fassung oder das Verzeichnis fremden Inhalt | `prepare` neu ausführen |
 | `GS_CONTRACT_INVALID` / `GS_TAXONOMY_INVALID` / `GS_CORPUS_BLOCKED` | Modellvertrag, Taxonomie oder Korpus unbrauchbar | Quelle an der genannten Stelle prüfen |

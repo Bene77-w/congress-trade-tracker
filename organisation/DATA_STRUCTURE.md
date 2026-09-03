@@ -583,7 +583,7 @@ unveränderlich (`REV_IMPORT_EXISTS`).
 
 #### `data/committee_matcher_v2/goldset/` (P9, Entwicklungs-Gold-Set)
 
-Erzeugt und geprüft von `committee_matcher/goldset_label.py`, nicht von
+Erzeugt und geprüft von `committee_matcher/submapper.py`, nicht von
 der Matcher-CLI: das Gold-Set ist die Referenz, gegen die der Produktivpfad
 gemessen wird, und entsteht deshalb unabhängig von ihm.
 
@@ -609,6 +609,35 @@ drei Sperren gegen die Autokorrektur, die im P8-Lauf `packaged-foods` zu
 `Packaged-foods` gemacht hat. `verify` vergleicht dabei ungetrimmt, meldet
 Randleerraum eigens und stellt die Änderungen gegen `labels_<source>.csv`
 gegenüber.
+
+#### `data/committee_matcher_v2/fullrun/` (Fullrun über die CLI-Abos)
+
+Gleiches Werkzeug, gleiche Dateinamen, andere Wurzel: `submapper.py
+--fullrun` labelt statt der 22 Stichprobenunits alle 225 Korpus-Units. Die
+Trennung der Ablage ist zwingend — ein Fullrun in der Gold-Set-Wurzel
+überschriebe die Referenz, an der der Produktivpfad gemessen wird.
+
+| Pfad | Inhalt |
+|---|---|
+| `tasks/<unit_id>.json`, `tasks/index.json` | wie unter `goldset/labeling/tasks/`, aber über alle Korpus-Units |
+| `runs/<engine>/<unit_id>.json`, `.log` | wie unter `goldset/labeling/runs/` |
+| `collected/labels_<engine>.csv`, `notes_*`, `info_*` | wie unter `goldset/labeling/collected/` |
+| `disagreements.md` | wie unter `goldset/labeling/` |
+| `fullrun_review.xlsx` | die Datei, die Bene bearbeitet; Blätter wie `goldset_review.xlsx` |
+
+Die Unitmenge steht in keiner eigenen Datei: sie ist der sortierte Korpus. Eine
+zweite Liste wäre eine zweite Wahrheit, die stillschweigend veralten kann.
+
+Das abgenommene Ergebnis wandert über `committee_matcher/fullrun_import.py`
+nach `data/committee_matcher_v2/reviews/<review_id>/` und trägt dort dieselben
+Spalten wie ein regulärer Reviewimport (`reviewed_assignments.csv`,
+`reviewed_unit_coverage.csv`). Abweichungen, die aus dem Aufrufweg folgen:
+`run_id` trägt denselben Wert wie `review_id` (es gab keinen Matcherlauf),
+`provider` trägt `claude-cli` beziehungsweise `codex-cli`, und `call_id`,
+`generation_id`, `from_repair`, `schema_name`, `schema_sha256` bleiben leer —
+die CLIs melden sie nicht. Das Manifest trägt `version: fullrun-import-v1` und
+das Feld `origin: submapper.py --fullrun`; es enthält bewusst keine
+Änderungsbilanz gegen einen Modellauf, weil es keinen gibt.
 
 #### `data/config/committee_matcher_prompts/` (P5, versionierter Kontrollinput)
 
