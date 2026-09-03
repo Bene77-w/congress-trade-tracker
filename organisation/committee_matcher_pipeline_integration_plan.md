@@ -12,8 +12,10 @@ Ergebnis des Matchers und entfernt die alte Integration.
   `trade_score` in allen Trades — deshalb bleibt der alte Stand bis zur
   bestandenen Funktionsprüfung im Archiv abrufbar.
 
-**Zeilenbudget:** rund 400 Zeilen Produktivcode über alle Phasen, davon der
-Löwenanteil Löschung. Was darüber hinausgeht, braucht einen Grund.
+**Zeilenbudget:** rund 350 Zeilen Produktivcode über alle Phasen, davon der
+Löwenanteil Löschung. Was darüber hinausgeht, braucht einen Grund. Prüfwerk,
+das nur einen selbst ausgelösten Vorgang absichert, zählt nicht als Grund:
+das Mapping entsteht 1–4× im Jahr unter Sicht.
 
 ## Zielspezifikation
 
@@ -133,7 +135,7 @@ Gate A: Trockenlauf zeigt frischen Snapshot, unveränderte Baseline bei
 simuliertem Abruffehler, Archiveintrag genau bei Freigabe, `resume` bleibt auf
 seiner `snapshot_id`.
 
-### P2 — Produktionsrevision erzeugen und vertraglich binden (~70 Zeilen)
+### P2 — Produktionsrevision erzeugen und binden (~50 Zeilen)
 
 Heute existiert nur ein Probeartefakt: `reviews/review-p8-run2/` mit 7 Units
 und 9 Zuordnungen (`import_manifest.json:8`). Das Produktionsmapping über 225
@@ -146,20 +148,24 @@ gegen das Probeartefakt entstehen kann, der Cutover aber nicht.
   einen Dateinamen unter `data/mappings` (`committee_mapping.py:28`) und
   taugt nicht. Neu: `COMMITTEE_MAPPING_REVIEW_ID` plus abgeleiteter Pfad unter
   `data/committee_matcher_v2/reviews/<id>/`.
-- **Manifestvertrag beim Laden:** `import_manifest.json` ist der
-  Abschlussmarker — fehlt er, ist die Revision unvollständig und der Loader
-  bricht ab. Geprüft werden `review_status == "reviewed"`, Zeilenzahl gegen
-  `assignment_count`, `review_id`, `taxonomy_content_hash` gegen die aktive
-  Baseline und die Unit-Abdeckung gegen `unit_count`.
-- **Cutover-Sperre:** Produktionsbetrieb nur mit vollständigem
-  Fullrun-Artefakt; das Probeartefakt ist an seiner Unitzahl erkennbar und für
-  den Cutover gesperrt.
+- **drei Prüfungen beim Laden**, mehr nicht: `import_manifest.json` vorhanden
+  (der Abschlussmarker — fehlt er, ist die Revision unvollständig),
+  `review_status == "reviewed"`, Zeilenzahl gegen `assignment_count`.
+- **Industry-IDs gegen die aktive Baseline**, nicht den Taxonomiehash. Der
+  Hash ändert sich mit jedem Refresh aus P1 und würde die eben freigegebene
+  Revision beim nächsten Lauf abweisen — die Schutzmaßnahme legte Filter 3
+  lahm. Die Frage, die zählt, ist: kennt die Baseline noch jede `industry_id`
+  der Revision? `snapshot.industry_ids()` beantwortet sie, benutzt wie in
+  `fullrun_import.py`.
+- **Unitzahl beim Laden ausweisen.** Keine Hartsperre gegen das Probeartefakt;
+  ein Lauf, der „7 Units" meldet, ist am Terminal sofort als solcher zu
+  erkennen.
 
-Gate B: Loader nimmt die vollständige Revision an und weist jede manipulierte
-Variante (Manifest fehlt, Status `open`, Zeilenzahl abweichend, fremder
-Taxonomiehash) mit eindeutigem Fehlercode ab.
+Gate B: Loader nimmt die vollständige Revision an und weist jede unvollständige
+Variante (Manifest fehlt, Status `open`, Zeilenzahl abweichend, unbekannte
+`industry_id`) mit eindeutigem Fehlercode ab.
 
-### P3 — V2-Adapter isoliert bauen (~130 Zeilen)
+### P3 — V2-Adapter bauen und im Schatten messen (~130 Zeilen)
 
 `config/committee_mapping.py` liest `reviewed_assignments.csv` statt der
 Legacy-CSV, **ohne** den Legacy-Weg schon zu entfernen. Wert je Eintrag
@@ -182,32 +188,30 @@ Drei Festlegungen, die den Adapter von der heutigen Semantik unterscheiden:
   (`committee_mapping.py:121-124`) entfällt — sie würde den bewusst erzeugten
   Parent-Core mit Subcommittee-Sektoren auffüllen.
 
-Gate C1 (isoliert, ohne Pipelinelauf): Unittests für kanonische Namen,
-Joint-Fallback, Parent-Core-Abgrenzung und Dedup nach `confidence`. Zusätzlich
-die Liste der Committees, die **nur** Subcommittee-Units haben und durch die
-Parent-Core-Abgrenzung ihren Committee-Lookup verlieren — namentlich abgehakt,
-nicht als Zahl.
-
-### P4 — Shadow-Lauf auf echten Trades (~60 Zeilen, überwiegend Auswertung)
-
-Der Vergleich läuft, **solange beide Quellen lesbar sind**. Ein Pipelinelauf
-erzeugt `Relevant_Sectors` und `ex_officio_role_keys` aus beiden Ladewegen und
-stellt sie gegenüber:
+**Der Schattenvergleich braucht keinen zweiten Ladeweg in Produktivcode.**
+`CommitteeTag` nimmt den Mapper als Parameter (`committee_tag.py:76`) und
+`_apply_committee_relevance` (`import_trades.py:1038`) ist eine reine Funktion
+über einen DataFrame. Ein Wegwerfskript baut beide Mapper nebeneinander, lässt
+`calculate_relevance` zweimal über den Master laufen und stellt gegenüber:
 
 - Trefferzahl je Signal (`committee`, `committee_full`, Ex-Officio-Keys);
 - Trades, die nur eine der beiden Quellen als relevant erkennt, mit Ausschuss;
-- die drei bekannten ungeklärten Roster-Einträge (`errors.json:23`) namentlich:
+- die Committees, die durch die Parent-Core-Abgrenzung ihren Committee-Lookup
+  verlieren — namentlich, nicht als Zahl;
+- die drei bekannten ungeklärten Roster-Einträge (`errors.json:23`):
   Select Subcommittee January 6 (house), Commission on Security and
-  Cooperation in Europe (senate) und Senate Caucus on International Narcotics
+  Cooperation in Europe (senate), Senate Caucus on International Narcotics
   Control — je Eintrag entweder Alias in
   `committee_matcher_roster_rules.yaml` oder bewusster Ausschluss;
 - die drei Legacy-Ausschüsse ohne Entsprechung aus der Abdeckungstabelle oben;
-- **Scoreprojektion** nach der P5-Formel, siehe Wirkungsbericht unten.
+- **Scoreprojektion** nach der P4-Formel, siehe Wirkungsbericht unten.
 
-Gate C2 (Freigabegate): Bene gibt die gemessene Verschiebung ausdrücklich frei.
-Ohne diese Freigabe findet kein Cutover statt.
+Gate C (Freigabegate): Unittests für kanonische Namen, Joint-Fallback,
+Parent-Core-Abgrenzung und Dedup nach `confidence` sind grün, die
+Gegenüberstellung liegt vor, Bene gibt die gemessene Verschiebung ausdrücklich
+frei. Ohne diese Freigabe findet kein Cutover statt.
 
-### P5 — Atomarer Cutover mit Confidence-Scoring (~130 Zeilen)
+### P4 — Atomarer Cutover mit Confidence-Scoring (~130 Zeilen)
 
 Erst hier fällt der Legacy-Weg. Zielformel, wie besprochen:
 
@@ -278,11 +282,11 @@ Danach, in dieser Reihenfolge:
    `CLI_Bedienungsanleitung.md` für den geänderten Ablauf).
 
 Gate D: Pipelinelauf grün, Testsuite grün, Scoreverteilung entspricht der in
-P4 freigegebenen Projektion.
+P3 freigegebenen Projektion.
 
 ## Wirkungsbericht statt Kalibrierentscheidung
 
-Der Basisbetrag 25 ist entschieden; Gate C2 täuscht darum keine offene Wahl
+Der Basisbetrag 25 ist entschieden; Gate C täuscht darum keine offene Wahl
 vor, sondern misst die Folge. Gemessen im aktuellen Master (114.245 Trades,
 2026-09-03):
 
@@ -303,6 +307,9 @@ Konfidenzverteilung der Voll-Treffer, Score-Perzentile vorher/nachher,
 Committee-only/Swarm-only/Overlap und die Zusammensetzung der Top-N. Freigabe
 ist eine ausdrückliche Zustimmung zu dieser Verschiebung.
 
+Der Bericht ist eine einmalige Abfrage über den Master, kein eingechecktes
+Skript. Er beantwortet eine Freigabefrage und hat danach keinen Leser.
+
 ## Nicht-Ziele
 
 - Keine zweite Abruflogik für yfinance — der Matcherweg ist der einzige.
@@ -310,6 +317,13 @@ ist eine ausdrückliche Zustimmung zu dieser Verschiebung.
   neue Konfidenzspalte hinaus.
 - Keine Änderung an Signalen oder Dashboard, solange die Schnittstelle von
   `CommitteeMapper` gehalten wird. Das Hard-Gate ist die eine Ausnahme.
+- **Kein zweiter Ladeweg für den Schattenvergleich.** Ein Schalter, der eine
+  Phase später wieder entfernt wird, ist teurer als das Wegwerfskript, das
+  denselben Vergleich über den injizierbaren Mapper zieht.
+- Keine Hartsperre gegen das Probeartefakt und keine Hashbindung der Revision
+  an die Baseline. Beides schützt vor einem Fehler, den nur Bene selbst
+  auslösen könnte, und die Hashbindung stünde zusätzlich gegen den
+  Taxonomie-Refresh aus P1.
 - **Kein separates Migrationsskript**, aber ein einmaliger Full-Rebuild: ein
   Delta-Lauf merged alte Masterzeilen unverändert durch
   (`import_trades.py:2496`), sie behielten sonst ihre Legacy-Zuordnung.
@@ -335,9 +349,9 @@ ist eine ausdrückliche Zustimmung zu dieser Verschiebung.
 - **Joint Committees.** Die Trade-Seite liefert `Member_Chamber` als
   `house`/`senate`; der Matcher führt 4 Joint-Units unter `joint`. Regel:
   `joint` trifft beide Kammern (Wiederverwendung von `roster_coverage.py:231`).
-- **Rückwirkendes Rescoring.** `trade_score` steht in der Master-CSV; nach P5
+- **Rückwirkendes Rescoring.** `trade_score` steht in der Master-CSV; nach P4
   ändern sich die Scores aller historischen Trades. Die rückwirkende Änderung
   ist gewollt und entsteht durch den Full-Rebuild.
-- **Reihenfolge.** Der Fullrun über 225 Units läuft parallel zu P3; P1–P4
-  entstehen gegen das Probeartefakt, der Cutover in P5 verlangt das
+- **Reihenfolge.** Der Fullrun über 225 Units läuft parallel zu P3; P1–P3
+  entstehen gegen das Probeartefakt, der Cutover in P4 verlangt das
   vollständige Artefakt.
