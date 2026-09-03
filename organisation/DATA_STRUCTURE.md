@@ -353,6 +353,19 @@ Pfadliste, blockiert die Wache ebenfalls (fail closed). Geschrieben wird
 ausschließlich über `write_text_atomic` (Temporärdatei im Zielverzeichnis,
 `O_NOFOLLOW`, `os.replace`).
 
+#### `data/committee_matcher_v2/taxonomy/archiv/` (abgelöste Baselines)
+
+| Datei | Zweck |
+|---|---|
+| `approved_baseline_<approved_run_id>.json` | die Baseline, die eine Freigabe abgelöst hat; Inhalt unverändert übernommen |
+
+Geschrieben wird ausschließlich bei `snapshot approve`, nachdem jede Prüfung des
+neuen Snapshots bestanden ist — nicht vor dem Build. Bis zur Freigabe ist die
+bisherige Baseline die Vergleichsgrundlage des Driftvergleichs und der einzige
+gültige Stand, falls der Abruf scheitert. Trägt die abgelöste Datei keine
+lesbare `approved_run_id`, tritt `unbekannt-<Zeitstempel>` an ihre Stelle.
+Ein bereits vorhandener Archiveintrag wird nicht überschrieben.
+
 #### `data/committee_matcher_v2/runs/<run_id>/` (P4, je Runrevision)
 
 | Datei | Zweck |

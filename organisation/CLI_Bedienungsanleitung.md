@@ -1140,7 +1140,14 @@ $G finish --eval-id eval-2026-09-02
 
 `label` fasst `prepare`, `preflight`, `run`, `collect`, den Vergleich und
 `to-xlsx` zusammen; `finish` fasst `verify` sowie `evaluate export|import`
-zusammen. `--engine claude` ist Default, `--engine codex` labelt nur mit
+zusammen. `prepare` baut die Taxonomie zuvor frisch auf (Abruf → Driftvergleich
+gegen die geltende Baseline → Freigabe → Archivierung der abgelösten Baseline),
+ohne Altersschwelle. Zwei Fälle halten dabei an: liegen bereits Antworten eines
+begonnenen Laufs, bleibt der Snapshot stehen (`GS_TAXONOMY_RUN_ACTIVE`, mit
+`--no-taxonomy-refresh` weiterarbeiten); und ändert sich die Identität der
+Taxonomie — neue, entfallene, umbenannte oder umsortierte Industries —,
+entscheidet die Freigabe Bene über `snapshot approve --run-id <revision>`
+(`GS_TAXONOMY_REFRESH`). Reine Beschreibungsänderungen laufen durch. `--engine claude` ist Default, `--engine codex` labelt nur mit
 Codex, `--compared` lässt beide laufen und vergleicht sie; die Angabe muss bei
 `label` und `finish` gleich sein. Die Bausteine bleiben einzeln aufrufbar.
 

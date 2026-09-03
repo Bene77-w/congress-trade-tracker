@@ -27,6 +27,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 
 from . import paths
@@ -52,6 +53,8 @@ CHECKPOINT_FILENAME = "taxonomy_checkpoint.json"
 SNAPSHOT_FILENAME = "taxonomy_snapshot.json"
 CATALOG_FILENAME = "taxonomy_catalog.md"
 BASELINE_FILENAME = "approved_baseline.json"
+#: Ablage der abgeloesten Baselines, je Freigaberun eine Datei.
+ARCHIVE_DIR = "archiv"
 
 #: Gruende, die in ``awaiting_taxonomy_approval`` fuehren.
 REASON_NO_BASELINE = "no_baseline"
@@ -72,6 +75,47 @@ def catalog_path(run_id: str) -> Path:
 
 def baseline_path() -> Path:
     return paths.artifact_path(TAXONOMY_DIR, BASELINE_FILENAME)
+
+
+def archive_path(approved_run_id: str) -> Path:
+    """Ablageort einer abgeloesten Baseline unter ihrer Freigaberevision."""
+    return paths.artifact_path(
+        TAXONOMY_DIR, ARCHIVE_DIR, f"{BASELINE_FILENAME[:-5]}_{approved_run_id}.json",
+        create_parents=True,
+    )
+
+
+def archived_run_id() -> str:
+    """Freigaberevision der aktuell gueltigen Baseline; Ersatzname bei Bruch."""
+    try:
+        document = json.loads(baseline_path().read_text(encoding="utf-8"))
+        return str(document["approved_run_id"])
+    except (OSError, json.JSONDecodeError, KeyError, TypeError):
+        # Auch eine unlesbare Baseline wird abgelegt: sie ist der Stand, gegen
+        # den bis eben gemappt wurde. Ohne Namen waere sie spaeter niemandem
+        # mehr zuzuordnen, deshalb tritt der Zeitpunkt an seine Stelle.
+        return "unbekannt-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def archive_baseline() -> str | None:
+    """Legt die abgeloeste Baseline ab; ``None`` wenn es keine gibt.
+
+    Archiviert wird bei der Freigabe, nicht vor dem Build. Bis zur Freigabe ist
+    die alte Baseline die Vergleichsgrundlage des Driftvergleichs und der
+    einzige gueltige Stand, falls der Abruf scheitert; ein vorgezogenes
+    Verschieben liesse jeden Build wie eine Erstfreigabe enden.
+    """
+    quelle = baseline_path()
+    if not quelle.exists():
+        return None
+    try:
+        rohtext = quelle.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    ziel = archive_path(archived_run_id())
+    if not ziel.exists():
+        paths.write_text_atomic(ziel, rohtext)
+    return paths.relative_to_base(ziel)
 
 
 # ---------------------------------------------------------------------------
@@ -702,6 +746,9 @@ def approve_snapshot(collector: ErrorCollector, run_id: str) -> str | None:
         )
         return None
 
+    # Erst hier, nach jeder Pruefung: bis zu dieser Zeile kann die Freigabe
+    # noch scheitern, und dann bleibt die bisherige Baseline die gueltige.
+    archive_baseline()
     baseline = paths.artifact_path(TAXONOMY_DIR, BASELINE_FILENAME, create_parents=True)
     paths.write_text_atomic(
         baseline,
@@ -717,3 +764,32 @@ def approve_snapshot(collector: ErrorCollector, run_id: str) -> str | None:
         ) + "\n",
     )
     return digest
+
+
+def refresh_baseline(
+    collector: ErrorCollector,
+    client: YFinanceClient,
+    *,
+    run_id: str,
+    reporter: TerminalReporter = SILENT_REPORTER,
+) -> "tuple[SnapshotResult, str | None]":
+    """Baut die Taxonomie frisch und gibt sie frei, solange nichts driftet.
+
+    Die Reihenfolge ist die Sicherung: gebaut wird unter ``runs/<run_id>/``,
+    verglichen wird gegen die noch gueltige Baseline, und erst die Freigabe
+    tauscht sie aus. Ein gescheiterter Abruf laesst den bisherigen Stand
+    unangetastet.
+
+    Identitaetsdrift gibt sich nicht selbst frei: neue, entfallene, umbenannte
+    oder umsortierte Industries aendern die Auswahlliste, gegen die gemappt
+    wird, und enden deshalb in ``AWAITING_TAXONOMY_APPROVAL``. Reine
+    Beschreibungsaenderungen laufen durch; sie sind der Normalfall eines
+    frischen Abrufs.
+
+    Rueckgabe ist das Buildergebnis und der freigegebene Content-Hash, oder
+    ``None`` an seiner Stelle, wenn die Freigabe ausbleibt.
+    """
+    result = build_snapshot(collector, client, run_id=run_id, reporter=reporter)
+    if result.state is not WorkflowState.COMPLETED:
+        return result, None
+    return result, approve_snapshot(collector, run_id)

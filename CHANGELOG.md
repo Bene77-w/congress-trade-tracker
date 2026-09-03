@@ -11,6 +11,25 @@ Historie abgeschlossener Module/Phasen. **Aktiver WIP-Modul-Stand** steht im „
 
 ---
 
+## 2026-09-03 — Committee Matcher V2: Taxonomie je Lauf frisch (Integration P1)
+
+`submapper.py prepare` baut die Taxonomie vor den Aufgabenpaketen frisch:
+Abruf, Driftvergleich gegen die geltende Baseline, Freigabe, Archivierung der
+abgeloesten Baseline unter `data/committee_matcher_v2/taxonomy/archiv/`. Die
+Reihenfolge ist die Sicherung — archiviert wird bei der Freigabe, nicht vor dem
+Build, sonst endete jeder Build wie eine Erstfreigabe und ein gescheiterter
+Abruf liesse gar keinen gueltigen Stand zurueck.
+
+Zwei Faelle halten an statt still weiterzulaufen: ein begonnener Lauf bleibt an
+seinem Snapshot (`GS_TAXONOMY_RUN_ACTIVE`), und Identitaetsdrift entscheidet
+Bene (`GS_TAXONOMY_REFRESH`). Reine Beschreibungsaenderungen laufen durch.
+
+Neu: `taxonomy_snapshot.archive_baseline` / `refresh_baseline`,
+`prepare|label --no-taxonomy-refresh`. Tests 2197 gruen (13 neu, jede Wache
+ueber eine Mutationsprobe belegt).
+
+---
+
 ## 2026-08-28 — Committee Matcher V2: Entwicklungsrun und Roundtrip live (P8)
 
 Lauf `p8-run2` ueber 7 Units des House Committee on Agriculture: 6 mapped,

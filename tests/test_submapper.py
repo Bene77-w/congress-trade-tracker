@@ -11,6 +11,7 @@ Taxonomie, Vertrag und Korpus nicht pruefen, die das Werkzeug herstellen soll.
 """
 from __future__ import annotations
 
+import argparse
 import ast
 import dataclasses
 import copy
@@ -1799,3 +1800,138 @@ def test_review_id_und_eval_id_gehoeren_zu_je_einer_betriebsart(capsys) -> None:
     # umgeschaltet, schriebe der naechste Aufruf desselben Prozesses in die
     # Fullrun-Ablage, ohne dass jemand das verlangt hat.
     assert {name: getattr(gs, name) for name in UMGESCHALTETE_PFADE} == vorher
+
+
+# -- Taxonomie-Refresh vor prepare ----------------------------------------
+class _Drift:
+    def __init__(self, blocking: bool) -> None:
+        self.blocking = blocking
+        self.added = ("neu",) if blocking else ()
+        self.removed = ()
+        self.renamed = ()
+        self.resectored = ()
+
+
+class _Snapshotergebnis:
+    def __init__(self, *, industries: int = 145, drift: _Drift | None = None) -> None:
+        self.industries = industries
+        self.drift = drift
+
+
+def _refresh_args(**overrides) -> argparse.Namespace:
+    werte = {"no_taxonomy_refresh": False}
+    werte.update(overrides)
+    return argparse.Namespace(**werte)
+
+
+@pytest.fixture(autouse=True)
+def kein_netzabruf(monkeypatch):
+    """Kein Test ruft yfinance an.
+
+    ``prepare`` baut die Taxonomie frisch; faellt eine Wache aus, liefe der
+    echte Abruf minutenlang und der Test haenge, statt einen Befund zu zeigen.
+    Wer den Refresh prueft, ersetzt diese Stelle selbst.
+    """
+    def netzabruf(*args, **kwargs):
+        raise AssertionError("Netzabruf im Test")
+
+    monkeypatch.setattr(gs.taxonomy_snapshot, "refresh_baseline", netzabruf)
+
+
+@pytest.fixture
+def taxonomie_sandbox(tmp_path, monkeypatch):
+    """Refresh gegen eine Ablage, die kein echtes Artefakt beruehrt."""
+    monkeypatch.setattr(gs, "RUN_ROOT", tmp_path / "runs")
+    baseline = tmp_path / "taxonomy" / "approved_baseline.json"
+    monkeypatch.setattr(gs.taxonomy_snapshot, "baseline_path", lambda: baseline)
+    monkeypatch.setattr(gs.taxonomy_snapshot, "archived_run_id", lambda: "tax-alt")
+    monkeypatch.setattr(
+        gs.taxonomy_snapshot, "archive_path",
+        lambda run_id: tmp_path / "taxonomy" / "archiv" / f"approved_baseline_{run_id}.json")
+    return tmp_path
+
+
+def _antwort_ablegen(sandbox: Path) -> None:
+    ziel = sandbox / "runs" / "claude"
+    ziel.mkdir(parents=True, exist_ok=True)
+    (ziel / "house--rules.json").write_text("{}", encoding="utf-8")
+
+
+def test_refresh_bleibt_bei_begonnenem_lauf_stehen(taxonomie_sandbox) -> None:
+    """Ein neuer Snapshot entwertete die schon bezahlten Antworten."""
+    _antwort_ablegen(taxonomie_sandbox)
+    with pytest.raises(gs.GoldsetBlocked) as blocked:
+        gs.refresh_taxonomy(_refresh_args())
+    assert blocked.value.problem.code == "GS_TAXONOMY_RUN_ACTIVE"
+    assert "--no-taxonomy-refresh" in blocked.value.problem.abhilfe
+
+
+def test_refresh_uebersprungen_ruehrt_die_taxonomie_nicht_an(
+        taxonomie_sandbox, monkeypatch, capsys) -> None:
+    def nie_aufrufen(*args, **kwargs):  # pragma: no cover - darf nicht laufen
+        raise AssertionError("Abruf trotz --no-taxonomy-refresh")
+
+    monkeypatch.setattr(gs.taxonomy_snapshot, "refresh_baseline", nie_aufrufen)
+    _antwort_ablegen(taxonomie_sandbox)
+    gs.refresh_taxonomy(_refresh_args(no_taxonomy_refresh=True))
+    assert "uebersprungen" in capsys.readouterr().out
+
+
+def test_refresh_meldet_freigabe_und_archiv(
+        taxonomie_sandbox, monkeypatch, capsys) -> None:
+    baseline = taxonomie_sandbox / "taxonomy" / "approved_baseline.json"
+    baseline.parent.mkdir(parents=True, exist_ok=True)
+    baseline.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(
+        gs.taxonomy_snapshot, "refresh_baseline",
+        lambda collector, client, *, run_id: (_Snapshotergebnis(), "a" * 64))
+
+    gs.refresh_taxonomy(_refresh_args())
+
+    ausgabe = capsys.readouterr().out
+    assert "145 Industries freigegeben" in ausgabe
+    assert "approved_baseline_tax-alt.json" in ausgabe
+
+
+def test_refresh_ohne_vorgaenger_meldet_kein_archiv(
+        taxonomie_sandbox, monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        gs.taxonomy_snapshot, "refresh_baseline",
+        lambda collector, client, *, run_id: (_Snapshotergebnis(), "b" * 64))
+
+    gs.refresh_taxonomy(_refresh_args())
+
+    assert "Archiv:" not in capsys.readouterr().out
+
+
+def test_identitaetsdrift_haelt_prepare_am_gate_an(
+        taxonomie_sandbox, monkeypatch) -> None:
+    monkeypatch.setattr(
+        gs.taxonomy_snapshot, "refresh_baseline",
+        lambda collector, client, *, run_id: (
+            _Snapshotergebnis(drift=_Drift(blocking=True)), None))
+
+    with pytest.raises(gs.GoldsetBlocked) as blocked:
+        gs.refresh_taxonomy(_refresh_args())
+
+    problem = blocked.value.problem
+    assert problem.code == "GS_TAXONOMY_REFRESH"
+    assert "driftet" in problem.was
+    assert "snapshot approve" in problem.abhilfe
+
+
+def test_gescheiterter_abruf_nennt_den_befundcode(
+        taxonomie_sandbox, monkeypatch) -> None:
+    from committee_matcher.errors import ErrorCollector, Stage
+
+    def abruf_scheitert(collector, client, *, run_id):
+        collector.blocker("TAX_FETCH_FAILED", Stage.TAXONOMY, run_id,
+                          "Abruf gescheitert.", "Spaeter erneut versuchen.")
+        return _Snapshotergebnis(industries=0), None
+
+    monkeypatch.setattr(gs.taxonomy_snapshot, "refresh_baseline", abruf_scheitert)
+
+    with pytest.raises(gs.GoldsetBlocked) as blocked:
+        gs.refresh_taxonomy(_refresh_args())
+
+    assert "TAX_FETCH_FAILED" in blocked.value.problem.was

@@ -60,9 +60,10 @@ if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
 from committee_matcher import input_corpus, paths, prompts, settings_view  # noqa: E402
-from committee_matcher import taxonomy_snapshot  # noqa: E402
+from committee_matcher import taxonomy_snapshot, taxonomy_source  # noqa: E402
 from committee_matcher import units as unit_builder  # noqa: E402
-from committee_matcher.errors import ErrorCollector, Severity  # noqa: E402
+from committee_matcher.errors import (ErrorCollector, MatcherError,  # noqa: E402
+                                     Severity)
 from committee_matcher.input_corpus import normalize_text  # noqa: E402
 from committee_matcher.prompts import untrusted_block  # noqa: E402
 
@@ -218,6 +219,8 @@ ERROR_CATALOG: dict[str, str] = {
     "GS_SAMPLE_STALE": "Die Stichprobe beschreibt eine Unit anders als der Korpus sie liefert.",
     "GS_SAMPLE_INVALID": "Die Stichprobendatei ist unbrauchbar.",
     "GS_TAXONOMY_INVALID": "Die freigegebene Taxonomie ist unbrauchbar.",
+    "GS_TAXONOMY_REFRESH": "Der frische Abruf der Taxonomie endete ohne Freigabe.",
+    "GS_TAXONOMY_RUN_ACTIVE": "Ein begonnener Lauf haengt am bisherigen Snapshot.",
     "GS_CORPUS_BLOCKED": "Der Eingabekorpus laesst sich nicht fehlerfrei laden.",
     "GS_UNIT_UNKNOWN": "Die Stichprobe nennt eine Unit, die der Korpus nicht kennt.",
     "GS_EVIDENCE_MISMATCH": "Der geladene Zustaendigkeitstext deckt sich nicht mit der Quelldatei.",
@@ -1179,10 +1182,98 @@ def assert_task_root_sane() -> None:
                   "Symlink entfernen und 'prepare' erneut ausfuehren.")
 
 
+#: Praefix der Revisionen, unter denen ``prepare`` die Taxonomie frisch baut.
+TAXONOMY_RUN_PREFIX = "tax"
+
+
+def vorhandene_antworten() -> list[Path]:
+    """Bereits abgelegte Antworten der aktuellen Ablage, ueber alle Engines."""
+    if not RUN_ROOT.exists():
+        return []
+    return sorted(path for path in RUN_ROOT.glob("*/*.json") if path.is_file())
+
+
+def refresh_taxonomy(args: argparse.Namespace) -> None:
+    """Holt Industries und Sektoren frisch, bevor die Pakete gebaut werden.
+
+    Gemappt wird gegen den Stand des Tages, nicht gegen den der letzten
+    Freigabe; der Abruf laeuft bei jedem ``prepare``, ohne Altersschwelle.
+
+    Zwei Wege enden hier bewusst nicht in einem stillen Weiter. Liegen bereits
+    Antworten, wuerde ein neuer Snapshot sie entwerten: ``run`` prueft den
+    Taxonomiehash jedes Pakets gegen die Freigabe und lehnt danach jedes Paket
+    des begonnenen Laufs ab. Und driftet die Identitaet der Taxonomie, ist die
+    Auswahlliste eine andere geworden - darueber entscheidet Bene, nicht das
+    Werkzeug.
+    """
+    if args.no_taxonomy_refresh:
+        print("Taxonomie: Abruf uebersprungen (--no-taxonomy-refresh)")
+        return
+    if fake_dir() is not None:
+        # Der Trockenlauf ersetzt die Engines durch abgelegte Antworten; ein
+        # Netzabruf waere der einzige Aussenkontakt, der ihm bliebe.
+        print("Taxonomie: Abruf uebersprungen (Trockenlauf)")
+        return
+    angefangen = vorhandene_antworten()
+    if angefangen:
+        block("GS_TAXONOMY_RUN_ACTIVE", paths.relative_to_base(RUN_ROOT),
+              f"Es liegen {len(angefangen)} Antworten aus einem begonnenen Lauf.",
+              "Ein frischer Snapshot aendert den Taxonomiehash; 'run' lehnt "
+              "danach jedes Paket des begonnenen Laufs mit GS_SNAPSHOT_DRIFT ab.",
+              "Entweder mit '--no-taxonomy-refresh' am begonnenen Snapshot "
+              "bleiben oder das Laufverzeichnis wegraeumen und neu beginnen.")
+
+    run_id = TAXONOMY_RUN_PREFIX + "-" + datetime.now(timezone.utc).strftime(
+        "%Y%m%dT%H%M%SZ")
+    vorgaenger = (taxonomy_snapshot.archived_run_id()
+                  if taxonomy_snapshot.baseline_path().exists() else None)
+    collector = ErrorCollector()
+    settings = settings_view.load_settings()
+    client = taxonomy_source.YFinanceClient(settings.offline)
+    print(f"Taxonomie: Abruf laeuft (Revision {run_id}) ...")
+    try:
+        result, digest = taxonomy_snapshot.refresh_baseline(
+            collector, client, run_id=run_id)
+    except MatcherError as fehler:
+        _refresh_gescheitert(run_id, fehler.findings)
+    if digest is None:
+        _refresh_gescheitert(run_id, collector.findings, result=result)
+
+    print(f"Taxonomie: {result.industries} Industries freigegeben "
+          f"(Hash {digest[:12]})")
+    if vorgaenger is not None:
+        print("Archiv:    " + paths.relative_to_base(
+            taxonomy_snapshot.archive_path(vorgaenger)))
+
+
+def _refresh_gescheitert(run_id: str, findings: Sequence[Any],
+                         result: Any = None) -> NoReturn:
+    """Beendet ``prepare`` mit dem Befund des Abrufs statt mit einem Stacktrace."""
+    codes = ", ".join(sorted({f.code for f in findings})) or "ohne Befundcode"
+    drift = getattr(result, "drift", None)
+    if drift is not None and drift.blocking:
+        was = (f"Die Taxonomie driftet: {len(drift.added)} neu, "
+               f"{len(drift.removed)} entfallen, {len(drift.renamed)} umbenannt, "
+               f"{len(drift.resectored)} umsortiert.")
+        warum = ("Eine geaenderte Auswahlliste aendert, was ein Label bedeutet; "
+                 "die Freigabe ist deshalb Benes Entscheidung.")
+        abhilfe = (f"Drift in runs/{run_id}/taxonomy_catalog.md pruefen und mit "
+                   f"'python -m committee_matcher snapshot approve --run-id "
+                   f"{run_id}' freigeben.")
+    else:
+        was = f"Der Abruf der Taxonomie blieb ohne Freigabe ({codes})."
+        warum = ("Ohne freigegebene Taxonomie gaebe es keine Auswahlliste, "
+                 "gegen die gelabelt wird.")
+        abhilfe = ("Befund oben lesen; der bisherige Stand bleibt gueltig und "
+                   "'prepare --no-taxonomy-refresh' arbeitet mit ihm weiter.")
+    block("GS_TAXONOMY_REFRESH", f"runs/{run_id}", was, warum, abhilfe)
+
+
 def command_prepare(args: argparse.Namespace) -> int:
     assert_task_root_sane()
     corpus = load_corpus_units()
     sample = label_units(args, corpus)
+    refresh_taxonomy(args)
     taxonomy = load_taxonomy()
     contract = load_contract()
 
@@ -3832,7 +3923,8 @@ def _teilargs(**werte: Any) -> argparse.Namespace:
         engine=None, model=None, effort=None, timeout=None, total_timeout=None,
         web_access_off=False, unit_id=[], force=False, show=False,
         source="merged", out=None, file=None, fix_case=False,
-        base="claude", against="codex", fullrun=False)
+        base="claude", against="codex", fullrun=False,
+        no_taxonomy_refresh=False)
     basis.update(werte)
     return argparse.Namespace(**basis)
 
@@ -3870,7 +3962,8 @@ def command_label(args: argparse.Namespace) -> int:
               f"{paths.relative_to_base(FULLRUN_ROOT)}. Ein Ratenlimit haelt "
               f"den Lauf an, statt ihn zu beenden.")
     _schritt("Aufgabenpakete erzeugen")
-    ergebnis = max(ergebnis, command_prepare(_teilargs(**umfang)))
+    ergebnis = max(ergebnis, command_prepare(_teilargs(
+        no_taxonomy_refresh=args.no_taxonomy_refresh, **umfang)))
     for engine in engines:
         # Der Preflight schuetzt vor 22 Fehllaeufen; sein weicher Befund
         # zaehlt nicht mit. Codex bestaetigt die Denktiefe nie, der Satz
@@ -4025,6 +4118,9 @@ def build_parser() -> argparse.ArgumentParser:
     label.add_argument("--force", action="store_true",
                        help="vorhandene Antworten und Reviewmappe neu "
                             "erzeugen; die alte Mappe wird vorher gesichert")
+    label.add_argument("--no-taxonomy-refresh", action="store_true",
+                       help="Taxonomie nicht neu abrufen, sondern am "
+                            "freigegebenen Stand bleiben")
     label.set_defaults(handler=command_label)
 
     finish = actions.add_parser(
@@ -4043,6 +4139,9 @@ def build_parser() -> argparse.ArgumentParser:
         "prepare", help="Aufgabenpakete je Unit erzeugen (kostenfrei)")
     prepare.add_argument("--show", action="store_true",
                          help="Auszug des ersten Pakets ausgeben")
+    prepare.add_argument("--no-taxonomy-refresh", action="store_true",
+                         help="Taxonomie nicht neu abrufen, sondern am "
+                              "freigegebenen Stand bleiben")
     add_fullrun_flag(prepare)
     prepare.set_defaults(handler=command_prepare)
 

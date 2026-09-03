@@ -620,3 +620,106 @@ def test_cli_rejects_a_malformed_run_id(artifact_sandbox, monkeypatch, capsys):
         ExitCode.PREFLIGHT_BLOCKED
     )
     assert "CLI_RUN_ID_INVALID" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# Archiv und Refresh: Reihenfolge der Ablösung
+# ---------------------------------------------------------------------------
+
+def _baseline_of(root: Path) -> dict:
+    return json.loads((root / "taxonomy" / "approved_baseline.json").read_text("utf-8"))
+
+
+def test_approval_archives_the_baseline_it_replaces(artifact_sandbox):
+    taxonomy_snapshot.build_snapshot(ErrorCollector(), FakeClient(sectors()), run_id="run-1")
+    taxonomy_snapshot.approve_snapshot(ErrorCollector(), "run-1")
+    erste = _baseline_of(artifact_sandbox)
+
+    daten = sectors()
+    daten["energy"][0]["description"] = "Neu beschrieben, gleiche Identitaet."
+    taxonomy_snapshot.build_snapshot(ErrorCollector(), FakeClient(daten), run_id="run-2")
+    taxonomy_snapshot.approve_snapshot(ErrorCollector(), "run-2")
+
+    archiv = artifact_sandbox / "taxonomy" / "archiv" / "approved_baseline_run-1.json"
+    assert json.loads(archiv.read_text("utf-8")) == erste
+    assert _baseline_of(artifact_sandbox)["approved_run_id"] == "run-2"
+
+
+def test_first_approval_has_nothing_to_archive(artifact_sandbox):
+    taxonomy_snapshot.build_snapshot(ErrorCollector(), FakeClient(sectors()), run_id="run-1")
+    assert taxonomy_snapshot.archive_baseline() is None
+    taxonomy_snapshot.approve_snapshot(ErrorCollector(), "run-1")
+    assert not (artifact_sandbox / "taxonomy" / "archiv").exists()
+
+
+def test_a_rejected_approval_leaves_the_baseline_and_its_archive_alone(artifact_sandbox):
+    """Archiviert wird bei der Freigabe, nicht davor.
+
+    Der Regressionsfall des Plans: wandert die Baseline vor dem Build ins
+    Archiv, endet ein gescheiterter Abruf ohne gueltigen Stand.
+    """
+    taxonomy_snapshot.build_snapshot(ErrorCollector(), FakeClient(sectors()), run_id="run-1")
+    taxonomy_snapshot.approve_snapshot(ErrorCollector(), "run-1")
+    vorher = _baseline_of(artifact_sandbox)
+
+    ziel = artifact_sandbox / "runs" / "run-2" / "taxonomy_snapshot.json"
+    ziel.parent.mkdir(parents=True, exist_ok=True)
+    ziel.write_text("{kein json", encoding="utf-8")
+    collector = ErrorCollector()
+    assert taxonomy_snapshot.approve_snapshot(collector, "run-2") is None
+
+    assert _baseline_of(artifact_sandbox) == vorher
+    assert not (artifact_sandbox / "taxonomy" / "archiv").exists()
+
+
+def test_refresh_approves_itself_when_only_descriptions_change(artifact_sandbox):
+    taxonomy_snapshot.build_snapshot(ErrorCollector(), FakeClient(sectors()), run_id="run-1")
+    taxonomy_snapshot.approve_snapshot(ErrorCollector(), "run-1")
+
+    daten = sectors()
+    daten["energy"][0]["description"] = "Frisch abgerufen, gleiche Identitaet."
+    collector = ErrorCollector()
+    result, digest = taxonomy_snapshot.refresh_baseline(
+        collector, FakeClient(daten), run_id="run-2")
+
+    assert result.state is WorkflowState.COMPLETED
+    assert digest == result.content_hash
+    assert _baseline_of(artifact_sandbox)["approved_run_id"] == "run-2"
+
+
+def test_refresh_stops_at_the_gate_on_identity_drift(artifact_sandbox):
+    taxonomy_snapshot.build_snapshot(ErrorCollector(), FakeClient(sectors()), run_id="run-1")
+    taxonomy_snapshot.approve_snapshot(ErrorCollector(), "run-1")
+
+    daten = sectors()
+    daten["energy"] = [r for r in daten["energy"] if r["key"] != "uranium"]
+    collector = ErrorCollector()
+    result, digest = taxonomy_snapshot.refresh_baseline(
+        collector, FakeClient(daten), run_id="run-2")
+
+    assert result.state is WorkflowState.AWAITING_TAXONOMY_APPROVAL
+    assert digest is None
+    # Die abgeloeste Baseline steht noch: ohne Freigabe kein Tausch.
+    assert _baseline_of(artifact_sandbox)["approved_run_id"] == "run-1"
+    assert not (artifact_sandbox / "taxonomy" / "archiv").exists()
+
+
+def test_refresh_without_a_baseline_yields_the_first_approval_gate(artifact_sandbox):
+    collector = ErrorCollector()
+    result, digest = taxonomy_snapshot.refresh_baseline(
+        collector, FakeClient(sectors()), run_id="run-1")
+    assert result.state is WorkflowState.AWAITING_TAXONOMY_APPROVAL
+    assert result.reason == taxonomy_snapshot.REASON_NO_BASELINE
+    assert digest is None
+    assert not taxonomy_snapshot.baseline_path().exists()
+
+
+def test_an_unreadable_baseline_is_archived_under_a_substitute_name(artifact_sandbox):
+    baseline = artifact_sandbox / "taxonomy" / "approved_baseline.json"
+    baseline.parent.mkdir(parents=True, exist_ok=True)
+    baseline.write_text("{kaputt", encoding="utf-8")
+
+    abgelegt = taxonomy_snapshot.archive_baseline()
+    assert abgelegt is not None and "unbekannt-" in abgelegt
+    dateien = list((artifact_sandbox / "taxonomy" / "archiv").iterdir())
+    assert [f.read_text("utf-8") for f in dateien] == ["{kaputt"]
