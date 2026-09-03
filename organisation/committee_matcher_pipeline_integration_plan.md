@@ -17,14 +17,16 @@ Löwenanteil Löschung. Was darüber hinausgeht, braucht einen Grund.
 
 ## Zielspezifikation
 
-1. **Taxonomie je Lauf frisch.** Gold-Set und Fullrun holen Industries und
+1. **Taxonomie je Lauf frisch.** Submapper und Fullrun holen Industries und
    Sektoren samt Beschreibung vor dem Lauf neu über denselben yfinance-Weg,
-   den der API-Matcher benutzt. Kein Arbeiten gegen einen alten Snapshot.
+   den der API-Matcher benutzt. Kein Arbeiten gegen einen alten Snapshot. Die
+   bestehende Baseline bleibt bis zur Freigabe des neuen Snapshots gültig; sie
+   ist die Vergleichsgrundlage des Driftvergleichs, nicht sein Opfer.
 2. **Der alte Mapper wird sichtbar abgetrennt.** Alle Legacy-Artefakte wandern
    in ein Archivverzeichnis, sind aus dem laufenden Programm nicht mehr
    erreichbar und lassen sich später in einem Zug löschen. Zusätzlich wird der
-   jeweils abgelöste `approved_baseline.json` bei jedem Build unter seiner
-   `snapshot_id` archiviert.
+   jeweils abgelöste `approved_baseline.json` **bei jeder Freigabe** unter
+   seiner `snapshot_id` archiviert — nicht vor dem Build.
 3. **Eine Mappingquelle.** Die Pipeline liest das Ergebnis des Matchers.
    `data/mappings/subcommittee_sector_industry_mapping.csv` wird nicht mehr
    gelesen.
@@ -33,8 +35,9 @@ Löwenanteil Löschung. Was darüber hinausgeht, braucht einen Grund.
    übernimmt `confidence`.
 5. **`confidence` wirkt auf den Score.** Der Committee-Beitrag lautet
    `Basisbetrag × Faktor(confidence)`, je Stufe in `config/settings.py`
-   einstellbar. Bei mehreren relevanten Treffern zählt die höchste Konfidenz —
-   dasselbe MAX-Prinzip wie beim Ex-Officio-Bonus.
+   einstellbar. Bei mehreren **Voll-Treffern** zählt die höchste Konfidenz
+   (MAX wie beim Ex-Officio-Bonus); Halb-Treffer bleiben außen vor, weil sie
+   `committee_full` nicht auslösen.
 6. **Altintegration entfernt**, danach Funktionsprüfung an echten Daten.
 
 ## Codeanalyse: der Ist-Zustand
@@ -63,7 +66,8 @@ Das Schema sitzt in `committee_mapping.py`, die Auswertung in `committee_tag.py`
 → `snapshot build` → `snapshot approve`
 → `data/committee_matcher_v2/taxonomy/approved_baseline.json` (145 Industries,
 11 Sektoren)
-→ Mapping → `reviews/<id>/reviewed_assignments.csv` (32 Spalten, u. a.
+→ Mapping → `reviews/<id>/reviewed_assignments.csv` (33 Spalten: 32 aus
+`artifacts.ASSIGNMENT_COLUMNS` plus `review_id`, u. a.
 `chamber`, `committee_name`, `unit_name`, `unit_kind`, `industry_id`,
 `industry_name`, `sector_id`, `sector_name`, `confidence` 1–4, `decision`).
 
@@ -100,44 +104,112 @@ Artefakt; sein Pendant ist die Mapping-CSV.
 
 ## Phasen
 
-### P1 — Taxonomie je Lauf frisch, mit Archiv (~80 Zeilen)
+Der Schnitt folgt dem Review: kein Schritt entfernt eine Referenz, bevor der
+Vergleich gegen sie gelaufen ist.
 
-`submapper.py` erhält vor `prepare` einen Snapshotschritt über den
-vorhandenen Weg (`snapshot build` + `approve`), kein zweiter Abrufcode. Der
-Abruf läuft bei **jedem** Build, ohne Altersschwelle. Der abgelöste
-`approved_baseline.json` wandert vorher nach
-`data/committee_matcher_v2/taxonomy/archiv/approved_baseline_<snapshot_id>.json`.
+### P1 — Taxonomie-Refresh atomar und resume-sicher (~90 Zeilen)
 
-Gate A: Fullrun-Trockenlauf zeigt einen frischen Snapshot, das Archiv trägt den
-Vorgänger, kein Lauf arbeitet gegen eine veraltete Taxonomie.
+`submapper.py` erhält vor `prepare` einen Snapshotschritt über den vorhandenen
+Weg (`snapshot build` → Driftvergleich → `approve`), kein zweiter Abrufcode.
+Der Abruf läuft bei **jedem** Lauf, ohne Altersschwelle.
 
-### P2 — Mappingquelle umstellen (~120 Zeilen)
+Reihenfolge, verbindlich:
+
+1. frisch bauen (`snapshot build` schreibt nur unter `runs/<run_id>/`);
+2. gegen die **noch gültige** Baseline vergleichen — `load_baseline`
+   (`taxonomy_snapshot.py:576`) braucht sie dafür;
+3. Freigabe: driftfrei → automatisch; Drift → Halt am Gate, Bene entscheidet;
+4. erst bei Freigabe die abgelöste Baseline nach
+   `data/committee_matcher_v2/taxonomy/archiv/approved_baseline_<snapshot_id>.json`
+   kopieren;
+5. neue Baseline atomar einsetzen (`write_text_atomic`).
+
+Damit endet ein Abruffehler mit unveränderter Baseline statt ohne. Ein
+laufender Mehrtages-Fullrun bleibt an dem Snapshot, mit dem er begonnen hat:
+`resume` liest die `snapshot_id` aus dem Laufzustand, nicht die aktuelle
+Baseline. Ein neuer Snapshot wirkt erst auf den nächsten Lauf.
+
+Gate A: Trockenlauf zeigt frischen Snapshot, unveränderte Baseline bei
+simuliertem Abruffehler, Archiveintrag genau bei Freigabe, `resume` bleibt auf
+seiner `snapshot_id`.
+
+### P2 — Produktionsrevision erzeugen und vertraglich binden (~70 Zeilen)
+
+Heute existiert nur ein Probeartefakt: `reviews/review-p8-run2/` mit 7 Units
+und 9 Zuordnungen (`import_manifest.json:8`). Das Produktionsmapping über 225
+Units muss der Fullrun erst liefern; er läuft parallel zu P3, weil der Adapter
+gegen das Probeartefakt entstehen kann, der Cutover aber nicht.
+
+`reviews/<id>/` ist kein Pfad, sondern eine Menge. Nötig ist deshalb:
+
+- **aktive Revision konfigurierbar:** `COMMITTEE_MAPPING_FILE` adressiert nur
+  einen Dateinamen unter `data/mappings` (`committee_mapping.py:28`) und
+  taugt nicht. Neu: `COMMITTEE_MAPPING_REVIEW_ID` plus abgeleiteter Pfad unter
+  `data/committee_matcher_v2/reviews/<id>/`.
+- **Manifestvertrag beim Laden:** `import_manifest.json` ist der
+  Abschlussmarker — fehlt er, ist die Revision unvollständig und der Loader
+  bricht ab. Geprüft werden `review_status == "reviewed"`, Zeilenzahl gegen
+  `assignment_count`, `review_id`, `taxonomy_content_hash` gegen die aktive
+  Baseline und die Unit-Abdeckung gegen `unit_count`.
+- **Cutover-Sperre:** Produktionsbetrieb nur mit vollständigem
+  Fullrun-Artefakt; das Probeartefakt ist an seiner Unitzahl erkennbar und für
+  den Cutover gesperrt.
+
+Gate B: Loader nimmt die vollständige Revision an und weist jede manipulierte
+Variante (Manifest fehlt, Status `open`, Zeilenzahl abweichend, fremder
+Taxonomiehash) mit eindeutigem Fehlercode ab.
+
+### P3 — V2-Adapter isoliert bauen (~130 Zeilen)
 
 `config/committee_mapping.py` liest `reviewed_assignments.csv` statt der
-Legacy-CSV: Schlüssel aus `chamber`/`committee_name`/`unit_name`, Wert
-`{sector, industry, confidence}`. Nur Zeilen mit `decision == "mapped"`.
+Legacy-CSV, **ohne** den Legacy-Weg schon zu entfernen. Wert je Eintrag
+`{sector, industry, confidence}`, nur Zeilen mit `decision == "mapped"`.
 `CommitteeMapper` behält seine öffentliche Schnittstelle, damit `CommitteeTag`,
 die Signale und das Dashboard unverändert bleiben.
 
-Gate B: Gegenüberstellung alt/neu — Zahl der Units, Sektoren je Unit, und die
-Liste der Ausschüsse, die nur eine der beiden Quellen kennt.
+Drei Festlegungen, die den Adapter von der heutigen Semantik unterscheiden:
 
-### P3 — Alten Mapper abtrennen (~60 Zeilen, überwiegend Löschung)
+- **Kanonische Namen wiederverwenden.** `_normalize` wird nicht um Präfixe
+  erweitert; der Matcher besitzt mit `units.match_key` (`units.py:118`) die
+  robustere Kanonisierung. Der Adapter benutzt sie auf beiden Seiten des
+  Vergleichs.
+- **Joint-Fallback wiederverwenden.** Die Regel „`joint` trifft beide Kammern"
+  existiert bereits als `_lookup_committee` (`roster_coverage.py:231`) und wird
+  übernommen statt nachgebaut.
+- **Parent-Core nicht verwässern.** Den Committee-Lookup speisen allein Units
+  mit `unit_kind` `committee_direct` oder `committee_parent_core`. Die heutige
+  Aggregation aller Subcommittee-Zeilen in den Committee-Lookup
+  (`committee_mapping.py:121-124`) entfällt — sie würde den bewusst erzeugten
+  Parent-Core mit Subcommittee-Sektoren auffüllen.
 
-`Konfidenz` und `Sector_Rank` fallen weg; Dedup entscheidet nach `confidence`.
-Die Legacy-CSV wandert nach `data/mappings/archiv/`, der Legacy-Ladeweg in
-`committee_mapping.py` wird entfernt statt umgeschaltet — danach führt kein
-Codepfad mehr zur alten Quelle. `COMMITTEE_MAPPING_FILE` und der Schutzeintrag
-in `reset_pipeline.py:120` folgen der neuen Quelle. Das Archiv ist so
-geschnitten, dass ein späteres `rm -r` es vollständig entfernt.
+Gate C1 (isoliert, ohne Pipelinelauf): Unittests für kanonische Namen,
+Joint-Fallback, Parent-Core-Abgrenzung und Dedup nach `confidence`. Zusätzlich
+die Liste der Committees, die **nur** Subcommittee-Units haben und durch die
+Parent-Core-Abgrenzung ihren Committee-Lookup verlieren — namentlich abgehakt,
+nicht als Zahl.
 
-Gate C: Pipelinelauf auf echten Trades; `Relevant_Sectors` und
-`ex_officio_role_keys` entstehen wie zuvor, Trefferzahl gegen den alten Stand.
-Die fünf Ausschüsse ohne Namensentsprechung sind namentlich abgehakt.
+### P4 — Shadow-Lauf auf echten Trades (~60 Zeilen, überwiegend Auswertung)
 
-### P4 — `confidence` in den Score (~110 Zeilen)
+Der Vergleich läuft, **solange beide Quellen lesbar sind**. Ein Pipelinelauf
+erzeugt `Relevant_Sectors` und `ex_officio_role_keys` aus beiden Ladewegen und
+stellt sie gegenüber:
 
-Zielformel, wie besprochen:
+- Trefferzahl je Signal (`committee`, `committee_full`, Ex-Officio-Keys);
+- Trades, die nur eine der beiden Quellen als relevant erkennt, mit Ausschuss;
+- die drei bekannten ungeklärten Roster-Einträge (`errors.json:23`) namentlich:
+  Select Subcommittee January 6 (house), Commission on Security and
+  Cooperation in Europe (senate) und Senate Caucus on International Narcotics
+  Control — je Eintrag entweder Alias in
+  `committee_matcher_roster_rules.yaml` oder bewusster Ausschluss;
+- die drei Legacy-Ausschüsse ohne Entsprechung aus der Abdeckungstabelle oben;
+- **Scoreprojektion** nach der P5-Formel, siehe Wirkungsbericht unten.
+
+Gate C2 (Freigabegate): Bene gibt die gemessene Verschiebung ausdrücklich frei.
+Ohne diese Freigabe findet kein Cutover statt.
+
+### P5 — Atomarer Cutover mit Confidence-Scoring (~130 Zeilen)
+
+Erst hier fällt der Legacy-Weg. Zielformel, wie besprochen:
 
 ```
 Committee-Beitrag = SCORING_WEIGHTS['committee_full'] × CONFIDENCE_FAKTOR
@@ -152,67 +224,120 @@ SCORING_COMMITTEE_CONFIDENCE_FACTORS = {
     2: 0.50,
     1: 0.25,
 }
-SCORING_COMMITTEE_CONFIDENCE_DEFAULT = 1.0   # Faktor ohne bekannte Konfidenz
+SCORING_COMMITTEE_CONFIDENCE_DEFAULT = 0.0   # ohne bekannte Konfidenz kein Beitrag
 ```
 
 Der Basisbetrag bleibt `SCORING_WEIGHTS['committee_full']` und wird von 5 auf
 **25** angehoben; damit ergibt Konfidenz 4 genau 25 Punkte.
 
-Die Trägerkette ist die eigentliche Arbeit, nicht die Formel:
+Drei Semantikpunkte, ohne die die Formel falsch rechnet:
+
+- **Nur Voll-Treffer bestimmen die Konfidenz.** Die Masterspalte heißt
+  `Committee_Full_Confidence_Max` und entsteht ausschließlich aus Einträgen mit
+  `match_type == "full"`. Im heutigen Modus `sector_and_industry`
+  (`settings.py:50`) enthält `Relevant_Sectors` ohnehin nur Voll-Treffer; unter
+  `sector_or_industry` oder `hybrid` würde ein hochkonfidenter Halb-Treffer
+  sonst den Beitrag eines schwächeren Voll-Treffers anheben, obwohl er
+  `committee_full` gar nicht auslöst.
+- **Faktor 0 schließt wirklich aus.** Das Hard-Gate prüft heute nur, *ob*
+  `committee_full` getriggert hat (`trade_score.py:177`); mit Faktor 0 bliebe
+  das Gate offen und Hint-Gewichte könnten weiter Punkte liefern. Künftig gilt
+  `committee_full` mit effektivem Gewicht 0 als nicht wirksames Primärsignal —
+  dieselbe Logik, mit der `score_recompute.py:89` ausgeschlossene Signale aus
+  `SCORING_PRIMARY_SIGNALS` entfernt. Der Eingriff bleibt auf
+  `committee_full` beschränkt.
+- **Fehlende Konfidenz ist fail-closed.** Default `0.0` statt `1.0`: ein
+  fehlender Wert darf nicht wie Konfidenz 4 zählen. Der Import zählt die
+  betroffenen Zeilen und meldet sie, damit der Ausschluss sichtbar bleibt und
+  nicht still wirkt.
+
+Trägerkette:
 
 | Ort | Änderung |
 | --- | --- |
-| `committee_mapping.py` | `confidence` je Eintrag statt `rank`/`Konfidenz` |
+| `committee_mapping.py` | Legacy-Ladeweg entfernt; `confidence` je Eintrag statt `rank`/`Konfidenz` |
 | `committee_tag.py` | reicht `confidence` je Treffer durch; Dedup nach MAX |
-| `import_trades.py` | neue Masterspalte `Committee_Confidence_Max` |
-| `scoring/trade_score.py:198` | `w = weights[sig] × faktor` für die Committee-Signale |
+| `import_trades.py` | neue Masterspalte `Committee_Full_Confidence_Max` |
+| `scoring/trade_score.py:177,198` | Gate-Prüfung auf effektives Gewicht; `w = weights[sig] × faktor` |
 | `compute_trade_scores` | liest die neue Spalte, gibt sie durch |
-| `app/score_recompute.py`, `app/scoring_presets.py` | UI-Neuberechnung kennt den Faktor, sonst rechnet das Dashboard anders als die Pipeline |
+| `app/score_recompute.py` | `SCORING_ATTRS` um die beiden neuen Attribute erweitert, sonst rechnet das Dashboard anders als die Pipeline |
+| `scripts/reset_pipeline.py:120` | Eintrag `DATA_MAPPINGS / settings.COMMITTEE_MAPPING_FILE` **entfernen** — er greift auf ein dann gelöschtes Setting zu und würde den Import sprengen |
 
 `compute_trade_score` bekommt den Wert als fünften Parameter mit Default, damit
 die vorhandenen Tests unverändert bleiben. Der Breakdown weist den Faktor aus
 (`committee_full(c3 x0.75):19`), sonst wäre der Score im Detail-Popup nicht mehr
 nachvollziehbar.
 
-Gate D: Scoreverteilung vor/nach an denselben Trades. Zu prüfen ist die
-Balance — heute steht `swarm_buy` auf 20 und `committee_full` auf 5; nach der
-Anhebung dominiert der Committee-Filter das Primärsignal-Paar. Das ist eine
-Kalibrierentscheidung, keine technische Frage.
+Danach, in dieser Reihenfolge:
 
-### P5 — Funktionsprüfung
+1. Legacy-CSV nach `data/mappings/archiv/` verschieben; das Archiv ist so
+   geschnitten, dass ein späteres `rm -r` es vollständig entfernt;
+2. **einmaliger Full-Rebuild** des Masters (kein `--delta`);
+3. Dashboard-Sichtprüfung, vollständige Testsuite;
+4. kanonische Doku nachziehen (`DATA_STRUCTURE.md` für die neue Spalte,
+   `CLI_Bedienungsanleitung.md` für den geänderten Ablauf).
 
-Vollständiger Pipelinelauf, Dashboard-Sichtprüfung, Testsuite. Erst danach gilt
-die Integration als erfolgreich und das Archiv als Rückfallweg, nicht als
-Zwischenstand.
+Gate D: Pipelinelauf grün, Testsuite grün, Scoreverteilung entspricht der in
+P4 freigegebenen Projektion.
 
-## Vor der Implementierung zu entscheiden
+## Wirkungsbericht statt Kalibrierentscheidung
 
-1. **Reihenfolge.** Es existiert noch kein `reviewed_assignments.csv`: der
-   Fullrun über 225 Units ist nie gelaufen. P2 bis P5 haben ohne dieses
-   Artefakt keine Datengrundlage. Entweder erst der Fullrun (Stunden bis Tage
-   Abo-Zeit), oder die Integration entsteht gegen ein Probeartefakt und wird
-   danach gegen das echte gemessen.
-2. **Joint Committees — entschieden 2026-09-03.** Die Trade-Seite liefert
-   `Member_Chamber` als `house`/`senate`; der Matcher führt 4 Joint-Units unter
-   `joint`. Regel: `joint` trifft beide Kammern.
-3. **Rückwirkendes Rescoring — entschieden 2026-09-03.** `trade_score` steht in
-   der Master-CSV; nach P4 ändern sich die Scores aller historischen Trades.
-   Die rückwirkende Änderung ist gewollt; die Neuberechnung läuft über
-   `app/score_recompute.py`.
+Der Basisbetrag 25 ist entschieden; Gate C2 täuscht darum keine offene Wahl
+vor, sondern misst die Folge. Gemessen im aktuellen Master (114.245 Trades,
+2026-09-03):
+
+| Gruppe | Trades |
+| --- | --- |
+| `committee_full` | 19.066 |
+| `swarm_buy` | 11.518 |
+| nur `committee_full` | 16.493 |
+| nur `swarm_buy` | 8.945 |
+| beide | 2.573 |
+
+Heutige Scoreverteilung: Median 0, 90 % ≤ 20, 99 % ≤ 25.
+
+Konfidenz 4 wird mit 25 Punkten damit nicht nur schwerer als `swarm_buy` (20),
+sondern trifft auch die größere Gruppe; Konfidenz 3 ergibt gerundet 19 und
+liegt knapp darunter. Der Bericht vor dem Cutover enthält deshalb:
+Konfidenzverteilung der Voll-Treffer, Score-Perzentile vorher/nachher,
+Committee-only/Swarm-only/Overlap und die Zusammensetzung der Top-N. Freigabe
+ist eine ausdrückliche Zustimmung zu dieser Verschiebung.
 
 ## Nicht-Ziele
 
 - Keine zweite Abruflogik für yfinance — der Matcherweg ist der einzige.
-- Kein Umbau von `import_trades.py` über die geänderte Aufrufstelle hinaus.
-- Keine Änderung an Signalen, Gates oder Dashboard, solange die Schnittstelle
-  von `CommitteeMapper` gehalten wird.
-- Keine Migration historischer Master-Zeilen; der nächste Lauf schreibt neu.
+- Kein Umbau von `import_trades.py` über die geänderte Aufrufstelle und die
+  neue Konfidenzspalte hinaus.
+- Keine Änderung an Signalen oder Dashboard, solange die Schnittstelle von
+  `CommitteeMapper` gehalten wird. Das Hard-Gate ist die eine Ausnahme.
+- **Kein separates Migrationsskript**, aber ein einmaliger Full-Rebuild: ein
+  Delta-Lauf merged alte Masterzeilen unverändert durch
+  (`import_trades.py:2496`), sie behielten sonst ihre Legacy-Zuordnung.
+  `score_recompute.py` hilft dabei nicht — es rechnet den Score aus
+  vorhandenen Signalspalten neu, erzeugt `Relevant_Sectors` aber nicht neu.
+- Keine zusätzliche Select-Präfix-Logik: die Matcher-Kanonisierung deckt die
+  Select- und Permanent-Select-Gremien bereits ab.
+- `app/scoring_presets.py` bleibt unangetastet. Presets speichern die im
+  Dashboard **editierbaren** Parameter; die Konfidenzfaktoren stehen
+  ausschließlich in `config/settings.py`. Sollen sie später im UI editierbar
+  werden, ist das ein eigener Scope mit eigenem Widget.
 
 ## Entschieden (2026-09-03)
 
 - Archiv trennt den **alten Mapper** sichtbar ab und bleibt als Ganzes
-  löschbar; der abgelöste Taxonomie-Snapshot wird mitarchiviert.
-- `snapshot build` läuft bei jedem Build, ohne Altersschwelle.
+  löschbar; der abgelöste Taxonomie-Snapshot wird bei jeder Freigabe
+  mitarchiviert.
+- `snapshot build` läuft bei jedem Lauf, ohne Altersschwelle; die Freigabe
+  bleibt bei Drift ein Gate.
 - Keine Mindestkonfidenz. Statt eine Stufe auszuschließen, entscheidet der
-  Faktor je Stufe über den Beitrag; ein Faktor `0` schließt eine Stufe aus,
-  ohne dass es dafür einen zweiten Schalter braucht.
+  Faktor je Stufe über den Beitrag; Faktor `0` schließt eine Stufe vollständig
+  aus, inklusive Hard-Gate.
+- **Joint Committees.** Die Trade-Seite liefert `Member_Chamber` als
+  `house`/`senate`; der Matcher führt 4 Joint-Units unter `joint`. Regel:
+  `joint` trifft beide Kammern (Wiederverwendung von `roster_coverage.py:231`).
+- **Rückwirkendes Rescoring.** `trade_score` steht in der Master-CSV; nach P5
+  ändern sich die Scores aller historischen Trades. Die rückwirkende Änderung
+  ist gewollt und entsteht durch den Full-Rebuild.
+- **Reihenfolge.** Der Fullrun über 225 Units läuft parallel zu P3; P1–P4
+  entstehen gegen das Probeartefakt, der Cutover in P5 verlangt das
+  vollständige Artefakt.
