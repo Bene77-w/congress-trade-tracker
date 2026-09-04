@@ -5,9 +5,54 @@ import logging
 from typing import Dict, List, Tuple, Optional, Any
 from config import settings
 
+from committee_matcher.roster_coverage import _lookup_committee
+from committee_matcher.units import match_key as _match_key
+
 logger = logging.getLogger(__name__)
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+#: Unitarten des Matchers, die den Committee-Lookup speisen duerfen. Ein
+#: Subcommittee gehoert nicht dazu: sein Sektor ist seiner, nicht der des
+#: Mutterausschusses.
+COMMITTEE_UNIT_KINDS = frozenset({'committee_direct', 'committee_parent_core'})
+UNIT_KIND_SUBCOMMITTEE = 'subcommittee'
+
+
+def _chamber_key(chamber: str) -> str:
+    """Kammer der Trade-Seite ('House') als Kammer des Matchers ('house')."""
+    return str(chamber or '').strip().lower()
+
+
+def _dedupe_rang(entry: Dict[str, Any]) -> Tuple[int, int]:
+    """Sortierschluessel der Dublettenwahl; kleiner gewinnt.
+
+    Zuerst die Konfidenz, absteigend: sie hat die Aufgabe von ``Sector_Rank``
+    uebernommen. Der Rang bleibt als zweites Kriterium stehen, solange der
+    Legacy-Weg existiert — dort ist ``confidence`` ein Wort ('Hoch') und
+    taugt nicht zum Vergleich.
+    """
+    stufe = entry.get('confidence')
+    return (-stufe if isinstance(stufe, int) else 0,
+            entry.get('rank', 99))
+
+
+def dedupe_entries(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Je (sector, industry) bleibt ein Eintrag: der mit der hoechsten Konfidenz.
+
+    Eine Regel an einer Stelle: ``CommitteeTag`` dedupliziert eine Ebene
+    hoeher noch einmal und benutzt dieselbe Funktion, damit beide Ebenen
+    nicht verschiedene Sieger kueren koennen.
+    """
+    unique: Dict[Tuple[str, str], Dict[str, Any]] = {}
+    for entry in entries:
+        key = (entry['sector'], entry['industry'])
+        vorhanden = unique.get(key)
+        if vorhanden is None or _dedupe_rang(entry) < _dedupe_rang(vorhanden):
+            unique[key] = entry
+    # Kopien: die Lookups halten dieselben Objekte, und der Aufrufer haengt
+    # Rollen an die Eintraege.
+    return [entry.copy() for entry in unique.values()]
 
 
 class CommitteeMapper:
@@ -22,14 +67,18 @@ class CommitteeMapper:
         """
         Initialize mapper and load mapping data.
 
-        Args:
-            mapping_path: Path to mapping CSV (defaults to settings.COMMITTEE_MAPPING_FILE)
-        """
-        if mapping_path is None:
-            filename = getattr(settings, 'COMMITTEE_MAPPING_FILE', 'subcommittee_sector_industry_mapping.csv')
-            mapping_path = os.path.join(BASE_DIR, settings.DATA_MAPPINGS_PATH, filename)
+        Ohne ``mapping_path`` gilt die aktive Mappingrevision des Committee
+        Matchers V2 (``COMMITTEE_MAPPING_REVIEW_ID``). Mit Pfad wird die
+        Legacy-CSV gelesen — der Weg bleibt erhalten, bis der Cutover (P4)
+        ihn entfernt, damit der Schattenvergleich beide Staende nebeneinander
+        bauen kann, ohne dass ein Schalter durch den Produktivcode laeuft.
 
+        Args:
+            mapping_path: Pfad einer Legacy-Mapping-CSV; ohne Angabe die
+                aktive Revision.
+        """
         self.mapping_path = mapping_path
+        self.revision = None
         self.mapping: Dict[Tuple[str, str, str], List[Dict[str, Any]]] = {}
         self.committee_mapping: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
         self.stats = {
@@ -38,7 +87,88 @@ class CommitteeMapper:
             'unique_committees': 0
         }
 
-        self._load_mapping()
+        if mapping_path is None:
+            self._load_revision()
+        else:
+            self._load_mapping()
+
+    # -- V2: die aktive Mappingrevision ------------------------------------
+    def _unit_entry(self, assignment) -> Dict[str, Any]:
+        """Eine Zuordnung als Lookup-Eintrag.
+
+        ``rank`` faellt weg: seine einzige Aufgabe war die Dublettenwahl, und
+        die trifft jetzt ``confidence``. Namen statt IDs, weil der Abgleich
+        gegen ``sector_yf``/``industry_yf`` des Tickers laeuft — und beide
+        Seiten stammen nun aus derselben yfinance-Taxonomie.
+        """
+        return {
+            'sector': assignment.sector_name,
+            'industry': assignment.industry_name,
+            'confidence': assignment.confidence,
+        }
+
+    def _load_revision(self) -> None:
+        """Baut die Lookups aus der aktiven Revision.
+
+        Drei Festlegungen unterscheiden diesen Weg von der Legacy-Kette:
+
+        * Kanonisiert wird mit ``units.match_key`` — derselben Funktion, mit
+          der der Matcher seine Unit-IDs bildet. Eine zweite Normalisierung
+          neben ihr waere eine zweite Wahrheit ueber denselben Namen.
+        * Den Committee-Lookup speisen allein Units mit ``committee_direct``
+          oder ``committee_parent_core``. Die Legacy-Aggregation aller
+          Subcommittee-Zeilen entfaellt: sie fuellte den bewusst erzeugten
+          Parent-Core mit Sektoren auf, die dort niemand gemappt hat.
+        * ``joint`` trifft beide Kammern; die Regel kommt aus
+          ``roster_coverage._lookup_committee`` und wird nicht nachgebaut.
+        """
+        from config import committee_revision
+
+        self.revision = committee_revision.load_active_revision(settings)
+        committees: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
+        subcommittees: Dict[Tuple[str, str, str], List[Dict[str, Any]]] = {}
+        for assignment in self.revision.assignments:
+            eintrag = self._unit_entry(assignment)
+            schluessel_committee = _match_key(assignment.committee_name)
+            if assignment.unit_kind == UNIT_KIND_SUBCOMMITTEE:
+                subcommittees.setdefault(
+                    (assignment.chamber, schluessel_committee,
+                     _match_key(assignment.unit_name)), []).append(eintrag)
+            elif assignment.unit_kind in COMMITTEE_UNIT_KINDS:
+                committees.setdefault(
+                    (assignment.chamber, schluessel_committee), []
+                ).append(eintrag)
+
+        self.mapping = subcommittees
+        self.committee_mapping = committees
+        self.stats['total_mappings'] = len(self.revision.assignments)
+        self.stats['unique_subcommittees'] = len(subcommittees)
+        self.stats['unique_committees'] = len(committees)
+        logger.info(
+            "Mapping aus Revision %s: %d Zuordnungen, %d Subcommittees, "
+            "%d Committees", self.revision.review_id,
+            self.stats['total_mappings'], self.stats['unique_subcommittees'],
+            self.stats['unique_committees'])
+
+    def _index(self) -> Dict[str, Dict]:
+        """Die Lookups in der Form, die ``_lookup_committee`` erwartet."""
+        return {'committees': self.committee_mapping,
+                'subcommittees': self.mapping}
+
+    def _revision_subcommittee(self, chamber: str, committee: str,
+                               subcommittee: str) -> List[Dict[str, Any]]:
+        """Subcommittee-Lookup mit derselben Joint-Regel wie oben.
+
+        Vier Joint-Units fuehrt der Matcher unter ``joint``, die Trade-Seite
+        kennt nur ``house``/``senate``. Ohne den Fallback traefe ein
+        Joint-Subcommittee nie.
+        """
+        key = (_match_key(committee), _match_key(subcommittee))
+        for kammer in (_chamber_key(chamber), 'joint'):
+            treffer = self.mapping.get((kammer,) + key)
+            if treffer:
+                return treffer
+        return []
 
     def _normalize(self, text: str) -> str:
         """
@@ -153,12 +283,13 @@ class CommitteeMapper:
             List of dicts with sector, industry, rank, confidence
             Empty list if not found
         """
-        chamber_norm = self._normalize(chamber)
-        committee_norm = self._normalize(committee)
-        subcommittee_norm = self._normalize(subcommittee)
-
-        key = (chamber_norm, committee_norm, subcommittee_norm)
-        result = self.mapping.get(key, [])
+        if self.revision is not None:
+            result = self._revision_subcommittee(chamber, committee,
+                                                 subcommittee)
+        else:
+            key = (self._normalize(chamber), self._normalize(committee),
+                   self._normalize(subcommittee))
+            result = self.mapping.get(key, [])
 
         if not result:
             logger.debug(
@@ -186,29 +317,19 @@ class CommitteeMapper:
             List of dicts with sector, industry, rank, confidence
             Empty list if not found
         """
-        chamber_norm = self._normalize(chamber)
-        committee_norm = self._normalize(committee)
-
-        key = (chamber_norm, committee_norm)
-        result = self.committee_mapping.get(key, [])
+        if self.revision is not None:
+            result = _lookup_committee(self._index(),
+                                       _chamber_key(chamber), committee) or []
+        else:
+            key = (self._normalize(chamber), self._normalize(committee))
+            result = self.committee_mapping.get(key, [])
 
         if not result:
             logger.debug(
                 f"No mapping found for {chamber}/{committee}"
             )
 
-        # Deduplicate by sector/industry combination
-        unique_entries = {}
-        for entry in result:
-            unique_key = (entry['sector'], entry['industry'])
-            if unique_key not in unique_entries:
-                unique_entries[unique_key] = entry.copy()
-            else:
-                # Keep the one with better rank
-                if entry['rank'] < unique_entries[unique_key]['rank']:
-                    unique_entries[unique_key] = entry.copy()
-
-        return list(unique_entries.values())
+        return dedupe_entries(result)
 
     def get_statistics(self) -> Dict[str, int]:
         """

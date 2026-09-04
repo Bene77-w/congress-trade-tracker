@@ -172,6 +172,24 @@ Variante (Manifest fehlt, Status `open`, Zeilenzahl abweichend, unbekannte
 
 ### P3 — V2-Adapter bauen und im Schatten messen
 
+**Stand 2026-09-05: Adapter implementiert, Gate C offen.**
+`CommitteeMapper()` liest die aktive Revision, `CommitteeMapper(mapping_path=…)`
+weiter die Legacy-CSV. Die vier Festlegungen sind umgesetzt und in
+`tests/test_committee_mapping_v2_p3.py` (21 Faelle) festgehalten. Der
+Schattenvergleich laeuft mechanisch, misst aber gegen die Testrevision und
+damit gegen 5 von 225 Ausschuessen — die Gegenueberstellung, die Gate C
+freigibt, verlangt den Fullrun.
+
+**Befund aus dem Schattenvergleich (Entscheidung offen):** `CommitteeTag`
+ruft `get_all_sectors_for_committee` nur, wenn ein Mitglied im Committee
+**ohne** Subcommittee sitzt (`committee_tag.py:150-170`). Die
+`committee_parent_core`-Units entstehen aber gerade fuer Committees **mit**
+Subcommittees; ihre Zuordnungen erreichen ein Mitglied mit Subcommittee-Sitz
+deshalb nie. In der Legacy-Kette fiel das nicht auf, weil dort alle
+Subcommittee-Zeilen ins Committee-Level aggregiert wurden. Ob der Parent-Core
+zusaetzlich zu den Subcommittee-Sektoren gelten soll, verschiebt die
+Trefferzahl und gehoert damit in dieselbe Freigabe wie die Scoreformel.
+
 `config/committee_mapping.py` liest `reviewed_assignments.csv` statt der
 Legacy-CSV, **ohne** den Legacy-Weg schon zu entfernen. Wert je Eintrag
 `{sector, industry, confidence}`, nur Zeilen mit `decision == "mapped"`.

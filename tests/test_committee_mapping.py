@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from config import settings  # noqa: E402
 from config.committee_mapping import CommitteeMapper  # noqa: E402
 
 
@@ -93,7 +94,10 @@ def test_rows_without_committee_still_skipped(tmp_path):
 def test_real_csv_joint_and_select_committees_covered():
     """Regression gegen das echte Mapping-CSV: die zuvor verworfenen
     Committee-Level-Zeilen (Joint/Select) liefern jetzt Sektoren."""
-    m = CommitteeMapper()
+    # Der Pfad steht seit P3 ausdruecklich hier: ohne ihn laedt der Mapper
+    # die aktive Mappingrevision, und dieser Test misst die Legacy-CSV.
+    m = CommitteeMapper(mapping_path=str(
+        ROOT / settings.DATA_MAPPINGS_PATH / settings.COMMITTEE_MAPPING_FILE))
     for committee in ('Joint Economic Committee',
                       'Joint Committee On Taxation',
                       'Permanent Select Committee On Intelligence'):

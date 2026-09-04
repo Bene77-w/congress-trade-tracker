@@ -2,7 +2,7 @@ import logging
 import re
 from typing import Dict, List, Any, Optional
 from config import settings
-from config.committee_mapping import CommitteeMapper
+from config.committee_mapping import CommitteeMapper, dedupe_entries
 from utils.committee_parser import parse_committees_full
 
 logger = logging.getLogger(__name__)
@@ -242,14 +242,10 @@ class CommitteeTag:
     def _deduplicate_sectors(self, sectors: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Dedupliziert (sector, industry)-Kombinationen.
-        Bei Duplikaten gewinnt der niedrigere Rank (= primärer Sektor),
-        bei Gleichstand bleibt der erste Eintrag.
+        Bei Duplikaten gewinnt die höhere Konfidenz; wo keine numerische
+        Konfidenz steht (Legacy-Mapping), entscheidet weiter der niedrigere
+        Rank. Die Regel steht in `config/committee_mapping.dedupe_entries` —
+        der Mapper dedupliziert eine Ebene tiefer nach derselben, und zwei
+        Fassungen derselben Regel könnten verschiedene Sieger küren.
         """
-        unique: Dict[tuple, Dict[str, Any]] = {}
-        for sector in sectors:
-            key = (sector['sector'], sector['industry'])
-            if key not in unique:
-                unique[key] = sector
-            elif sector.get('rank', 99) < unique[key].get('rank', 99):
-                unique[key] = sector
-        return list(unique.values())
+        return dedupe_entries(sectors)

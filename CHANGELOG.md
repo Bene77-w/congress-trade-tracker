@@ -11,6 +11,42 @@ Historie abgeschlossener Module/Phasen. **Aktiver WIP-Modul-Stand** steht im „
 
 ---
 
+## 2026-09-05 — Pipeline-Integration P3: V2-Adapter, Legacy-Weg bleibt
+
+`CommitteeMapper()` ohne Pfad liest die aktive Mappingrevision; mit Pfad
+weiter die Legacy-CSV. Der alte Weg bleibt erhalten, bis der Cutover (P4) ihn
+entfernt - der Schattenvergleich baut beide Staende nebeneinander, und ein
+Schalter im Produktivcode waere teurer als der erhaltene Pfad.
+
+Drei Festlegungen unterscheiden den neuen Weg:
+- Kanonisiert wird mit `units.match_key`, derselben Funktion, mit der der
+  Matcher seine Unit-IDs bildet; `_normalize` wurde nicht erweitert.
+- `joint` trifft beide Kammern - die Regel kommt aus
+  `roster_coverage._lookup_committee` und wurde nicht nachgebaut.
+- Den Committee-Lookup speisen allein `committee_direct` und
+  `committee_parent_core`. Die Legacy-Aggregation aller Subcommittee-Zeilen
+  entfaellt; sie fuellte den Parent-Core mit Sektoren auf, die dort niemand
+  gemappt hat.
+
+`Sector_Rank` ist als Dublettenkriterium abgeloest: `dedupe_entries` waehlt
+die hoechste `confidence` und faellt nur fuer Legacy-Eintraege auf den Rang
+zurueck. `CommitteeTag._deduplicate_sectors` benutzt dieselbe Funktion, damit
+beide Ebenen nicht verschiedene Sieger kueren.
+
+Tests, die den Legacy-Stand messen (`test_committee_tag.py`,
+`test_committee_mapping.py::test_real_csv_...`), nennen ihren Pfad jetzt
+ausdruecklich statt ihn vom Default zu erben.
+
+Gate C ist offen: die Mechanik steht, das Material fehlt. Der
+Schattenvergleich gegen die Testrevision zeigt 1 Voll-Treffer gegen 5.022 im
+Legacy-Stand - erwartbar bei 5 von 225 Ausschuessen und keine Aussage ueber
+die Verschiebung, die freizugeben waere.
+
+Test-Stand: `tests/test_committee_mapping_v2_p3.py` 21 Faelle, Gesamtsuite
+2250 passed.
+
+---
+
 ## 2026-09-04 — Pipeline-Integration P2: die aktive Mappingrevision binden
 
 `reviews/<id>/` ist eine Menge, kein Pfad. `COMMITTEE_MAPPING_REVIEW_ID` in
