@@ -1,0 +1,1023 @@
+{
+  "content_version": "taxonomy-content-v1",
+  "approved_run_id": "tax-20260903T110851Z",
+  "taxonomy_content_hash": "8c3da76572d994be167115502e646785f97c299d43244bc161468457b5ffbb6f",
+  "yfinance_version": "1.3.0",
+  "industries": [
+    {
+      "industry_id": "advertising-agencies",
+      "industry_name": "Advertising Agencies",
+      "sector_id": "communication-services",
+      "sector_name": "Communication Services",
+      "description": "Companies engaged in full-service advertising operations, including the planning, creating, producing, and placing of advertising in media such as TV, radio, and print. Also includes companies providing marketing services, including outdoor advertising, promotional materials, direct- mail services, digital marketing, event management services, and marketing research services."
+    },
+    {
+      "industry_id": "aerospace-defense",
+      "industry_name": "Aerospace & Defense",
+      "sector_id": "industrials",
+      "sector_name": "Industrials",
+      "description": "Companies that manufacture aerospace and defense products, including aircraft and aircraft parts, tanks, guided missiles, space vehicles, ships and marine equipment, and other aerospace and defense components and systems, as well as companies supporting these products through repair and maintenance services."
+    },
+    {
+      "industry_id": "agricultural-inputs",
+      "industry_name": "Agricultural Inputs",
+      "sector_id": "basic-materials",
+      "sector_name": "Basic Materials",
+      "description": "Companies that manufacture nitrogenous and phosphatic fertilizers, pesticides, seed, and other agricultural chemical products."
+    },
+    {
+      "industry_id": "airlines",
+      "industry_name": "Airlines",
+      "sector_id": "industrials",
+      "sector_name": "Industrials",
+      "description": "Major international passenger airline companies that fly a wide range of domestic and international routes."
+    },
+    {
+      "industry_id": "airports-air-services",
+      "industry_name": "Airports & Air Services",
+      "sector_id": "industrials",
+      "sector_name": "Industrials",
+      "description": "Air transportation companies that provide related air services, including helicopter transportation, air-charter services, in-flight catering services, and air emergency and business-related services."
+    },
+    {
+      "industry_id": "aluminum",
+      "industry_name": "Aluminum",
+      "sector_id": "basic-materials",
+      "sector_name": "Basic Materials",
+      "description": "Companies that produce, refine, market, and distribute aluminum and related aluminum-based products."
+    },
+    {
+      "industry_id": "apparel-manufacturing",
+      "industry_name": "Apparel Manufacturing",
+      "sector_id": "consumer-cyclical",
+      "sector_name": "Consumer Cyclical",
+      "description": "Companies that manufacture, design, market, source, and sell all lines of clothing for men, women, and children. Also includes companies that manufacture or distribute buttons, buckles, and other apparel parts."
+    },
+    {
+      "industry_id": "apparel-retail",
+      "industry_name": "Apparel Retail",
+      "sector_id": "consumer-cyclical",
+      "sector_name": "Consumer Cyclical",
+      "description": "Companies engaged in the retail sale of clothing, shoes, and accessories."
+    },
+    {
+      "industry_id": "asset-management",
+      "industry_name": "Asset Management",
+      "sector_id": "financial-services",
+      "sector_name": "Financial Services",
+      "description": "Investment management firms offering diversified services such as asset administration, investment advice, portfolio or mutual fund management, money management, and venture capital."
+    },
+    {
+      "industry_id": "auto-manufacturers",
+      "industry_name": "Auto Manufacturers",
+      "sector_id": "consumer-cyclical",
+      "sector_name": "Consumer Cyclical",
+      "description": "Leading worldwide designers and manufacturers of passenger cars and trucks."
+    },
+    {
+      "industry_id": "auto-parts",
+      "industry_name": "Auto Parts",
+      "sector_id": "consumer-cyclical",
+      "sector_name": "Consumer Cyclical",
+      "description": "Companies that manufacture motor vehicle parts and accessories, including rubber and plastic products, such as tires and inner tubes, but do not manufacture complete car bodies."
+    },
+    {
+      "industry_id": "auto-truck-dealerships",
+      "industry_name": "Auto & Truck Dealerships",
+      "sector_id": "consumer-cyclical",
+      "sector_name": "Consumer Cyclical",
+      "description": "Companies engaged in the specialty retail of new and used automobiles, trucks, and other vehicles through the operation and/or franchising of dealerships."
+    },
+    {
+      "industry_id": "banks-diversified",
+      "industry_name": "Banks - Diversified",
+      "sector_id": "financial-services",
+      "sector_name": "Financial Services",
+      "description": "Global, diverse financial institutions serving the corporate and consumer needs of retail banking, investment banking, trust management, credit cards and mortgage banking."
+    },
+    {
+      "industry_id": "banks-regional",
+      "industry_name": "Banks - Regional",
+      "sector_id": "financial-services",
+      "sector_name": "Financial Services",
+      "description": "Regional, diverse financial institutions serving the corporate, government, and consumer needs of retail banking, investment banking, trust management, credit cards, mortgage banking, savings and loan associations, building societies, cooperative banks, and homestead."
+    },
+    {
+      "industry_id": "beverages-brewers",
+      "industry_name": "Beverages - Brewers",
+      "sector_id": "consumer-defensive",
+      "sector_name": "Consumer Defensive",
+      "description": "Companies that manufacture, sell, and distribute malt-based beverages, beers, and ales."
+    },
+    {
+      "industry_id": "beverages-non-alcoholic",
+      "industry_name": "Beverages - Non-Alcoholic",
+      "sector_id": "consumer-defensive",
+      "sector_name": "Consumer Defensive",
+      "description": "Companies that manufacture, sell, and distribute soft drinks, carbonated and spring water, fruit juices, and other nonalcoholic beverages."
+    },
+    {
+      "industry_id": "beverages-wineries-distilleries",
+      "industry_name": "Beverages - Wineries & Distilleries",
+      "sector_id": "consumer-defensive",
+      "sector_name": "Consumer Defensive",
+      "description": "Companies that manufacture, sell, and distribute distilled liquors and wine."
+    },
+    {
+      "industry_id": "biotechnology",
+      "industry_name": "Biotechnology",
+      "sector_id": "healthcare",
+      "sector_name": "Healthcare",
+      "description": "Biotech and biopharmaceutical companies engaged in research, discovery, development, and production of innovative drug and drug- related technologies."
+    },
+    {
+      "industry_id": "broadcasting",
+      "industry_name": "Broadcasting",
+      "sector_id": "communication-services",
+      "sector_name": "Communication Services",
+      "description": "Companies that own or operate radio broadcast stations and provide and produce radio programming services, television programming services, and television broadcast stations. Also includes companies providing Internet-based video on demand and pay-per-view programming services."
+    },
+    {
+      "industry_id": "building-materials",
+      "industry_name": "Building Materials",
+      "sector_id": "basic-materials",
+      "sector_name": "Basic Materials",
+      "description": "Companies that manufacture construction materials, including stone, clay, and brick products, cement, lime, gypsum, and concrete and other construction products. Excludes companies that manufacture finished and semifinished building products."
+    },
+    {
+      "industry_id": "building-products-equipment",
+      "industry_name": "Building Products & Equipment",
+      "sector_id": "industrials",
+      "sector_name": "Industrials",
+      "description": "Companies that manufacture building and construction products and materials, including ceramic floor and wall tiles, plumbing, HVAC, framing structures, and doors. Excludes companies that are classified in the building materials industry."
+    },
+    {
+      "industry_id": "business-equipment-supplies",
+      "industry_name": "Business Equipment & Supplies",
+      "sector_id": "industrials",
+      "sector_name": "Industrials",
+      "description": "Companies that manufacture and market office and business machines, such as copiers, fax machines, postage meters, point-of- sale terminals, and ATMs."
+    },
+    {
+      "industry_id": "capital-markets",
+      "industry_name": "Capital Markets",
+      "sector_id": "financial-services",
+      "sector_name": "Financial Services",
+      "description": "Large, major investment houses offering investment banking, merchant banking, underwriting, brokerage, research, advisory, and trading services to broad-based national and international markets."
+    },
+    {
+      "industry_id": "chemicals",
+      "industry_name": "Chemicals",
+      "sector_id": "basic-materials",
+      "sector_name": "Basic Materials",
+      "description": "Chemical manufacturing companies engaged in diverse chemical and chemical-related operations, and basic chemicals manufacturing."
+    },
+    {
+      "industry_id": "coking-coal",
+      "industry_name": "Coking Coal",
+      "sector_id": "basic-materials",
+      "sector_name": "Basic Materials",
+      "description": "Companies that produce coking coal."
+    },
+    {
+      "industry_id": "communication-equipment",
+      "industry_name": "Communication Equipment",
+      "sector_id": "technology",
+      "sector_name": "Technology",
+      "description": "Companies that design, develop, manufacture, and market equipment for the communication industry, including fiber-optic cable; telecom peripherals; voice and data transmission and processing equipment; satellite products and equipment; video- conferencing systems and equipment; and interactive communication systems. Also includes companies that offer networking products that provide connectivity solutions for multi-use computing environments."
+    },
+    {
+      "industry_id": "computer-hardware",
+      "industry_name": "Computer Hardware",
+      "sector_id": "technology",
+      "sector_name": "Technology",
+      "description": "Companies that design, manufacture, and market computer systems, high mainframe servers, supercomputer, and 3D printers and scanners. Also includes companies that manufacture and market data storage products and other storage and backup devices for computers."
+    },
+    {
+      "industry_id": "confectioners",
+      "industry_name": "Confectioners",
+      "sector_id": "consumer-defensive",
+      "sector_name": "Consumer Defensive",
+      "description": "Companies that manufacture and refine raw sugar, syrup or finished cane and beet sugar, candy and chewing gum, chocolate, and cocoa products."
+    },
+    {
+      "industry_id": "conglomerates",
+      "industry_name": "Conglomerates",
+      "sector_id": "industrials",
+      "sector_name": "Industrials",
+      "description": "Companies that are in several separate lines of business with no single line providing the dominant source of revenue or income."
+    },
+    {
+      "industry_id": "consulting-services",
+      "industry_name": "Consulting Services",
+      "sector_id": "industrials",
+      "sector_name": "Industrials",
+      "description": "Companies that provide management, research, and consulting services to businesses and other agencies. Includes companies engaged in strategic and management consulting services, interior design, and information and analytics."
+    },
+    {
+      "industry_id": "consumer-electronics",
+      "industry_name": "Consumer Electronics",
+      "sector_id": "technology",
+      "sector_name": "Technology",
+      "description": "Companies that manufacture and market mobile communication products and household audio and video equipment, including radios, stereos, televisions, DVD player and personal use Drones. Excludes electric household appliances."
+    },
+    {
+      "industry_id": "copper",
+      "industry_name": "Copper",
+      "sector_id": "basic-materials",
+      "sector_name": "Basic Materials",
+      "description": "Companies engaged in the exploration, mining, smelting, and refining of copper ores and related copper products."
+    },
+    {
+      "industry_id": "credit-services",
+      "industry_name": "Credit Services",
+      "sector_id": "financial-services",
+      "sector_name": "Financial Services",
+      "description": "Companies that extend credit and make loans to individuals and businesses through credit cards, installment loans, student loans, and business loans that are associated with other consumer and business credit instruments."
+    },
+    {
+      "industry_id": "department-stores",
+      "industry_name": "Department Stores",
+      "sector_id": "consumer-cyclical",
+      "sector_name": "Consumer Cyclical",
+      "description": "Companies engaged in the retail sale of a diverse mix of merchandise, emphasizing fashion apparel and accessories, home furnishings, electronics, and cosmetics."
+    },
+    {
+      "industry_id": "diagnostics-research",
+      "industry_name": "Diagnostics & Research",
+      "sector_id": "healthcare",
+      "sector_name": "Healthcare",
+      "description": "Companies that provide laboratory testing services through imaging and other diagnostic services to the medical industry."
+    },
+    {
+      "industry_id": "discount-stores",
+      "industry_name": "Discount Stores",
+      "sector_id": "consumer-defensive",
+      "sector_name": "Consumer Defensive",
+      "description": "Companies engaged in the retail sale of a variety of merchandise at low and discounted prices."
+    },
+    {
+      "industry_id": "drug-manufacturers-general",
+      "industry_name": "Drug Manufacturers - General",
+      "sector_id": "healthcare",
+      "sector_name": "Healthcare",
+      "description": "Major, global pharmaceutical manufacturers offering a broad and diverse line of drug and healthcare products; industry leaders that have made a significant commitment to the research and development of a long pipeline of drugs."
+    },
+    {
+      "industry_id": "drug-manufacturers-specialty-generic",
+      "industry_name": "Drug Manufacturers - Specialty & Generic",
+      "sector_id": "healthcare",
+      "sector_name": "Healthcare",
+      "description": "Companies engaged in development and discovery of branded forms of drug, drug-related products, generic drug products, and animal-related drugs. Also includes companies that cultivate, process, and farm cannabis or marijuana."
+    },
+    {
+      "industry_id": "education-training-services",
+      "industry_name": "Education & Training Services",
+      "sector_id": "consumer-defensive",
+      "sector_name": "Consumer Defensive",
+      "description": "Companies that provide educational and training services, including college and junior-college courses, higher-education programs, technical and vocational training, and other education services."
+    },
+    {
+      "industry_id": "electrical-equipment-parts",
+      "industry_name": "Electrical Equipment & Parts",
+      "sector_id": "industrials",
+      "sector_name": "Industrials",
+      "description": "Companies that manufacture electrical equipment (such as smart- grid electrical equipment, utility metering, high- and low-voltage electrical equipment, transmission control devices, switches, and lighting distribution boxes), batteries, electrical wires and cables, and automation control."
+    },
+    {
+      "industry_id": "electronic-components",
+      "industry_name": "Electronic Components",
+      "sector_id": "technology",
+      "sector_name": "Technology",
+      "description": "Companies that design, develop, manufacture, and market electronic devices, including electron tubes; electronic capacitors; electronic resistors; electronic coil and transformers; sensors; LED, TFT, and LCD displays; electronic connectors; printed circuit boards; circuit assemblies; and other general-purpose electronics components and products."
+    },
+    {
+      "industry_id": "electronic-gaming-multimedia",
+      "industry_name": "Electronic Gaming & Multimedia",
+      "sector_id": "communication-services",
+      "sector_name": "Communication Services",
+      "description": "Companies that primarily develop or publish video games and other multimedia software applications for devices that include personal computers, video game systems, cellphones, tablets, and other portable media players."
+    },
+    {
+      "industry_id": "electronics-computer-distribution",
+      "industry_name": "Electronics & Computer Distribution",
+      "sector_id": "technology",
+      "sector_name": "Technology",
+      "description": "Companies primarily engaged in the distribution, supply, and support of computers and computer systems, peripheral equipment, and software and other technological goods, including electronic equipment and appliances, electrical cable, wires, and other components to various consumer, commercial, and manufacturing customers."
+    },
+    {
+      "industry_id": "engineering-construction",
+      "industry_name": "Engineering & Construction",
+      "sector_id": "industrials",
+      "sector_name": "Industrials",
+      "description": "Companies engaged in the design, construction, or contracting of industrial and nonresidential structures, streets and highways, bridges and tunnels, docks and piers, dams and water projects, utility lines, and other large building projects. Also includes companies that provide engineering consulting and architectural services to consumer and commercial clients."
+    },
+    {
+      "industry_id": "entertainment",
+      "industry_name": "Entertainment",
+      "sector_id": "communication-services",
+      "sector_name": "Communication Services",
+      "description": "Companies primarily operating with diversified holdings in movies, television, and other media-based entertainment. Also includes companies that produce and distribute motion pictures, television programmers, video, and the operation of movie theaters; and provide cable television services."
+    },
+    {
+      "industry_id": "farm-heavy-construction-machinery",
+      "industry_name": "Farm & Heavy Construction Machinery",
+      "sector_id": "industrials",
+      "sector_name": "Industrials",
+      "description": "Companies that manufacture agricultural and construction machinery, including tractors, planting and harvesting machines, cranes, earthmovers, excavators, and related equipment and machinery. Includes truck manufacturers that provide local and long- haul trucking and transfer services for freight and cargo."
+    },
+    {
+      "industry_id": "farm-products",
+      "industry_name": "Farm Products",
+      "sector_id": "consumer-defensive",
+      "sector_name": "Consumer Defensive",
+      "description": "Companies that produce, raise, and grow agricultural and farm-based food products, including fruits, vegetables, other crop products, cattle, and eggs. Also includes seafood products."
+    },
+    {
+      "industry_id": "financial-conglomerates",
+      "industry_name": "Financial Conglomerates",
+      "sector_id": "financial-services",
+      "sector_name": "Financial Services",
+      "description": "Companies that provide financial services, including banking, insurance, and capital markets, but with no dominant business line or source of revenue."
+    },
+    {
+      "industry_id": "financial-data-stock-exchanges",
+      "industry_name": "Financial Data & Stock Exchanges",
+      "sector_id": "financial-services",
+      "sector_name": "Financial Services",
+      "description": "Companies that operate security exchanges, including companies that offer financial data such as ratings, investment research, and other research solutions."
+    },
+    {
+      "industry_id": "food-distribution",
+      "industry_name": "Food Distribution",
+      "sector_id": "consumer-defensive",
+      "sector_name": "Consumer Defensive",
+      "description": "Companies primarily engaged in the distribution and supply of food products, including packaged goods, meat, dairy products, frozen foods, and related groceries to grocery stores, restaurants, and other food-service centers."
+    },
+    {
+      "industry_id": "footwear-accessories",
+      "industry_name": "Footwear & Accessories",
+      "sector_id": "consumer-cyclical",
+      "sector_name": "Consumer Cyclical",
+      "description": "Companies that manufacture, design, market, and sell lines of footwear and luggage, handbags and purses, belts, and other leather goods."
+    },
+    {
+      "industry_id": "furnishings-fixtures-appliances",
+      "industry_name": "Furnishings, Fixtures & Appliances",
+      "sector_id": "consumer-cyclical",
+      "sector_name": "Consumer Cyclical",
+      "description": "Companies that manufacture and market wooden, metal, and upholstered furniture, mattresses, bedsprings, lighting fixtures, wooden flooring, wallpaper, and household products, such as utensils, cutlery, tableware, and appliances."
+    },
+    {
+      "industry_id": "gambling",
+      "industry_name": "Gambling",
+      "sector_id": "consumer-cyclical",
+      "sector_name": "Consumer Cyclical",
+      "description": "Companies that own, operate, or manage lawful gaming activities and events, such as horse and dog racing, online gaming, bingo, and video lottery, as well as companies that supply products or services to gaming operators. It excludes companies operating casions."
+    },
+    {
+      "industry_id": "gold",
+      "industry_name": "Gold",
+      "sector_id": "basic-materials",
+      "sector_name": "Basic Materials",
+      "description": "Companies principally engaged in gold exploration, mining, processing, extraction, and smelting."
+    },
+    {
+      "industry_id": "grocery-stores",
+      "industry_name": "Grocery Stores",
+      "sector_id": "consumer-defensive",
+      "sector_name": "Consumer Defensive",
+      "description": "Companies engaged in the retail sale of groceries, including dry goods, meat, produce, frozen foods, dairy products, seafood, deli/bakery, and nonfood items."
+    },
+    {
+      "industry_id": "health-information-services",
+      "industry_name": "Health Information Services",
+      "sector_id": "healthcare",
+      "sector_name": "Healthcare",
+      "description": "Companies that develop and provide comprehensive physician practice management systems and software for hospitals, medical practices, and managed-care organizations."
+    },
+    {
+      "industry_id": "healthcare-plans",
+      "industry_name": "Healthcare Plans",
+      "sector_id": "healthcare",
+      "sector_name": "Healthcare",
+      "description": "Companies that offer a wide variety of managed health products and services, including HMOs, PPOs, and other health insurance plans, and are largely U.S.-domiciled."
+    },
+    {
+      "industry_id": "home-improvement-retail",
+      "industry_name": "Home Improvement Retail",
+      "sector_id": "consumer-cyclical",
+      "sector_name": "Consumer Cyclical",
+      "description": "Companies engaged in the retail sale of home improvement items, such as lumber, carpets, hardware and other building materials, plants and other garden supplies, and various other items for the home."
+    },
+    {
+      "industry_id": "household-personal-products",
+      "industry_name": "Household & Personal Products",
+      "sector_id": "consumer-defensive",
+      "sector_name": "Consumer Defensive",
+      "description": "Companies that manufacture and market soaps and other detergents, polishing and sanitation goods and produce glycerin from vegetable and animal fats and oils. Also includes companies that manufacture and market personal-care products, including perfume, cosmetics, and other toilet preparations, infant and adult sanitary paper products, shaving razors and blades."
+    },
+    {
+      "industry_id": "industrial-distribution",
+      "industry_name": "Industrial Distribution",
+      "sector_id": "industrials",
+      "sector_name": "Industrials",
+      "description": "Companies primarily engaged in the distribution and supply of industrial equipment, including construction and farming machinery, garden equipment and supplies, and other industrial items to a diversified market of redistributors and end users."
+    },
+    {
+      "industry_id": "information-technology-services",
+      "industry_name": "Information Technology Services",
+      "sector_id": "technology",
+      "sector_name": "Technology",
+      "description": "Companies that provide computer-system design, network and systems operations, repair services, technical support, computer technology consulting, development, and implementation services."
+    },
+    {
+      "industry_id": "infrastructure-operations",
+      "industry_name": "Infrastructure Operations",
+      "sector_id": "industrials",
+      "sector_name": "Industrials",
+      "description": "Companies that develop, finance, maintain, or manage infrastructure operations such as ports, airports, and roadways."
+    },
+    {
+      "industry_id": "insurance-brokers",
+      "industry_name": "Insurance Brokers",
+      "sector_id": "financial-services",
+      "sector_name": "Financial Services",
+      "description": "Companies acting primarily as agents or intermediaries in creating insurance contracts between clients and insurance companies."
+    },
+    {
+      "industry_id": "insurance-diversified",
+      "industry_name": "Insurance - Diversified",
+      "sector_id": "financial-services",
+      "sector_name": "Financial Services",
+      "description": "Insurance companies with diversified interests in life, health, and property and casualty insurance."
+    },
+    {
+      "industry_id": "insurance-life",
+      "industry_name": "Insurance - Life",
+      "sector_id": "financial-services",
+      "sector_name": "Financial Services",
+      "description": "Companies that underwrite, market, and distribute life insurance and related products to individuals and families."
+    },
+    {
+      "industry_id": "insurance-property-casualty",
+      "industry_name": "Insurance - Property & Casualty",
+      "sector_id": "financial-services",
+      "sector_name": "Financial Services",
+      "description": "Companies that underwrite, market, and distribute fire, marine, and casualty insurance for property and other tangible assets."
+    },
+    {
+      "industry_id": "insurance-reinsurance",
+      "industry_name": "Insurance - Reinsurance",
+      "sector_id": "financial-services",
+      "sector_name": "Financial Services",
+      "description": "Companies that underwrite and sell reinsurance."
+    },
+    {
+      "industry_id": "insurance-specialty",
+      "industry_name": "Insurance - Specialty",
+      "sector_id": "financial-services",
+      "sector_name": "Financial Services",
+      "description": "Companies that underwrite, market, and distribute accident and health, sickness, mortgage, and other specialty or supplemental insurance to individuals and families."
+    },
+    {
+      "industry_id": "integrated-freight-logistics",
+      "industry_name": "Integrated Freight & Logistics",
+      "sector_id": "industrials",
+      "sector_name": "Industrials",
+      "description": "Companies that transport freight and cargo via diversified methods such as railroads, airlines, and waterways."
+    },
+    {
+      "industry_id": "internet-content-information",
+      "industry_name": "Internet Content & Information",
+      "sector_id": "communication-services",
+      "sector_name": "Communication Services",
+      "description": "Companies that provide content, Internet navigation services, and reference guide information for the World Wide Web through its platforms, including social media, search engines, and networking platform companies."
+    },
+    {
+      "industry_id": "internet-retail",
+      "industry_name": "Internet Retail",
+      "sector_id": "consumer-cyclical",
+      "sector_name": "Consumer Cyclical",
+      "description": "Companies engaged in the online retail sale of a diverse mix of merchandise. Excludes companies that target the travel industry and are classified in travel services."
+    },
+    {
+      "industry_id": "leisure",
+      "industry_name": "Leisure",
+      "sector_id": "consumer-cyclical",
+      "sector_name": "Consumer Cyclical",
+      "description": "Companies that manufacture, design, market, and sell bicycles, sporting goods, photographic equipment, recreational equipment, toys, and other leisure products or services."
+    },
+    {
+      "industry_id": "lodging",
+      "industry_name": "Lodging",
+      "sector_id": "consumer-cyclical",
+      "sector_name": "Consumer Cyclical",
+      "description": "Companies that develop, manage, own, and operate lodging facilities, including motels, extended-stay and full-service hotels, and economy hotels and inns."
+    },
+    {
+      "industry_id": "lumber-wood-production",
+      "industry_name": "Lumber & Wood Production",
+      "sector_id": "basic-materials",
+      "sector_name": "Basic Materials",
+      "description": "Companies that grow timber, mill lumber, and manufacture wood and wood products for construction."
+    },
+    {
+      "industry_id": "luxury-goods",
+      "industry_name": "Luxury Goods",
+      "sector_id": "consumer-cyclical",
+      "sector_name": "Consumer Cyclical",
+      "description": "Companies engaged in the specialty retail of luxury items, including jewelry, watches, crystal, clothing, handbags, and accessories."
+    },
+    {
+      "industry_id": "marine-shipping",
+      "industry_name": "Marine Shipping",
+      "sector_id": "industrials",
+      "sector_name": "Industrials",
+      "description": "Companies that transport freight and cargo via water and operate marine ports. Includes companies that provide passenger services via water."
+    },
+    {
+      "industry_id": "medical-care-facilities",
+      "industry_name": "Medical Care Facilities",
+      "sector_id": "healthcare",
+      "sector_name": "Healthcare",
+      "description": "Companies that provide medical services through the ownership and operation of hospitals, and other auxiliary healthcare-related services, including healthcare staffing and ambulatory services. Also, companies that operate long-term-care facilities, such as assisted-living centers, nursing and retirement homes, substance-abuse centers, and centers for rehabilitation services."
+    },
+    {
+      "industry_id": "medical-devices",
+      "industry_name": "Medical Devices",
+      "sector_id": "healthcare",
+      "sector_name": "Healthcare",
+      "description": "Companies that develop, manufacture, and market medical and surgical equipment and machinery, including orthopedic products, respiratory care equipment, x-ray equipment, laser systems, implants, pacemakers, and other major medical machines and apparatus."
+    },
+    {
+      "industry_id": "medical-distribution",
+      "industry_name": "Medical Distribution",
+      "sector_id": "healthcare",
+      "sector_name": "Healthcare",
+      "description": "Companies primarily engaged in the distribution and supply of medical instruments and supplies, ophthalmic goods, and other health-related items to the medical and healthcare industry."
+    },
+    {
+      "industry_id": "medical-instruments-supplies",
+      "industry_name": "Medical Instruments & Supplies",
+      "sector_id": "healthcare",
+      "sector_name": "Healthcare",
+      "description": "Companies that develop, design, manufacture, and market medical and dental instruments and supplies, including wheelchairs, catheters, needles, syringes, eyewear and eyecare products, and other health- related supplies."
+    },
+    {
+      "industry_id": "metal-fabrication",
+      "industry_name": "Metal Fabrication",
+      "sector_id": "industrials",
+      "sector_name": "Industrials",
+      "description": "Companies that fabricate, stamp, or form iron, steel, or other metals into products such as structured components by cutting, bending, and assembling processes of basic metals to create a final product."
+    },
+    {
+      "industry_id": "mortgage-finance",
+      "industry_name": "Mortgage Finance",
+      "sector_id": "financial-services",
+      "sector_name": "Financial Services",
+      "description": "Companies that originate, purchase, sell, and service home mortgage and equity loans."
+    },
+    {
+      "industry_id": "oil-gas-drilling",
+      "industry_name": "Oil & Gas Drilling",
+      "sector_id": "energy",
+      "sector_name": "Energy",
+      "description": "Companies primarily engaged in the drilling for petroleum and natural gas."
+    },
+    {
+      "industry_id": "oil-gas-e-p",
+      "industry_name": "Oil & Gas E&P",
+      "sector_id": "energy",
+      "sector_name": "Energy",
+      "description": "Energy companies which are primarily engaged in oil and gas exploration and production."
+    },
+    {
+      "industry_id": "oil-gas-equipment-services",
+      "industry_name": "Oil & Gas Equipment & Services",
+      "sector_id": "energy",
+      "sector_name": "Energy",
+      "description": "Companies that provide oilfield services and equipment for activities such as contract drilling and seismic surveys. Also includes equipment and tool rental, pumping and processing services, and inspection and contracting services."
+    },
+    {
+      "industry_id": "oil-gas-integrated",
+      "industry_name": "Oil & Gas Integrated",
+      "sector_id": "energy",
+      "sector_name": "Energy",
+      "description": "Major energy companies engaged in the diverse aspects of oil and gas operations, including crude oil and gas exploration, production, manufacturing, refining, marketing, and transportation."
+    },
+    {
+      "industry_id": "oil-gas-midstream",
+      "industry_name": "Oil & Gas Midstream",
+      "sector_id": "energy",
+      "sector_name": "Energy",
+      "description": "Companies that own and operate oilfield pipelines and are involved in the gathering, processing, and transportation of natural crude petroleum."
+    },
+    {
+      "industry_id": "oil-gas-refining-marketing",
+      "industry_name": "Oil & Gas Refining & Marketing",
+      "sector_id": "energy",
+      "sector_name": "Energy",
+      "description": "Companies that refine, gather, market, and sell petroleum and petroleum products."
+    },
+    {
+      "industry_id": "other-industrial-metals-mining",
+      "industry_name": "Other Industrial Metals & Mining",
+      "sector_id": "basic-materials",
+      "sector_name": "Basic Materials",
+      "description": "Companies that mine, refine, produce, smelt, and mill industrial ores, including copper, lead, zinc, radium, vanadium, nickel, tin, titanium, and other related materials."
+    },
+    {
+      "industry_id": "other-precious-metals-mining",
+      "industry_name": "Other Precious Metals & Mining",
+      "sector_id": "basic-materials",
+      "sector_name": "Basic Materials",
+      "description": "Companies that mine, refine, produce, smelt, and mill precious metals, including silver, platinum, palladium, diamond, and other related minerals."
+    },
+    {
+      "industry_id": "packaged-foods",
+      "industry_name": "Packaged Foods",
+      "sector_id": "consumer-defensive",
+      "sector_name": "Consumer Defensive",
+      "description": "Companies that process and package food products, including frozen foods, grain products, canned foods, snack foods, health supplements, vitamins, and pet products."
+    },
+    {
+      "industry_id": "packaging-containers",
+      "industry_name": "Packaging & Containers",
+      "sector_id": "consumer-cyclical",
+      "sector_name": "Consumer Cyclical",
+      "description": "Companies that manufacture and market paper, plastic, metal, and glass packaging products, including corrugated boxes, cardboard containers, bottles, cans, and plastic foam and containers."
+    },
+    {
+      "industry_id": "paper-paper-products",
+      "industry_name": "Paper & Paper Products",
+      "sector_id": "basic-materials",
+      "sector_name": "Basic Materials",
+      "description": "Companies that manufacture and market paper and paper-related products from wood pulp and other fibers. Excludes companies that produce paper packaging products and are classified in the packaging and containers industry."
+    },
+    {
+      "industry_id": "personal-services",
+      "industry_name": "Personal Services",
+      "sector_id": "consumer-cyclical",
+      "sector_name": "Consumer Cyclical",
+      "description": "Companies that provide services of a personal nature or that are particularly structured for the individual or group being served, including veterinary services, funeral and cemetery services, child care services, portrait and photo services, tax preparation and legal services, and other miscellaneous personal services."
+    },
+    {
+      "industry_id": "pharmaceutical-retailers",
+      "industry_name": "Pharmaceutical Retailers",
+      "sector_id": "healthcare",
+      "sector_name": "Healthcare",
+      "description": "Companies engaged in the retail sale of prescription drugs and patent medicines as well as a number of related lines, such as cosmetics, toiletries, and novelty merchandise."
+    },
+    {
+      "industry_id": "pollution-treatment-controls",
+      "industry_name": "Pollution & Treatment Controls",
+      "sector_id": "industrials",
+      "sector_name": "Industrials",
+      "description": "Companies that manufacture equipment designed to control pollution, including control systems, hazardous waste disposal systems, recovery systems, treatment processes, filtration systems, cleaning and separation applications, and recycling machinery."
+    },
+    {
+      "industry_id": "publishing",
+      "industry_name": "Publishing",
+      "sector_id": "communication-services",
+      "sector_name": "Communication Services",
+      "description": "Companies that publish periodicals, such as magazines, comic books, trade journals, books, pamphlets, e-publications, and newspapers."
+    },
+    {
+      "industry_id": "railroads",
+      "industry_name": "Railroads",
+      "sector_id": "industrials",
+      "sector_name": "Industrials",
+      "description": "Companies that provide transportation of freight by line-haul railroad as well as related railroad equipment and repair services. Includes companies offering passenger services via railway and roadways."
+    },
+    {
+      "industry_id": "real-estate-development",
+      "industry_name": "Real Estate - Development",
+      "sector_id": "real-estate",
+      "sector_name": "Real Estate",
+      "description": "Companies that develop real estate and same properties held as inventory, or sold to others after development, with no specific portfolio composition."
+    },
+    {
+      "industry_id": "real-estate-diversified",
+      "industry_name": "Real Estate - Diversified",
+      "sector_id": "real-estate",
+      "sector_name": "Real Estate",
+      "description": "Companies engaged in multiple real estate activities, including development, sales, management, and related services. Excludes companies classified in real estate development and real estate services."
+    },
+    {
+      "industry_id": "real-estate-services",
+      "industry_name": "Real Estate Services",
+      "sector_id": "real-estate",
+      "sector_name": "Real Estate",
+      "description": "Companies that operate, manage, and lease real property with no specific portfolio composition. Includes real estate services like brokers and agents but excludes companies classified in the real estate – development industry."
+    },
+    {
+      "industry_id": "recreational-vehicles",
+      "industry_name": "Recreational Vehicles",
+      "sector_id": "consumer-cyclical",
+      "sector_name": "Consumer Cyclical",
+      "description": "Companies that manufacture recreational vehicles, including self- contained motor homes, campers, all-terrain vehicles, travel/camper trailers, and snowmobiles."
+    },
+    {
+      "industry_id": "reit-diversified",
+      "industry_name": "REIT - Diversified",
+      "sector_id": "real-estate",
+      "sector_name": "Real Estate",
+      "description": "Self-administered real estate investment trusts engaged in the acquisition, management, and disposition of diversified property holdings, with no specific portfolio composition."
+    },
+    {
+      "industry_id": "reit-healthcare-facilities",
+      "industry_name": "REIT - Healthcare Facilities",
+      "sector_id": "real-estate",
+      "sector_name": "Real Estate",
+      "description": "Self-administered real estate investment trusts engaged in the development, acquisition, management, and disposition of healthcare properties, including long-term-care facilities, acute-care and rehab hospitals, psychiatric facilities, and substance-abuse centers."
+    },
+    {
+      "industry_id": "reit-hotel-motel",
+      "industry_name": "REIT - Hotel & Motel",
+      "sector_id": "real-estate",
+      "sector_name": "Real Estate",
+      "description": "Self-administered real estate investment trusts engaged in the development, acquisition, management, and disposition of lodging properties, including full- and limited-service hotels and motels."
+    },
+    {
+      "industry_id": "reit-industrial",
+      "industry_name": "REIT - Industrial",
+      "sector_id": "real-estate",
+      "sector_name": "Real Estate",
+      "description": "Self-administered real estate investment trusts engaged in the development, acquisition, management, and disposition of industrial properties, including bulk warehouses, self-storage facilities, distribution facilities, and other light industrial facilities."
+    },
+    {
+      "industry_id": "reit-mortgage",
+      "industry_name": "REIT - Mortgage",
+      "sector_id": "real-estate",
+      "sector_name": "Real Estate",
+      "description": "Self-administered real estate investment trusts engaged in the acquisition, management, and disposition of mortgage-backed securities. Also includes companies that provide financing for income- producing real estate by purchasing or originating mortgages and mortgage-backed securities; and earns income from the interest on these investments."
+    },
+    {
+      "industry_id": "reit-office",
+      "industry_name": "REIT - Office",
+      "sector_id": "real-estate",
+      "sector_name": "Real Estate",
+      "description": "Self-administered real estate investment trusts engaged in the development, acquisition, management, and disposition of office properties, including office buildings, complexes, and centers."
+    },
+    {
+      "industry_id": "reit-residential",
+      "industry_name": "REIT - Residential",
+      "sector_id": "real-estate",
+      "sector_name": "Real Estate",
+      "description": "Self-administered real estate investment trusts engaged in the development, acquisition, management, and disposition of residential properties, including apartments, multifamily and single-family mortgage loans, manufactured housing, mobile-home parks, and other residential properties."
+    },
+    {
+      "industry_id": "reit-retail",
+      "industry_name": "REIT - Retail",
+      "sector_id": "real-estate",
+      "sector_name": "Real Estate",
+      "description": "Self-administered real estate investment trusts engaged in the development, acquisition, management, and disposition of retail properties, including community shopping centers, factory outlet shopping centers, enclosed shopping malls, strip centers, restaurants, and other retail properties."
+    },
+    {
+      "industry_id": "reit-specialty",
+      "industry_name": "REIT - Specialty",
+      "sector_id": "real-estate",
+      "sector_name": "Real Estate",
+      "description": "Self-administered real estate investment trusts engaged in the acquisition, management, and disposition of properties not classified elsewhere. Includes trusts that operate, lease, and invest in telecom towers, advertising spaces, timberland properties, and other properties not classified elsewhere."
+    },
+    {
+      "industry_id": "rental-leasing-services",
+      "industry_name": "Rental & Leasing Services",
+      "sector_id": "industrials",
+      "sector_name": "Industrials",
+      "description": "Companies that rent or lease durable goods to the commercial and consumer market, including cars and trucks, medical and industrial equipment, appliances and tools, and miscellaneous goods."
+    },
+    {
+      "industry_id": "residential-construction",
+      "industry_name": "Residential Construction",
+      "sector_id": "consumer-cyclical",
+      "sector_name": "Consumer Cyclical",
+      "description": "Companies that build and renovate residential buildings, such as single-family houses, apartments, and hotels."
+    },
+    {
+      "industry_id": "resorts-casinos",
+      "industry_name": "Resorts & Casinos",
+      "sector_id": "consumer-cyclical",
+      "sector_name": "Consumer Cyclical",
+      "description": "Companies that own, operate, and manage resort properties, including beach clubs, time-share properties, and luxury resort hotels and that conduct casino gaming operations."
+    },
+    {
+      "industry_id": "restaurants",
+      "industry_name": "Restaurants",
+      "sector_id": "consumer-cyclical",
+      "sector_name": "Consumer Cyclical",
+      "description": "Companies that own, operate, and franchise full-service restaurants that engage in the retail sale of prepared food and drink."
+    },
+    {
+      "industry_id": "scientific-technical-instruments",
+      "industry_name": "Scientific & Technical Instruments",
+      "sector_id": "technology",
+      "sector_name": "Technology",
+      "description": "Companies that design, develop, manufacture, and market sophisticated electronics of a technical nature, including lab apparatus, process and flow control devices, precise measurement and signal processing tools, search and navigation equipment, and other scientific or technical analytical or measuring devices."
+    },
+    {
+      "industry_id": "security-protection-services",
+      "industry_name": "Security & Protection Services",
+      "sector_id": "industrials",
+      "sector_name": "Industrials",
+      "description": "Companies that provide security and protective services, including protective or preventive devices, security guards and inspection services, security alarm and monitoring systems, detention and correction facilities, and other security-based services."
+    },
+    {
+      "industry_id": "semiconductor-equipment-materials",
+      "industry_name": "Semiconductor Equipment & Materials",
+      "sector_id": "technology",
+      "sector_name": "Technology",
+      "description": "Companies that design, develop, manufacture, and market equipment, spare parts, tools, cleaning devices, and related materials for the semiconductor industry."
+    },
+    {
+      "industry_id": "semiconductors",
+      "industry_name": "Semiconductors",
+      "sector_id": "technology",
+      "sector_name": "Technology",
+      "description": "Semiconductor companies that design, manufacture, and market integrated circuits, microprocessors, logic devices, chipsets, and memory chips for a wide variety of users. Includes companies that design, manufacture, and market general-application integrated circuits and memory and memory-intensive products."
+    },
+    {
+      "industry_id": "shell-companies",
+      "industry_name": "Shell Companies",
+      "sector_id": "financial-services",
+      "sector_name": "Financial Services",
+      "description": "A development-stage company with no or minimal revenue. Includes capital pool, blank check, shell, and holding companies."
+    },
+    {
+      "industry_id": "silver",
+      "industry_name": "Silver",
+      "sector_id": "basic-materials",
+      "sector_name": "Basic Materials",
+      "description": "Companies principally engaged in silver exploration, mining, processing, extraction, and smelting."
+    },
+    {
+      "industry_id": "software-application",
+      "industry_name": "Software - Application",
+      "sector_id": "technology",
+      "sector_name": "Technology",
+      "description": "Companies that primarily design, develop, market, and support application software programs, including those that are cloud-based, for specific consumer and business functions."
+    },
+    {
+      "industry_id": "software-infrastructure",
+      "industry_name": "Software - Infrastructure",
+      "sector_id": "technology",
+      "sector_name": "Technology",
+      "description": "Companies that develop, design, support, and provide system software and services, including operating systems, networking software and devices, web portal services, cloud storage, and related services."
+    },
+    {
+      "industry_id": "solar",
+      "industry_name": "Solar",
+      "sector_id": "technology",
+      "sector_name": "Technology",
+      "description": "Companies that design, manufacture, market, or install solar power systems and components."
+    },
+    {
+      "industry_id": "specialty-business-services",
+      "industry_name": "Specialty Business Services",
+      "sector_id": "industrials",
+      "sector_name": "Industrials",
+      "description": "Companies that provide services to the commercial or business market, including information distribution, warehousing, graphic design, accounting, printing, and miscellaneous services."
+    },
+    {
+      "industry_id": "specialty-chemicals",
+      "industry_name": "Specialty Chemicals",
+      "sector_id": "basic-materials",
+      "sector_name": "Basic Materials",
+      "description": "Companies that use base chemicals to produce value-added chemicals that are used in a variety of products. Includes companies that produce polishes, adhesives and sealants, explosives, printing ink, paint, carbon black, acids, repellants, and cleaning solutions."
+    },
+    {
+      "industry_id": "specialty-industrial-machinery",
+      "industry_name": "Specialty Industrial Machinery",
+      "sector_id": "industrials",
+      "sector_name": "Industrials",
+      "description": "Companies engaged in diversified machinery manufacturing operations, including paper and food production machines, printing machinery, engines and turbines, air and gas processors, blowers and fans, furnaces and ovens, and other general and special industry machines."
+    },
+    {
+      "industry_id": "specialty-retail",
+      "industry_name": "Specialty Retail",
+      "sector_id": "consumer-cyclical",
+      "sector_name": "Consumer Cyclical",
+      "description": "Companies engaged in the specialty retail of various goods and products not covered in a specific industry group. This group includes retailers such as bookstores, office-supply stores, gas stations, pawn shops, novelty shops, auto-parts stores, electronics stores, home furnishing stores, sporting goods stores, toy and hobby stores, music and video stores, and many other miscellaneous retailers."
+    },
+    {
+      "industry_id": "staffing-employment-services",
+      "industry_name": "Staffing & Employment Services",
+      "sector_id": "industrials",
+      "sector_name": "Industrials",
+      "description": "Companies that provide staffing and employment services, including temporary staffing and permanent placement, outsources workforce and other employment-related services to businesses and government. Also includes companies providing online staffing services."
+    },
+    {
+      "industry_id": "steel",
+      "industry_name": "Steel",
+      "sector_id": "basic-materials",
+      "sector_name": "Basic Materials",
+      "description": "Companies that produce steel plates, steel sheets, bar and rod materials, structural steel, steel pipes and tubes, and stainless steel."
+    },
+    {
+      "industry_id": "telecom-services",
+      "industry_name": "Telecom Services",
+      "sector_id": "communication-services",
+      "sector_name": "Communication Services",
+      "description": "Companies that provide local, national, international, and long-distance phone services, as well as companies offering wireless services. Also includes companies that provide services for faxing, prepaid phone cards, pay phones, and directory assistance, or that provide Internet access services."
+    },
+    {
+      "industry_id": "textile-manufacturing",
+      "industry_name": "Textile Manufacturing",
+      "sector_id": "consumer-cyclical",
+      "sector_name": "Consumer Cyclical",
+      "description": "Companies that manufacture and mill textile products, including apparel fabrics, bedding and accessories, home furnishing fabrics, carpets and rugs, curtains and drapes, and other milled textile products."
+    },
+    {
+      "industry_id": "thermal-coal",
+      "industry_name": "Thermal Coal",
+      "sector_id": "energy",
+      "sector_name": "Energy",
+      "description": "Companies that mine thermal coal, which is used for generating energy. Excludes companies that mine coking coal to make steel."
+    },
+    {
+      "industry_id": "tobacco",
+      "industry_name": "Tobacco",
+      "sector_id": "consumer-defensive",
+      "sector_name": "Consumer Defensive",
+      "description": "Companies that manufacture and market cigarettes, e-cigarettes, snuff, cigars, chewing tobacco, and all other tobacco products."
+    },
+    {
+      "industry_id": "tools-accessories",
+      "industry_name": "Tools & Accessories",
+      "sector_id": "industrials",
+      "sector_name": "Industrials",
+      "description": "Companies that manufacture small, hand-held tools, including power-driven drills, welding apparatus, lawn and garden equipment, and other power or manually operated tools and accessories, such as hardware, nuts, bolts, rivets, and other fasteners."
+    },
+    {
+      "industry_id": "travel-services",
+      "industry_name": "Travel Services",
+      "sector_id": "consumer-cyclical",
+      "sector_name": "Consumer Cyclical",
+      "description": "Companies that offer travel-related products or services, including online travel services."
+    },
+    {
+      "industry_id": "trucking",
+      "industry_name": "Trucking",
+      "sector_id": "industrials",
+      "sector_name": "Industrials",
+      "description": "Companies that provide local and long-haul trucking and transfer services for freight and cargo."
+    },
+    {
+      "industry_id": "uranium",
+      "industry_name": "Uranium",
+      "sector_id": "energy",
+      "sector_name": "Energy",
+      "description": "Companies that mine, refine, produce, and mill uranium and uranium-related materials."
+    },
+    {
+      "industry_id": "utilities-diversified",
+      "industry_name": "Utilities - Diversified",
+      "sector_id": "utilities",
+      "sector_name": "Utilities",
+      "description": "Companies engaged in the regulated generation, transmission, or distribution of electricity and natural gas, merchant power generation facilities, and energy marketing operations."
+    },
+    {
+      "industry_id": "utilities-independent-power-producers",
+      "industry_name": "Utilities - Independent Power Producers",
+      "sector_id": "utilities",
+      "sector_name": "Utilities",
+      "description": "Companies that own and operate merchant power generation facilities and sell electricity into retail and wholesale markets."
+    },
+    {
+      "industry_id": "utilities-regulated-electric",
+      "industry_name": "Utilities - Regulated Electric",
+      "sector_id": "utilities",
+      "sector_name": "Utilities",
+      "description": "Companies that generate, transmit, or distribute electric energy for sale."
+    },
+    {
+      "industry_id": "utilities-regulated-gas",
+      "industry_name": "Utilities - Regulated Gas",
+      "sector_id": "utilities",
+      "sector_name": "Utilities",
+      "description": "Companies that transmit, store, or distribute natural gas."
+    },
+    {
+      "industry_id": "utilities-regulated-water",
+      "industry_name": "Utilities - Regulated Water",
+      "sector_id": "utilities",
+      "sector_name": "Utilities",
+      "description": "Companies that distribute water for sale, including water-treatment companies."
+    },
+    {
+      "industry_id": "utilities-renewable",
+      "industry_name": "Utilities - Renewable",
+      "sector_id": "utilities",
+      "sector_name": "Utilities",
+      "description": "Companies that generate, produce, or transmit electric energy from renewable sources, including hydropower, wind, geothermal, biomass, solar, tidal, and wave."
+    },
+    {
+      "industry_id": "waste-management",
+      "industry_name": "Waste Management",
+      "sector_id": "industrials",
+      "sector_name": "Industrials",
+      "description": "Companies that collect, treat, store, transfer, recycle, and dispose of waste materials, as well as companies that provide supporting environmental, engineering, and consulting services."
+    }
+  ]
+}

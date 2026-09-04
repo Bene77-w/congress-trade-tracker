@@ -43,6 +43,7 @@ Schreibt `Insider_Sectors` und `Relevant_Sectors` in den Master.
 
 | Konstante | Wert | Bedeutung |
 |-----------|------|-----------|
+| `COMMITTEE_MAPPING_REVIEW_ID` | `map-test-20260904` | Aktive Mappingrevision des Committee Matchers V2 unter `data/committee_matcher_v2/reviews/<id>/`. Geladen und geprüft von `config/committee_revision.py` (Integrationsplan P2). **Derzeit ein Probeartefakt über 5 von 225 Ausschüssen** — vor dem Cutover (P4) gehört hier die Fullrun-Revision hin. |
 | `COMMITTEE_EX_OFFICIO_ROLES`       | `[Chairman, Ranking Member, Vice Chairman, Cochairman, EXOfficio]` | **Ungenutzt seit 2026-06-12** — das Konzept „welche Rollen als Führung zählen" lebt jetzt ebenen-differenziert in `COMMITTEE_ROLE_KEYS`/`SUBCOMMITTEE_ROLE_KEYS` (`tags/committee_tag.py`), die `committee_role`/`subcommittee_role` auf die 8 Keys von `SCORING_EX_OFFICIO_ROLE_BONUSES` mappen (s. Ex-Officio-Signal unten). |
 
 **Match-Modus** für `Relevant_Sectors` (Intersection Insider × Ticker):

@@ -645,6 +645,50 @@ def test_approval_archives_the_baseline_it_replaces(artifact_sandbox):
     assert _baseline_of(artifact_sandbox)["approved_run_id"] == "run-2"
 
 
+def test_an_unarchivable_baseline_stops_the_approval(artifact_sandbox):
+    """Kein Ersetzen ohne Sicherung des abgeloesten Stands."""
+    taxonomy_snapshot.build_snapshot(ErrorCollector(), FakeClient(sectors()), run_id="run-1")
+    taxonomy_snapshot.approve_snapshot(ErrorCollector(), "run-1")
+    vorher = _baseline_of(artifact_sandbox)
+
+    daten = sectors()
+    daten["energy"][0]["description"] = "Neu beschrieben, gleiche Identitaet."
+    taxonomy_snapshot.build_snapshot(ErrorCollector(), FakeClient(daten), run_id="run-2")
+    # Ein Archiv desselben Namens mit fremdem Inhalt: eine der beiden Fassungen
+    # traegt dann eine andere Freigaberevision, und stilles Behalten der
+    # aelteren verdeckte den Verlust der anderen.
+    taxonomy_snapshot.archive_path("run-1").write_text("{}", encoding="utf-8")
+    collector = ErrorCollector()
+
+    assert taxonomy_snapshot.approve_snapshot(collector, "run-2") is None
+    assert "TAX_BASELINE_ARCHIVE" in codes(collector)
+    assert _baseline_of(artifact_sandbox) == vorher
+
+
+def test_an_unreadable_baseline_stops_the_approval(artifact_sandbox, monkeypatch):
+    taxonomy_snapshot.build_snapshot(ErrorCollector(), FakeClient(sectors()), run_id="run-1")
+    taxonomy_snapshot.approve_snapshot(ErrorCollector(), "run-1")
+    vorher = _baseline_of(artifact_sandbox)
+
+    daten = sectors()
+    daten["energy"][0]["description"] = "Neu beschrieben, gleiche Identitaet."
+    taxonomy_snapshot.build_snapshot(ErrorCollector(), FakeClient(daten), run_id="run-2")
+    echt = Path.read_text
+
+    def unlesbar(self, *args, **kwargs):
+        if self.name == taxonomy_snapshot.BASELINE_FILENAME:
+            raise OSError("Eingabe-/Ausgabefehler")
+        return echt(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", unlesbar)
+    collector = ErrorCollector()
+
+    assert taxonomy_snapshot.approve_snapshot(collector, "run-2") is None
+    assert "TAX_BASELINE_ARCHIVE" in codes(collector)
+    monkeypatch.undo()
+    assert _baseline_of(artifact_sandbox) == vorher
+
+
 def test_first_approval_has_nothing_to_archive(artifact_sandbox):
     taxonomy_snapshot.build_snapshot(ErrorCollector(), FakeClient(sectors()), run_id="run-1")
     assert taxonomy_snapshot.archive_baseline() is None

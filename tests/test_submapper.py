@@ -17,6 +17,7 @@ import dataclasses
 import copy
 import json
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -68,7 +69,7 @@ def test_fehlercodes_stehen_im_katalog() -> None:
 
 #: Pfade, die ``use_fullrun_paths`` als Modulglobals ersetzt.
 UMGESCHALTETE_PFADE = ("TASK_ROOT", "RUN_ROOT", "COLLECT_ROOT", "MERGE_REPORT",
-                       "WORKBOOK_PATH")
+                       "WORKBOOK_PATH", "TEST_SELECTION_PATH")
 
 
 @pytest.fixture(autouse=True)
@@ -1775,8 +1776,8 @@ def test_finish_fullrun_ruft_das_exportmodul(fullrun_sandbox, monkeypatch,
     assert lauf("label", "--fullrun", "--engine", "claude") == 0
     gerufen: list[tuple[str, str]] = []
     monkeypatch.setattr(gs, "_fullrun_import",
-                        lambda review_id, source: gerufen.append(
-                            (review_id, source)) or 0)
+                        lambda review_id, source, test=False: gerufen.append(
+                            (review_id, source, test)) or 0)
     monkeypatch.setattr(gs, "_matcher",
                         lambda schritt, eval_id: pytest.fail(
                             "der Fullrun geht nicht ueber 'evaluate'"))
@@ -1784,7 +1785,7 @@ def test_finish_fullrun_ruft_das_exportmodul(fullrun_sandbox, monkeypatch,
 
     assert lauf("finish", "--fullrun", "--engine", "claude",
                 "--review-id", "map-x") == 0
-    assert gerufen == [("map-x", "claude")]
+    assert gerufen == [("map-x", "claude", False)]
 
 
 def test_review_id_und_eval_id_gehoeren_zu_je_einer_betriebsart(capsys) -> None:
@@ -1800,6 +1801,225 @@ def test_review_id_und_eval_id_gehoeren_zu_je_einer_betriebsart(capsys) -> None:
     # umgeschaltet, schriebe der naechste Aufruf desselben Prozesses in die
     # Fullrun-Ablage, ohne dass jemand das verlangt hat.
     assert {name: getattr(gs, name) for name in UMGESCHALTETE_PFADE} == vorher
+
+
+# -- Testlauf --------------------------------------------------------------
+def test_use_fullrun_paths_kennt_die_testablage(monkeypatch, tmp_path) -> None:
+    """Der Testlauf bekommt eine eigene Wurzel und eine eigene Mappe."""
+    gs.use_fullrun_paths(tmp_path / "fullrun_test")
+
+    for name in UMGESCHALTETE_PFADE:
+        assert (tmp_path / "fullrun_test") in getattr(gs, name).parents
+    assert gs.WORKBOOK_PATH.name == "fullrun_test_review.xlsx"
+    assert gs.TEST_SELECTION_PATH.name == gs.TEST_SELECTION_FILENAME
+
+
+def test_ziehung_nimmt_fuenf_units_und_haelt_sie_fest(monkeypatch,
+                                                      tmp_path) -> None:
+    """Einmal gezogen, danach gilt die Datei - sonst liefe jeder Schritt anders."""
+    monkeypatch.setattr(gs, "TEST_SELECTION_PATH", tmp_path / "test_units.json")
+    corpus = gs.load_corpus_units()
+
+    erste = gs.test_units(corpus)
+
+    assert len(erste) == gs.TEST_UNIT_COUNT
+    assert {item.unit_id for item in erste} <= set(corpus)
+    assert [item.nr for item in erste] == list(range(1, gs.TEST_UNIT_COUNT + 1))
+    assert [item.unit_id for item in erste] == sorted(item.unit_id for item in erste)
+    assert all(item.input_basis == corpus[item.unit_id].input_basis.value
+               for item in erste)
+
+    # Ein zweites Ziehen waere ein zweiter Satz Units; die Datei verhindert es.
+    monkeypatch.setattr(gs.random, "sample",
+                        lambda *args, **kwargs: pytest.fail("zweite Ziehung"))
+    assert gs.test_units(corpus) == erste
+
+
+def test_ziehung_ohne_saat(monkeypatch, tmp_path) -> None:
+    """Gezogen wird aus dem ganzen Korpus, nicht aus seinem Anfang."""
+    gesehen: list[list[str]] = []
+    monkeypatch.setattr(gs, "TEST_SELECTION_PATH", tmp_path / "test_units.json")
+    echt = gs.random.sample
+    monkeypatch.setattr(gs.random, "sample",
+                        lambda menge, k: gesehen.append(list(menge)) or echt(menge, k))
+    corpus = gs.load_corpus_units()
+
+    gs.test_units(corpus)
+
+    assert gesehen == [sorted(corpus)]
+
+
+@pytest.fixture()
+def test_sandbox(tmp_path, monkeypatch, taxonomy, sample):
+    """Die Testlauf-Ablage in tmp_path, mit festgeschriebener Ziehung.
+
+    Gezogen wird hier nicht - das prueft
+    'test_ziehung_nimmt_fuenf_units_und_haelt_sie_fest'. Diese Sandbox braucht
+    Units, zu denen es vorbereitete Antworten gibt, und nimmt dafuer die ersten
+    fuenf der Stichprobe.
+    """
+    wurzel = tmp_path / "fullrun_test"
+    monkeypatch.setattr(gs, "FULLRUN_TEST_ROOT", wurzel)
+    gezogen = [item.unit_id for item in sample[:gs.TEST_UNIT_COUNT]]
+
+    industry = sorted(taxonomy.ids)[0]
+    fake = tmp_path / "antworten"
+    fake.mkdir()
+    for unit_id in gezogen:
+        task = gs.load_task(unit_id)
+        (fake / f"{unit_id}.json").write_text(
+            json.dumps(build_answer(task, industry), ensure_ascii=False),
+            encoding="utf-8")
+    monkeypatch.setenv(gs.FAKE_DIR_ENV, str(fake))
+
+    gs.use_fullrun_paths(wurzel)
+    gs.write_json(gs.TEST_SELECTION_PATH, {
+        "selection_format": gs.TEST_SELECTION_FORMAT,
+        "unit_count": len(gezogen),
+        "unit_ids": sorted(gezogen),
+        "drawn_at": gezogen_vor(timedelta(0)),
+    })
+    return tmp_path
+
+
+def gezogen_vor(alter: timedelta) -> str:
+    """Ziehungszeitpunkt relativ zu jetzt, wie ``draw_test_units`` ihn schreibt.
+
+    Relativ, nicht fest: ein eingetragenes Datum waere ab dem Folgetag aelter
+    als die Haltbarkeit, und die Tests pruefen dann die Aufraeumung statt der
+    Sache, um die es ihnen geht.
+    """
+    return (datetime.now(timezone.utc) - alter).isoformat(timespec="seconds")
+
+
+def test_testlauf_geht_denselben_weg_und_bleibt_in_der_eigenen_ablage(
+        test_sandbox, capsys) -> None:
+    """Ganze Kette bis zur Mappe; Gold-Set und Fullrun bleiben unberuehrt."""
+    goldset_stand = sorted(p.name for p in gs.GOLDSET_ROOT.iterdir())
+    fullrun_stand = (sorted(p.name for p in gs.FULLRUN_ROOT.iterdir())
+                     if gs.FULLRUN_ROOT.exists() else None)
+
+    assert lauf("label", "--test-fullrun", "--engine", "claude") == 0
+    ausgabe = capsys.readouterr().out
+
+    assert "Testlauf: 5 zufaellig gezogene Units" in ausgabe
+    mappe = test_sandbox / "fullrun_test" / "fullrun_test_review.xlsx"
+    assert mappe.exists()
+    assert (test_sandbox / "fullrun_test" / "tasks" / "index.json").exists()
+    labels = load_workbook(mappe)[gs.SHEET_LABELS]
+    assert labels.max_row == gs.TEST_UNIT_COUNT + 1
+    assert sorted(p.name for p in gs.GOLDSET_ROOT.iterdir()) == goldset_stand
+    assert (sorted(p.name for p in gs.FULLRUN_ROOT.iterdir())
+            if gs.FULLRUN_ROOT.exists() else None) == fullrun_stand
+
+
+def test_testlauf_labelt_genau_die_gezogenen_units(test_sandbox, capsys) -> None:
+    assert lauf("prepare", "--test-fullrun") == 0
+    capsys.readouterr()
+    gezogen = set(gs.load_test_selection())
+
+    assert {pfad.stem for pfad in gs.TASK_ROOT.glob("*.json")} == gezogen | {"index"}
+    assert gs.read_json(gs.TASK_ROOT / "index.json")["unit_count"] == \
+        gs.TEST_UNIT_COUNT
+
+
+def test_kaputte_ziehung_haelt_den_testlauf_an(test_sandbox, capsys) -> None:
+    """Eine unlesbare Auswahl faellt auf, statt still eine neue zu ziehen."""
+    gs.TEST_SELECTION_PATH.write_text("[]", encoding="utf-8")
+
+    assert lauf("prepare", "--test-fullrun") == 1
+    assert "GS_TEST_SELECTION" in capsys.readouterr().err
+
+
+def test_ziehung_aus_einem_aelteren_korpus_haelt_den_testlauf_an(
+        test_sandbox, capsys) -> None:
+    gs.write_json(gs.TEST_SELECTION_PATH, {
+        "selection_format": gs.TEST_SELECTION_FORMAT,
+        "unit_count": 1,
+        "unit_ids": ["house--nicht-mehr-vorhanden"],
+        "drawn_at": gezogen_vor(timedelta(0)),
+    })
+
+    assert lauf("prepare", "--test-fullrun") == 1
+    fehler = capsys.readouterr().err
+    assert "GS_TEST_SELECTION" in fehler
+    assert "house--nicht-mehr-vorhanden" in fehler
+
+
+
+def test_eine_abgelaufene_testablage_raeumt_sich_selbst_weg(
+        test_sandbox, capsys) -> None:
+    """Nach einem Tag beginnt der Testlauf neu, statt an sich selbst zu haengen."""
+    assert lauf("prepare", "--test-fullrun") == 0
+    alte_ziehung = set(gs.load_test_selection())
+    (gs.RUN_ROOT / "claude").mkdir(parents=True, exist_ok=True)
+    (gs.RUN_ROOT / "claude" / "irgendwas.json").write_text("{}", encoding="utf-8")
+    auswahl = gs.read_json(gs.TEST_SELECTION_PATH)
+    auswahl["drawn_at"] = gezogen_vor(gs.TEST_MAX_AGE + timedelta(minutes=1))
+    gs.write_json(gs.TEST_SELECTION_PATH, auswahl)
+    capsys.readouterr()
+
+    assert lauf("prepare", "--test-fullrun") == 0
+    ausgabe = capsys.readouterr().out
+
+    assert "Testablage verworfen" in ausgabe
+    assert not (gs.RUN_ROOT / "claude").exists()
+    assert gs.load_test_selection() is not None
+    assert len(gs.load_test_selection()) == gs.TEST_UNIT_COUNT
+    assert {pfad.stem for pfad in gs.TASK_ROOT.glob("*.json")} == \
+        set(gs.load_test_selection()) | {"index"}
+    assert alte_ziehung is not None
+
+
+def test_eine_frische_testablage_bleibt_liegen(test_sandbox, capsys) -> None:
+    """Ein unterbrochener Lauf wird am selben Tag fortgesetzt, nicht neu bezahlt."""
+    assert lauf("prepare", "--test-fullrun") == 0
+    gezogen = gs.load_test_selection()
+    auswahl = gs.read_json(gs.TEST_SELECTION_PATH)
+    auswahl["drawn_at"] = gezogen_vor(gs.TEST_MAX_AGE - timedelta(minutes=1))
+    gs.write_json(gs.TEST_SELECTION_PATH, auswahl)
+    capsys.readouterr()
+
+    assert lauf("prepare", "--test-fullrun") == 0
+
+    assert "Testablage verworfen" not in capsys.readouterr().out
+    assert gs.load_test_selection() == gezogen
+
+
+def test_eine_ziehung_ohne_zeitpunkt_wird_nicht_weggeraeumt(
+        test_sandbox, capsys) -> None:
+    """Geloescht wird nur, was sich selbst als alt ausweist."""
+    auswahl = gs.read_json(gs.TEST_SELECTION_PATH)
+    auswahl.pop("drawn_at")
+    gs.write_json(gs.TEST_SELECTION_PATH, auswahl)
+    capsys.readouterr()
+
+    assert lauf("prepare", "--test-fullrun") == 0
+
+    assert "Testablage verworfen" not in capsys.readouterr().out
+    assert gs.TEST_SELECTION_PATH.exists()
+
+
+def test_fullrun_und_testlauf_schliessen_einander_aus(capsys) -> None:
+    with pytest.raises(SystemExit):
+        gs.main(["prepare", "--fullrun", "--test-fullrun"])
+    assert "not allowed with argument" in capsys.readouterr().err
+
+
+def test_finish_testlauf_reicht_den_schalter_an_das_exportmodul(
+        test_sandbox, monkeypatch, capsys) -> None:
+    """Ohne den Schalter laese das Exportmodul die Mappe des Fullruns."""
+    assert lauf("label", "--test-fullrun", "--engine", "claude") == 0
+    gerufen: list[tuple[str, str, bool]] = []
+    monkeypatch.setattr(gs, "_fullrun_import",
+                        lambda review_id, source, test=False: gerufen.append(
+                            (review_id, source, test)) or 0)
+    capsys.readouterr()
+
+    assert lauf("finish", "--test-fullrun", "--engine", "claude",
+                "--review-id", "map-test") == 0
+    assert gerufen == [("map-test", "claude", True)]
+    assert "'scope': 'test-fullrun'" in capsys.readouterr().out
 
 
 # -- Taxonomie-Refresh vor prepare ----------------------------------------

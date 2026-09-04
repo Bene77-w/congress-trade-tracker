@@ -1170,6 +1170,16 @@ Lauf nicht — das Werkzeug wartet 600 s und fragt erneut, bis wieder Antworten
 kommen. Der Wiederaufsatz ist derselbe wie beim Gold-Set: ein erneuter Aufruf
 überspringt fertige Units.
 
+`--test-fullrun` geht denselben Weg über fünf zufällig gezogene Units, mit
+eigener Ablage unter `data/committee_matcher_v2/fullrun_test/` — der Probelauf
+vor einem Mehrtageslauf. Die Ziehung steht in `fullrun_test/test_units.json`
+und bindet jeden Folgeschritt an dieselben fünf Units. Die Ablage hält 24
+Stunden: ist die Ziehung älter, verwirft `prepare` sie und zieht neu, weil ihre
+Antworten sonst den nächsten Testlauf mit `GS_TAXONOMY_RUN_ACTIVE` blockieren.
+Früher neu ziehen heißt: Verzeichnis löschen. Das Manifest der Übernahme trägt dann
+`scope: test-fullrun` statt `scope: fullrun`. `--fullrun` und `--test-fullrun`
+schließen einander aus.
+
 `finish --fullrun` ruft statt `evaluate export|import` das Modul
 `committee_matcher/fullrun_import.py` auf. Ergebnis:
 `data/committee_matcher_v2/reviews/<review_id>/reviewed_assignments.csv` — die

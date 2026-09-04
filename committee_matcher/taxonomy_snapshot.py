@@ -97,6 +97,10 @@ def archived_run_id() -> str:
         return "unbekannt-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
 
+class ArchiveError(RuntimeError):
+    """Die abgeloeste Baseline liess sich nicht sichern."""
+
+
 def archive_baseline() -> str | None:
     """Legt die abgeloeste Baseline ab; ``None`` wenn es keine gibt.
 
@@ -104,17 +108,42 @@ def archive_baseline() -> str | None:
     die alte Baseline die Vergleichsgrundlage des Driftvergleichs und der
     einzige gueltige Stand, falls der Abruf scheitert; ein vorgezogenes
     Verschieben liesse jeden Build wie eine Erstfreigabe enden.
+
+    Scheitert die Ablage, wirft die Funktion. Ein stiller Fehlschlag waere der
+    schlimmere Fall: die Freigabe ersetzte die Baseline trotzdem, und der
+    abgeloeste Stand - der, gegen den bis eben gemappt wurde - waere weg.
     """
     quelle = baseline_path()
     if not quelle.exists():
         return None
     try:
         rohtext = quelle.read_text(encoding="utf-8")
-    except OSError:
-        return None
+    except OSError as fehler:
+        raise ArchiveError(
+            f"{paths.relative_to_base(quelle)} ist nicht lesbar: {fehler}"
+        ) from fehler
     ziel = archive_path(archived_run_id())
-    if not ziel.exists():
+    if ziel.exists():
+        # Gleicher Name, anderer Inhalt: dann traegt eine der beiden Fassungen
+        # eine fremde Freigaberevision, und ein stilles Behalten der aelteren
+        # verdeckte den Verlust der anderen.
+        try:
+            vorhanden = ziel.read_text(encoding="utf-8")
+        except OSError as fehler:
+            raise ArchiveError(
+                f"{paths.relative_to_base(ziel)} ist nicht lesbar: {fehler}"
+            ) from fehler
+        if vorhanden != rohtext:
+            raise ArchiveError(
+                f"{paths.relative_to_base(ziel)} liegt bereits mit anderem "
+                "Inhalt vor")
+        return paths.relative_to_base(ziel)
+    try:
         paths.write_text_atomic(ziel, rohtext)
+    except OSError as fehler:
+        raise ArchiveError(
+            f"{paths.relative_to_base(ziel)} ist nicht schreibbar: {fehler}"
+        ) from fehler
     return paths.relative_to_base(ziel)
 
 
@@ -748,7 +777,17 @@ def approve_snapshot(collector: ErrorCollector, run_id: str) -> str | None:
 
     # Erst hier, nach jeder Pruefung: bis zu dieser Zeile kann die Freigabe
     # noch scheitern, und dann bleibt die bisherige Baseline die gueltige.
-    archive_baseline()
+    # Die Archivierung gehoert dazu - misslingt sie, wird nicht ersetzt.
+    try:
+        archive_baseline()
+    except ArchiveError as fehler:
+        collector.blocker(
+            "TAX_BASELINE_ARCHIVE", Stage.TAXONOMY, run_id,
+            f"Die abgeloeste Baseline liess sich nicht ablegen: {fehler}.",
+            "Ablage unter taxonomy/archiv/ pruefen; bis dahin bleibt die "
+            "bisherige Baseline die gueltige.",
+        )
+        return None
     baseline = paths.artifact_path(TAXONOMY_DIR, BASELINE_FILENAME, create_parents=True)
     paths.write_text_atomic(
         baseline,

@@ -38,6 +38,7 @@ import inspect
 import json
 import math
 import os
+import random
 import re
 import shutil
 import subprocess
@@ -47,7 +48,7 @@ import time
 import unicodedata
 from dataclasses import dataclass, field
 from itertools import zip_longest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, NoReturn, Sequence
 
@@ -96,9 +97,32 @@ MAPPING_PROMPT_PATH = paths.PROMPT_ROOT / "mapping_system.md"
 #: ueberschreiben, an denen die Pipeline gemessen wird.
 FULLRUN_ROOT = paths.ARTIFACT_ROOT / "fullrun"
 
+#: Wurzel des Testlaufs. Wieder getrennt, und aus demselben Grund: ein
+#: Testlauf ueber fuenf Units teilt sonst Aufgaben, Antworten und Reviewmappe
+#: mit dem Fullrun und schnitte dessen Stand auf fuenf Units zurueck.
+FULLRUN_TEST_ROOT = paths.ARTIFACT_ROOT / "fullrun_test"
 
-def use_fullrun_paths() -> None:
-    """Schaltet die Ablage dieses Prozesses auf den Fullrun um.
+#: Groesse des Testlaufs. Fuenf Units zeigen jeden Schritt der Kette und
+#: kosten wenige Minuten.
+TEST_UNIT_COUNT = 5
+
+#: Die gezogene Auswahl. Sie liegt als Datei, weil jeder Folgeschritt -
+#: ``run``, ``collect``, ``to-xlsx``, ``verify`` - dieselben Units meinen muss
+#: wie ``prepare``; ein zweites Ziehen ergaebe fuenf andere. Der Pfad wird von
+#: ``use_fullrun_paths`` mit umgeschaltet und gehoert damit zur Ablage.
+TEST_SELECTION_FILENAME = "test_units.json"
+TEST_SELECTION_PATH = FULLRUN_TEST_ROOT / TEST_SELECTION_FILENAME
+TEST_SELECTION_FORMAT = "fullrun-test-selection-v1"
+
+#: Haltbarkeit der Testablage. Ein Testlauf belegt, dass der Weg traegt, und
+#: sonst nichts; nach einem Tag ist an seinen Antworten nichts mehr zu retten.
+#: Bis dahin bleibt er liegen, damit ein unterbrochener Lauf am selben Tag
+#: fortgesetzt und nicht neu bezahlt werden muss.
+TEST_MAX_AGE = timedelta(hours=24)
+
+
+def use_fullrun_paths(root: Path | None = None) -> None:
+    """Schaltet die Ablage dieses Prozesses auf einen Fullrun um.
 
     Die Pfade bleiben Modulglobals und werden hier einmal ersetzt, statt als
     Parameter durch zwei Dutzend Funktionen zu wandern. Der Grund ist der
@@ -106,13 +130,23 @@ def use_fullrun_paths() -> None:
     Gold-Set-Ablage und entwertete die Referenz still. Ein Aufruf bedient
     genau eine Betriebsart, deshalb genuegt der einmalige Umschalter in
     ``main()``.
+
+    ``root`` waehlt zwischen dem Fullrun und seinem Testlauf. Der Dateiname
+    der Reviewmappe folgt dem Verzeichnis: eine Mappe, die aus ihrem Ordner
+    heraus geoeffnet wird, nennt damit selbst, welcher Lauf sie erzeugt hat.
     """
     global TASK_ROOT, RUN_ROOT, COLLECT_ROOT, MERGE_REPORT, WORKBOOK_PATH
-    TASK_ROOT = FULLRUN_ROOT / "tasks"
-    RUN_ROOT = FULLRUN_ROOT / "runs"
-    COLLECT_ROOT = FULLRUN_ROOT / "collected"
-    MERGE_REPORT = FULLRUN_ROOT / "disagreements.md"
-    WORKBOOK_PATH = FULLRUN_ROOT / "fullrun_review.xlsx"
+    global TEST_SELECTION_PATH
+    # Kein Vorgabewert in der Signatur: der waere beim Import gebunden und
+    # zeigte weiter auf die echte Ablage, wenn ein Test die Wurzel ersetzt.
+    if root is None:
+        root = FULLRUN_ROOT
+    TASK_ROOT = root / "tasks"
+    RUN_ROOT = root / "runs"
+    COLLECT_ROOT = root / "collected"
+    MERGE_REPORT = root / "disagreements.md"
+    WORKBOOK_PATH = root / f"{root.name}_review.xlsx"
+    TEST_SELECTION_PATH = root / TEST_SELECTION_FILENAME
 
 
 #: Lauf, dessen Zeilen ``merge`` in die Basistabelle uebernimmt. Als Konstante
@@ -218,6 +252,7 @@ ERROR_CATALOG: dict[str, str] = {
     "GS_CONTRACT_INVALID": "Der Modellvertrag fehlt oder haelt seine eigene Form nicht ein.",
     "GS_SAMPLE_STALE": "Die Stichprobe beschreibt eine Unit anders als der Korpus sie liefert.",
     "GS_SAMPLE_INVALID": "Die Stichprobendatei ist unbrauchbar.",
+    "GS_TEST_SELECTION": "Die gezogene Auswahl des Testlaufs ist unbrauchbar.",
     "GS_TAXONOMY_INVALID": "Die freigegebene Taxonomie ist unbrauchbar.",
     "GS_TAXONOMY_REFRESH": "Der frische Abruf der Taxonomie endete ohne Freigabe.",
     "GS_TAXONOMY_RUN_ACTIVE": "Ein begonnener Lauf haengt am bisherigen Snapshot.",
@@ -578,8 +613,179 @@ def fullrun_units(corpus: Mapping[str, Any]) -> tuple[SampleUnit, ...]:
             (corpus[unit_id] for unit_id in sorted(corpus)), start=1))
 
 
+def _selection_broken(detail: str, abhilfe: str) -> NoReturn:
+    block("GS_TEST_SELECTION", paths.relative_to_base(TEST_SELECTION_PATH),
+          detail,
+          "Jeder Schritt des Testlaufs muss dieselben Units meinen; eine "
+          "unlesbare Auswahl liesse ihn mit einer anderen Menge weiterlaufen.",
+          abhilfe)
+
+
+def load_test_selection() -> tuple[str, ...] | None:
+    """Die festgeschriebene Auswahl des Testlaufs; ``None`` wenn es keine gibt."""
+    if not TEST_SELECTION_PATH.exists():
+        return None
+    document = read_json(TEST_SELECTION_PATH)
+    if not isinstance(document, dict):
+        _selection_broken("Die Datei enthaelt kein JSON-Objekt.",
+                          "Datei loeschen; 'prepare --test-fullrun' zieht neu.")
+    if document.get("selection_format") != TEST_SELECTION_FORMAT:
+        _selection_broken(
+            f"Fassung {document.get('selection_format')!r} statt "
+            f"{TEST_SELECTION_FORMAT!r}.",
+            "Datei loeschen; 'prepare --test-fullrun' zieht neu.")
+    unit_ids = document.get("unit_ids")
+    if (not isinstance(unit_ids, list) or not unit_ids
+            or not all(isinstance(value, str) and value for value in unit_ids)
+            or len(set(unit_ids)) != len(unit_ids)):
+        _selection_broken(
+            "Das Feld 'unit_ids' ist keine Liste eindeutiger, nicht leerer "
+            "Unit-IDs.",
+            "Datei loeschen; 'prepare --test-fullrun' zieht neu.")
+    # Die Anzahl steht in der Datei und wird geprueft, statt nur dabeizustehen:
+    # ein Schmuckfeld, das niemand liest, behauptet einen Umfang, den der Lauf
+    # nicht hat.
+    if document.get("unit_count") != len(unit_ids):
+        _selection_broken(
+            f"Die Datei nennt {document.get('unit_count')!r} Units, "
+            f"aufgezaehlt sind {len(unit_ids)}.",
+            "Datei loeschen; 'prepare --test-fullrun' zieht neu.")
+    return tuple(unit_ids)
+
+
+def ziehungszeitpunkt() -> datetime | None:
+    """Wann die liegende Auswahl gezogen wurde; ``None`` wenn unbekannt.
+
+    Unbekannt heisst hier auch: unlesbar. Ueber eine kaputte Auswahl
+    entscheidet ``load_test_selection``, nicht diese Funktion - sie sagt nur,
+    ob ein Alter feststeht.
+    """
+    if not TEST_SELECTION_PATH.exists():
+        return None
+    document = read_json(TEST_SELECTION_PATH)
+    if not isinstance(document, dict):
+        return None
+    try:
+        gezogen = datetime.fromisoformat(str(document.get("drawn_at")))
+    except (TypeError, ValueError):
+        return None
+    # Geschrieben wird mit Zeitzone. Fehlt sie trotzdem, gilt UTC: der
+    # Vergleich eines naiven mit einem bewussten Zeitpunkt waere ein
+    # TypeError und liesse den Aufruf an der Aufraeumfrage scheitern.
+    return gezogen if gezogen.tzinfo else gezogen.replace(tzinfo=timezone.utc)
+
+
+def verwirf_alte_testablage() -> bool:
+    """Raeumt die Testablage weg, sobald ihre Ziehung ``TEST_MAX_AGE`` alt ist.
+
+    Der Testlauf stand sich sonst selbst im Weg: seine Antworten binden den
+    Taxonomiesnapshot, unter dem sie entstanden sind, und ``prepare`` bricht
+    beim naechsten Mal mit ``GS_TAXONOMY_RUN_ACTIVE`` ab, statt frisch zu
+    holen. Aufloesen liess sich das nur von Hand, mit einem ``rm -rf`` auf ein
+    Datenverzeichnis - ein Handgriff, der danebengreifen kann und den ein
+    Wegwerfstueck nicht wert ist.
+
+    Geloescht wird nur, was sich selbst als alt ausweist: fehlt der
+    Ziehungszeitpunkt oder ist er unlesbar, bleibt die Ablage stehen und der
+    bisherige Weg ueber den Befund gilt weiter.
+    """
+    gezogen_am = ziehungszeitpunkt()
+    if gezogen_am is None:
+        return False
+    alter = datetime.now(timezone.utc) - gezogen_am
+    if alter < TEST_MAX_AGE:
+        return False
+    wurzel = TEST_SELECTION_PATH.parent
+    shutil.rmtree(wurzel)
+    print(f"Testablage verworfen: die Ziehung war "
+          f"{int(alter.total_seconds() // 3600)} h alt (Haltbarkeit "
+          f"{int(TEST_MAX_AGE.total_seconds() // 3600)} h). "
+          f"{paths.relative_to_base(wurzel)} wird neu gezogen und neu "
+          f"aufgebaut.")
+    return True
+
+
+def draw_test_units(corpus: Mapping[str, Any]) -> tuple[str, ...]:
+    """Zieht die Units des Testlaufs und schreibt die Ziehung fest.
+
+    Gezogen wird ohne Saat: der Testlauf soll den Weg pruefen, nicht ein
+    ausgesuchtes Ergebnis bestaetigen. Nachvollziehbar bleibt er trotzdem,
+    weil die Ziehung als Datei liegt und jeder Folgeschritt sie liest.
+    """
+    gezogen = tuple(sorted(
+        random.sample(sorted(corpus), min(TEST_UNIT_COUNT, len(corpus)))))
+    write_json(TEST_SELECTION_PATH, {
+        "selection_format": TEST_SELECTION_FORMAT,
+        "unit_count": len(gezogen),
+        "unit_ids": list(gezogen),
+        "drawn_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    })
+    return gezogen
+
+
+def vorbereitete_units() -> tuple[str, ...] | None:
+    """Die Units, fuer die in der Testablage zuletzt Pakete geschrieben wurden.
+
+    Gelesen wird nur ein Index, der neben der Auswahl liegt. Zeigt ``TASK_ROOT``
+    woandershin, gehoert er zu einem anderen Satz - der Gold-Set-Index nennt
+    22 Units, und die als fremde Ziehung zu melden waere eine Falschmeldung
+    ueber einen Lauf, der mit dem Testlauf nichts zu tun hat.
+    """
+    if TEST_SELECTION_PATH.parent not in TASK_ROOT.parents:
+        return None
+    document = read_json(TASK_ROOT / "index.json")
+    if not isinstance(document, dict) or not isinstance(document.get("units"), list):
+        return None
+    return tuple(str(eintrag["unit_id"]) for eintrag in document["units"]
+                 if isinstance(eintrag, dict) and eintrag.get("unit_id"))
+
+
+def test_units(corpus: Mapping[str, Any]) -> tuple[SampleUnit, ...]:
+    """Die fuenf Units des Testlaufs, in der Reihenfolge des Fullruns."""
+    gezogen = load_test_selection()
+    if gezogen is None:
+        gezogen = draw_test_units(corpus)
+    fehlend = [unit_id for unit_id in gezogen if unit_id not in corpus]
+    if fehlend:
+        _selection_broken(
+            f"Der Korpus kennt {len(fehlend)} gezogene Units nicht: "
+            + ", ".join(fehlend[:3]) + (" ..." if len(fehlend) > 3 else "") + ".",
+            "Ablage des Testlaufs loeschen und ihn neu ziehen lassen; die "
+            "Auswahl stammt aus einem aelteren Korpusstand.")
+    # Die zweite Bindung: die Datei allein sagt nur, was gezogen wurde. Liegen
+    # daneben Aufgabenpakete einer anderen Ziehung - etwa weil die Datei
+    # geloescht wurde, das Verzeichnis aber nicht -, arbeiteten die Schritte
+    # danach an zwei verschiedenen Fuenfergruppen.
+    vorbereitet = vorbereitete_units()
+    if vorbereitet is not None and set(vorbereitet) != set(gezogen):
+        _selection_broken(
+            f"Die Aufgabenpakete gehoeren zu einer anderen Ziehung: "
+            f"{len(set(vorbereitet) - set(gezogen))} von "
+            f"{len(vorbereitet)} Units stehen nicht in der Auswahl.",
+            f"{paths.relative_to_base(TEST_SELECTION_PATH.parent)} als Ganzes "
+            "loeschen; ein Testlauf wird zusammen mit seinen Aufgabenpaketen "
+            "neu gezogen.")
+    return tuple(
+        SampleUnit(nr=nr, unit_id=unit.unit_id, chamber=unit.chamber,
+                   committee_name=unit.committee_name, unit_name=unit.unit_name,
+                   input_basis=unit.input_basis.value, focus="test-fullrun")
+        for nr, unit in enumerate(
+            (corpus[unit_id] for unit_id in sorted(gezogen)), start=1))
+
+
+def is_test_fullrun(args: argparse.Namespace) -> bool:
+    return bool(getattr(args, "test_fullrun", False))
+
+
 def is_fullrun(args: argparse.Namespace) -> bool:
-    return bool(getattr(args, "fullrun", False))
+    """Fullrun-Betriebsart: Korpus als Quelle, eigene Ablage, kein Gesamtdeckel.
+
+    Der Testlauf faellt darunter. Er soll denselben Weg gehen wie der Fullrun
+    und sich nur in der Menge der Units und in der Ablage unterscheiden -
+    ein eigener Zweig durch die Kommandos pruefte am Ende einen anderen Weg,
+    als spaeter laeuft.
+    """
+    return bool(getattr(args, "fullrun", False)) or is_test_fullrun(args)
 
 
 def label_units(args: argparse.Namespace,
@@ -593,7 +799,11 @@ def label_units(args: argparse.Namespace,
     """
     if not is_fullrun(args):
         return load_sample()
-    return fullrun_units(corpus if corpus is not None else load_corpus_units())
+    if corpus is None:
+        corpus = load_corpus_units()
+    if is_test_fullrun(args):
+        return test_units(corpus)
+    return fullrun_units(corpus)
 
 
 @dataclass(frozen=True)
@@ -1260,6 +1470,15 @@ def _refresh_gescheitert(run_id: str, findings: Sequence[Any],
         abhilfe = (f"Drift in runs/{run_id}/taxonomy_catalog.md pruefen und mit "
                    f"'python -m committee_matcher snapshot approve --run-id "
                    f"{run_id}' freigeben.")
+    elif getattr(result, "reason", None) == taxonomy_snapshot.REASON_NO_BASELINE:
+        # Ohne bisherige Baseline gibt es keinen Stand, auf den ein Verweis
+        # zeigen koennte: '--no-taxonomy-refresh' scheiterte danach am Laden.
+        was = "Es gibt noch keine freigegebene Taxonomie."
+        warum = ("Die erste Freigabe entscheidet Bene; ab ihr misst der "
+                 "Driftvergleich jeden weiteren Abruf gegen sie.")
+        abhilfe = (f"Snapshot in runs/{run_id}/taxonomy_catalog.md pruefen und "
+                   f"mit 'python -m committee_matcher snapshot approve "
+                   f"--run-id {run_id}' freigeben.")
     else:
         was = f"Der Abruf der Taxonomie blieb ohne Freigabe ({codes})."
         warum = ("Ohne freigegebene Taxonomie gaebe es keine Auswahlliste, "
@@ -1270,6 +1489,10 @@ def _refresh_gescheitert(run_id: str, findings: Sequence[Any],
 
 
 def command_prepare(args: argparse.Namespace) -> int:
+    if is_test_fullrun(args):
+        # Vor allem anderen: die Aufraeumfrage entscheidet, ob die folgenden
+        # Schritte auf einem angefangenen Lauf aufsetzen oder auf leerem Feld.
+        verwirf_alte_testablage()
     assert_task_root_sane()
     corpus = load_corpus_units()
     sample = label_units(args, corpus)
@@ -2426,6 +2649,9 @@ def command_run(args: argparse.Namespace) -> int:
               "Die genannten Units stehen nicht in der Laufmenge.",
               "Gelabelt wird ausschliesslich die Menge, die 'prepare' erzeugt "
               "hat - im Fullrun der Korpus, sonst die eingefrorene Stichprobe.",
+              f"Unit-ID gegen die Ziehung in "
+              f"{paths.relative_to_base(TEST_SELECTION_PATH)} pruefen."
+              if is_test_fullrun(args) else
               "Unit-ID gegen den Korpus pruefen." if is_fullrun(args) else
               f"Unit-ID gegen {paths.relative_to_base(SAMPLE_PATH)} pruefen.")
 
@@ -3923,7 +4149,7 @@ def _teilargs(**werte: Any) -> argparse.Namespace:
         engine=None, model=None, effort=None, timeout=None, total_timeout=None,
         web_access_off=False, unit_id=[], force=False, show=False,
         source="merged", out=None, file=None, fix_case=False,
-        base="claude", against="codex", fullrun=False,
+        base="claude", against="codex", fullrun=False, test_fullrun=False,
         no_taxonomy_refresh=False)
     basis.update(werte)
     return argparse.Namespace(**basis)
@@ -3954,10 +4180,15 @@ def command_label(args: argparse.Namespace) -> int:
     wahl = {"model": args.model, "effort": args.effort}
     # Die Betriebsart gilt fuer jeden Teilschritt: sie bestimmt zugleich die
     # Unitmenge und die Ablage, in die geschrieben wird.
-    umfang = {"fullrun": is_fullrun(args)}
+    umfang = {"fullrun": is_fullrun(args), "test_fullrun": is_test_fullrun(args)}
     ergebnis = 0
 
-    if umfang["fullrun"]:
+    if umfang["test_fullrun"]:
+        print(f"Testlauf: {TEST_UNIT_COUNT} zufaellig gezogene Units, Ablage "
+              f"{paths.relative_to_base(FULLRUN_TEST_ROOT)}. Derselbe Weg wie "
+              f"der Fullrun, nur die Menge ist gekuerzt; das Ergebnis ist "
+              f"kein Mapping fuer die Pipeline.")
+    elif umfang["fullrun"]:
         print(f"Fullrun: der ganze Korpus, Ablage "
               f"{paths.relative_to_base(FULLRUN_ROOT)}. Ein Ratenlimit haelt "
               f"den Lauf an, statt ihn zu beenden.")
@@ -3988,7 +4219,9 @@ def command_label(args: argparse.Namespace) -> int:
         _teilargs(source=quelle, force=args.force, **umfang)))
 
     weiter = "--compared" if args.compared else f"--engine {engines[0]}"
-    if umfang["fullrun"]:
+    if umfang["test_fullrun"]:
+        weiter = "--test-fullrun " + weiter
+    elif umfang["fullrun"]:
         weiter = "--fullrun " + weiter
     ziel = "--review-id <name>" if umfang["fullrun"] else "--eval-id <name>"
     print(f"\nJetzt {paths.relative_to_base(WORKBOOK_PATH)} oeffnen und "
@@ -4013,7 +4246,7 @@ def _matcher(schritt: str, eval_id: str) -> int:
     return subprocess.run(command, cwd=BASE_DIR, check=False).returncode
 
 
-def _fullrun_import(review_id: str, source: str) -> int:
+def _fullrun_import(review_id: str, source: str, *, test: bool = False) -> int:
     """Uebergibt die abgenommene Fullrun-Mappe an das Exportmodul.
 
     Wieder ein eigener Prozess statt eines Imports: das Exportmodul darf die
@@ -4023,6 +4256,8 @@ def _fullrun_import(review_id: str, source: str) -> int:
     """
     command = [sys.executable, "-m", "committee_matcher.fullrun_import",
                "--review-id", review_id, "--source", source]
+    if test:
+        command.append("--test-fullrun")
     print(f"$ {' '.join(command[1:])}", flush=True)
     return subprocess.run(command, cwd=BASE_DIR, check=False).returncode
 
@@ -4040,7 +4275,8 @@ def command_finish(args: argparse.Namespace) -> int:
     quelle = _quelle(args)
     _schritt("Reviewmappe zuruecklesen und pruefen")
     ergebnis = command_verify(_teilargs(source=quelle, fix_case=True,
-                                        fullrun=is_fullrun(args)))
+                                        fullrun=is_fullrun(args),
+                                        test_fullrun=is_test_fullrun(args)))
     if ergebnis != 0:
         was = "Das Mapping" if is_fullrun(args) else "Das Gold-Set"
         print(f"\n{was} entsteht nicht: die Mappe traegt noch Befunde.")
@@ -4049,12 +4285,17 @@ def command_finish(args: argparse.Namespace) -> int:
 
     if is_fullrun(args):
         _schritt(f"Mapping in die Reviewrevision {args.review_id} schreiben")
-        code = _fullrun_import(args.review_id, quelle)
+        code = _fullrun_import(args.review_id, quelle,
+                               test=is_test_fullrun(args))
         if code != 0:
             print(f"\nDas Mapping entsteht nicht: der Export endete mit "
                   f"{code}. Die Meldungen oben nennen jeden Grund.")
             return code
         print(f"\nMapping steht in der Revision {args.review_id}.")
+        if is_test_fullrun(args):
+            print(f"Es deckt {TEST_UNIT_COUNT} Units ab und traegt im "
+                  "Manifest 'scope': 'test-fullrun'. Als Mapping der Pipeline "
+                  "ist es nicht gedacht.")
         return 0
 
     if not export_manifest_path(args.eval_id).exists():
@@ -4089,11 +4330,22 @@ def build_parser() -> argparse.ArgumentParser:
     actions = parser.add_subparsers(dest="action", required=True, metavar="AKTION")
 
     def add_fullrun_flag(target: argparse.ArgumentParser) -> None:
-        target.add_argument(
+        # Beide Betriebsarten schliessen einander aus: sie schreiben in
+        # verschiedene Ablagen, und ein Aufruf bedient genau eine davon.
+        betrieb = target.add_mutually_exclusive_group()
+        betrieb.add_argument(
             "--fullrun", action="store_true",
             help="den ganzen Korpus statt der Gold-Set-Stichprobe; eigene "
                  f"Ablage unter {paths.relative_to_base(FULLRUN_ROOT)}, kein "
                  "Gesamtdeckel, Ratenlimit wird ausgewartet")
+        betrieb.add_argument(
+            "--test-fullrun", action="store_true",
+            help=f"Probelauf desselben Wegs ueber {TEST_UNIT_COUNT} zufaellig "
+                 "gezogene Units; eigene Ablage unter "
+                 f"{paths.relative_to_base(FULLRUN_TEST_ROOT)}. Die Ziehung "
+                 "steht in "
+                 f"{paths.relative_to_base(FULLRUN_TEST_ROOT / TEST_SELECTION_FILENAME)}"
+                 " und gilt fuer jeden Folgeschritt")
 
     def add_scope_flags(target: argparse.ArgumentParser) -> None:
         umfang = target.add_mutually_exclusive_group()
@@ -4132,7 +4384,7 @@ def build_parser() -> argparse.ArgumentParser:
                       help="Evaluationsrevision, in die das Gold-Set kommt")
     ziel.add_argument("--review-id", metavar="NAME",
                       help="Reviewrevision, in die das Mapping des Fullruns "
-                           "kommt; nur mit --fullrun")
+                           "kommt; nur mit --fullrun oder --test-fullrun")
     finish.set_defaults(handler=command_finish)
 
     prepare = actions.add_parser(
@@ -4235,15 +4487,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if getattr(args, "review_id", None) and not is_fullrun(args):
-        parser.error("--review-id gilt nur mit --fullrun; das Gold-Set kommt "
-                     "mit --eval-id in eine Evaluationsrevision")
+        parser.error("--review-id gilt nur mit --fullrun oder --test-fullrun; "
+                     "das Gold-Set kommt mit --eval-id in eine "
+                     "Evaluationsrevision")
     if is_fullrun(args) and getattr(args, "eval_id", None):
         parser.error("--eval-id gilt nur ohne --fullrun; das Mapping des "
                      "Fullruns kommt mit --review-id in eine Reviewrevision")
     # Der Umschalter steht hinter der Bedienpruefung und vor jedem Handler: ein
     # abgewiesener Aufruf laesst die Pfade, wie sie waren, ab hier zeigen sie
     # in die Ablage der gewaehlten Betriebsart.
-    if is_fullrun(args):
+    if is_test_fullrun(args):
+        use_fullrun_paths(FULLRUN_TEST_ROOT)
+    elif is_fullrun(args):
         use_fullrun_paths()
     try:
         return int(args.handler(args))

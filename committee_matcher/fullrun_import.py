@@ -237,7 +237,8 @@ def _unbekannte_industries(units: Mapping[str, Any], snapshot) -> list[str]:
                    if entry.industry_id not in bekannt})
 
 
-def import_fullrun(review_id: str, source: str) -> dict[str, Any]:
+def import_fullrun(review_id: str, source: str, *,
+                   test: bool = False) -> dict[str, Any]:
     """Schreibt das Mapping der abgenommenen Fullrun-Mappe.
 
     ``run_id`` traegt denselben Wert wie ``review_id``: es gab keinen Lauf im
@@ -329,7 +330,14 @@ def import_fullrun(review_id: str, source: str) -> dict[str, Any]:
         "version": MANIFEST_VERSION,
         "review_id": review_id,
         "run_id": review_id,
-        "origin": "submapper.py --fullrun",
+        "origin": "submapper.py --test-fullrun" if test
+                  else "submapper.py --fullrun",
+        # Der Umfang steht als eigenes Feld, nicht nur im Herkunftsvermerk:
+        # ein Testlauf deckt fuenf Units ab und traegt trotzdem
+        # 'review_status: reviewed'. Wer das Mapping spaeter als Produktivstand
+        # laedt, muss den Unterschied an einem Feld pruefen koennen und nicht
+        # an einer Zeichenkette erkennen muessen.
+        "scope": "test-fullrun" if test else "fullrun",
         "source": source,
         "snapshot_id": snapshot.snapshot_id,
         "taxonomy_content_hash": snapshot.taxonomy_content_hash,
@@ -372,16 +380,21 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--source", default="merged", metavar="QUELLE",
                         help="Zwischentabelle des Vergleichs: 'merged' oder "
                              "ein Enginename; Default 'merged'")
+    parser.add_argument("--test-fullrun", action="store_true",
+                        help="die Mappe des Testlaufs statt der des Fullruns; "
+                             "das Manifest traegt dann 'scope': 'test-fullrun'")
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    # Der Fullrun liegt in eigener Ablage; ohne den Umschalter laèse dieses
+    # Der Fullrun liegt in eigener Ablage; ohne den Umschalter laese dieses
     # Modul die Gold-Set-Mappe.
-    gs.use_fullrun_paths()
+    gs.use_fullrun_paths(gs.FULLRUN_TEST_ROOT if args.test_fullrun
+                         else gs.FULLRUN_ROOT)
     try:
-        payload = import_fullrun(args.review_id, args.source)
+        payload = import_fullrun(args.review_id, args.source,
+                                 test=args.test_fullrun)
     except ImportBlocked as blocked:
         print(f"Kein Mapping: {blocked.was}", file=sys.stderr)
         print(f"Abhilfe: {blocked.abhilfe}", file=sys.stderr)

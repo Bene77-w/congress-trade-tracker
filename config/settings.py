@@ -432,6 +432,14 @@ HOUSE_COMMITTEES_FILE = 'house_member&(sub)committees.csv'
 SENATE_COMMITTEES_FILE = 'senate_member&(sub)committees.csv'
 NAME_ALIASES_FILE = 'name_aliases.csv'
 COMMITTEE_MAPPING_FILE = 'subcommittee_sector_industry_mapping.csv'
+
+# Aktive Mappingrevision des Committee Matchers V2 (Integrationsplan P2).
+# Benannt wird die Revision, nicht ihr Pfad: er wird unter
+# data/committee_matcher_v2/reviews/<id>/ abgeleitet. Verbraucher:
+# config/committee_revision.py.
+# ACHTUNG: 'map-test-20260904' ist ein Probeartefakt ueber 5 von 225
+# Ausschuessen; vor dem Cutover (P4) gehoert hier die Fullrun-Revision hin.
+COMMITTEE_MAPPING_REVIEW_ID = 'map-test-20260904'
 IGNORED_TICKERS_FILE = 'ignored_tickers.csv'
 
 # Trade-Daten

@@ -29,6 +29,7 @@ from committee_matcher import submapper as gs  # noqa: E402
 # vergessener Umschalter schriebe sonst in das echte Datenverzeichnis.
 from tests.test_submapper import (  # noqa: E402,F401
     build_answer, fullrun_sandbox, pfade_zuruecksetzen, sample, taxonomy,
+    test_sandbox,
 )
 
 REVIEW_ID = "map-test"
@@ -303,6 +304,29 @@ def test_manifest_nennt_herkunft_und_umfang(mappe, revisionen, capsys) -> None:
 
     assert payload["version"] == fullrun_import.MANIFEST_VERSION
     assert payload["origin"] == "submapper.py --fullrun"
+    assert payload["scope"] == "fullrun"
     assert payload["source"] == "claude"
     assert payload["unit_count"] == payload["assignment_count"]
     assert payload["review_status"] == review.REVIEW_STATUS_REVIEWED
+
+
+def test_testlauf_ist_im_manifest_als_solcher_erkennbar(test_sandbox,
+                                                        revisionen,
+                                                        capsys) -> None:
+    """Fuenf Units tragen 'review_status: reviewed' wie ein Fullrun.
+
+    Ohne eigenes Feld unterschiede sich ein Testlauf im Manifest nur durch eine
+    Zeichenkette in der Herkunft - zu wenig, um ihn als Produktivmapping
+    auszuschliessen.
+    """
+    assert gs.main(["label", "--test-fullrun", "--engine", "claude"]) == 0
+    assert fullrun_import.main(["--review-id", REVIEW_ID, "--source", "claude",
+                                "--test-fullrun"]) == 0
+    capsys.readouterr()
+    payload = json.loads((revisionen / REVIEW_ID
+                          / fullrun_import.MANIFEST_FILENAME).read_text(
+                              encoding="utf-8"))
+
+    assert payload["scope"] == "test-fullrun"
+    assert payload["origin"] == "submapper.py --test-fullrun"
+    assert payload["unit_count"] == gs.TEST_UNIT_COUNT

@@ -543,6 +543,15 @@ die Artefakte des Laufs nicht berühren. Ohne `--review-id` lautet sie
 | `export_manifest.json` | Bindung des Exports und die exportierte Unitmenge |
 | `reviewed_assignments.csv` | Long-CSV des angenommenen Reviewstands |
 | `reviewed_unit_coverage.csv` | Stand je Unit nach dem Review |
+
+**Welche Revision gilt**, entscheidet `COMMITTEE_MAPPING_REVIEW_ID` in
+`config/settings.py`; der Pfad wird daraus abgeleitet.
+`config/committee_revision.py` löst die ID auf und prüft vier Dinge:
+`import_manifest.json` vorhanden (Abschlussmarker des Imports),
+`review_status == "reviewed"`, Zeilenzahl gegen `assignment_count` und jede
+`industry_id` gegen die **freigegebene Baseline** — nicht gegen den
+Taxonomiehash, der sich mit jedem Refresh ändert. Ein Probeartefakt
+(`scope: test-fullrun`) wird geladen, aber beim Laden als solches ausgewiesen.
 | `import_manifest.json` | Zusammenfassung des angenommenen Imports |
 
 `review.xlsx`, Blatt `assignments`: `unit_id`, `industry_id`, `confidence`,
@@ -649,8 +658,34 @@ Spalten wie ein regulärer Reviewimport (`reviewed_assignments.csv`,
 `provider` trägt `claude-cli` beziehungsweise `codex-cli`, und `call_id`,
 `generation_id`, `from_repair`, `schema_name`, `schema_sha256` bleiben leer —
 die CLIs melden sie nicht. Das Manifest trägt `version: fullrun-import-v1` und
-das Feld `origin: submapper.py --fullrun`; es enthält bewusst keine
-Änderungsbilanz gegen einen Modellauf, weil es keinen gibt.
+die Felder `origin: submapper.py --fullrun` und `scope: fullrun`; es enthält
+bewusst keine Änderungsbilanz gegen einen Modellauf, weil es keinen gibt.
+
+#### `data/committee_matcher_v2/fullrun_test/` (Probelauf des Fullruns)
+
+Dritte Wurzel, gleiche Dateinamen: `submapper.py --test-fullrun` labelt fünf
+zufällig gezogene Korpus-Units und geht dabei durch dieselbe Kette wie der
+Fullrun. Die Trennung ist aus demselben Grund zwingend — ein Probelauf in der
+Fullrun-Wurzel schnitte deren Stand auf fünf Units zurück.
+
+| Pfad | Inhalt |
+|---|---|
+| `test_units.json` | die Ziehung: `selection_format`, `unit_count`, `unit_ids`, `drawn_at` |
+| `tasks/`, `runs/`, `collected/`, `disagreements.md` | wie unter `fullrun/`, aber nur über die gezogenen Units |
+| `fullrun_test_review.xlsx` | die Reviewmappe des Probelaufs |
+
+Die Ziehung liegt als Datei, weil `prepare`, `run`, `collect`, `to-xlsx` und
+`verify` dieselben Units meinen müssen; ein zweites Ziehen ergäbe eine andere
+Menge. Sie wird einmal geschrieben und danach nur noch gelesen. `drawn_at`
+trägt die Haltbarkeit: ist die Ziehung älter als 24 h, verwirft `prepare` die
+ganze Wurzel und zieht neu — fehlt oder bricht das Feld, bleibt sie stehen. Nennt sie eine Unit, die der Korpus nicht mehr
+kennt, hält der Lauf mit `GS_TEST_SELECTION` an.
+
+Die Übernahme über `fullrun_import.py --test-fullrun` schreibt dasselbe
+Reviewformat, das Manifest trägt aber `scope: test-fullrun` (der Fullrun:
+`scope: fullrun`). Das Feld steht neben `origin`, weil ein Probelauf über fünf
+Units sonst dieselbe `review_status: reviewed`-Marke trüge wie ein
+abgenommener Fullrun.
 
 #### `data/config/committee_matcher_prompts/` (P5, versionierter Kontrollinput)
 

@@ -11,6 +11,72 @@ Historie abgeschlossener Module/Phasen. **Aktiver WIP-Modul-Stand** steht im „
 
 ---
 
+## 2026-09-04 — Pipeline-Integration P2: die aktive Mappingrevision binden
+
+`reviews/<id>/` ist eine Menge, kein Pfad. `COMMITTEE_MAPPING_REVIEW_ID` in
+`config/settings.py` benennt die geltende Revision; `config/committee_revision.py`
+loest sie auf und prueft vier Dinge: Manifest vorhanden (Abschlussmarker des
+Imports), `review_status == "reviewed"`, Zeilenzahl gegen `assignment_count`
+und jede `industry_id` gegen die freigegebene Baseline - nicht gegen den
+Taxonomiehash, der sich mit jedem Refresh aus P1 aendert und die eben
+freigegebene Revision sonst beim naechsten Lauf abwiese.
+
+Keine Hartsperre gegen ein Probeartefakt: `scope: test-fullrun` wird geladen,
+beim Laden aber als solches ausgewiesen. Gebunden ist derzeit die
+Testlaufrevision `map-test-20260904` (5 Units, 7 Zuordnungen, Codex
+gpt-5.6-sol/high). Vor dem Cutover (P4) gehoert dort die Fullrun-Revision hin.
+
+`config/committee_mapping.py` liest weiter die Legacy-CSV - der Adapter ist
+P3, und kein Schritt entfernt eine Referenz, bevor der Vergleich gegen sie
+gelaufen ist.
+
+Test-Stand: `tests/test_committee_revision_p2.py` 17 Faelle (Gate B: je
+abgewiesener Fall ein eigener Code), Gesamtsuite 2229 passed.
+
+---
+
+## 2026-09-04 — Committee Matcher V2: Testablage haelt 24 Stunden
+
+`prepare --test-fullrun` verwirft `data/committee_matcher_v2/fullrun_test/`,
+wenn die Ziehung aelter als `TEST_MAX_AGE` (24 h) ist, und zieht neu. Vorher
+blockierte der zweite Testlauf mit `GS_TAXONOMY_RUN_ACTIVE`: die liegenden
+Antworten binden ihren Taxonomiesnapshot, ein frischer Abruf entwertete sie -
+aufloesen liess sich das nur von Hand mit einem `rm -rf` auf ein
+Datenverzeichnis. Innerhalb des Tages bleibt die Ablage liegen, damit ein
+unterbrochener Lauf fortgesetzt und nicht neu bezahlt wird. Geloescht wird nur,
+was sich selbst als alt ausweist: fehlt `drawn_at` oder ist es unlesbar, bleibt
+die Ablage stehen.
+
+Nebenbefund: die Bindung der Ziehung an die Aufgabenpakete las
+`TASK_ROOT/index.json` auch dann, wenn `TASK_ROOT` gar nicht zur Testablage
+gehoerte, und meldete den Gold-Set-Index als fremde Ziehung. Sie greift jetzt
+nur noch unterhalb der Auswahl.
+
+Test-Stand: `tests/test_submapper.py` 175 passed (drei neue Faelle: abgelaufen,
+frisch, ohne Zeitpunkt). Ziehungszeitpunkte in den Fixtures sind jetzt relativ
+- feste Daten waeren ab dem Folgetag abgelaufen.
+
+---
+
+## 2026-09-03 — Committee Matcher V2: Probelauf des Fullruns (`--test-fullrun`)
+
+`submapper.py --test-fullrun` geht denselben Weg wie `--fullrun`, aber ueber
+fuenf zufaellig gezogene Korpus-Units - der Probelauf vor einem Mehrtageslauf.
+Eigene Wurzel `data/committee_matcher_v2/fullrun_test/`; die Ziehung liegt als
+`test_units.json` und bindet jeden Folgeschritt an dieselben fuenf Units, sonst
+meinte `collect` andere als `prepare`. Ein Neuziehen verlangt das Loeschen der
+Datei (`GS_TEST_SELECTION` bei unbrauchbarer oder veralteter Ziehung).
+
+`fullrun_import.py --test-fullrun` schreibt dasselbe Reviewformat, das Manifest
+traegt aber `scope: test-fullrun`. Das Feld gibt es, weil ein Probelauf sonst
+dieselbe `review_status: reviewed`-Marke truege wie ein abgenommener Fullrun.
+
+Nebenbefund: `use_fullrun_paths` hatte seine Wurzel als Signaturvorgabe und
+haette damit eine ersetzte `FULLRUN_ROOT` ignoriert - der Wert ist beim Import
+gebunden. Jetzt wird er im Rumpf aufgeloest.
+
+---
+
 ## 2026-09-03 — Committee Matcher V2: Taxonomie je Lauf frisch (Integration P1)
 
 `submapper.py prepare` baut die Taxonomie vor den Aufgabenpaketen frisch:

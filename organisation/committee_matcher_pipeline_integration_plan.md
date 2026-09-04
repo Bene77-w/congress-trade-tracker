@@ -132,6 +132,16 @@ seiner `snapshot_id`.
 
 ### P2 — Produktionsrevision erzeugen und binden
 
+**Stand 2026-09-04: Bindung implementiert, Gate B erfüllt.**
+`config/committee_revision.py` löst `COMMITTEE_MAPPING_REVIEW_ID` auf und
+weist jede unvollständige Variante mit eigenem Code ab (`MAP_REVISION_UNSET`,
+`MAP_REVISION_MISSING`, `MAP_MANIFEST_MISSING`, `MAP_MANIFEST_INVALID`,
+`MAP_NOT_REVIEWED`, `MAP_COUNT_MISMATCH`, `MAP_INDUSTRY_UNKNOWN`,
+`MAP_ARTIFACT_CONTRACT`, `MAP_CONFIDENCE_INVALID`); Tests in
+`tests/test_committee_revision_p2.py`. Die Produktionsrevision über 225 Units
+steht weiterhin aus — gebunden ist bis dahin die Testlaufrevision
+`map-test-20260904` (5 Units, 7 Zuordnungen, `scope: test-fullrun`).
+
 Heute existiert nur ein Probeartefakt: `reviews/review-p8-run2/` mit 7 Units
 und 9 Zuordnungen (`import_manifest.json:8`). Das Produktionsmapping über 225
 Units muss der Fullrun erst liefern; er läuft parallel zu P3, weil der Adapter
