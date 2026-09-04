@@ -440,6 +440,15 @@ COMMITTEE_MAPPING_FILE = 'subcommittee_sector_industry_mapping.csv'
 # ACHTUNG: 'map-test-20260904' ist ein Probeartefakt ueber 5 von 225
 # Ausschuessen; vor dem Cutover (P4) gehoert hier die Fullrun-Revision hin.
 COMMITTEE_MAPPING_REVIEW_ID = 'map-test-20260904'
+
+# Gilt die Zustaendigkeit des Ausschusses selbst auch fuer Mitglieder, die
+# zusaetzlich in einem seiner Unterausschuesse sitzen? Der Matcher bildet dazu
+# eine eigene Unit (committee_parent_core) aus dem Zustaendigkeitstext des
+# Ausschusses - sie ist kein Aggregat seiner Unterausschuesse. Ohne diese
+# Einstellung erreichten die 31 Parent-Core-Units nur die wenigen Mitglieder
+# ohne Unterausschuss-Sitz. Wirkt nur auf das V2-Mapping; die Legacy-CSV
+# aggregiert ihre Unterausschusszeilen ohnehin selbst.
+COMMITTEE_PARENT_CORE_ADDITIVE = True
 IGNORED_TICKERS_FILE = 'ignored_tickers.csv'
 
 # Trade-Daten

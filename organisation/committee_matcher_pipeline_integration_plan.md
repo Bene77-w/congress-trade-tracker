@@ -180,7 +180,16 @@ Schattenvergleich laeuft mechanisch, misst aber gegen die Testrevision und
 damit gegen 5 von 225 Ausschuessen — die Gegenueberstellung, die Gate C
 freigibt, verlangt den Fullrun.
 
-**Befund aus dem Schattenvergleich (Entscheidung offen):** `CommitteeTag`
+**Entschieden 2026-09-05 (Bene): Option A.** Der Parent-Core gilt additiv,
+schaltbar über `COMMITTEE_PARENT_CORE_ADDITIVE`. Am Testmaterial erreichen
+damit alle vier gemappten Units ihre Roster-Einträge statt nur zwei. Die
+Rollen bleiben getrennt: ein Vorsitz im Unterausschuss färbt nicht auf den
+Kerneintrag ab, sonst stünde sein Bonus in den Rollenkeys, obwohl der
+Unterausschuss den Trade nicht berührt. Für den Legacy-Mapper bleibt die
+Regel aus — dort aggregiert der Committee-Lookup seine Unterausschüsse selbst
+und der Vergleichsstand verschöbe sich.
+
+**Ursprünglicher Befund:** `CommitteeTag`
 ruft `get_all_sectors_for_committee` nur, wenn ein Mitglied im Committee
 **ohne** Subcommittee sitzt (`committee_tag.py:150-170`). Die
 `committee_parent_core`-Units entstehen aber gerade fuer Committees **mit**

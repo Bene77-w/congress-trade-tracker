@@ -277,3 +277,99 @@ def test_der_chamber_wert_der_tradeseite_wird_kleingeschrieben(
 
     assert mapper.get_all_sectors_for_committee("SENATE", "Armed Services")
     assert mapper.get_all_sectors_for_committee(" senate ", "Armed Services")
+
+
+# -- Parent-Core additiv (Option A) ----------------------------------------
+class _StubMapper:
+    """Mapper mit gestellten Antworten; `revision` markiert den V2-Weg."""
+
+    def __init__(self, committee, subcommittee, revision=object()):
+        self._committee = committee
+        self._subcommittee = subcommittee
+        self.revision = revision
+
+    def get_all_sectors_for_committee(self, chamber, committee):
+        return [e.copy() for e in self._committee]
+
+    def get_sectors_for_subcommittee(self, chamber, committee, subcommittee):
+        return [e.copy() for e in self._subcommittee]
+
+
+KERN = [{"sector": "Consumer Defensive", "industry": "Farm Products",
+         "confidence": 4}]
+SUB = [{"sector": "Consumer Defensive", "industry": "Packaged Foods",
+        "confidence": 3}]
+
+#: Ein Mitglied im Ausschuss mit einem Unterausschuss-Sitz, dort Vorsitz.
+ROSTER = "Agriculture|:Livestock|Chairman"
+
+
+def _tag(monkeypatch, mapper, additiv=True):
+    from tags.committee_tag import CommitteeTag
+    monkeypatch.setattr(committee_mapping.settings,
+                        "COMMITTEE_PARENT_CORE_ADDITIVE", additiv,
+                        raising=False)
+    tag = CommitteeTag(mapper=mapper)
+    tag.match_mode = "sector_or_industry"
+    return tag
+
+
+def test_der_parent_core_gilt_auch_bei_unterausschuss_sitz(monkeypatch) -> None:
+    """Sonst erreichten die 31 Parent-Core-Units fast niemanden."""
+    tag = _tag(monkeypatch, _StubMapper(KERN, SUB))
+
+    ergebnis = tag.calculate_relevance(
+        ROSTER, "House", ticker_sector="Consumer Defensive",
+        ticker_industry="Farm Products")
+
+    industries = {e["industry"] for e in ergebnis["insider_sectors"]}
+    assert industries == {"Farm Products", "Packaged Foods"}
+
+
+def test_die_unterausschuss_rolle_faerbt_nicht_auf_den_kern_ab(
+        monkeypatch) -> None:
+    """Der Vorsitz im Unterausschuss ist keine Rolle im Ausschuss.
+
+    Geprueft an einem Ticker, den nur der Kern trifft: traegt der
+    Kerneintrag die Rolle des Unterausschusses mit, stuende dessen Bonus in
+    den Rollenkeys, obwohl der Unterausschuss den Trade gar nicht beruehrt.
+    """
+    fremd = [{"sector": "Technology", "industry": "Semiconductors",
+              "confidence": 3}]
+    tag = _tag(monkeypatch, _StubMapper(KERN, fremd))
+
+    ergebnis = tag.calculate_relevance(
+        "Agriculture|Chairman:Livestock|Chairman", "House",
+        ticker_sector="Consumer Defensive", ticker_industry="Farm Products")
+
+    kern = [e for e in ergebnis["insider_sectors"]
+            if e["industry"] == "Farm Products"][0]
+    assert kern["subcommittee_role"] == ""
+    assert kern["subcommittee"] == ""
+    assert ergebnis["ex_officio_role_keys"] == "committee_chairman"
+
+
+def test_abgeschaltet_bleibt_es_beim_bisherigen_verhalten(monkeypatch) -> None:
+    tag = _tag(monkeypatch, _StubMapper(KERN, SUB), additiv=False)
+
+    ergebnis = tag.calculate_relevance(
+        ROSTER, "House", ticker_sector="Consumer Defensive",
+        ticker_industry="Packaged Foods")
+
+    assert {e["industry"] for e in ergebnis["insider_sectors"]} == {"Packaged Foods"}
+
+
+def test_der_legacy_mapper_bleibt_unberuehrt(monkeypatch) -> None:
+    """Dort aggregiert der Committee-Lookup die Unterausschuesse selbst.
+
+    Dieselbe Regel bedeutete auf dem alten Weg etwas anderes und veraenderte
+    den Stand, gegen den der Schattenvergleich misst.
+    """
+    tag = _tag(monkeypatch, _StubMapper(KERN, SUB, revision=None))
+
+    ergebnis = tag.calculate_relevance(
+        ROSTER, "House", ticker_sector="Consumer Defensive",
+        ticker_industry="Packaged Foods")
+
+    assert tag.parent_core_additive is False
+    assert {e["industry"] for e in ergebnis["insider_sectors"]} == {"Packaged Foods"}

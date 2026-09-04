@@ -11,6 +11,28 @@ Historie abgeschlossener Module/Phasen. **Aktiver WIP-Modul-Stand** steht im „
 
 ---
 
+## 2026-09-05 — Filter 3: der Parent-Core gilt additiv
+
+`COMMITTEE_PARENT_CORE_ADDITIVE` (Default `True`): die Zustaendigkeit eines
+Ausschusses gilt auch fuer Mitglieder, die zusaetzlich in einem seiner
+Unterausschuesse sitzen. Vorher fragte `CommitteeTag` den Committee-Lookup
+nur ab, wenn kein Unterausschuss-Sitz bestand - die 31
+`committee_parent_core`-Units des Matchers erreichten damit kaum jemanden,
+obwohl 69 % der Committee-Zugehoerigkeiten im Master mit einem
+Unterausschuss-Sitz einhergehen.
+
+Kein Aggregat: der Parent-Core traegt den eigenen Zustaendigkeitstext des
+Ausschusses, deshalb doppelt hier nichts. `subcommittee_role` bleibt an
+diesen Eintraegen leer, sonst stuende der Bonus einer Unterausschussrolle in
+den Rollenkeys, obwohl der Unterausschuss den Trade nicht beruehrt. Fuer den
+Legacy-Mapper gilt die Regel nicht - dort aggregiert der Committee-Lookup
+seine Unterausschuesse selbst, und der Stand, gegen den der
+Schattenvergleich misst, bliebe sonst nicht derselbe.
+
+Test-Stand: 2254 passed.
+
+---
+
 ## 2026-09-05 — Pipeline-Integration P3: V2-Adapter, Legacy-Weg bleibt
 
 `CommitteeMapper()` ohne Pfad liest die aktive Mappingrevision; mit Pfad
