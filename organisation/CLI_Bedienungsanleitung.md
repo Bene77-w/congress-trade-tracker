@@ -1170,6 +1170,17 @@ Lauf nicht — das Werkzeug wartet 600 s und fragt erneut, bis wieder Antworten
 kommen. Der Wiederaufsatz ist derselbe wie beim Gold-Set: ein erneuter Aufruf
 überspringt fertige Units.
 
+`--combined N` (1 bis 5, für `run` und `label`) lässt N Units gleichzeitig
+labeln; wird eine fertig, rückt die nächste nach. Jeder Aufruf enthält
+weiterhin genau eine Unit, die Antworten sind also unverändert. Am Ratenlimit
+wartet ein Arbeiter stellvertretend für alle, statt dass N Prozesse
+nebeneinander gegen dasselbe erschöpfte Abo-Fenster laufen. Ohne Angabe bleibt
+es beim Lauf nacheinander.
+
+```bash
+$G label --fullrun --combined 3
+```
+
 `--test-fullrun` geht denselben Weg über fünf zufällig gezogene Units, mit
 eigener Ablage unter `data/committee_matcher_v2/fullrun_test/` — der Probelauf
 vor einem Mehrtageslauf. Die Ziehung steht in `fullrun_test/test_units.json`
@@ -1687,6 +1698,9 @@ Direktheit entscheiden Prompt, Gold-Set, Holdout und der manuelle Review.
 | `MAP_UNKNOWN_INDUSTRY` | `industry_id` steht nicht zeichengenau im Snapshot |
 | `MAP_EVIDENCE_UNSUPPORTED` | Evidence kommt nicht zusammenhängend in einer erlaubten Quelle vor |
 | `MAP_EVIDENCE_FROM_PARENT` | Evidence stammt aus dem Text des übergeordneten Committees |
+| `MAP_EVIDENCE_TOO_SHORT` | echte Evidence besteht nur aus einem Wort |
+| `MAP_RESEARCH_CONFIDENCE_EXCEEDED` | Sentinel `Recherche` trägt Confidence über 3 |
+| `MAP_REPAIR_EVIDENCE_TO_RESEARCH` | Repair ersetzt zuvor echte Evidence durch den Sentinel |
 | `MAP_TOO_MANY_ASSIGNMENTS` | Obergrenze des Unittyps überschritten |
 | `MAP_BROAD_SCOPE_NOT_ALLOWED` | Broad-Scope-Ausnahme für diesen Unittyp unzulässig |
 
@@ -1695,10 +1709,13 @@ Erlaubte Belegquellen je Unit: der eigene Name, bei `committee_direct` und
 `name_only` — der eigene Zuständigkeitstext. Der Text des übergeordneten
 Committees ist Kontext und nie Beleg. Verglichen wird nach Unicode-, Whitespace-
 und Groß-/Kleinschreibungsnormalisierung als zusammenhängender Substring.
+Exakt `Recherche` ist als Sentinel ohne Substringprüfung zulässig; andere echte
+Evidence muss mindestens zwei Wörter umfassen.
 
 Obergrenzen: 1–2 Zuordnungen sind der Normalfall, 3–5 nur mit
 `broad_scope_exception` und Confidence ≥ 3; `committee_parent_core` und
-`name_only` bleiben immer bei 2; mehr als 5 ist immer ungültig.
+`name_only` bleiben immer bei 2; mehr als 5 ist immer ungültig. Eine
+Broad-Scope-Ausnahme darf keine rein recherchegestützte Zuordnung enthalten.
 
 **Repair.** Der Repair ist gezielt: zurück gehen nur die beanstandeten Units
 mit ihrer Verstoßliste und ihrem bisherigen Ergebnis, höchstens
@@ -1712,6 +1729,8 @@ Der zusammengeführte Stand durchläuft dieselbe Prüfung wie jede Modellantwort
 ein Ergebnis entsteht nie ungeprüft aus zwei Teilantworten. Bleibt ein Verstoß,
 scheitert der Batch mit benannten Gründen. Es gibt keine automatische Kappung,
 Löschung oder Confidence-Änderung.
+Eine zuvor textbelegte Zuordnung darf im Repair außerdem nicht auf `Recherche`
+umgestellt werden; bereits vorhandene Recherche-Evidence darf erhalten bleiben.
 
 Die Verstoßliste steht im Reparaturprompt außerhalb der Datenblöcke — sie ist
 der verbindliche Auftrag. Deshalb enthält sie **keinen einzigen Wert aus der
@@ -1939,6 +1958,8 @@ Spalten des Blatts `assignments`: `unit_id`, `industry_id`, `confidence`,
 und Unitname stehen nicht im Workbook: sie sind aus der `unit_id` ableitbar,
 und jede weitere Spalte wäre eine Stelle mehr, an der Excel und Korpus
 auseinanderlaufen können. Den Klartext holt sich der Import aus dem Korpus.
+Zeilen mit `evidence_excerpt = Recherche` werden gelb hervorgehoben; die
+Markierung ist reine Darstellung und ergänzt keine importierte Spalte.
 
 **Bearbeitung.** Werte direkt ändern, sonst nichts. Es gibt keine Aktions-,
 Entscheidungs- oder Notizspalte; was geschehen ist, rechnet der Import selbst
@@ -1978,6 +1999,8 @@ neue Zuordnung, nicht als eine geänderte.
 | `REV_UNKNOWN_INDUSTRY` | `industry_id` steht nicht im Snapshot des Laufs |
 | `REV_INDUSTRY_DUPLICATE` | dieselbe Industry zweimal bei derselben Einheit |
 | `REV_CONFIDENCE_INVALID` | Confidence ist keine ganze Zahl 1..4 |
+| `REV_RESEARCH_CONFIDENCE` | `Recherche` trägt Confidence über 3 |
+| `REV_RESEARCH_IN_BROAD_SCOPE` | `Recherche` steht in einer Unit mit mehr als zwei Zuordnungen |
 
 Nur als Warnung (Exit 2, Datei wird geschrieben): `REV_ASSIGNMENTS_ABOVE_LIMIT`
 — mehr Zuordnungen als der Modellvertrag erlaubt. Die 0/2/5-Regel diszipliniert

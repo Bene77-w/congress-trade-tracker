@@ -11,6 +11,58 @@ Historie abgeschlossener Module/Phasen. **Aktiver WIP-Modul-Stand** steht im „
 
 ---
 
+## 2026-09-05 — Mapping-Prompt v3: Recherche als Evidence-Sentinel
+
+API-Mapper und Submapper akzeptieren `Recherche` jetzt als rein
+webrecherchegestützte Evidence. Solche Zuordnungen sind auf Confidence 3
+begrenzt und aus Broad-Scope-Ausnahmen ausgeschlossen; echte Evidence muss
+mindestens zwei Wörter umfassen. Der API-Repair darf eine zuvor textbelegte
+Zuordnung nicht zum Sentinel herabstufen.
+
+Reviewmappen markieren Recherche-Zeilen gelb, ohne den bestehenden
+CSV-/JSON-Vertrag zu ändern. Die Evaluationsmetriken weisen Anzahl und
+Precision der Recherche-Zuordnungen zusätzlich getrennt aus.
+
+Test-Stand: siehe Abschlussprüfung des Implementierungsstands.
+
+---
+
+## 2026-09-05 — Submapper: mehrere Units gleichzeitig (--combined)
+
+`--combined N` (1 bis 5) fuer `run` und `label`: N Units laufen gleichzeitig,
+wird eine fertig, rueckt die naechste nach. Jeder Aufruf enthaelt weiterhin
+genau eine Unit - kein Batching, die Antworten sind dieselben.
+
+Der Ratenlimitfall trug den Entwurf. Ohne Vorkehrung liefen N Arbeiter
+nebeneinander in dasselbe erschoepfte Abo-Fenster und fragten es zu N-t im
+Zehnminutentakt an. Das neue `Abofenster` ist ein gemeinsames Tor: der erste,
+der ein Limit sieht, haelt es zu und probiert stellvertretend weiter, die
+uebrigen warten still. Der Stellvertreter gibt das Tor im `finally` frei,
+damit ein Abbruch die anderen nicht dauerhaft aussperrt.
+
+Bei N=1 und ohne Angabe bleibt der sequenzielle Weg; der Pool wird gar nicht
+erst gebaut. Ein Test haelt das fest, weil der Pool die einzige Stelle ist, an
+der sich Reihenfolge und Ausgabe des bisherigen Laufs aendern koennten.
+
+Die Vorpruefungen je Unit (Task laden, Bindung pruefen, Resume) laufen weiter
+sequenziell im Hauptthread: sie brechen mit einem Befund ab, und in einem
+Arbeiter faende dieser Abbruch niemanden vor, der ihn weitergibt.
+
+Nach dem Review nachgezogen: das Stop-Flag faellt im Arbeiter statt erst im
+Hauptthread - bis der ein Ergebnis entgegennimmt, haette derselbe Arbeiter
+sonst laengst den naechsten Auftrag begonnen. Dasselbe bei einer Exception und
+bei Strg-C: ohne das Flag liefe der Executor beim Verlassen des ``with`` die
+restliche Warteschlange ab, bei 225 Units also 224 bezahlte Aufrufe fuer ein
+Ergebnis, das niemand mehr verbucht. Der Wartetakt am Ratenlimit ist im
+Parallelbetrieb unterbrechbar, sonst haengt Strg-C bis zu zehn Minuten.
+Doppelte `--unit-id` werden dedupliziert - zwei Arbeiter an derselben Unit
+schrieben sonst dieselbe Antwortdatei. `label` prueft den Wertebereich, bevor
+`prepare` laeuft und der Preflight bezahlt wird.
+
+Test-Stand: 198 in tests/test_submapper.py, dreimal stabil; Gesamtsuite 2295.
+
+---
+
 ## 2026-09-05 — Filter 3: der Parent-Core gilt additiv
 
 `COMMITTEE_PARENT_CORE_ADDITIVE` (Default `True`): die Zustaendigkeit eines

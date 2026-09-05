@@ -85,12 +85,15 @@ Die Excel-Datei hat fünf Blätter:
 Du darfst alles ändern: Zeilen löschen, neue eintragen, Begründungen
 umschreiben. Regeln, die auch für deine Änderungen gelten:
 
-- Jede Zuordnung braucht ein **wörtliches Zitat** aus dem Zuständigkeitstext
-  (Spalte `evidence_excerpt`), eine **Sicherheit von 1 bis 4** und eine kurze
-  **Begründung**.
+- Jede Zuordnung braucht in `evidence_excerpt` entweder einen **wörtlichen,
+  mindestens zwei Wörter langen Ausschnitt** aus dem eigenen Namen oder
+  Zuständigkeitstext oder exakt den Sentinel `Recherche`. `Recherche` ist nur
+  für rein webgestützte Zuordnungen zulässig und begrenzt die **Sicherheit auf
+  höchstens 3**. Solche Zeilen sind in der Reviewmappe gelb markiert.
 - **Zwei Zuordnungen** je Ausschuss sind der Normalfall. Bis fünf gehen nur,
   wenn der Ausschuss wirklich mehrere getrennte Bereiche abdeckt — dann
-  braucht es dafür eine eigene Begründung und Sicherheit mindestens 3.
+  braucht es dafür eine eigene Begründung und Sicherheit mindestens 3;
+  `Recherche` darf in dieser Broad-Scope-Ausnahme nicht vorkommen.
 - Ein Ausschuss hat **entweder** Zuordnungen **oder** einen Grund in
   `no_mapping_reason`. Nie beides.
 - **Jeder** der 22 Ausschüsse braucht eine Zeile. Auch „keine Branche" ist
@@ -177,6 +180,28 @@ Fertig: 225 gelabelt, 0 uebersprungen, 0 fehlgeschlagen, 90 min auf das Abo gewa
 Willst du früher aufhören: Strg-C. Der nächste `label --fullrun` setzt bei den
 offenen Ausschüssen fort und bezahlt die fertigen nicht erneut.
 
+### Mehrere Ausschüsse gleichzeitig
+
+`--combined N` (N von 1 bis 5) lässt N Ausschüsse gleichzeitig laufen. Wird
+einer fertig, rückt sofort der nächste nach.
+
+```
+venv/bin/python committee_matcher/submapper.py label --fullrun --combined 3
+```
+
+Jeder Aufruf enthält weiterhin genau einen Ausschuss — die Antworten sind
+dieselben wie beim Lauf nacheinander, es dauert nur kürzer. Was sich ändert,
+ist die Ausgabe: jede Zeile trägt den Namen ihres Ausschusses, weil drei
+Läufe sich sonst gegenseitig ins Wort fielen.
+
+Am Ratenlimit hält nicht jeder für sich, sondern alle zusammen: der erste, der
+ein Limit sieht, fragt stellvertretend im Zehnminutentakt weiter, die übrigen
+warten still. Sonst klopften fünf Läufe gleichzeitig an ein Fenster, das
+ohnehin zu ist.
+
+Ohne Angabe läuft ein Ausschuss nach dem anderen. Bei drei anzufangen ist
+vernünftig: mehr gleichzeitig heißt auch, das Limit früher zu sehen.
+
 ### Vorher ausprobieren: der Testlauf
 
 `--test-fullrun` geht denselben Weg über **fünf zufällig gezogene Ausschüsse**.
@@ -226,6 +251,7 @@ es weder Anbieter noch Generation-ID.
 | `--test-fullrun` | alle Kommandos | Probelauf desselben Wegs über fünf zufällig gezogene Ausschüsse, eigene Ablage unter `fullrun_test/`. Schließt `--fullrun` aus. |
 | `--model NAME` | `label` | Welches Modell genau. Ohne Angabe der Wert aus `config/settings.py`. |
 | `--effort STUFE` | `label` | Wie gründlich es denkt. Ohne Angabe der Wert aus `config/settings.py`. |
+| `--combined N` | `run`, `label` | N Ausschüsse gleichzeitig, 1 bis 5. Wird einer fertig, rückt der nächste nach. Ein Ratenlimit hält alle an, nicht jeden einzeln. Ohne Angabe: einer nach dem anderen. |
 | `--force` | `label` | Alles neu erzeugen statt fortzusetzen. Bezahlt alle Läufe erneut. Die alte Tabelle wird vorher gesichert. |
 | `--eval-id NAME` | `finish` | Name der Evaluationsrevision, in die das Gold-Set kommt. Ohne `--fullrun` Pflichtangabe. |
 | `--review-id NAME` | `finish --fullrun` | Name der Reviewrevision, in die das Mapping kommt. Mit `--fullrun` oder `--test-fullrun` Pflichtangabe. |

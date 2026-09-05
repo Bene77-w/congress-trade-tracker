@@ -44,8 +44,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unicodedata
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from itertools import zip_longest
 from datetime import datetime, timedelta, timezone
@@ -53,6 +55,7 @@ from pathlib import Path
 from typing import Any, Mapping, NoReturn, Sequence
 
 from openpyxl import Workbook, load_workbook
+from openpyxl.styles import PatternFill
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
 
@@ -211,6 +214,8 @@ ENGINES: tuple[str, ...] = ("claude", "codex")
 
 MIN_CONFIDENCE = 1
 MAX_CONFIDENCE = 4
+RESEARCH_EVIDENCE = "Recherche"
+RESEARCH_MAX_CONFIDENCE = 3
 #: Obergrenzen des Modellvertrags (``data/config/committee_matcher_prompts``).
 REGULAR_ASSIGNMENT_LIMIT = 2
 BROAD_SCOPE_ASSIGNMENT_LIMIT = 5
@@ -221,12 +226,14 @@ BROAD_SCOPE_MIN_CONFIDENCE = 3
 #: Auslegung teilt wie der Pruefling.
 NARROW_UNIT_KINDS: tuple[str, ...] = ("committee_parent_core",)
 NAME_ONLY_BASIS = "name_only"
+RESEARCH_ROW_FILL = PatternFill(fill_type="solid", fgColor="FFF2CC")
 
 
 # -- Fehlerbild ------------------------------------------------------------
 #: Vorhersehbare Stoerungen. Der Text steht hier und nicht an der Fundstelle,
 #: damit dieselbe Ursache ueberall gleich heisst.
 ERROR_CATALOG: dict[str, str] = {
+    "GS_COMBINED_RANGE": "Die Zahl gleichzeitiger Aufrufe liegt ausserhalb des Zulaessigen.",
     "GS_CLI_MISSING": "Die CLI der gewaehlten Engine ist nicht aufrufbar.",
     "GS_CLI_FLAG": "Die installierte CLI-Fassung kennt eine benutzte Option nicht.",
     "GS_CLI_UNAUTHORIZED": "Die CLI meldet eine fehlende Anmeldung.",
@@ -239,6 +246,9 @@ ERROR_CATALOG: dict[str, str] = {
     "GS_UNIT_ID_MISMATCH": "Die Antwort traegt eine andere unit_id als die Anfrage.",
     "GS_INDUSTRY_UNKNOWN": "Die industry_id steht nicht im freigegebenen Snapshot.",
     "GS_EVIDENCE_NOT_VERBATIM": "Das Zitat steht nicht woertlich im Zustaendigkeitstext.",
+    "GS_EVIDENCE_TOO_SHORT": "Eine echte Evidence besteht nur aus einem Wort.",
+    "GS_RESEARCH_CONFIDENCE": "Eine Recherche-Zuordnung hat zu hohe Confidence.",
+    "GS_RESEARCH_WITHOUT_WEB": "Recherche-Evidence entstand ohne Webzugriff.",
     "GS_COUNT_EXCEEDED": "Die Zahl der Zuordnungen ueberschreitet den Modellvertrag.",
     "GS_BROAD_SCOPE_INVALID": "Die Broad-Scope-Ausnahme haelt ihre Bedingungen nicht ein.",
     "GS_DECISION_CONFLICT": "Die Unit traegt Zuordnung und no_mapping_reason zugleich.",
@@ -1127,10 +1137,11 @@ gemessenen System, das nur diesen Prompt sieht.
 
 Zwei Grenzen:
 
-- Die Recherche stuetzt dein Verstaendnis, sie ersetzt den Text nicht. Jedes
-  `evidence_excerpt` bleibt ein woertlicher Ausschnitt aus dem uebergebenen
-  Zustaendigkeitstext dieser Einheit; ein Zitat aus dem Web ist unzulaessig.
-  Bei `name_only` zitierst du den Namen der Einheit.
+- Traegt der Name oder Zustaendigkeitstext die Zuordnung, bleibt
+  `evidence_excerpt` ein woertlicher Ausschnitt daraus. Stuetzt sich die
+  Zuordnung allein auf Recherche, ist `evidence_excerpt` exakt `Recherche`,
+  Confidence hoechstens 3 und die Zuordnung nimmt nicht an einer
+  Broad-Scope-Ausnahme teil. Zitiere keinen Webtext als Evidence.
 - Was du nachgeschlagen hast, nennst du in `sources`: je Eintrag die URL und
   in einem Halbsatz, was sie belegt. Ohne Recherche bleibt die Liste leer.
 
@@ -1192,7 +1203,10 @@ def output_schema() -> dict:
             },
             "evidence_excerpt": {
                 "type": "string",
-                "description": "Woertlicher Ausschnitt aus dem Zustaendigkeitstext.",
+                "description": "Woertlicher Ausschnitt aus Name oder "
+                               "Zustaendigkeitstext; exakt 'Recherche' nur "
+                               "bei rein recherchegestuetzter Zuordnung "
+                               "(Confidence hoechstens 3).",
             },
             "rationale_short": {
                 "type": "string",
@@ -2600,8 +2614,65 @@ def rate_limited(result: EngineResult, config: EngineConfig) -> bool:
     return classify_failure(config.engine, result, config).code == "GS_RATE_LIMITED"
 
 
+#: Hoechste Zahl gleichzeitiger Aufrufe. Fuenf Prozesse gegen dasselbe Abo
+#: sind reichlich; darueber steht ein Lauf mehr im Limit als er arbeitet.
+MAX_COMBINED = 5
+
+
+class Abofenster:
+    """Das gemeinsame Tor vor dem Abo, durch das jeder Arbeiter muss.
+
+    Wer allein laeuft, braucht es nicht - er wartet fuer sich. Laufen mehrere,
+    waere genau das der Schaden: fuenf Arbeiter liefen gleichzeitig in
+    dasselbe erschoepfte Fenster und fragten es zu fuenft im Zehnminutentakt
+    an. Hier haelt der erste, der ein Limit sieht, das Tor zu und probiert
+    stellvertretend weiter; die uebrigen halten still, bis er durchkommt.
+    """
+
+    def __init__(self) -> None:
+        self._offen = threading.Event()
+        self._offen.set()
+        self._sperre = threading.Lock()
+
+    def warte(self) -> None:
+        """Vor jedem Aufruf: steht das Fenster offen?"""
+        self._offen.wait()
+
+    def uebernimm(self) -> bool:
+        """Meldet ein Limit.
+
+        ``True`` heisst: dieser Arbeiter haelt ab jetzt die Stellung.
+        ``False`` heisst: ein anderer tut es bereits - dann wartet dieser nur
+        mit, statt einen zweiten Takt gegen dasselbe Fenster zu fahren.
+        """
+        with self._sperre:
+            if not self._offen.is_set():
+                return False
+            self._offen.clear()
+            return True
+
+    def gib_frei(self) -> None:
+        with self._sperre:
+            self._offen.set()
+
+
+def warte_einen_takt(abbruch: "threading.Event | None") -> None:
+    """Der Wartetakt am Ratenlimit, unterbrechbar wenn der Lauf endet.
+
+    Ohne Abbruchsignal ist es ein schlichtes ``sleep``. Mit einem - im
+    Parallelbetrieb - endet das Warten sofort, wenn der Lauf abbricht: sonst
+    haengt Strg-C bis zu zehn Minuten an einem Arbeiter, der auf ein Fenster
+    wartet, durch das er ohnehin nicht mehr gehen soll.
+    """
+    if abbruch is None:
+        time.sleep(RATE_LIMIT_WAIT_SECONDS)
+    else:
+        abbruch.wait(RATE_LIMIT_WAIT_SECONDS)
+
+
 def run_until_quota(runner, task: dict, config: EngineConfig, *,
-                    wait: bool) -> tuple[EngineResult, int]:
+                    wait: bool, tor: "Abofenster | None" = None,
+                    abbruch: "threading.Event | None" = None) -> tuple[EngineResult, int]:
     """Laesst eine Unit laufen und wartet ein Ratenlimit aus.
 
     Liefert das Ergebnis und die Zahl der gewarteten Sekunden. Ohne ``wait``
@@ -2611,29 +2682,149 @@ def run_until_quota(runner, task: dict, config: EngineConfig, *,
     Die Wartezeit liegt ausserhalb des Unterprozesses und zaehlt deshalb nicht
     gegen den Unitdeckel. Eine Obergrenze gibt es bewusst nicht: ein Fullrun
     soll das Abo-Fenster ueberdauern, und abbrechen kann Bene selbst.
+
+    ``tor`` ist nur im Parallelbetrieb gesetzt. Es aendert nichts daran, wann
+    gewartet wird, sondern nur, wer wartet: einer stellvertretend statt alle
+    nebeneinander. Der Stellvertreter gibt das Tor im ``finally`` frei, damit
+    ein Abbruch die uebrigen Arbeiter nicht dauerhaft aussperrt.
     """
     gewartet = 0
     versuch = 0
-    while True:
-        versuch += 1
-        workdir = Path(tempfile.mkdtemp(prefix="goldset-label-"))
-        try:
-            result = runner(task, config, workdir)
-        finally:
-            shutil.rmtree(workdir, ignore_errors=True)
-        if not wait or not rate_limited(result, config):
-            return result, gewartet
-        minuten = RATE_LIMIT_WAIT_SECONDS // 60
-        print(f"    Ratenlimit erreicht (Versuch {versuch}); neue Anfrage in "
-              f"{minuten} min. Bisher {gewartet // 60} min gewartet.",
-              flush=True)
-        time.sleep(RATE_LIMIT_WAIT_SECONDS)
-        gewartet += RATE_LIMIT_WAIT_SECONDS
+    stellvertreter = False
+    try:
+        while True:
+            versuch += 1
+            if tor is not None and not stellvertreter:
+                tor.warte()
+            workdir = Path(tempfile.mkdtemp(prefix="goldset-label-"))
+            try:
+                result = runner(task, config, workdir)
+            finally:
+                shutil.rmtree(workdir, ignore_errors=True)
+            if not wait or not rate_limited(result, config):
+                return result, gewartet
+            if tor is not None and not stellvertreter:
+                stellvertreter = tor.uebernimm()
+                if not stellvertreter:
+                    # Ein anderer haelt die Stellung; zurueck ans Tor.
+                    continue
+            minuten = RATE_LIMIT_WAIT_SECONDS // 60
+            print(f"    Ratenlimit erreicht (Versuch {versuch}); neue Anfrage in "
+                  f"{minuten} min. Bisher {gewartet // 60} min gewartet.",
+                  flush=True)
+            warte_einen_takt(abbruch)
+            gewartet += RATE_LIMIT_WAIT_SECONDS
+            if abbruch is not None and abbruch.is_set():
+                # Der Lauf endet; ein weiterer Versuch waere ein bezahlter
+                # Aufruf fuer ein Ergebnis, das niemand mehr verbucht.
+                return result, gewartet
+    finally:
+        if stellvertreter and tor is not None:
+            tor.gib_frei()
+
+
+@dataclass
+class Laufauftrag:
+    """Eine Unit, die tatsaechlich gelabelt wird - geprueft und eingereiht."""
+    nr: int
+    unit_id: str
+    task: dict
+
+
+@dataclass
+class Laufergebnis:
+    """Was ein Auftrag hinterlaesst: Zaehlwerk, Ausgabe und ggf. ein Befund."""
+    auftrag: Laufauftrag
+    zeilen: list[str] = field(default_factory=list)
+    problem: Problem | None = None
+    gelungen: bool = False
+    systemisch: bool = False
+    gewartet_s: int = 0
+
+
+def parse_combined(args: argparse.Namespace) -> int:
+    """Wie viele Units gleichzeitig laufen; 1 ist der sequenzielle Weg."""
+    wert = getattr(args, "combined", None)
+    if wert is None:
+        return 1
+    if not 1 <= wert <= MAX_COMBINED:
+        block("GS_COMBINED_RANGE", str(wert),
+              f"--combined nimmt 1 bis {MAX_COMBINED}, nicht {wert}.",
+              "Jeder Wert ist ein eigener Prozess gegen dasselbe Abo; ueber "
+              f"{MAX_COMBINED} steht der Lauf mehr im Limit als er arbeitet.",
+              f"Wert zwischen 1 und {MAX_COMBINED} waehlen; ohne Angabe laeuft "
+              "eine Unit nach der anderen.")
+    return wert
+
+
+def restzeit(total_deadline: float | None, unit_deckel: int) -> int:
+    """Wieviel Zeit der Gesamtdeckel einem weiteren Unterprozess noch laesst.
+
+    Der Unterprozess bekommt nur die Zeit, die der Deckel noch hergibt: einer,
+    der erst zwischen zwei Units greift, koennte um einen vollen Unitdeckel
+    ueberzogen werden. Aufgerundet, weil bei ``gesamt == unit_deckel`` sonst
+    schon die Millisekunde bis hierher den ersten Lauf verhinderte.
+
+    Ohne Gesamtdeckel - im Fullrun - gilt der Unitdeckel unveraendert.
+    """
+    if total_deadline is None:
+        return unit_deckel
+    return math.ceil(total_deadline - time.monotonic())
+
+
+def labele_unit(auftrag: Laufauftrag, gesamt: int, runner, config: EngineConfig,
+                *, fullrun: bool, laut: bool, tor: "Abofenster | None",
+                abbruch: "threading.Event | None" = None) -> Laufergebnis:
+    """Laesst genau eine Unit labeln und sammelt, was darueber zu sagen ist.
+
+    Die Ausgabe wird gesammelt statt gedruckt: parallel gedruckte Zeilen
+    verschraenken sich sonst zu einem Log, in dem kein Ergebnis mehr seiner
+    Unit zuzuordnen ist. Der Aufrufer gibt jeden Block am Stueck aus.
+    """
+    ergebnis = Laufergebnis(auftrag=auftrag)
+    kopf = f"[{auftrag.nr}/{gesamt}] {auftrag.unit_id}"
+    started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    result, ergebnis.gewartet_s = run_until_quota(
+        runner, auftrag.task, config, wait=fullrun, tor=tor, abbruch=abbruch)
+    store_log(config, auftrag.unit_id, result)
+    assert_effort_accepted(result, config)
+
+    shape = (answer_shape_problem(result.answer, auftrag.task)
+             if result.answer is not None else None)
+    if result.answer is None or shape is not None:
+        found = classify_failure(config.engine, result, config, shape)
+        ergebnis.problem = found
+        ergebnis.systemisch = found.code in SYSTEMIC_CODES
+        ergebnis.zeilen.append(
+            (f"{kopf}: " if not laut else "    ")
+            + f"fehlgeschlagen nach {result.duration_s:.0f} s "
+              f"[{found.code}]; Log: "
+              f"{paths.relative_to_base(log_path(config.engine, auftrag.unit_id))}")
+        return ergebnis
+
+    store_answer(config, auftrag.task, result, started_at)
+    ergebnis.gelungen = True
+    answer = result.answer
+    marks = []
+    if answer.get("label_uncertain"):
+        marks.append("unsicher")
+    if answer.get("broad_scope_exception"):
+        marks.append("broad-scope")
+    ergebnis.zeilen.append(
+        (f"{kopf}: " if not laut else "    ")
+        + f"{answer.get('decision')} "
+          f"({len(answer.get('assignments') or [])} Zuordnungen, "
+          f"{len(answer.get('sources') or [])} Quellen"
+        + (", " + ", ".join(marks) if marks else "")
+        + f") nach {result.duration_s:.0f} s"
+        + (f", {result.num_turns} Turns" if result.num_turns else ""))
+    return ergebnis
 
 
 def command_run(args: argparse.Namespace) -> int:
     settings = load_label_settings()
     config = engine_config(args, settings)
+    gleichzeitig = parse_combined(args)
     assert_cli_available(config.engine)
 
     corpus = load_corpus_units()
@@ -2655,6 +2846,12 @@ def command_run(args: argparse.Namespace) -> int:
               "Unit-ID gegen den Korpus pruefen." if is_fullrun(args) else
               f"Unit-ID gegen {paths.relative_to_base(SAMPLE_PATH)} pruefen.")
 
+    # Zweimal dieselbe --unit-id waeren im Parallelbetrieb zwei Arbeiter an
+    # derselben Unit: zweimal bezahlt, und beide schrieben Antwort und Log in
+    # dieselbe Datei. Sequenziell fing das frueher der Resume-Zweig ab, weil
+    # die Pruefung zwischen den Laeufen lag - das traegt hier nicht mehr.
+    wanted = list(dict.fromkeys(wanted))
+
     runner = engine_runner(config.engine)
     fullrun = is_fullrun(args)
     # Der Gesamtdeckel ist die Notbremse eines Satzes, der an einem Stueck
@@ -2672,9 +2869,25 @@ def command_run(args: argparse.Namespace) -> int:
           f"{config.effort}, "
           f"{len(wanted)} Units, Deckel {config.timeout_seconds} s je Unit, "
           + ("ohne Gesamtdeckel (Fullrun)"
-             if fullrun else f"{config.total_timeout_seconds} s gesamt"))
+             if fullrun else f"{config.total_timeout_seconds} s gesamt")
+          + (f", {gleichzeitig} gleichzeitig" if gleichzeitig > 1 else ""))
 
-    for index, unit_id in enumerate(wanted, start=1):
+    # Ein Arbeiter darf keinen Auftrag mehr beginnen, wenn ein systemischer
+    # Fehler gefallen ist oder der Gesamtdeckel greift. Laufende Auftraege
+    # laufen zu Ende - abzuwuergen, was schon bezahlt ist, waere Verschwendung.
+    halt = threading.Event()
+    tor = Abofenster() if gleichzeitig > 1 else None
+    sperre = threading.Lock()
+    uebrig: list[str] = []
+
+    def pruefe(index: int, unit_id: str) -> Laufauftrag | None:
+        """Bindung pruefen und entscheiden, ob diese Unit ueberhaupt laeuft.
+
+        Laeuft immer im Hauptthread: die Pruefungen brechen bei einem Befund
+        mit einer Exception ab, und in einem Arbeiter faende dieser Abbruch
+        niemanden vor, der ihn weitergibt.
+        """
+        nonlocal skipped
         task = load_task(unit_id)
         check_task_binding(task, taxonomy, contract)
         check_task_against_corpus(task, corpus)
@@ -2690,70 +2903,112 @@ def command_run(args: argparse.Namespace) -> int:
                 offen.append(unit_id)
                 print(f"[{index}/{len(wanted)}] {unit_id}: vorhanden, aber "
                       f"nicht passend [{stale.code}]")
-            continue
+            return None
+        return Laufauftrag(nr=index, unit_id=unit_id, task=task)
 
-        # Der Unterprozess bekommt nur die Zeit, die der Gesamtdeckel noch
-        # hergibt: ein Deckel, der erst zwischen zwei Units greift, koennte um
-        # einen vollen Unitdeckel ueberzogen werden.
-        # Aufgerundet: bei ``gesamt == unit_deckel`` haette schon die
-        # Millisekunde bis hierher den ersten Lauf verhindert.
-        rest = (config.timeout_seconds if total_deadline is None
-                else math.ceil(total_deadline - time.monotonic()))
+    def bearbeite(auftrag: Laufauftrag) -> Laufergebnis | None:
+        if halt.is_set():
+            with sperre:
+                uebrig.append(auftrag.unit_id)
+            return None
+        rest = restzeit(total_deadline, config.timeout_seconds)
         if rest < MIN_TIMEOUT_SECONDS:
-            offen.extend(wanted[index - 1:])
-            print(f"Gesamtdeckel von {config.total_timeout_seconds} s erreicht; "
-                  f"{len(wanted) - index + 1} Units offen. Erneuter Aufruf "
-                  "setzt fort.")
-            break
+            with sperre:
+                # Nur der erste meldet: N Arbeiter stellen den Deckel im
+                # selben Moment fest und schrieben sonst N gleiche Absaetze.
+                erster = not halt.is_set()
+                halt.set()
+                uebrig.append(auftrag.unit_id)
+                if erster:
+                    print(f"Gesamtdeckel von {config.total_timeout_seconds} s "
+                          f"erreicht; weitere Units bleiben offen. Erneuter "
+                          f"Aufruf setzt fort.")
+            return None
         laufconfig = EngineConfig(
             engine=config.engine, model=config.model, effort=config.effort,
             timeout_seconds=min(config.timeout_seconds, rest),
             total_timeout_seconds=config.total_timeout_seconds,
             capped=rest < config.timeout_seconds,
             web_access=config.web_access)
+        with sperre:
+            print(f"[{auftrag.nr}/{len(wanted)}] {auftrag.unit_id}: laeuft ...",
+                  flush=True)
+        try:
+            ergebnis = labele_unit(
+                auftrag, len(wanted), runner, laufconfig,
+                fullrun=fullrun, laut=gleichzeitig == 1, tor=tor,
+                # Nur im Parallelbetrieb: sequenziell unterbricht Strg-C den
+                # Wartetakt ohnehin sofort, weil er im Hauptthread liegt.
+                abbruch=halt if gleichzeitig > 1 else None)
+        except BaseException:
+            # Strg-C oder ein Fehler, den kein Fehlercode traegt. Das Flag
+            # faellt hier und nicht erst im Hauptthread: bis der die Exception
+            # entgegennimmt, hat dieser Arbeiter laengst den naechsten Auftrag
+            # aus der Warteschlange geholt und bezahlt.
+            halt.set()
+            raise
+        if ergebnis.systemisch:
+            # Hier und nicht erst beim Verbuchen: bis der Hauptthread das
+            # Ergebnis entgegennimmt, haette dieser Arbeiter laengst den
+            # naechsten Auftrag begonnen - und den uebernaechsten.
+            halt.set()
+        return ergebnis
 
-        started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        print(f"[{index}/{len(wanted)}] {unit_id}: laeuft ...", flush=True)
-        result, wartezeit = run_until_quota(runner, task, laufconfig,
-                                            wait=fullrun)
-        gewartet_s += wartezeit
-        store_log(laufconfig, unit_id, result)
-        assert_effort_accepted(result, laufconfig)
-
-        shape = (answer_shape_problem(result.answer, task)
-                 if result.answer is not None else None)
-        if result.answer is None or shape is not None:
+    def verbuche(ergebnis: Laufergebnis | None) -> None:
+        nonlocal done, failed, gewartet_s
+        if ergebnis is None:
+            return
+        with sperre:
+            gewartet_s += ergebnis.gewartet_s
+            for zeile in ergebnis.zeilen:
+                print(zeile, flush=True)
+            if ergebnis.gelungen:
+                done += 1
+                return
             failed += 1
-            offen.append(unit_id)
-            found = classify_failure(config.engine, result, laufconfig, shape)
-            problems.append(found)
-            print(f"    fehlgeschlagen nach {result.duration_s:.0f} s "
-                  f"[{found.code}]; Log: "
-                  f"{paths.relative_to_base(log_path(config.engine, unit_id))}")
-            if found.code in SYSTEMIC_CODES:
+            offen.append(ergebnis.auftrag.unit_id)
+            if ergebnis.problem is not None:
+                problems.append(ergebnis.problem)
+            if ergebnis.systemisch:
                 # Diese Ursachen treffen jeden weiteren Aufruf gleichermassen;
                 # der Satz wuerde sonst 21-mal dasselbe erfolglos wiederholen.
-                offen.extend(wanted[index:])
-                print(f"    Der Fehler betrifft den ganzen Satz; der Lauf "
-                      f"bricht ab. {len(wanted) - index} Units bleiben offen.")
-                break
-            continue
+                print("    Der Fehler betrifft den ganzen Satz; der Lauf "
+                      "bricht ab. Begonnene Units laufen zu Ende, weitere "
+                      "werden nicht mehr begonnen.", flush=True)
 
-        store_answer(laufconfig, task, result, started_at)
-        done += 1
-        answer = result.answer
-        decision = answer.get("decision")
-        count = len(answer.get("assignments") or [])
-        marks = []
-        if answer.get("label_uncertain"):
-            marks.append("unsicher")
-        if answer.get("broad_scope_exception"):
-            marks.append("broad-scope")
-        sources = len(answer.get("sources") or [])
-        print(f"    {decision} ({count} Zuordnungen, {sources} Quellen"
-              + (", " + ", ".join(marks) if marks else "")
-              + f") nach {result.duration_s:.0f} s"
-              + (f", {result.num_turns} Turns" if result.num_turns else ""))
+    if gleichzeitig == 1:
+        # Pruefen und Labeln bleiben je Unit verschraenkt wie bisher: ein
+        # Aufgabenpaket, das erst spaet blockiert, soll die Units davor
+        # gelabelt zuruecklassen statt vorab den ganzen Satz zu verhindern.
+        for index, unit_id in enumerate(wanted, start=1):
+            auftrag = pruefe(index, unit_id)
+            if auftrag is not None:
+                verbuche(bearbeite(auftrag))
+    else:
+        auftraege = [auftrag for auftrag in
+                     (pruefe(index, unit_id)
+                      for index, unit_id in enumerate(wanted, start=1))
+                     if auftrag is not None]
+        with ThreadPoolExecutor(max_workers=gleichzeitig) as pool:
+            offene_futures = [pool.submit(bearbeite, auftrag)
+                              for auftrag in auftraege]
+            try:
+                # ``as_completed`` statt ``map``: die Ausgabe soll erscheinen,
+                # sobald eine Unit fertig ist. ``map`` haelt sie in
+                # Eingabereihenfolge zurueck, und ein langsamer erster Auftrag
+                # verstummte den Lauf, obwohl vier weitere schon durch sind.
+                for fertig in as_completed(offene_futures):
+                    verbuche(fertig.result())
+            except BaseException:
+                # Strg-C oder ein Fehler in einem Arbeiter. Ohne das Stop-Flag
+                # liefe der Executor beim Verlassen des ``with`` die restliche
+                # Warteschlange ab - jeder Eintrag ein bezahlter Aufruf fuer
+                # ein Ergebnis, das niemand mehr entgegennimmt.
+                halt.set()
+                for future in offene_futures:
+                    future.cancel()
+                raise
+    offen.extend(uebrig)
 
     print(f"\nFertig: {done} gelabelt, {skipped} uebersprungen, {failed} "
           f"fehlgeschlagen"
@@ -2852,8 +3107,20 @@ def evidence_supported(task: Mapping[str, Any], excerpt: str) -> bool:
     needle = _normalized(excerpt).casefold()
     if not needle:
         return False
+    if is_research_evidence(excerpt):
+        return True
     return any(needle in _normalized(text).casefold()
                for _, text in evidence_contexts(task))
+
+
+def is_research_evidence(excerpt: str) -> bool:
+    """Ist der Wert genau der normalisierte Recherche-Sentinel?"""
+    return _normalized(excerpt).casefold() == _normalized(RESEARCH_EVIDENCE).casefold()
+
+
+def evidence_word_count(excerpt: str) -> int:
+    """Zahl whitespace-getrennter Woerter einer echten Evidence."""
+    return len(_normalized(excerpt).split())
 
 
 @dataclass
@@ -2969,6 +3236,17 @@ def check_broad_scope(task: Mapping[str, Any], unit_id: str, decision: str,
             f"Confidence unter {BROAD_SCOPE_MIN_CONFIDENCE} bei: "
             f"{', '.join(weak)}.",
             "Confidence anheben oder die schwachen Zuordnungen streichen."))
+
+    researched = sorted(str(item.get("industry_id", "")) for item in items
+                        if isinstance(item.get("evidence_excerpt"), str)
+                        and is_research_evidence(item["evidence_excerpt"]))
+    if researched:
+        found.append(_broad_problem(
+            unit_id,
+            "Rein recherchegestuetzte Zuordnung(en) in der Ausnahme: "
+            f"{', '.join(researched)}.",
+            "Recherche-Zuordnungen entfernen oder auf hoechstens zwei "
+            "Zuordnungen kuerzen."))
 
     for feld, name in (("evidence_excerpt", "Evidence"),
                        ("rationale_short", "Rationale")):
@@ -3140,6 +3418,14 @@ def check_answer(task: Mapping[str, Any], record: Mapping[str, Any],
                 f"confidence={confidence!r} liegt nicht zwischen "
                 f"{MIN_CONFIDENCE} und {MAX_CONFIDENCE}.",
                 "Wert in der Reviewdatei korrigieren."))
+        elif is_research_evidence(excerpt) and confidence > RESEARCH_MAX_CONFIDENCE:
+            result.problems.append(problem(
+                "GS_RESEARCH_CONFIDENCE", f"{unit_id} / {industry_id}",
+                f"Recherche als Evidence mit Confidence {confidence}; "
+                f"zulaessig ist hoechstens {RESEARCH_MAX_CONFIDENCE}.",
+                "Rein recherchegestuetzte Zuordnungen sind bewusst gedeckelt.",
+                f"Confidence auf hoechstens {RESEARCH_MAX_CONFIDENCE} senken "
+                "oder eine echte Evidence verwenden."))
         if not visible_text(excerpt) or not visible_text(rationale):
             result.problems.append(_field_problem(
                 unit_id,
@@ -3157,6 +3443,14 @@ def check_answer(task: Mapping[str, Any], record: Mapping[str, Any],
                 "Begruendung, die der Korpus nicht hergibt.",
                 "Zitat gegen das Blatt 'jurisdiction' pruefen und ersetzen "
                 "oder die Zuordnung streichen."))
+        elif not is_research_evidence(excerpt) and evidence_word_count(excerpt) < 2:
+            result.problems.append(problem(
+                "GS_EVIDENCE_TOO_SHORT", f"{unit_id} / {industry_id}",
+                "Die Evidence besteht nur aus einem Wort.",
+                "Ein einzelnes Wort traegt Einschraenkungen und Kontext der "
+                "Quelle nicht verlaesslich.",
+                "Mindestens den zusammenhaengenden tragenden Begriff samt "
+                "Kontext uebernehmen."))
 
         # Randleerraum wird hier abgeschnitten und nicht in die
         # Zwischentabelle uebernommen: sonst meldete 'verify' ihn spaeter als
@@ -3188,6 +3482,20 @@ def check_answer(task: Mapping[str, Any], record: Mapping[str, Any],
             "Wert stuende falsch in der info-Tabelle und entschiede zugleich "
             "still darueber, ob die fehlende Quellenliste gemeldet wird.",
             f"Unit mit 'run --unit-id {unit_id} --force' wiederholen.",
+            depth=2))
+    if zugang is False and any(
+            isinstance(item, dict)
+            and isinstance(item.get("evidence_excerpt"), str)
+            and is_research_evidence(item["evidence_excerpt"])
+            for item in assignments):
+        result.problems.append(problem(
+            "GS_RESEARCH_WITHOUT_WEB", unit_id,
+            "Die Antwort verwendet Recherche als Evidence, obwohl der Lauf "
+            "mit web_access=false gespeichert wurde.",
+            "Der Sentinel behauptet eine Webrecherche; ohne Webzugriff fehlt "
+            "dafuer die notwendige Provenienz.",
+            f"Unit mit aktiviertem Webzugriff und 'run --unit-id {unit_id} "
+            "--force' wiederholen oder echte Unit-Evidence verwenden.",
             depth=2))
 
     sources = answer.get("sources")
@@ -3519,6 +3827,15 @@ def _write_sheet(sheet, columns: Sequence[str],
     sheet.freeze_panes = "B2"
 
 
+def _mark_research_rows(sheet, columns: Sequence[str]) -> None:
+    """Hebt Recherche-Sentinel-Zeilen hervor, ohne das Schema zu aendern."""
+    evidence_column = columns.index("evidence_excerpt") + 1
+    for row in range(2, sheet.max_row + 1):
+        if is_research_evidence(text_value(sheet.cell(row, evidence_column).value)):
+            for column in range(1, len(columns) + 1):
+                sheet.cell(row, column).fill = RESEARCH_ROW_FILL
+
+
 #: Zusaetzliche Zeilen, die die Auswahlliste ueber den Datenbestand hinaus
 #: abdeckt. 22 Units mit hoechstens fuenf Zuordnungen ergeben 110 Zeilen; die
 #: Reserve traegt jede erlaubte Ergaenzung.
@@ -3643,6 +3960,7 @@ def command_to_xlsx(args: argparse.Namespace) -> int:
     sheet = book.active
     sheet.title = SHEET_LABELS
     _write_sheet(sheet, LABEL_COLUMNS, labels)
+    _mark_research_rows(sheet, LABEL_COLUMNS)
     _write_sheet(book.create_sheet(SHEET_JURISDICTION), JURISDICTION_COLUMNS,
                  jurisdiction_rows(sample, corpus))
     _write_sheet(book.create_sheet(SHEET_TAXONOMY), TAXONOMY_COLUMNS, taxonomy_rows)
@@ -3831,6 +4149,30 @@ def check_edited_units(zuordnungen: Mapping[str, list[dict[str, Any]]],
                     "Zuordnung nicht - auch dann nicht, wenn er von Hand "
                     "eingetragen wurde.",
                     f"Zitat gegen das Blatt {SHEET_JURISDICTION!r} pruefen."))
+            elif beleg and not is_research_evidence(beleg) and \
+                    evidence_word_count(beleg) < 2:
+                found.append(problem(
+                    "GS_EVIDENCE_TOO_SHORT", f"{SHEET_LABELS}!D{line}",
+                    "Die Evidence besteht nur aus einem Wort.",
+                    "Ein einzelnes Wort traegt Einschraenkungen und Kontext "
+                    "der Quelle nicht verlaesslich.",
+                    "Mindestens den zusammenhaengenden tragenden Begriff samt "
+                    "Kontext uebernehmen."))
+            confidence = eintrag.get("confidence", "")
+            if is_research_evidence(beleg):
+                try:
+                    too_high = int(confidence) > RESEARCH_MAX_CONFIDENCE
+                except (TypeError, ValueError):
+                    too_high = False
+                if too_high:
+                    found.append(problem(
+                        "GS_RESEARCH_CONFIDENCE", f"{SHEET_LABELS}!C{line}",
+                        f"Recherche als Evidence mit Confidence {confidence}; "
+                        f"zulaessig ist hoechstens {RESEARCH_MAX_CONFIDENCE}.",
+                        "Rein recherchegestuetzte Zuordnungen sind bewusst "
+                        "gedeckelt.",
+                        f"Confidence auf hoechstens {RESEARCH_MAX_CONFIDENCE} "
+                        "senken oder eine echte Evidence verwenden."))
     return found
 
 
@@ -4150,7 +4492,7 @@ def _teilargs(**werte: Any) -> argparse.Namespace:
         web_access_off=False, unit_id=[], force=False, show=False,
         source="merged", out=None, file=None, fix_case=False,
         base="claude", against="codex", fullrun=False, test_fullrun=False,
-        no_taxonomy_refresh=False)
+        no_taxonomy_refresh=False, combined=None)
     basis.update(werte)
     return argparse.Namespace(**basis)
 
@@ -4174,6 +4516,9 @@ def command_label(args: argparse.Namespace) -> int:
     Befunde brechen nicht ab - sie sind die Arbeitsliste fuer das Review und
     stehen in der Mappe, die dieser Aufruf am Ende schreibt.
     """
+    # Vor allem anderen: ein Vertipper im Flag soll nicht erst auffallen,
+    # nachdem prepare gelaufen ist und der Preflight bezahlt wurde.
+    parse_combined(args)
     engines = list(ENGINES) if args.compared else [_quelle(args)]
     # Modell und Denktiefe gehen roh an beide Aufrufe; ohne Angabe gelten die
     # Werte aus config/settings.py.
@@ -4203,7 +4548,9 @@ def command_label(args: argparse.Namespace) -> int:
         command_preflight(_teilargs(engine=engine, **wahl))
         _schritt(f"{engine}: Units labeln lassen (bezahlt)")
         ergebnis = max(ergebnis, command_run(
-            _teilargs(engine=engine, force=args.force, **wahl, **umfang)))
+            _teilargs(engine=engine, force=args.force,
+                      combined=getattr(args, "combined", None),
+                      **wahl, **umfang)))
         _schritt(f"{engine}: Antworten pruefen und sammeln")
         ergebnis = max(ergebnis, command_collect(
             _teilargs(engine=engine, **umfang)))
@@ -4370,6 +4717,11 @@ def build_parser() -> argparse.ArgumentParser:
     label.add_argument("--force", action="store_true",
                        help="vorhandene Antworten und Reviewmappe neu "
                             "erzeugen; die alte Mappe wird vorher gesichert")
+    label.add_argument("--combined", type=int, metavar="N",
+                       help=f"N Units gleichzeitig labeln lassen, 1 bis "
+                            f"{MAX_COMBINED}; wird eine fertig, rueckt die "
+                            f"naechste nach. Ein Ratenlimit haelt alle an, "
+                            f"nicht jeden einzeln. Default 1")
     label.add_argument("--no-taxonomy-refresh", action="store_true",
                        help="Taxonomie nicht neu abrufen, sondern am "
                             "freigegebenen Stand bleiben")
@@ -4431,6 +4783,11 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--force", action="store_true",
                      help="vorhandene Antworten neu erzeugen statt "
                           "ueberspringen")
+    run.add_argument("--combined", type=int, metavar="N",
+                     help=f"N Units gleichzeitig labeln lassen, 1 bis "
+                          f"{MAX_COMBINED}; wird eine fertig, rueckt die "
+                          f"naechste nach. Ein Ratenlimit haelt alle an, "
+                          f"nicht jeden einzeln. Default 1")
     add_fullrun_flag(run)
     run.set_defaults(handler=command_run)
 

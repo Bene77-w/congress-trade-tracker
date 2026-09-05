@@ -17,6 +17,8 @@ import dataclasses
 import copy
 import json
 import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -103,6 +105,8 @@ def build_answer(task: dict, industry_id: str) -> dict:
         beleg = task["unit_name"]
     else:
         beleg = quelle[:80]
+    if gs.evidence_word_count(beleg) < 2:
+        beleg = task["unit_name"]
     return {
         "unit_id": task["unit_id"],
         "decision": "mapped",
@@ -179,6 +183,25 @@ def test_gleichheitszeichen_bleibt_text(tmp_path) -> None:
     zelle = load_workbook(pfad)[book.active.title].cell(row=2, column=1)
     assert zelle.data_type == "s"
     assert zelle.value == "=SUM(1;2)"
+
+
+def test_recherchezeile_wird_in_der_reviewmappe_markiert() -> None:
+    from openpyxl import Workbook
+
+    book = Workbook()
+    row = {name: "" for name in gs.LABEL_COLUMNS}
+    row.update(unit_id="u-1", industry_id="x", confidence="3",
+               evidence_excerpt="Recherche", rationale_short="Belegt.")
+    gs._write_sheet(book.active, gs.LABEL_COLUMNS, [row])
+    gs._mark_research_rows(book.active, gs.LABEL_COLUMNS)
+    assert {cell.fill.fgColor.rgb for cell in book.active[2]} == {"00FFF2CC"}
+
+
+def test_rechercheauftrag_erlaubt_den_sentinel_statt_ihn_zu_widersprechen() -> None:
+    prompt = gs.build_system_prompt("Modellvertrag")
+    assert "evidence_excerpt` exakt `Recherche`" in prompt
+    assert "Confidence hoechstens 3" in prompt
+    assert "ersetzt den Text nicht" not in prompt
 
 
 def test_wiederaufnahme_ueberspringt_vorhandene(sandbox, capsys) -> None:
@@ -288,6 +311,42 @@ def test_saubere_antwort_ohne_befund(paar, taxonomy) -> None:
     assert geprueft.problems == []
     assert len(geprueft.rows) == 1
     assert geprueft.rows[0]["unit_id"] == task["unit_id"]
+
+
+def test_recherche_ist_als_evidence_mit_confidence_drei_zulaessig(
+        paar, taxonomy) -> None:
+    task, record = paar
+    record["answer"]["assignments"][0].update(
+        evidence_excerpt="Recherche", confidence=3)
+    assert codes(task, record, taxonomy) == set()
+
+
+def test_recherche_deckelt_confidence_bei_drei(paar, taxonomy) -> None:
+    task, record = paar
+    record["answer"]["assignments"][0].update(
+        evidence_excerpt="Recherche", confidence=4)
+    assert "GS_RESEARCH_CONFIDENCE" in codes(task, record, taxonomy)
+
+
+def test_recherche_ist_ohne_webzugriff_unzulaessig(paar, taxonomy) -> None:
+    task, record = paar
+    record["web_access"] = False
+    record["answer"]["assignments"][0].update(
+        evidence_excerpt="Recherche", confidence=3)
+    assert "GS_RESEARCH_WITHOUT_WEB" in codes(task, record, taxonomy)
+
+
+def test_einwort_evidence_wird_abgelehnt(paar, taxonomy) -> None:
+    task, record = paar
+    record["answer"]["assignments"][0]["evidence_excerpt"] = "jurisdiction"
+    assert "GS_EVIDENCE_TOO_SHORT" in codes(task, record, taxonomy)
+
+
+def test_recherche_nimmt_nicht_an_broad_scope_teil(paar, taxonomy) -> None:
+    task, record = paar
+    breit(record, taxonomy, gs.REGULAR_ASSIGNMENT_LIMIT + 1)
+    record["answer"]["assignments"][0]["evidence_excerpt"] = "Recherche"
+    assert "GS_BROAD_SCOPE_INVALID" in codes(task, record, taxonomy)
 
 
 @pytest.mark.parametrize("aenderung, erwartet", [
@@ -561,6 +620,15 @@ def test_verify_meldet_unbekannte_industry(sandbox, capsys) -> None:
     capsys.readouterr()
     assert lauf("verify", "--source", "claude") == 2
     assert "GS_INDUSTRY_UNKNOWN" in capsys.readouterr().out
+
+
+def test_verify_meldet_zu_hohe_recherche_confidence(sandbox, capsys) -> None:
+    pfad = workbook_vorbereiten(sandbox)
+    zelle_setzen(pfad, 2, "evidence_excerpt", "Recherche")
+    zelle_setzen(pfad, 2, "confidence", "4")
+    capsys.readouterr()
+    assert lauf("verify", "--source", "claude") == 2
+    assert "GS_RESEARCH_CONFIDENCE" in capsys.readouterr().out
 
 
 def test_verify_meldet_formelzelle(sandbox, capsys) -> None:
@@ -2155,3 +2223,259 @@ def test_gescheiterter_abruf_nennt_den_befundcode(
         gs.refresh_taxonomy(_refresh_args())
 
     assert "TAX_FETCH_FAILED" in blocked.value.problem.was
+
+
+# -- Gleichzeitige Laeufe (--combined) -------------------------------------
+def test_combined_ausserhalb_des_bereichs_blockiert(sandbox, capsys) -> None:
+    """0 und 6 sind keine Zahl gleichzeitiger Aufrufe, sondern ein Vertipper."""
+    for wert in ("0", str(gs.MAX_COMBINED + 1), "-2"):
+        assert lauf("run", "--engine", "claude", "--combined", wert) == 1
+        assert "GS_COMBINED_RANGE" in capsys.readouterr().err
+
+
+def test_combined_eins_geht_nicht_durch_den_pool(sandbox, monkeypatch,
+                                                 capsys) -> None:
+    """Ohne Angabe und bei 1 bleibt der Weg der sequenzielle.
+
+    Nicht kosmetisch: der Pool ist die einzige Stelle, an der Reihenfolge und
+    Ausgabe des bisherigen Laufs sich aendern koennen. Wer ihn nicht anfordert,
+    soll ihn auch nicht bekommen.
+    """
+    monkeypatch.setattr(gs, "ThreadPoolExecutor",
+                        lambda *a, **k: pytest.fail("kein Pool bei combined=1"))
+    assert lauf("run", "--engine", "claude") == 0
+    assert lauf("run", "--engine", "claude", "--combined", "1",
+                "--force") == 0
+    ausgabe = capsys.readouterr().out
+    # Der sequenzielle Weg meldet den Beginn einer Unit vor ihrem Ergebnis.
+    assert "laeuft ..." in ausgabe
+
+
+def test_combined_labelt_jede_unit_genau_einmal(sandbox, sample,
+                                                monkeypatch, capsys) -> None:
+    """Drei gleichzeitig: dieselbe Menge, keine doppelt, keine ausgelassen."""
+    gerufen: list[str] = []
+    sperre = threading.Lock()
+    echt = gs.run_fake
+
+    def zaehlend(root, task, config):
+        if task.get("unit_id"):
+            with sperre:
+                gerufen.append(task["unit_id"])
+        return echt(root, task, config)
+
+    monkeypatch.setattr(gs, "run_fake", zaehlend)
+    assert lauf("run", "--engine", "claude", "--combined", "3") == 0
+    capsys.readouterr()
+
+    erwartet = sorted(item.unit_id for item in sample)
+    assert sorted(gerufen) == erwartet
+    assert sorted(p.stem for p in (gs.RUN_ROOT / "claude").glob("*.json")) \
+        == erwartet
+
+
+def test_combined_bleibt_mit_collect_vertraeglich(sandbox) -> None:
+    """Parallel erzeugte Antworten sind dieselben Antworten."""
+    assert lauf("run", "--engine", "claude", "--combined", "4") == 0
+    assert lauf("collect", "--engine", "claude") == 0
+
+
+def test_abofenster_laesst_nur_einen_stellvertreter_zu() -> None:
+    """Das Tor ist genau einmal zu vergeben; der Zweite wartet nur mit."""
+    tor = gs.Abofenster()
+    assert tor.uebernimm() is True
+    assert tor.uebernimm() is False
+    tor.gib_frei()
+    assert tor.uebernimm() is True
+
+
+def test_am_ratenlimit_wartet_nur_ein_arbeiter(monkeypatch) -> None:
+    """Fuenf Arbeiter im Limit ergeben einen Wartetakt, nicht fuenf.
+
+    Das ist der Kern des Parallelbetriebs: ohne das gemeinsame Tor liefe jeder
+    Arbeiter fuer sich in denselben Zehnminutentakt und klopfte zu fuenft an
+    ein Fenster, das ohnehin zu ist.
+    """
+    tor = gs.Abofenster()
+    sperre = threading.Lock()
+    schlafend = 0
+    hoechstens_zugleich = 0
+    # Nach dem ersten Wartetakt antwortet die CLI wieder allen.
+    frei = threading.Event()
+
+    def schlafe(sekunden):
+        nonlocal schlafend, hoechstens_zugleich
+        with sperre:
+            schlafend += 1
+            hoechstens_zugleich = max(hoechstens_zugleich, schlafend)
+        frei.set()
+        with sperre:
+            schlafend -= 1
+
+    monkeypatch.setattr(gs.time, "sleep", schlafe)
+
+    def runner(task, config, workdir):
+        return _erfolg() if frei.is_set() else _fehlschlag(RATE_LIMIT_TEXT)
+
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        ergebnisse = [f.result() for f in [
+            pool.submit(gs.run_until_quota, runner, {}, _config(),
+                        wait=True, tor=tor)
+            for _ in range(5)]]
+
+    assert all(result.answer is not None for result, _ in ergebnisse)
+    # Die eigentliche Zusicherung: nie warten zwei nebeneinander. Wie viele
+    # Takte insgesamt anfallen, haengt am Zufall der Threadverschraenkung -
+    # ein Aufruf, der nach der Freigabe erneut ins Limit laeuft, wartet zu
+    # Recht ein zweites Mal.
+    assert hoechstens_zugleich == 1
+
+
+def test_das_tor_wird_auch_nach_einem_fehler_freigegeben(monkeypatch) -> None:
+    """Ein Abbruch im Stellvertreter darf die uebrigen nicht aussperren.
+
+    Der erste Aufruf laeuft ins Limit - erst dadurch wird dieser Arbeiter zum
+    Stellvertreter und das Tor tatsaechlich geschlossen. Der zweite wirft.
+    """
+    tor = gs.Abofenster()
+    monkeypatch.setattr(gs.time, "sleep", lambda _: None)
+    aufrufe = []
+
+    def runner(task, config, workdir):
+        aufrufe.append(1)
+        if len(aufrufe) == 1:
+            return _fehlschlag(RATE_LIMIT_TEXT)
+        raise RuntimeError("die CLI verschwindet mitten im Lauf")
+
+    with pytest.raises(RuntimeError):
+        gs.run_until_quota(runner, {}, _config(), wait=True, tor=tor)
+    assert len(aufrufe) == 2, "das Tor wurde nie uebernommen"
+    # Waere es zu geblieben, blockierte der naechste Arbeiter fuer immer.
+    assert tor.uebernimm() is True
+
+
+def test_systemischer_fehler_stoppt_das_nachruecken(sandbox, sample,
+                                                    monkeypatch,
+                                                    capsys) -> None:
+    """Ein unbekanntes Modell trifft jeden Aufruf; es wird nicht nachgerueckt."""
+    gerufen: list[str] = []
+    sperre = threading.Lock()
+
+    def scheitert(root, task, config):
+        if task.get("unit_id"):
+            with sperre:
+                gerufen.append(task["unit_id"])
+        return _fehlschlag("unknown model")
+
+    monkeypatch.setattr(gs, "run_fake", scheitert)
+    assert lauf("run", "--engine", "claude", "--combined", "2") == 2
+    ausgabe = capsys.readouterr().out
+    assert "bricht ab" in ausgabe
+    # Harte Schranke statt eines Ungefaehr: das Stop-Flag faellt im Arbeiter,
+    # bevor er zurueckkehrt. Hinter der Pruefung koennen also hoechstens die
+    # zwei stehen, die gleichzeitig laufen duerfen - egal wie der Scheduler
+    # die Threads verschraenkt.
+    assert len(gerufen) <= 2 < len(sample)
+    assert "Offen:" in ausgabe
+
+
+def test_eine_exception_im_arbeiter_stoppt_die_warteschlange(sandbox, sample,
+                                                             monkeypatch,
+                                                             capsys) -> None:
+    """Der teuerste Fehlerfall: der Executor darf nicht weiterbezahlen.
+
+    Ohne Stop-Flag liefe die restliche Warteschlange beim Verlassen des
+    ``with`` einfach ab - bei 225 Units waeren das 224 bezahlte Aufrufe fuer
+    ein Ergebnis, das niemand mehr entgegennimmt.
+    """
+    gerufen: list[str] = []
+    sperre = threading.Lock()
+
+    def platzt(root, task, config):
+        if task.get("unit_id"):
+            with sperre:
+                gerufen.append(task["unit_id"])
+        raise RuntimeError("die CLI verschwindet mitten im Satz")
+
+    monkeypatch.setattr(gs, "run_fake", platzt)
+    with pytest.raises(RuntimeError):
+        lauf("run", "--engine", "claude", "--combined", "2")
+    capsys.readouterr()
+    assert len(gerufen) <= 2 < len(sample)
+
+
+def test_strg_c_bezahlt_keine_weiteren_units(sandbox, sample, monkeypatch,
+                                             capsys) -> None:
+    """Strg-C mitten im Parallellauf beendet ihn, statt ihn abzuarbeiten."""
+    gerufen: list[str] = []
+    sperre = threading.Lock()
+
+    def abgebrochen(root, task, config):
+        if task.get("unit_id"):
+            with sperre:
+                gerufen.append(task["unit_id"])
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(gs, "run_fake", abgebrochen)
+    with pytest.raises(KeyboardInterrupt):
+        lauf("run", "--engine", "claude", "--combined", "3")
+    capsys.readouterr()
+    assert len(gerufen) <= 3 < len(sample)
+
+
+def test_doppelte_unit_id_laeuft_nur_einmal(sandbox, monkeypatch,
+                                            capsys) -> None:
+    """Zweimal dieselbe ID waeren sonst zwei Arbeiter an einer Antwortdatei."""
+    gerufen: list[str] = []
+    sperre = threading.Lock()
+    echt = gs.run_fake
+
+    def zaehlend(root, task, config):
+        if task.get("unit_id"):
+            with sperre:
+                gerufen.append(task["unit_id"])
+        return echt(root, task, config)
+
+    monkeypatch.setattr(gs, "run_fake", zaehlend)
+    unit = gs.load_sample()[0].unit_id
+    assert lauf("run", "--engine", "claude", "--combined", "2",
+                "--unit-id", unit, "--unit-id", unit) == 0
+    capsys.readouterr()
+    assert gerufen == [unit]
+
+
+def test_der_parallele_lauf_meldet_jede_unit_beim_start(sandbox, sample,
+                                                        capsys) -> None:
+    """Sonst ist nicht erkennbar, welche Units gerade laufen."""
+    assert lauf("run", "--engine", "claude", "--combined", "3") == 0
+    ausgabe = capsys.readouterr().out
+    for item in sample:
+        assert f"{item.unit_id}: laeuft ..." in ausgabe
+
+
+def test_der_gesamtdeckel_meldet_sich_nur_einmal(sandbox, monkeypatch,
+                                                 capsys) -> None:
+    """N Arbeiter stellen ihn im selben Moment fest, melden ihn aber einmal."""
+    # Ein erschoepfter Deckel ohne echte Wartezeit: die Restzeit meldet, dass
+    # nichts mehr uebrig ist. Ueber Flags ginge es nicht - die Settingpruefung
+    # laesst einen so kleinen Deckel zu Recht nicht zu.
+    monkeypatch.setattr(gs, "restzeit", lambda *_: 0)
+    assert lauf("run", "--engine", "claude", "--combined", "3") == 2
+    ausgabe = capsys.readouterr().out
+    assert ausgabe.count("Gesamtdeckel von") == 1
+    assert "Offen:" in ausgabe
+
+
+def test_label_reicht_combined_an_den_lauf_durch(sandbox, capsys) -> None:
+    """Das Flag steht an 'label', wirken muss es in 'run'."""
+    assert lauf("label", "--engine", "claude", "--combined", "2") == 0
+    assert "2 gleichzeitig" in capsys.readouterr().out
+
+
+def test_label_prueft_combined_vor_dem_ersten_aufruf(sandbox, monkeypatch,
+                                                     capsys) -> None:
+    """Ein Vertipper darf nicht erst nach prepare und Preflight auffallen."""
+    monkeypatch.setattr(gs, "command_prepare",
+                        lambda args: pytest.fail("prepare lief trotz Blocker"))
+    assert lauf("label", "--engine", "claude", "--combined", "9") == 1
+    assert "GS_COMBINED_RANGE" in capsys.readouterr().err
