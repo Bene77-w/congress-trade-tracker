@@ -33,6 +33,13 @@ jetzt 455 Zeichen über zwei Ressorts. Die Mediane der Stichprobe bleiben
 unverändert. Die 34 Antworten des angefangenen Fullruns waren durch den
 Wechsel auf Prompt v3 ohnehin bereits entwertet.
 
+Der angefangene Fullrun (34 von 225 Units, Sol/high gegen Prompt v2) ist aus
+dem Repository heraus nach
+`~/Nextcloud/Projekte/archiv/congress_tracker-committee-fullrun-20260905-sol-high-promptv2/`
+verschoben; die dortige `HERKUNFT.md` nennt Modell, Promptstand, Taxonomie und
+beide Verwerfungsgründe. `data/committee_matcher_v2/fullrun/runs/` ist leer,
+ein Neustart beginnt ohne `--force` bei null.
+
 Test-Stand: `input validate` Exit 2 (nur die genannte Warnung);
 `baseline manifest --verify` ohne Befund.
 
