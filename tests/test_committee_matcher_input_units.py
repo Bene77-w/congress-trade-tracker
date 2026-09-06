@@ -227,13 +227,18 @@ def test_parent_core_uses_its_own_text_and_never_child_content(real_corpus):
 
 
 def test_short_jurisdiction_text_is_reported_as_a_warning(real_corpus):
-    """Die zwei abgeschnittenen Appropriations-Abschnitte bleiben sichtbar."""
+    """Der eine echt kurze Abschnitt bleibt sichtbar.
+
+    Das Senate-Homeland-Security-Kapitel traegt in der Quelle nur seine
+    Ressortzeile; das ist kein Extraktionsfehler, sondern der Quellstand. Der
+    House-Abschnitt stand hier frueher mit, solange
+    ``md/house_appropriations.md`` um eine Position versetzt war und den
+    letzten Unterausschuss auf ein Bruchstueck verkuerzte.
+    """
     collector, _, _ = real_corpus
     short = [f for f in collector.findings if f.code == "INP_EVIDENCE_TOO_SHORT"]
     assert {f.severity for f in short} == {Severity.WARNUNG}
     assert {f.obj for f in short} == {
-        "md/house_appropriations.md#Subcommittee on Transportation, Housing and "
-        "Urban Development, and Related Agencies",
         "md/senate_appropriations.md#Subcommittee on Department of Homeland Security",
     }
 

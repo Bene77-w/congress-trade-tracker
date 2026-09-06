@@ -1,6 +1,6 @@
 # Committee Matcher V2 — Stichprobe des Entwicklungs-Gold-Sets (P9)
 
-Stand 2026-08-28. Auswahl der zu labelnden Units; die Labels selbst setzt Bene.
+Stand 2026-09-06. Auswahl der zu labelnden Units; die Labels selbst setzt Bene.
 Umsetzung der Evaluation: `organisation/committee_matcher_v2_implementierungsplan.md`, Abschnitt P9.
 
 ## Auswahlregel
@@ -44,7 +44,7 @@ Evaluation bleibt auch mit 22 Units unter 0,10 USD.
 | 7 | house | Homeland Security | Cybersecurity and Infrastructure Protection | Text | 524 | Falle: Behoerdenaufgabe gegen Softwarebranche |
 | 8 | house | Judiciary | Courts, Intellectual Property, Artificial Intelligence, and the Internet | Text | 344 | Falle: KI und Internet als Rechtsthema, nicht als Branche |
 | 9 | house | Rules | Legislative and Budget Process | Text | 562 | `no_mapping` erwartet: reines Parlamentsverfahren |
-| 10 | house | Appropriations | Transportation, Housing and Urban Development, and Related Agencies | Text | 13 | Extremfall: Jurisdiktionstext unter der Mindestlaenge |
+| 10 | house | Appropriations | Transportation, Housing and Urban Development, and Related Agencies | Text | 455 | Haushaltstitel ueber zwei Ressorts: Verkehr und Wohnungsbau in einem Zuschnitt |
 | 11 | house | Foreign Affairs | Africa | Text | 417 | geografischer Zuschnitt ohne Branchenbezug |
 | 12 | senate | Finance | Health Care | Name | 0 | `name_only` bei einem Namen, der eine Branche nahelegt |
 | 13 | senate | Banking, Housing, and Urban Affairs | Digital Assets | Text | 524 | Falle: Krypto gegen Software und Kapitalmaerkte |
@@ -68,7 +68,7 @@ Evaluation bleibt auch mit 22 Units unter 0,10 USD.
 - `no_mapping` als richtige Antwort (9, 11, 17)
 - Falsche Freunde, bei denen der Name eine Branche nahelegt, die Zustaendigkeit
   aber eine andere ist (5, 6, 7, 8, 13)
-- fehlende Evidenz: `name_only` (12, 17) und Text unter der Mindestlaenge (10, 18)
+- fehlende Evidenz: `name_only` (12, 17) und Text unter der Mindestlaenge (18)
 - Aufsichts- und Verfahrenszuschnitte ohne Branchenbezug (9, 11, 17)
 
 Die drei Zweitbelegungen liegen jeweils im entferntesten Feld ihres Committees:
@@ -83,14 +83,29 @@ messen.
 
 ## Labelvorlage
 
-`data/committee_matcher_v2/goldset/development_goldset.xlsx`, Blatt `labels`:
-eine Zeile je Unit, bis zu fuenf `industry_id_*` (Auswahlliste aus dem Snapshot
-`run-p4-spike`), `no_mapping_reason` und `notiz`. Blatt `jurisdiction` traegt den
-vollstaendigen Zustaendigkeitstext je Unit, Blatt `taxonomy` alle 145 Industries.
+`data/committee_matcher_v2/goldset/goldset_review.xlsx`, Blatt `labels`, im
+Langformat: **eine Zeile je Zuordnung**, nicht je Unit. Eine Unit mit drei
+Industries belegt drei Zeilen, eine Unit ohne Zuordnung genau eine.
+
+| Spalte | Inhalt |
+|---|---|
+| `unit_id` | Kennung der Einheit, in allen Zeilen derselben Unit gleich |
+| `industry_id` | eine Industry aus dem eingefrorenen Snapshot; leer bei `no_mapping` |
+| `confidence` | ganze Zahl 1 bis 4 |
+| `evidence_excerpt` | woertliches Zitat aus dem Zustaendigkeitstext, zeichengenau |
+| `rationale_short` | Begruendung in einem Satz |
+| `no_mapping_reason` | nur gesetzt, wenn `industry_id` leer bleibt |
+
+Die Spaltenreihenfolge ist verbindlich; `evaluate import` lehnt eine
+abweichende Kopfzeile ab. Getrimmt werden nur `unit_id`, `industry_id` und
+`confidence` - die Textfelder bleiben zeichengenau, damit das Zitat belegbar
+bleibt. Formelzellen weist der Import zurueck.
 
 Label heisst: die vollstaendige erwartete Industry-Menge oder ausdruecklich
 `no_mapping`. Eine unvollstaendige Menge bewertet der Recall spaeter als
 Modellfehler.
 
-Das endgueltige Dateiformat legt `goldset-export` in P9 fest; diese Vorlage
-dient dem Labeln und wird beim Import auf das dortige Format abgebildet.
+Ablauf: `evaluate export --eval-id <id>` friert Stichprobe, Taxonomie und
+Prompts ein und legt die Arbeitsdatei an; `evaluate import --eval-id <id>`
+uebernimmt die gelabelte Datei nach `goldset.json`
+(`development-goldset-v1`).

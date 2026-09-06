@@ -31,8 +31,8 @@ files:
   sha256: 55df89408d7f58b28c44c1b7e745ea2377925bd0ee4c5d3df2a74716351457de
 - path: md/house_appropriations.md
   role: mapping_input
-  bytes: 11911
-  sha256: 761b4b6aa503bd0be840374196c7bca6f9829bc01c6b54778fa7920c411e471e
+  bytes: 12164
+  sha256: 439ee539eb71bbedea434845b79e62ea0504cfc48198c679f572bb0cfb0d6be8
 - path: md/house_armed_services.md
   role: mapping_input
   bytes: 6326

@@ -37,6 +37,17 @@ unit_input_basis:
 
 ## Subcommittee on Agriculture, Rural Development, Food and Drug Administration, and Related Agencies
 
+SUBCOMMITTEE ON AGRICULTURE, RURAL DEVELOP-
+MENT, FOOD AND DRUG ADMINISTRATION, AND
+RELATED AGENCIES
+DEPARTMENT OF AGRICULTURE (except Forest Service)
+FOOD AND DRUG ADMINISTRATION (HHS)
+RELATED AGENCIES
+Commodity Futures Trading Commission
+Farm Credit Administration
+
+## Subcommittee on Commerce, Justice, Science, and Related Agencies
+
 SUBCOMMITTEE ON COMMERCE, JUSTICE, SCIENCE,
 AND RELATED AGENCIES
 DEPARTMENT OF COMMERCE
@@ -55,7 +66,7 @@ Office of Science and Technology Policy
 Office of the United States Trade Representative
 State Justice Institute
 
-## Subcommittee on Commerce, Justice, Science, and Related Agencies
+## Subcommittee on Defense
 
 SUBCOMMITTEE ON DEFENSE
 DEPARTMENT OF DEFENSE—Military
@@ -68,7 +79,7 @@ Engineers (Civil Works))
 Central Intelligence Agency
 Office of the Director of National Intelligence
 
-## Subcommittee on Defense
+## Subcommittee on Energy and Water Development and Related Agencies
 
 SUBCOMMITTEE ON ENERGY AND WATER
 DEVELOPMENT AND RELATED AGENCIES
@@ -95,7 +106,7 @@ Southeast Crescent Regional Commission
 Southwest Border Regional Commission
 Tennessee Valley Authority
 
-## Subcommittee on Energy and Water Development and Related Agencies
+## Subcommittee on Financial Services and General Government
 
 SUBCOMMITTEE ON FINANCIAL SERVICES AND
 GENERAL GOVERNMENT
@@ -140,12 +151,12 @@ Fund and Office of Inspector General
 United States Tax Court
 General Provisions, Government-wide
 
-## Subcommittee on Financial Services and General Government
+## Subcommittee on Homeland Security
 
 SUBCOMMITTEE ON HOMELAND SECURITY
 DEPARTMENT OF HOMELAND SECURITY
 
-## Subcommittee on Homeland Security
+## Subcommittee on Interior, Environment, and Related Agencies
 
 SUBCOMMITTEE ON INTERIOR, ENVIRONMENT,
 AND RELATED AGENCIES
@@ -183,7 +194,7 @@ United States Semiquincentennial Commission
 Woodrow Wilson International Center for Scholars
 World War I Centennial Commission
 
-## Subcommittee on Interior, Environment, and Related Agencies
+## Subcommittee on Labor, Health and Human Services, Education, and Related Agencies
 
 SUBCOMMITTEE ON LABOR, HEALTH AND HUMAN
 SERVICES, EDUCATION, AND RELATED AGENCIES
@@ -210,7 +221,7 @@ Occupational Safety and Health Review Commission
 Railroad Retirement Board
 Social Security Administration
 
-## Subcommittee on Labor, Health and Human Services, Education, and Related Agencies
+## Subcommittee on Legislative Branch
 
 SUBCOMMITTEE ON LEGISLATIVE BRANCH
 Architect of the Capitol
@@ -227,7 +238,7 @@ Office of Congressional Workplace Rights
 Senate
 United States Capitol Preservation Commission
 
-## Subcommittee on Legislative Branch
+## Subcommittee on Military Construction, Veterans Affairs, and Related Agencies
 
 SUBCOMMITTEE ON MILITARY CONSTRUCTION,
 VETERANS AFFAIRS, AND RELATED AGENCIES
@@ -251,7 +262,7 @@ Armed Forces Retirement Home
 U.S. Court of Appeals for Veterans Claims
 Civil, Cemeterial Expenses, Army
 
-## Subcommittee on Military Construction, Veterans Affairs, and Related Agencies
+## Subcommittee on National Security, Department of State, and Related Programs
 
 SUBCOMMITTEE ON NATIONAL SECURITY,
 DEPARTMENT OF STATE, AND RELATED PROGRAMS
@@ -294,7 +305,7 @@ United States-China Economic and Security Review Commis-
 sion
 United States Institute of Peace
 
-## Subcommittee on National Security, Department of State, and Related Programs
+## Subcommittee on Transportation, Housing and Urban Development, and Related Agencies
 
 SUBCOMMITTEE ON TRANSPORTATION, AND HOUSING
 AND URBAN DEVELOPMENT, AND RELATED AGENCIES
@@ -309,10 +320,6 @@ Neighborhood Reinvestment Corporation
 Surface Transportation Board
 United States Access Board
 United States Interagency Council on Homelessness
-
-## Subcommittee on Transportation, Housing and Urban Development, and Related Agencies
-
-ppropriations
 
 ## Zusätzliche Kommentare
 

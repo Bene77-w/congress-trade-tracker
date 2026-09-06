@@ -11,6 +11,33 @@ Historie abgeschlossener Module/Phasen. **Aktiver WIP-Modul-Stand** steht im „
 
 ---
 
+## 2026-09-06 — Korpusreparatur: House Appropriations um eine Position versetzt
+
+`data/committee_matcher_inputs/md/house_appropriations.md` trug unter jeder
+Unterausschussüberschrift den Zuständigkeitstext des alphabetisch nächsten
+Unterausschusses; der letzte erhielt nur das Bruchstück `ppropriations`. Beim
+Erzeugen der Markdown-Datei war der erste Block der Quelle
+`txt/house_appropriations.txt` übersprungen worden, wodurch sich alle zwölf
+Sektionen um eine Position verschoben.
+
+Alle zwölf Sektionen wurden aus der unveränderten `.txt`-Quelle neu gesetzt und
+`corpus_manifest.yaml` neu erzeugt. Eine Prüfung aller 48 Korpusdateien auf
+dasselbe Muster fand keinen weiteren Versatz. `input validate` meldet wieder
+225 Units, deckungsgleich mit der eingefrorenen Sollmenge; als einzige Warnung
+bleibt der 31 Zeichen kurze Text von `senate--appropriations--department-of-
+homeland-security`, der so in der Quelle steht.
+
+Folgen: Die Stichprobendokumentation führte Unit 10 als „Extremfall unter der
+Mindestlänge" (13 Zeichen) — das war der Fehler, nicht der Fall; die Unit trägt
+jetzt 455 Zeichen über zwei Ressorts. Die Mediane der Stichprobe bleiben
+unverändert. Die 34 Antworten des angefangenen Fullruns waren durch den
+Wechsel auf Prompt v3 ohnehin bereits entwertet.
+
+Test-Stand: `input validate` Exit 2 (nur die genannte Warnung);
+`baseline manifest --verify` ohne Befund.
+
+---
+
 ## 2026-09-05 — Mapping-Prompt v3: Recherche als Evidence-Sentinel
 
 API-Mapper und Submapper akzeptieren `Recherche` jetzt als rein
@@ -23,7 +50,8 @@ Reviewmappen markieren Recherche-Zeilen gelb, ohne den bestehenden
 CSV-/JSON-Vertrag zu ändern. Die Evaluationsmetriken weisen Anzahl und
 Precision der Recherche-Zuordnungen zusätzlich getrennt aus.
 
-Test-Stand: siehe Abschlussprüfung des Implementierungsstands.
+Test-Stand: 1283 Tests der Committee-Matcher-/Submapper-Suite bestanden;
+unabhängiger Agent-Review ohne offene Befunde hoher oder mittlerer Schwere.
 
 ---
 
