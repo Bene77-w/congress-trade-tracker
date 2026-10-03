@@ -44,7 +44,7 @@ git merge --no-ff agent/<name> -m "Merge agent/<name>: ..."
 ```
 
 - Worktree- + Branch-Verwaltung; vorhandene Skripte vor manuellen Eingriffen prüfen und nutzen
-- Worktree-Skripte; `~/Nextcloud/backup_l9520/Projekte/bmb_trdprg/congress_tracker/scripts/`
+- Worktree-Skripte; `~/Nextcloud/Projekte/bmb_trdprg/congress_tracker/scripts/`
 - Jeder Agent; eigener Worktree + Branch `agent/<name>`
 
 
