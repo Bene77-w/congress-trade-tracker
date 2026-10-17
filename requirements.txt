@@ -63,3 +63,8 @@ multitasking==0.0.13
 
 # Nachtraeglich ergaenzt (Debug-Intervall 4): waren im venv, fehlten in requirements
 curl_cffi==0.15.0          # scrapers/senate_committee_xml (Senate-Roster-Producer)
+
+# Parquet-Engine fuer den Deployment-Snapshot (scripts/build_deploy_snapshot.py,
+# app/streamlit_app.py). Kam bisher nur transitiv ueber streamlit — ohne sie
+# scheitert der Snapshot-Pfad auf dem Server zur Laufzeit.
+pyarrow==18.1.0

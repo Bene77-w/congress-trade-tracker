@@ -153,7 +153,7 @@ SWARM_PARADOX_MIN_CONFLICTS       = 2            # ab N Gegen-Trades: swarm_para
 # (~12.000 US-Listings) in einer einzigen JSON. Cache 7 Tage TTL; bei
 # API-Failure strikter Abbruch (kein silent Fallback auf veralteten Cache).
 # Code: utils/issuer_group_mapper.py
-# Doku: organisation/Ticker_Architektur.md
+# Doku: organisation/tool_specific_md/Ticker_Architektur.md
 # =============================================================================
 SEC_EDGAR_USER_AGENT = 'Congress Trade Tracker <kontakt@example.com>'  # Pflicht, sonst 403
 SEC_EDGAR_URL        = 'https://www.sec.gov/files/company_tickers_exchange.json'
@@ -543,6 +543,11 @@ CURATED_COALESCE = {
 
 # Backup-Verzeichnis fuer automatische Master-Backups vor destruktiven Aenderungen
 ARCHIVE_BACKUP_PATH = 'archive/trades_master_backup'
+# Anzahl der Master-Backups, die je Praefix aufbewahrt werden. Aeltere werden
+# nach jedem Backup automatisch geloescht. Die Master-Snapshots sind ~600 MB
+# gross, ohne Rotation waechst das Verzeichnis unbegrenzt.
+# 0 oder None = Rotation deaktiviert (unbegrenzte Aufbewahrung).
+ARCHIVE_BACKUP_RETENTION = 3
 
 
 # ---------------------------------------------------------------------------
@@ -673,9 +678,16 @@ AR_BOOTSTRAP_SEED = 0
 # Close), statt sie wie der Horizont-Filter auszublenden.
 # Maximales Fenster (Tage, Bezug transaction_date) fuer das der Papier-Return
 # in der Pipeline ueberhaupt berechnet wird. Aeltere Trades -> NaN.
-RECENT_MONITORING_WINDOW_DAYS = 180
+RECENT_MONITORING_WINDOW_DAYS = 730
 # Im Dashboard waehlbare Fenstergroessen (Selectbox). <= RECENT_MONITORING_WINDOW_DAYS.
-RECENT_MONITORING_WINDOW_OPTIONS = [7, 30, 60, 90, 120, 180]
+RECENT_MONITORING_WINDOW_OPTIONS = [7, 30, 60, 90, 120, 180, 365, 730]
+# Bezugstag des Recent-Fensters: 'data' = juengstes Meldedatum im Master (wie
+# das globale Sidebar-Fenster, macht die Trefferzahlen vergleichbar und ist
+# immun gegen Download-Luecken), 'today' = Kalendertag.
+RECENT_WINDOW_ANCHOR = 'data'
+# Label der Recent-Fenster-Option, die das globale Sidebar-Zeitfenster
+# uebernimmt (steht als erster Eintrag in der Selectbox).
+RECENT_WINDOW_INHERIT_LABEL = 'Global übernehmen'
 # Frische-Anforderung an den Papier-Preis: refetch, wenn der juengste Cache-Close
 # aelter ist als der letzte abgeschlossene Handelstag (BDay). 1 = "nicht aelter
 # als ein Handelstag" (erfuellt "<=24h werktags" beim taeglichen 03:00-Lauf).
@@ -742,11 +754,9 @@ UI_SCOPE_PREFIX = {
     'detail': '[Detail]',
 }
 UI_SCOPE_HELP = {
-    'global': 'Scope Global: wirkt auf Trades-, Assets-, Members- und '
-              'Post-Trade-Performance-Tab.',
-    'tab': 'Scope Tab: wirkt nur in diesem Tab und ist unabhaengig von den '
-           'globalen Horizont-Einstellungen der Sidebar.',
-    'detail': 'Scope Detail: wirkt nur in diesem Detail-Popup.',
+    'global': 'Gilt in allen Tabs ausser Recent Trades und Score-Analyse.',
+    'tab': 'Gilt nur in diesem Tab.',
+    'detail': 'Gilt nur in diesem Popup.',
 }
 
 
@@ -876,3 +886,90 @@ GOLDSET_LABEL_EFFORT = "high"                       # str, Denktiefe beider CLIs
 # wartendem Ratenlimit, nicht bei langem Nachdenken.
 GOLDSET_LABEL_TIMEOUT_SECONDS = 1800                # int, 60..172800 (30 min)
 GOLDSET_LABEL_TOTAL_TIMEOUT_SECONDS = 43200         # int, 60..172800 (12 h)
+
+# Waehlbare Groessen des globalen Sidebar-Zeitfensters (Label -> Tage;
+# None = kein Zeitfilter). Reihenfolge = Anzeige, Default s. GLOBAL_WINDOW_DEFAULT.
+GLOBAL_WINDOW_OPTIONS = {
+    '7 Tage': 7,
+    '30 Tage': 30,
+    '365 Tage': 365,
+    '730 Tage': 730,
+    'Alles': None,
+}
+GLOBAL_WINDOW_DEFAULT = '30 Tage'
+
+
+# ---------------------------------------------------------------------------
+# Deployment (oeffentliches Streamlit-Dashboard)
+# ---------------------------------------------------------------------------
+# Das Dashboard laeuft im Deployment gegen einen eingefrorenen Datenstand
+# (Snapshot) statt gegen den 645-MB-Master-CSV: gleiche Spalten, aber als
+# Parquet mit category-Dtypes fuer die Wiederholungsspalten
+# (Insider_Sectors & Co. haben nur je ~200 verschiedene Werte bei ~114k
+# Zeilen). Effekt: 645 MB -> ~15 MB Datei, ~624 MB -> ~76 MB RAM.
+# Erzeugt von: scripts/build_deploy_snapshot.py
+# Der Loader nimmt den Snapshot, wenn die Datei existiert, sonst den Master-CSV
+# — lokal aendert sich damit nichts, solange kein Snapshot gebaut wurde.
+DEPLOY_SNAPSHOT_PATH = 'data/deploy/trades_snapshot.parquet'
+DEPLOY_SNAPSHOT_MANIFEST = 'data/deploy/snapshot_manifest.json'
+
+# Kurs-Cache im Deployment-Ordner. Der Snapshot-Builder legt eine Kopie von
+# POST_TRADE_PRICE_CACHE hier ab, damit ein einziger Ordner alles enthaelt,
+# was der Server braucht. Die App nimmt diesen Pfad, wenn der Cache am
+# Normalort fehlt — ohne Kursdaten blieben alle Verlaufs-Charts leer.
+DEPLOY_PRICE_CACHE_PATH = 'data/deploy/price_history.parquet'
+
+# Spalten unterhalb dieser Zahl verschiedener Werte werden im Snapshot als
+# category gespeichert. 2000 deckt alle Member-/Committee-Attribute ab, laesst
+# aber hochkardinale Spalten (asset_name, IDs) als normale Strings.
+DEPLOY_SNAPSHOT_CATEGORY_MAX_UNIQUE = 2000
+
+# Diese Spalten bleiben immer normale Strings. Der Score-Recompute im
+# Dashboard (app/score_recompute.py) ersetzt sie komplett — als category
+# gespeichert braechte das keinen Speichergewinn (die alten Kategorien werden
+# ohnehin verworfen), waere aber eine unnoetige Fehlerquelle, sobald jemand
+# einzelne Werte statt der ganzen Spalte setzt.
+# --- Dtype-Vertrag des Masters -------------------------------------------
+# Einmal definiert, von BEIDEN Lesepfaden verwendet: dem CSV-Loader des
+# Dashboards und dem Snapshot-Builder. Sonst koennten die Pfade fuer dieselbe
+# Spalte unterschiedliche Typen liefern (z.B. float64 fuer eine leere Spalte,
+# die als Text gemeint ist) — und der Unterschied faellt erst im Deployment auf.
+TRADES_DATE_COLUMNS = ('transaction_date', 'disclosure_date')
+TRADES_STRING_COLUMNS = (
+    'ticker', 'issuer_ticker', 'name', 'chamber', 'Member_Party',
+    'subholding', 'transaction_type', 'amount', 'signals_triggered',
+    'trade_score_breakdown', 'trade_warnings', 'Relevant_Sectors',
+)
+
+DEPLOY_SNAPSHOT_CATEGORY_EXCLUDE = (
+    'signals_triggered',
+    'trade_score_breakdown',
+    'trade_warnings',
+)
+
+# --- Zugangsschutz -------------------------------------------------------
+# Passwort-Gate vor dem Dashboard. Bewusst DEAKTIVIERT: ein Login schreckt
+# Betrachter ab, die die App nur ansehen sollen. Auf True setzen, wenn der
+# Zugriff eingeschraenkt werden muss (z.B. bei Lizenzfragen zu den Rohdaten).
+# Beides kommt aus der Umgebung (.env), nie aus dem Code — so laesst sich der
+# Schutz auf dem Server umlegen, ohne eine versionierte Datei zu aendern
+# (das wuerde beim naechsten 'git pull' kollidieren).
+APP_AUTH_ENABLED = os.getenv('APP_AUTH_ENABLED', '0').strip().lower() in (
+    '1', 'true', 'yes'
+)
+APP_PASSWORD = os.getenv('APP_PASSWORD', '')
+
+# Fehlversuche je Browser-Sitzung, danach bleibt das Formular gesperrt.
+# 0 = keine Begrenzung.
+APP_AUTH_MAX_ATTEMPTS = 5
+
+# --- Laufzeitmodus -------------------------------------------------------
+# True = oeffentliche Instanz: Scoring-Presets werden pro Browser-Session im
+# Arbeitsspeicher gehalten statt in data/config/scoring_presets.json.
+# Grund: Auf einer geteilten Instanz wuerden sich Besucher sonst gegenseitig
+# die Presets ueberschreiben, und bei einem Neustart waere die Datei weg.
+# Wird per Umgebungsvariable gesetzt (docker-compose des Servers), damit
+# lokal die Datei-Persistenz erhalten bleibt.
+APP_PUBLIC_MODE = os.getenv('APP_PUBLIC_MODE', '0').strip().lower() in (
+    '1', 'true', 'yes'
+)

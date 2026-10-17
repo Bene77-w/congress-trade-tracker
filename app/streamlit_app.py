@@ -10,6 +10,7 @@ angezeigt, damit Filter konsistent durchschlagen.
 """
 from __future__ import annotations
 
+import hmac
 import json
 import math
 import sys
@@ -25,6 +26,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from app.chart_helpers import (  # noqa: E402
+    add_combined_return,
     build_partial_close_rows,
     build_recent_pool,
     build_sale_kind_traces,
@@ -50,6 +52,11 @@ from signals.committee_signal import (  # noqa: E402
 
 
 TRADES_CSV = ROOT / 'data' / 'processed' / settings.TRADES_MASTER_COMPLETE_CSV
+# Deployment-Snapshot: eingefrorener Datenstand als Parquet (~15 MB statt
+# ~645 MB CSV). Wird bevorzugt geladen, wenn vorhanden — gebaut von
+# scripts/build_deploy_snapshot.py.
+DEPLOY_SNAPSHOT = ROOT / settings.DEPLOY_SNAPSHOT_PATH
+DEPLOY_MANIFEST = ROOT / settings.DEPLOY_SNAPSHOT_MANIFEST
 
 TRADE_DISPLAY_COLS = [
     # Default-Spalten in Anzeige-Reihenfolge (links -> rechts); die Display-
@@ -71,6 +78,7 @@ TRADE_DISPLAY_COLS = [
 
 # Spalten fuer den Recent-Trades-Monitoring-Tab (Reihenfolge = Anzeige).
 RECENT_DISPLAY_COLS = [
+    'combined_return_pct', 'return_kind',
     'effective_return_pct', 'paper_return_pct', 'trade_score', 'ticker',
     'transaction_type', 'asset_name', 'name', 'signals_triggered',
     'subholding', 'relevant_sectors', 'committee_match', 'transaction_date',
@@ -184,25 +192,61 @@ def _parse_committee_matches(value: object) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Deployment-Modus
+# ---------------------------------------------------------------------------
+
+def _preset_store() -> dict | None:
+    """Ablage fuer Scoring-Presets: Session-Speicher oder Datei (None).
+
+    Auf einer oeffentlichen Instanz (``APP_PUBLIC_MODE``) bekommt jeder
+    Besucher seine eigene Preset-Ablage im ``session_state``. Wuerden alle in
+    ``data/config/scoring_presets.json`` schreiben, ueberschrieben sie sich
+    gegenseitig, und bei einem Server-Neustart waere die Datei weg. Lokal
+    liefert die Funktion ``None`` = unveraenderte Datei-Persistenz.
+    """
+    if not getattr(settings, 'APP_PUBLIC_MODE', False):
+        return None
+    return st.session_state.setdefault('session_presets', {})
+
+
+@st.cache_data(show_spinner=False)
+def load_snapshot_manifest() -> dict:
+    """Metadaten des Deployment-Snapshots (Datenstand, Zeilen) oder ``{}``."""
+    if not DEPLOY_MANIFEST.exists():
+        return {}
+    try:
+        return json.loads(DEPLOY_MANIFEST.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return {}
+
+
+# ---------------------------------------------------------------------------
 # Loader (cached)
 # ---------------------------------------------------------------------------
 
-@st.cache_data(show_spinner='Lade trades_master_complete.csv …')
+@st.cache_data(show_spinner='Lade Trade-Daten …')
 def load_trades() -> pd.DataFrame:
-    df = pd.read_csv(
-        TRADES_CSV,
-        parse_dates=['transaction_date', 'disclosure_date'],
-        dtype={'ticker': 'string', 'issuer_ticker': 'string',
-               'name': 'string', 'chamber': 'string',
-               'Member_Party': 'string',
-               'subholding': 'string',
-               'transaction_type': 'string', 'amount': 'string',
-               'signals_triggered': 'string',
-               'trade_score_breakdown': 'string',
-               'trade_warnings': 'string',
-               'Relevant_Sectors': 'string'},
-        low_memory=False,
-    )
+    # Deployment-Snapshot hat Vorrang: gleiche Spalten, aber Parquet mit
+    # category-Dtypes -> ~0,1 s statt ~5 s Ladezeit. Ohne Snapshot laeuft die
+    # App unveraendert gegen den Master-CSV (lokaler Entwicklungsstand).
+    if DEPLOY_SNAPSHOT.exists():
+        df = pd.read_parquet(DEPLOY_SNAPSHOT)
+        # Lokal faellt sonst nicht auf, dass ein Pipeline-Lauf den Master
+        # aktualisiert hat, der Snapshot aber alt ist.
+        if (TRADES_CSV.exists()
+                and TRADES_CSV.stat().st_mtime
+                > DEPLOY_SNAPSHOT.stat().st_mtime):
+            st.warning(
+                'Der Master-CSV ist neuer als der geladene Snapshot. '
+                'Neu bauen mit: python scripts/build_deploy_snapshot.py'
+            )
+    else:
+        df = pd.read_csv(
+            TRADES_CSV,
+            parse_dates=list(settings.TRADES_DATE_COLUMNS),
+            dtype={c: 'string' for c in settings.TRADES_STRING_COLUMNS},
+            low_memory=False,
+        )
     if 'Relevant_Sectors' in df.columns:
         df['relevant_sectors'] = df['Relevant_Sectors'].map(
             _parse_relevant_sectors
@@ -283,9 +327,9 @@ def aggregate_assets(df: pd.DataFrame, date_col: str,
             cols += ['avg_return_primary', 'max_return_primary',
                      'pct_profitable']
         return pd.DataFrame(columns=cols)
-    base = df.copy()
-    if date_col not in base.columns:
-        base[date_col] = pd.NaT
+    # Keine Vollkopie: groupby liest nur. Bei 114k Zeilen kostet ein .copy()
+    # rund 80 MB je Aufruf, und die Aggregationen laufen bei jedem Rerun neu.
+    base = df if date_col in df.columns else df.assign(**{date_col: pd.NaT})
     grp = base.groupby('issuer_ticker', dropna=False)
     agg_spec: dict = {
         'asset_name': ('asset_name_figi', lambda s: s.dropna().iloc[0]
@@ -330,9 +374,9 @@ def aggregate_members(df: pd.DataFrame, date_col: str,
         if has_returns:
             cols += ['avg_return_primary', 'pct_profitable']
         return pd.DataFrame(columns=cols)
-    base = df.copy()
-    if date_col not in base.columns:
-        base[date_col] = pd.NaT
+    # Keine Vollkopie: groupby liest nur. Bei 114k Zeilen kostet ein .copy()
+    # rund 80 MB je Aufruf, und die Aggregationen laufen bei jedem Rerun neu.
+    base = df if date_col in df.columns else df.assign(**{date_col: pd.NaT})
     grp = base.groupby(['name', 'chamber'], dropna=False)
     agg_spec: dict = {
         'Member_Party': ('Member_Party', lambda s: s.dropna().iloc[0]
@@ -528,12 +572,75 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+def _check_password() -> bool:
+    """Passwort-Gate vor dem Dashboard.
+
+    Standardmaessig abgeschaltet (``APP_AUTH_ENABLED = False``), damit
+    Besucher die App ohne Huerde ansehen koennen. Auf True gesetzt, verlangt
+    sie das Passwort aus ``APP_PASSWORD`` (Umgebungsvariable, nicht im Code).
+    """
+    if not getattr(settings, 'APP_AUTH_ENABLED', False):
+        return True
+    if st.session_state.get('auth_ok'):
+        return True
+
+    expected = str(getattr(settings, 'APP_PASSWORD', '') or '')
+    st.title('Congress Trade Tracker')
+    if not expected:
+        st.error(
+            'Zugangsschutz ist aktiviert, aber es ist kein Passwort gesetzt '
+            '(Umgebungsvariable APP_PASSWORD).'
+        )
+        return False
+
+    max_attempts = int(getattr(settings, 'APP_AUTH_MAX_ATTEMPTS', 5))
+    attempts = int(st.session_state.get('auth_attempts', 0))
+    if max_attempts and attempts >= max_attempts:
+        st.error('Zu viele Fehlversuche. Bitte die Seite neu laden.')
+        return False
+
+    # Form statt Button: so loest auch die Eingabetaste die Pruefung aus.
+    with st.form('auth_form'):
+        entered = st.text_input('Passwort', type='password')
+        submitted = st.form_submit_button('Anmelden')
+
+    if submitted:
+        # compare_digest statt '==': gleiche Laufzeit unabhaengig davon, an
+        # welcher Stelle das Passwort abweicht. Beide Seiten als Bytes, sonst
+        # wirft compare_digest bei Umlauten einen TypeError.
+        if hmac.compare_digest(entered.encode('utf-8'),
+                               expected.encode('utf-8')):
+            st.session_state['auth_ok'] = True
+            st.session_state['auth_attempts'] = 0
+            st.rerun()
+        st.session_state['auth_attempts'] = attempts + 1
+        st.error('Falsches Passwort.')
+    return False
+
+
+if not _check_password():
+    st.stop()
+
 st.title('Congress Trade Tracker')
 st.markdown(
     '<div class="subtitle">US-Kongress-Trades · Live-Scoring · '
     'Signal-Filter · Asset- &amp; Member-Aggregation</div>',
     unsafe_allow_html=True,
 )
+
+# Datenstand ausweisen, damit erkennbar ist, worauf sich die Zahlen beziehen —
+# im Deployment laeuft die App gegen einen eingefrorenen Snapshot.
+_manifest = load_snapshot_manifest()
+if _manifest.get('data_as_of'):
+    _as_of = pd.to_datetime(_manifest['data_as_of'], errors='coerce')
+    _as_of_txt = (_as_of.strftime('%d.%m.%Y')
+                  if pd.notna(_as_of) else _manifest['data_as_of'])
+    st.caption(
+        f"Datenstand: {_as_of_txt} · {_manifest.get('rows', 0):,} Trades · "
+        "Alle Informationen sind zu journalistischen Zwecken aufbereitet "
+        "und stellen keine Anlageberatung dar."
+        .replace(',', '.')
+    )
 
 trades = load_trades()
 max_observed_score = int(trades['trade_score'].max()) if 'trade_score' in trades.columns else 200
@@ -613,40 +720,30 @@ with st.sidebar:
             horizontal=False,
             help=_scope_help('global', help_for('datumsbasis')),
         )
+        # Anker beider Datumsbasen ist der Datenstand (juengstes Meldedatum),
+        # damit die Transaction-Treffermenge stets Teilmenge der Disclosure-
+        # Treffermenge ist; kurze Transaction-Fenster duerfen deshalb wegen der
+        # 45-Tage-Meldefrist leer sein (User-Entscheid 2026-07-07).
+        _win_opts = list(settings.GLOBAL_WINDOW_OPTIONS)
         window_label = st.radio(
             _scope_label('Zeitfenster', 'global'),
-            options=['7 Tage', '30 Tage', '365 Tage', 'Alles'],
-            index=1,
+            options=_win_opts,
+            index=_win_opts.index(settings.GLOBAL_WINDOW_DEFAULT),
             horizontal=True,
-            help=_scope_help('global', 'Datums-Cutoff (auf der gewaehlten '
-                             'Datumsbasis) fuer Trades-/Assets-/Members-/'
-                             'Performance-Tab. Anker ist fuer BEIDE Basen der '
-                             'Datenstand (juengstes Meldedatum) — die '
-                             'Transaction-Treffermenge ist damit stets '
-                             'Teilmenge der Disclosure-Treffermenge. Kurze '
-                             'Fenster auf transaction-Basis koennen wegen der '
-                             '45-Tage-Meldefrist leer sein (juengste '
-                             'Transaktionen sind noch nicht gemeldet). Wirkt '
-                             'NICHT im Member-Detail-Popup (dort volle '
-                             'Member-Historie) und nicht im Recent-Trades-Tab '
-                             '(eigenes Fenster).'),
+            help=_scope_help('global', 'Zeitfenster, beginnend ab aktuellstem '
+                             'Datum.'),
         )
-        window_days = {'7 Tage': 7, '30 Tage': 30,
-                       '365 Tage': 365, 'Alles': None}[window_label]
+        window_days = settings.GLOBAL_WINDOW_OPTIONS[window_label]
         if window_days is not None:
             _anchor = _window_anchor(trades, date_basis)
             if pd.notna(_anchor):
                 _cutoff = _anchor - pd.Timedelta(days=window_days)
                 st.caption(f'Wirksames Fenster ({date_basis}): '
-                           f'{_cutoff:%d.%m.%Y} bis {_anchor:%d.%m.%Y} '
-                           f'(Anker: Datenstand)')
+                           f'{_cutoff:%d.%m.%Y} bis {_anchor:%d.%m.%Y}')
         search_query = st.text_input(
             'Suche (Name / Asset / Ticker / Hash-ID)', value='',
-            help='Mehrere Begriffe werden UND-verknuepft und sind '
-                 'reihenfolge-unabhaengig (z.B. "tina smith" findet '
-                 '"Smith, Tina"). Durchsucht Name, Asset, Ticker, Issuer '
-                 'und Hash-ID. Wirkt in allen Tabs; Datums-/Score-Filter '
-                 'bleiben aktiv.',
+            help='Sucht in Name, Asset, Ticker und Hash-ID — mehrere Begriffe '
+                 'in beliebiger Reihenfolge.',
         ).strip()
 
     with st.expander('Score & Sortierung', expanded=True):
@@ -669,13 +766,10 @@ with st.sidebar:
             _scope_label('Primaerer Return-Horizont', 'global'),
             options=settings.POST_TRADE_HORIZONS_DAYS,
             index=2,  # Default 90d
-            help=_scope_help('global', 'Doppelrolle: (1) bestimmt welcher '
-                             'post_return_{X}d in Asset-/Member-Aggregaten '
-                             'verwendet wird; (2) bei aktivem Horizont-Filter '
-                             'die Grenze, bis wann der erste Close liegen darf, '
-                             'damit ein Trade sichtbar bleibt. Der Score-'
-                             'Analyse-Tab nutzt einen eigenen Horizont und '
-                             'ignoriert diesen Wert.'),
+            # Doppelrolle: waehlt post_return_{X}d fuer die Aggregate UND setzt
+            # die Grenze des Horizont-Filters (erster Close <= X).
+            help=_scope_help('global', 'Ueber wie viele Tage nach dem Trade '
+                             'die Rendite gemessen wird.'),
         )
         # Der Score-Analyse-Tab umgeht den Horizont-Filter datenseitig ohnehin
         # (er wertet bewusst alle Trades inkl. offener Positionen aus). Ist er
@@ -688,15 +782,13 @@ with st.sidebar:
             _scope_label('Horizont-Filter aktiv', 'global'),
             value=True,
             disabled=horizon_tab_bypass,
-            help=_scope_help('global', 'Blendet Trades aus, deren erster Close '
-                             'nach dem Primaeren Return-Horizont liegt (bzw. nie '
-                             'geschlossen wurde). Aus = alle Trades sichtbar. '
-                             'Wirkt nicht im Member-Detail-Popup und im '
-                             'Score-Analyse-Tab.'),
+            help=_scope_help('global', 'Zeigt nur Trades, die innerhalb des '
+                             'Horizonts verkauft wurden — fuer vergleichbare '
+                             'Renditen.'),
         )
         if horizon_tab_bypass:
-            st.caption('Im Score-Analyse-Tab ohne Wirkung — er wertet bewusst '
-                       'alle Trades inkl. offener Positionen aus.')
+            st.caption('Hier ohne Wirkung — dieser Tab wertet bewusst alle '
+                       'Trades aus, auch offene.')
             horizon_filter_active = False
 
     with st.expander('Spalten', expanded=False):
@@ -729,7 +821,7 @@ with st.sidebar:
 
     with st.expander('Score-Gewichte', expanded=False):
         # Preset-Auswahl (ausserhalb der Form: sofortiger Effekt)
-        presets = load_presets()
+        presets = load_presets(_preset_store())
         # Korrupte Presets-Datei? -> einmalige Warnung (Backup liegt als .bak)
         _corrupt_msg = consume_corrupt_warning()
         if _corrupt_msg:
@@ -781,7 +873,7 @@ with st.sidebar:
                 and selected_preset in presets):
             if st.button(f'Preset „{selected_preset}" löschen',
                          width='stretch'):
-                delete_preset(selected_preset)
+                delete_preset(selected_preset, _preset_store())
                 st.rerun()
 
         with st.form('score_weights_form', clear_on_submit=False):
@@ -819,11 +911,9 @@ with st.sidebar:
                         step=1_000.0,
                         format='%.2f',
                         key='p_tv_trigger',
-                        help=(
-                            'Trades mit trade_amount_max_usd <= Trigger-Floor '
-                            'lösen kein trade_volume-Signal aus. Default '
-                            '15000 (oberer Quiver-Bucket "$1,001 - $15,000").'
-                        ),
+                        # Default 15000 = oberer Quiver-Bucket "$1,001 - $15,000".
+                        help='Kleinere Trades gelten als unauffaellig und '
+                             'bekommen keine Punkte.',
                     )
                     # Tier-Editor: (max_inclusive, score). Letzter Eintrag mit
                     # max=None bedeutet Catch-all (float('inf')).
@@ -850,12 +940,8 @@ with st.sidebar:
                         column_config={
                             'max_inclusive_usd': st.column_config.NumberColumn(
                                 'Obergrenze (USD)',
-                                help=(
-                                    'Trades mit trade_amount_max_usd <= '
-                                    'dieser Schwelle bekommen den Tier-Score. '
-                                    'Leer lassen für den Catch-all '
-                                    '(unendlich).'
-                                ),
+                                help='Bis zu diesem Betrag gilt der Score '
+                                     'daneben — leer = alles darueber.',
                                 format='%d',
                             ),
                             'score': st.column_config.NumberColumn(
@@ -874,12 +960,8 @@ with st.sidebar:
                         'ex_officio_committee_global',
                         DEFAULTS['ex_officio_committee_global'])),
                     key='p_exo_global',
-                    help=(
-                        'AN: committee_*-Rollen (Chairman/Vice/Ranking/'
-                        'Ex Officio) erhalten ihren Bonus für alle Sektoren '
-                        'ihres Committees. AUS: nur Subcommittee-Führung '
-                        'erhält Boni.'
-                    ),
+                    help='AN: Führungsrollen zählen für alle Bereiche ihres '
+                         'Ausschusses, nicht nur für ihren Unterausschuss.',
                 )
                 form_ex_bonuses: dict[str, float] = {}
                 _state_ex = dict(state.get(
@@ -909,6 +991,8 @@ with st.sidebar:
                 'Preset-Name (zum Speichern)', value='',
                 key='preset_save_name',
             )
+            if _preset_store() is not None:
+                st.caption('Presets gelten nur für diese Sitzung.')
 
             col_a, col_b, col_c = st.columns(3)
             apply_clicked = col_a.form_submit_button('Anwenden')
@@ -954,7 +1038,8 @@ with st.sidebar:
 
         if save_clicked:
             try:
-                save_preset(save_name, _state_payload())
+                save_preset(save_name, _state_payload(),
+                            _preset_store())
                 st.success(f'Preset „{save_name.strip()}" gespeichert.')
             except ValueError as exc:
                 st.error(str(exc))
@@ -1169,11 +1254,17 @@ def _trade_column_config(score_max_val: int, ticker_as_link: bool = False) -> di
             help=help_for('first_close')),
         'paper_return_pct': cc.NumberColumn(
             'Paper Return %', format='%.1f%%', width='small',
-            help='Mark-to-Market: (aktueller Close / Einstand − 1), '
-                 'richtungsbewusst. Leer = kein aktueller Preis.'),
+            help=help_for('paper_return')),
+        'combined_return_pct': cc.NumberColumn(
+            'Rendite %', format='%.1f%%', width='small',
+            help=help_for('combined_return')),
+        'return_kind': cc.TextColumn(
+            'Art', width='small',
+            help='Realisiert = bereits verkauft, laufend = Position noch '
+                 'offen.'),
         'price_as_of': cc.DateColumn(
             'Preis-Stand', format='DD.MM.YYYY', width='small',
-            help='Datum des fuer den Paper Return verwendeten Close.'),
+            help='Wie aktuell der zugrunde liegende Kurs ist.'),
         'days_since_trade': cc.NumberColumn(
             'Tage seit Trade', format='%d', width='small'),
     }
@@ -1350,9 +1441,8 @@ def render_trade_detail(trade, trade_rows, key_prefix: str) -> None:
     scope_all = st.toggle(
         _scope_label('Alle Trades (Zeitfenster ignorieren)', 'detail'),
         value=False, key=f'{key_prefix}_scope_all',
-        help=_scope_help('detail', 'Weitet Chart + Related-Trades-Tabelle auf '
-                         'den gesamten Trade-Zeitraum aus, statt auf das '
-                         'Sidebar-Zeitfenster. Betrifft nur dieses Popup.'),
+        help=_scope_help('detail', 'Zeigt die gesamte Historie statt nur das '
+                         'eingestellte Zeitfenster.'),
     )
     show_others = st.toggle(
         'Andere Politiker einbeziehen',
@@ -1367,7 +1457,8 @@ def render_trade_detail(trade, trade_rows, key_prefix: str) -> None:
         if scope_all else contextlib.nullcontext()
     )
     with spinner_ctx:
-        cache_path = str(ROOT / settings.POST_TRADE_PRICE_CACHE)
+        from app.member_detail import price_cache_path
+        cache_path = price_cache_path()
         cache = _load_price_cache(cache_path)
 
         # Gefilterte Menge der weiteren Trades am gleichen Issuer.
@@ -1603,11 +1694,8 @@ def render_trade_detail(trade, trade_rows, key_prefix: str) -> None:
                 _scope_label('Abnormal-Return-Horizont', 'detail'),
                 options=_ar_present, index=_ar_idx, horizontal=True,
                 key=f'{key_prefix}_ar_horizon',
-                help=_scope_help('detail', 'Waehlt den Horizont fuer die '
-                                 'AR-Headline-Metrik und den zweiseitigen '
-                                 'Perzentil-Rang. Der Rang vergleicht gegen '
-                                 'ALLE Trades im Master (ungefiltert), nicht '
-                                 'gegen die aktuelle Auswahl.'),
+                help=_scope_help('detail', 'Ueber wie viele Tage der '
+                                 'Marktvergleich laeuft.'),
             ))
         else:
             headline_h = int(settings.AR_HEADLINE_HORIZON_DAYS)
@@ -1617,10 +1705,8 @@ def render_trade_detail(trade, trade_rows, key_prefix: str) -> None:
                        '`--stage_abnormal_returns` ausführen.')
         else:
             st.subheader('Abnormal Return (marktbereinigt vs. SPY)',
-                         help='Signierter, marktbereinigter Abnormal Return: '
-                              'rohe Rendite minus SPY ueber dasselbe Fenster, '
-                              'Verkauf invertiert (positiv = besser als der Markt). '
-                              'Zeigt, wie viel ueber blosses Mitschwimmen hinausgeht.')
+                         help='Rendite abzueglich der Marktbewegung — zeigt, '
+                              'was ueber blosses Mitschwimmen hinausgeht.')
             head_val = pd.to_numeric(
                 pd.Series([trade.get(ar_head_col)]), errors='coerce').iloc[0]
             if pd.notna(head_val):
@@ -1692,9 +1778,9 @@ def render_trade_detail(trade, trade_rows, key_prefix: str) -> None:
         if pc_rows:
             st.subheader('Partial-Close-Zerlegung (Lite · Display-only)',
                           help=help_for('partial_close'))
-            st.caption('Eine Zeile pro Schliessungs-Event mit eigenem '
-                       'realisiertem Return. Volumina non-FIFO -> nicht '
-                       'aggregieren.')
+            # Volumina non-FIFO verrechnet -> Zeilen nicht aufsummieren.
+            st.caption('Je Teilverkauf eine Zeile mit der dort tatsaechlich '
+                       'erzielten Rendite.')
             st.dataframe(pd.DataFrame(pc_rows), hide_index=True,
                          width='stretch')
 
@@ -1726,9 +1812,8 @@ with tab_trades:
 
     display_cols = [c for c in TRADE_DISPLAY_COLS
                     if c in trade_rows.columns and c in trade_cols_sel]
-    st.caption('Tipp: Zeile anklicken öffnet die Detail-Ansicht '
-               '(Chart + Kontext) als Popup. Doppelklick auf eine Zelle '
-               'zeigt weiterhin den vollen Zellinhalt. Ticker = Google-Link.')
+    st.caption('Alle Einzeltrades der gewählten Filter. Zeile anklicken öffnet '
+               'die Detail-Ansicht mit Kursverlauf und Kontext.')
     trade_display = trade_rows[display_cols].copy()
     if 'signals_triggered' in display_cols:
         trade_display['signals_triggered'] = \
@@ -1763,9 +1848,8 @@ with tab_trades:
         st.session_state['detail_last_shown'] = None
 
 with tab_assets:
-    st.caption('Aggregation aus dem gefilterten Trade-Subset (reaktiv auf'
-               ' Datum, Suche, Signal-Ausschluss). Min-Score wirkt auf'
-               ' `score_max` des Assets.')
+    st.caption('Zusammenfassung nach Wertpapier: welche Titel werden von wie '
+               'vielen Politikern gehandelt und mit welchem Volumen.')
     assets_df = aggregate_assets(prefilt, date_basis,
                                   primary_horizon=primary_horizon)
     if min_score > 0 and not assets_df.empty:
@@ -1781,7 +1865,7 @@ with tab_assets:
     a2.metric('Max score_max',
               f'{int(assets_df["score_max"].max()) if len(assets_df) else 0}',
               help=help_for('score'))
-    a3.metric('Σ Volumen (USD)',
+    a3.metric('GESAMTVOLUMEN (USD)',
               f'{int(assets_df["total_volume_usd"].sum()) if len(assets_df) else 0:,}')
 
     asset_display_cols = [c for c in ASSET_DISPLAY_COLS
@@ -1797,9 +1881,8 @@ with tab_assets:
     )
 
 with tab_members:
-    st.caption('Aggregation aus dem gefilterten Trade-Subset (reaktiv auf'
-               ' Datum, Suche, Signal-Ausschluss). Min-Score wirkt auf'
-               ' `score_max` des Members.')
+    st.caption('Zusammenfassung nach Politiker: wer handelt wie viel, wie '
+               'auffällig und mit welchem Erfolg.')
     members_df = aggregate_members(prefilt, date_basis,
                                     primary_horizon=primary_horizon)
     if min_score > 0 and not members_df.empty:
@@ -1815,7 +1898,7 @@ with tab_members:
     m2.metric('Max score_max',
               f'{int(members_df["score_max"].max()) if len(members_df) else 0}',
               help=help_for('score'))
-    m3.metric('Σ Volumen (USD)',
+    m3.metric('GESAMTVOLUMEN (USD)',
               f'{int(members_df["total_volume_usd"].sum()) if len(members_df) else 0:,}')
 
     member_display_cols = [c for c in MEMBER_DISPLAY_COLS
@@ -1823,8 +1906,8 @@ with tab_members:
                            and c in member_cols_sel]
     m_score_max = (int(members_df['score_max'].max())
                    if len(members_df) else 0)
-    st.caption('Tipp: Zeile anklicken öffnet die Member-Detail-Ansicht '
-               '(Gremien, Performance-Diagramme, Verläufe) als Popup.')
+    st.caption('Zeile anklicken öffnet das Profil mit Gremien, Erfolgsbilanz '
+               'und Verläufen.')
     member_sel_state = st.dataframe(
         members_df[member_display_cols] if member_display_cols else members_df,
         width='stretch',
@@ -1847,10 +1930,9 @@ with tab_members:
         base = apply_prefilter(trades, apply_horizon_filter=False,
                                apply_window=False)
         # Datenbasis transparent machen: alles, was hier noch (nicht) wirkt.
-        basis_parts = ['volle Member-Historie (Sidebar-Zeitfenster und '
-                       'Horizont-Filter wirken hier nicht)']
+        basis_parts = ['gesamte Historie dieses Politikers']
         if search_query:
-            basis_parts.append(f'globale Suche „{search_query}" aktiv')
+            basis_parts.append(f'Suche „{search_query}" aktiv')
         st.caption('Datenbasis: ' + '; '.join(basis_parts) + '.')
         msel = (base['name'] == m_name) & (base['chamber'] == m_chamber)
         m_df = base[msel]
@@ -1875,9 +1957,8 @@ with tab_members:
         st.session_state['member_detail_last'] = None
 
 with tab_detail:
-    st.caption('Drill-Down pro Trade: Preisverlauf + Exit-Marker. '
-               'Top-Trades nach Score (trade_score) aus '
-               'der aktuellen Sidebar-Filterung (inkl. Suche).')
+    st.caption('Einzelne Trades im Detail: wie sich der Kurs nach dem Kauf '
+               'entwickelt hat und wann verkauft wurde.')
 
     detail_pool = trade_rows.copy()
     has_detail_data = ('effective_return_pct' in detail_pool.columns
@@ -1967,12 +2048,9 @@ with tab_detail:
 
 with tab_recent:
     st.caption(
-        'Monitoring frischer Trades (offen UND geschlossen) der letzten X Tage '
-        'nach transaction_date — unabhaengig vom globalen Horizont-Filter. '
-        'Papier-Return = Mark-to-Market gegen den juengsten Close; die Spalte '
-        '„Preis-Stand" zeigt, wie aktuell der Preis ist. Eigene Controls; die '
-        'globale Suche wirkt mit, der globale Datums-/Horizont-/Min-Score-Filter '
-        'NICHT.'
+        'Zeigt auch Trades, die noch offen sind — inklusive ihres aktuellen '
+        'Buchgewinns. Damit sichtbar wird, was sich gerade lohnt und nicht nur, '
+        'was bereits abgeschlossen ist.'
     )
 
     if 'paper_return_pct' not in trades.columns:
@@ -1981,27 +2059,54 @@ with tab_recent:
             'Bitte Pipeline-Stage `--stage_post_trade_performance` ausführen.'
         )
     else:
-        window_opts = list(settings.RECENT_MONITORING_WINDOW_OPTIONS)
+        _inherit = settings.RECENT_WINDOW_INHERIT_LABEL
+        window_opts = [_inherit] + list(settings.RECENT_MONITORING_WINDOW_OPTIONS)
         rc1, _rc2 = st.columns([1, 3])
         with rc1:
-            recent_window = st.selectbox(
+            recent_choice = st.selectbox(
                 _scope_label('Zeitfenster (Tage, transaction_date)', 'tab'),
                 options=window_opts,
                 index=len(window_opts) - 1,  # Default groesstes Fenster
                 key='recent_window_days',
-                help=_scope_help('tab', 'Eigenes Fenster (Bezug '
-                                 'transaction_date); umgeht das globale '
-                                 'Sidebar-Zeitfenster, den Horizont-Filter und '
-                                 'den Min-Score. Nur die globale Suche wirkt '
-                                 'zusaetzlich.'),
+                format_func=lambda o: o if isinstance(o, str) else f'{o} Tage',
+                help=_scope_help('tab', 'Zeitfenster nur fuer diesen Tab — '
+                                 '„Global übernehmen" folgt dem Fenster der '
+                                 'Sidebar.'),
             )
+
+        # „Global übernehmen" zieht NUR das Zeitfenster aus der Sidebar — die
+        # uebrigen globalen Filter (Horizont, Min-Score) bleiben aussen vor,
+        # weil sie genau die offenen Positionen entfernen wuerden, die dieser
+        # Tab zeigen soll. 'Alles' (window_days=None) -> Pipeline-Maximum.
+        if recent_choice == _inherit:
+            recent_window = (window_days if window_days is not None
+                             else settings.RECENT_MONITORING_WINDOW_DAYS)
+        else:
+            recent_window = int(recent_choice)
+
+        # Bezugstag wie das globale Fenster am Datenstand (statt am Kalendertag):
+        # sonst verschiebt der Meldeverzug das Fenster und die Trefferzahlen der
+        # Tabs sind nicht vergleichbar.
+        recent_ref = None
+        if settings.RECENT_WINDOW_ANCHOR == 'data':
+            _ref = _window_anchor(trades, 'transaction_date')
+            recent_ref = _ref if pd.notna(_ref) else None
 
         # Basis: globale Suche anwenden (eigene Controls — KEIN Horizont-/
         # globaler Datums-/Min-Score-Filter), dann eigenes Fenster.
         recent_base = trades
         if search_query:
             recent_base = recent_base[_search_mask(recent_base, search_query)]
-        recent_pool = build_recent_pool(recent_base, int(recent_window))
+        recent_pool = build_recent_pool(recent_base, int(recent_window),
+                                        reference_date=recent_ref)
+        # Eine ueber offene UND geschlossene Trades vergleichbare Rendite,
+        # sonst ist „erfolgreichste Trades" nicht sortierbar (s. Helper).
+        recent_pool = add_combined_return(recent_pool)
+
+        _rref = recent_ref if recent_ref is not None else pd.Timestamp.now()
+        _rcut = pd.Timestamp(_rref).normalize() - pd.Timedelta(days=int(recent_window))
+        st.caption(f'Wirksames Fenster (transaction_date): '
+                   f'{_rcut:%d.%m.%Y} bis {pd.Timestamp(_rref):%d.%m.%Y}')
 
         if needs_recompute and not recent_pool.empty:
             with st.spinner(f'Score neu berechnen für {len(recent_pool):,} '
@@ -2018,14 +2123,29 @@ with tab_recent:
         else:
             n_open = (int((recent_pool['exit_status'] == 'held').sum())
                       if 'exit_status' in recent_pool.columns else 0)
-            n_priced = int(recent_pool['paper_return_pct'].notna().sum())
+            n_ret = int(recent_pool['combined_return_pct'].notna().sum())
             m1, m2, m3 = st.columns(3)
             m1.metric('Recent Trades', f'{len(recent_pool):,}')
             m2.metric('davon offen (held)', f'{n_open:,}')
-            m3.metric('mit Paper Return', f'{n_priced:,}')
+            m3.metric('mit Rendite', f'{n_ret:,}',
+                      help='Trades, für die eine Rendite vorliegt — bei '
+                           'delisteten Titeln fehlt sie.')
 
+            # Sortierung ueber den GANZEN Pool: die Spaltenkopf-Sortierung von
+            # st.dataframe wirkt nur auf die sichtbaren head(n_show)-Zeilen und
+            # wuerde die besten Trades eines grossen Fensters nie zeigen.
+            _SORT_COLS = {
+                'Score': 'trade_score',
+                'Rendite': 'combined_return_pct',
+                'Handelsdatum': 'transaction_date',
+            }
+            recent_sort = st.radio(
+                'Sortieren nach', options=list(_SORT_COLS), index=0,
+                horizontal=True, key='recent_sort_by',
+                help='Richtung steuert die Sidebar (Sortierrichtung).',
+            )
             recent_pool = recent_pool.sort_values(
-                'trade_score', ascending=(sort_dir == 'aufsteigend'),
+                _SORT_COLS[recent_sort], ascending=(sort_dir == 'aufsteigend'),
                 kind='mergesort', na_position='last',
             )
 
@@ -2047,10 +2167,8 @@ with tab_recent:
                 recent_display['signals_triggered'] = \
                     recent_display['signals_triggered'].map(_primary_only)
             st.caption(
-                'Tipp: Zeilen ueber die Checkbox-Spalte markieren (Klick, '
-                'Shift-Klick fuer Bereichsauswahl) und unten „Auswahl '
-                'exportieren", oder mit einem Klick den kompletten gefilterten '
-                'Pool exportieren.'
+                'Zeilen links markieren (Shift-Klick für Bereiche) und unten '
+                'exportieren.'
             )
             recent_sel_state = st.dataframe(
                 recent_display,
@@ -2087,41 +2205,44 @@ with tab_recent:
                 _recent_sel_rows = recent_sel_state.selection.get('rows', [])
             _n_sel = len(_recent_sel_rows)
 
-            st.markdown('**Recent Trades als CSV exportieren**')
-            st.caption(
-                'Schreibt die Auswahl in den konfigurierten Congress-Exportordner '
-                '(trade_selection_<timestamp>.csv). Externe Workflows koennen '
-                'diese Datei optional uebernehmen.'
-            )
-            ex1, ex2 = st.columns(2)
-            with ex1:
-                if st.button(
-                    f'Alle gefilterten Zeilen exportieren '
-                    f'({len(recent_pool):,})',
-                    key='recent_export_all',
-                    width='stretch',
-                ):
-                    try:
-                        _path = export_selection(recent_pool)
-                        st.success(f'{len(recent_pool):,} Zeilen exportiert '
-                                   f'nach {_path}')
-                    except Exception as _exc:  # noqa: BLE001
-                        st.error(f'Export fehlgeschlagen: {_exc}')
-            with ex2:
-                if st.button(
-                    f'Auswahl exportieren ({_n_sel})',
-                    key='recent_export_sel',
-                    width='stretch',
-                    disabled=(_n_sel == 0),
-                ):
-                    _sel_idx = top_pool.index[_recent_sel_rows]
-                    _sel_df = recent_pool.loc[_sel_idx]
-                    try:
-                        _path = export_selection(_sel_df)
-                        st.success(f'{len(_sel_df):,} Zeilen exportiert nach '
-                                   f'{_path}')
-                    except Exception as _exc:  # noqa: BLE001
-                        st.error(f'Export fehlgeschlagen: {_exc}')
+            # Der Export legt eine Datei auf dem Server ab. Auf der
+            # oeffentlichen Instanz waere sie fuer Besucher unerreichbar,
+            # wuerde aber die Serverplatte fuellen -> dort ausblenden.
+            if settings.APP_PUBLIC_MODE:
+                st.caption('Der CSV-Export ist in der öffentlichen '
+                           'Ansicht deaktiviert.')
+            else:
+                st.markdown('**Recent Trades als CSV exportieren**')
+                st.caption('Legt die Auswahl als CSV im Exportordner ab.')
+                ex1, ex2 = st.columns(2)
+                with ex1:
+                    if st.button(
+                        f'Alle gefilterten Zeilen exportieren '
+                        f'({len(recent_pool):,})',
+                        key='recent_export_all',
+                        width='stretch',
+                    ):
+                        try:
+                            _path = export_selection(recent_pool)
+                            st.success(f'{len(recent_pool):,} Zeilen exportiert '
+                                       f'nach {_path}')
+                        except Exception as _exc:  # noqa: BLE001
+                            st.error(f'Export fehlgeschlagen: {_exc}')
+                with ex2:
+                    if st.button(
+                        f'Auswahl exportieren ({_n_sel})',
+                        key='recent_export_sel',
+                        width='stretch',
+                        disabled=(_n_sel == 0),
+                    ):
+                        _sel_idx = top_pool.index[_recent_sel_rows]
+                        _sel_df = recent_pool.loc[_sel_idx]
+                        try:
+                            _path = export_selection(_sel_df)
+                            st.success(f'{len(_sel_df):,} Zeilen exportiert nach '
+                                       f'{_path}')
+                        except Exception as _exc:  # noqa: BLE001
+                            st.error(f'Export fehlgeschlagen: {_exc}')
 
 
 # --- Score-Analyse: Helfer -------------------------------------------------
@@ -2149,23 +2270,15 @@ with tab_analysis:
     import plotly.graph_objects as go
 
     st.caption(
-        'Validiert den trade_score gegen den vorzeichenbehafteten Objective '
-        'Return post_return_{X}d (exit-agnostisch, sell_sign-bereinigt -> '
-        'positiv = Trade lag in seiner Richtung richtig, fuer Kauf UND '
-        'Verkauf). Umgeht den globalen Horizont-Filter und spiegelt die '
-        'globale Suche sowie die Sidebar-Score-Overrides; der globale Datums-/'
-        'Min-Score-Filter wirkt NICHT. Kammer-/Partei-Filter wirken auf ALLE '
-        'Auswertungen dieses Tabs (Kennzahlen, Scatter, Score-Buckets, '
-        'Pro-Signal-Korrelation). Spearman ist die Leitkennzahl '
-        '(Rangkorrelation, robust gegen Return-Ausreisser).'
+        'Prüft, ob der Verdachts-Score überhaupt etwas taugt: schneiden hoch '
+        'bewertete Trades tatsächlich besser ab als niedrig bewertete? '
+        'Leitkennzahl ist Spearman.'
     )
     st.caption(
-        'Limitationen: (1) Delisting-Bias (Survivorship) — delistet ein Ticker '
-        'vor Tag X, ist der Return NaN und der Trade faellt aus der Stichprobe '
-        '-> Verzerrung tendenziell nach oben. (2) Reife-Beschraenkung — Trades '
-        'juenger als X Tage haben per Konstruktion keinen X-Tage-Return; die '
-        'Stichprobe enthaelt nur „reife" Trades (kein Bias). n wird stets '
-        'angezeigt.'
+        'Zwei Einschränkungen: Titel, die zwischenzeitlich vom Markt '
+        'verschwunden sind, fehlen in der Stichprobe (schönt das Ergebnis '
+        'leicht), und Trades müssen alt genug sein, um den Horizont überhaupt '
+        'zu erreichen.'
     )
 
     chambers = sorted(c for c in corr_base['chamber'].dropna().unique()) \
@@ -2179,13 +2292,8 @@ with tab_analysis:
             index=(_HORIZON_OPTS.index(_HORIZON_DEFAULT)
                    if _HORIZON_DEFAULT in _HORIZON_OPTS else 0),
             key='an_horizon',
-            help=_scope_help('tab', 'Waehlt die Return-Spalte '
-                             'post_return_{X}d — den vorzeichenbehafteten '
-                             'Objective Return X Tage nach dem '
-                             'transaction_date. Bestimmt, gegen welchen Return '
-                             'ALLE Kennzahlen dieses Tabs den trade_score '
-                             'auswerten. Unabhaengig vom globalen '
-                             'Primaer-Horizont der Sidebar.'),
+            help=_scope_help('tab', 'Ueber wie viele Tage nach dem Trade die '
+                             'Rendite gemessen wird.'),
         )
     with cc3:
         sel_chambers = st.multiselect('Kammer', chambers, default=chambers,
@@ -2193,8 +2301,7 @@ with tab_analysis:
     with cc4:
         sel_parties = st.multiselect('Partei', parties, default=parties,
                                      key='corr_an_party')
-    st.caption('Hinweis: Beim Partei-Filter fallen Trades ohne hinterlegte '
-               'Partei aus der Stichprobe.')
+    st.caption('Trades ohne hinterlegte Partei fallen beim Partei-Filter raus.')
 
     # Analyse-Population: Duplikate raus, Exchange raus (ANALYSIS_* in settings).
     an_base = score_corr.analysis_population(corr_base)
@@ -2250,9 +2357,10 @@ with tab_analysis:
         fig.add_hline(y=0, line_width=1, line_dash='dot',
                       line_color='#888')
         st.plotly_chart(fig, width='stretch')
-        cap = (f'Scatter: {len(plot_df):,} Punkte'
-               + (f' (Sample aus {len(mat):,})' if sampled else '')
-               + '. Y-Achse auf 1.–99.-Perzentil geklippt (nur Darstellung).')
+        cap = (f'{len(plot_df):,} Trades'
+               + (f' (Stichprobe aus {len(mat):,})' if sampled else '')
+               + '. Extremwerte am Rand abgeschnitten, damit die Wolke '
+                 'lesbar bleibt.')
         st.caption(cap)
 
     st.subheader('Score-Buckets')
@@ -2284,13 +2392,11 @@ with tab_analysis:
 
     st.subheader('Pro-Signal-Korrelation')
     st.caption(
-        'Pro Signal: binaerer „gefeuert"-Indikator gegen den signierten '
-        'Return. Werte sind MARGINAL/univariat — Signale ko-okkurrieren, '
-        'dies sind also KEINE isolierten Beitraege. swarm_paradox ist ein '
-        'Daempfer (negative Korrelation erwartet). Committee-Signale werden '
-        'nur gegen Trades verglichen, die sie ausloesen koennten (Branche und '
-        'Ausschuesse bekannt). CI und p: member-geclusterter Bootstrap. '
-        'Sortiert nach |Δ|.'
+        'Welches einzelne Signal geht mit besseren Renditen einher. Da '
+        'Signale oft gemeinsam auslösen, ist das kein isolierter Beitrag. '
+        'Ausschuss-Signale werden nur mit Trades verglichen, bei denen sie '
+        'auslösen könnten. Die Spanne (CI) und p berücksichtigen, dass Trades '
+        'derselben Person zusammenhängen.'
     )
     if mat.empty:
         st.info('Keine auswertbaren Trades fuer die aktuelle Auswahl.')

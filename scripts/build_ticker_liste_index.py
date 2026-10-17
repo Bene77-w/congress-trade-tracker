@@ -1,6 +1,6 @@
 """Baut data/processed/ticker_liste_index.csv aus delisted_trades_stage.csv.
 
-Helfer-Index fuer manuelle Recherchen (organisation/manual_review_anleitung.md,
+Helfer-Index fuer manuelle Recherchen (organisation/CLI_Bedienungsanleitung.md,
 Ticker-Review): pro Ticker der erste Treffer (aeltester Trade) mit asset_name
 + transaction_date. Reine Recherchehilfe — keine Pipeline-Funktion.
 

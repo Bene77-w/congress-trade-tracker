@@ -292,6 +292,105 @@ ueber eine Mutationsprobe belegt).
 
 ---
 
+## 2026-09-01 — Speicherverbrauch des Dashboards gesenkt
+
+Anlass: Der Kernel hat den Dashboard-Container im Livebetrieb wegen
+Speichermangels abgeschossen (2-GB-Limit). Messung im Container mit `AppTest`
+über sechs Reruns plus Filterinteraktionen: eine Sitzung pendelt sich bei
+**1158 MB** ein — kein Leck, aber ein hohes Plateau. Zwei gleichzeitige
+Besucher reißen damit die Grenze.
+
+Aufschlüsselung der Grundlast: Snapshot laden +187 MB RSS (der DataFrame selbst
+belegt nur 80 MB), Kurs-Cache +278 MB (4,07 Mio Zeilen, 49 MB Nutzdaten). Der
+Rest entsteht durch Aggregationen und Streamlit-Overhead pro Rerun.
+
+Drei Maßnahmen, einzeln gemessen:
+
+| Maßnahme | Plateau |
+|---|---|
+| Ausgangslage | 1158 MB |
+| `MALLOC_ARENA_MAX=2` + niedrigerer Trim-Schwellwert (`deploy/Dockerfile.app`) | 1005 MB |
+| Vollkopien in `aggregate_assets`/`aggregate_members`/`recent_window` entfernt | 957 MB |
+
+Der glibc-Allokator legt pro Thread eine eigene Arena an; Streamlit bedient
+jede Sitzung in einem eigenen Thread. Zwei Arenen genügen — das allein sind
+13 %. Die `df.copy()` in den Aggregationen waren überflüssig, weil `groupby`
+nur liest; sie kosteten je Aufruf 80 MB, und die Aggregationen laufen bei
+jedem Rerun neu.
+
+Betrieblich abgesichert: Limit von 2 auf 3 GB angehoben, dazu 4 GB Swap auf
+dem Server (`vm.swappiness=10`). Der Kernel lagert damit aus, statt den Prozess
+zu töten. Da `st.cache_data` prozessweit greift, teilen sich mehrere Besucher
+die Grundlast; die Sitzungskosten liegen bei ~450 MB.
+
+Testlauf im Container: 995 bestanden. Die verbleibenden Fehlschläge sind
+umgebungsbedingt (kein `git` im Image, `data/` bis auf `data/deploy/` nicht
+gemountet), nicht durch die Änderungen verursacht.
+
+---
+
+## 2026-08-30 — Dashboard live auf eigenem Server
+
+Das Dashboard ist öffentlich erreichbar unter `https://congress-trading-tracker.com`
+(auch `www`). Konkrete Server-, Zugangs- und Pfadangaben liegen ausschliesslich
+in der nicht versionierten `.deploy.env`.
+
+Aufbau: System aktualisiert, Docker 29.7.2 + Compose v5.5.0 aus dem offiziellen
+Repo, `ufw` auf 22/80/443, SSH nur per Schlüssel (`00-hardening.conf` — Ubuntu
+24.04 wertet den *ersten* Treffer in `sshd_config.d/` aus, deshalb der
+Namenspräfix), fail2ban, unattended-upgrades. Code per rsync statt `git clone`,
+weil das Repo noch privat ist und ein Deploy-Key dafür unnötiger Aufwand wäre.
+Caddy holt das Let's-Encrypt-Zertifikat selbst; `SITE_DOMAIN` in `deploy/.env`
+enthält Apex und `www` komma-getrennt.
+
+Verifiziert: 114.347 Trades geladen (80 MB Speicher, Antwortzeit 0,17 s),
+Kurs-Cache vorhanden, HTTP→HTTPS-Weiterleitung (308), HSTS/X-Frame-Options/
+nosniff/Referrer-Policy gesetzt, Container-Healthcheck grün. Nach einem
+`reboot` war die Seite ohne Eingriff in rund 40 Sekunden wieder online.
+
+Zwei Stolpersteine, die in `deploy/README_deployment.md` dokumentiert sind:
+IONOS bietet für einen laufenden VPS weder nachträgliche SSH-Key-Hinterlegung
+noch einen Passwort-Reset — der Weg führt über *Image neu installieren* mit
+einer Cloud-Config in den Benutzerdaten. Und der Domain-Parking-Dienst setzt
+einen AAAA-Record, der die Zertifikatsprüfung über IPv6 auf die Parkseite
+umleitet; er muss gelöscht werden.
+
+Passwortschutz bleibt eingebaut und deaktiviert (`APP_AUTH_ENABLED=0`).
+Offen: Git-Historie bereinigen, danach Repo öffentlich schalten.
+
+---
+
+## 2026-08-30 — Deployment-Fundament für das öffentliche Dashboard
+
+Grundlage für einen öffentlich erreichbaren Streamlit-Dashboard-Betrieb auf
+einem eigenen VPS. Leitidee: Auf dem Server läuft nur das Dashboard, nicht die
+Pipeline — kein API-Key, keine Quiver-Zugangsdaten, kein Scraper auf dem
+Server. Er liest einen eingefrorenen Datenstand, den der Entwicklungsrechner
+erzeugt und per rsync hochlädt.
+
+Drei Bausteine: **(1)** `scripts/build_deploy_snapshot.py` (eigenständiges
+Skript, keine Pipeline-Stage) baut aus `trades_master_complete.csv` einen
+Parquet-Snapshot mit `category`-Dtypes für Wiederholungsspalten —
+645 MB → ~15 MB Datei, ~624 MB → ~76 MB RAM, Ladezeit 5 s → 0,1 s — plus Kopie
+des Kurs-Caches. **(2)** App-Anpassungen: Loader bevorzugt den Snapshot, wenn
+vorhanden (lokal ohne Snapshot-Build unverändert), Datenstand-Anzeige unter
+dem Titel, optionales Passwort-Gate (Default aus), Scoring-Presets pro
+Browser-Session im öffentlichen Modus statt in einer geteilten Datei,
+CSV-Export des Recent-Tabs im öffentlichen Modus ausgeblendet. **(3)**
+Server-Artefakte unter `deploy/`: schlankes Dashboard-Image ohne Tesseract/
+Chromium (~600 MB kleiner), Compose mit Caddy als HTTPS-Reverse-Proxy,
+Schritt-für-Schritt-Anleitung (`deploy/README_deployment.md`).
+
+`data/deploy/` ist gitignored — der Snapshot geht per rsync auf den Server,
+nicht ins Repo.
+
+Details: `organisation/DEPLOYMENT.md` Abschnitt 9,
+`organisation/DATA_STRUCTURE.md` Abschnitt 7g,
+`organisation/CLI_Bedienungsanleitung.md` Abschnitt 14.
+
+Test-Stand: 995 Tests grün (davon 21 neu), App-Smoke-Test gegen den Snapshot
+ohne Exceptions.
+
 ## 2026-08-28 — Committee Matcher V2: Entwicklungsrun und Roundtrip live (P8)
 
 Lauf `p8-run2` ueber 7 Units des House Committee on Agriculture: 6 mapped,

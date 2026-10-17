@@ -20,7 +20,7 @@ TTL-Refresh) wird IssuerGroupMapperUnreachableError geworfen — bewusste
 Entscheidung gegen Resilienz-Toleranz, um zu garantieren dass keine
 veralteten CIKs in den Master einfliessen.
 
-Doku: organisation/Ticker_Architektur.md
+Doku: organisation/tool_specific_md/Ticker_Architektur.md
 """
 
 from __future__ import annotations

@@ -1,0 +1,67 @@
+# Produktivbetrieb auf dem VPS: Dashboard + Caddy als HTTPS-Reverse-Proxy.
+#
+# Start:   docker compose -f deploy/docker-compose.prod.yml up -d --build
+# Logs:    docker compose -f deploy/docker-compose.prod.yml logs -f
+# Stop:    docker compose -f deploy/docker-compose.prod.yml down
+#
+# Voraussetzung: data/deploy/trades_snapshot.parquet liegt auf dem Server
+# (per rsync vom Entwicklungsrechner, s. deploy/README_deployment.md).
+services:
+  dashboard:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.app
+    image: congress-tracker-dashboard
+    container_name: congress-dashboard
+    restart: unless-stopped
+    environment:
+      # Presets pro Browser-Session statt in einer geteilten Datei.
+      APP_PUBLIC_MODE: "1"
+      # Passwortschutz: beides in deploy/.env setzen (Default = offen).
+      APP_AUTH_ENABLED: "${APP_AUTH_ENABLED:-0}"
+      APP_PASSWORD: "${APP_PASSWORD:-}"
+    volumes:
+      # Datenstand read-only: der Container soll ihn lesen, nie schreiben.
+      - ../data/deploy:/app/data/deploy:ro
+      # Der Kurs-Cache liegt im selben Ordner (price_history.parquet); die App
+      # findet ihn dort, wenn data/cache/ fehlt. Ohne ihn blieben alle
+      # Kursverlauf-Charts in den Detail-Popups leer.
+      - ../logs:/app/logs
+    # Speicher deckeln: eine Sitzung braucht im Betrieb deutlich mehr als der
+    # Snapshot selbst (~80 MB) — beim ersten Livelauf hat der Kernel den
+    # Container bei 2 GB abgeschossen. Grenze deshalb auf 3 GB, dazu 4 GB Swap
+    # auf dem Server (s. deploy/README_deployment.md, Abschnitt 2): Der Kernel
+    # lagert dann aus, statt den Prozess zu toeten. Ohne Grenze ueberhaupt
+    # wuerde ein Ausreisser den ganzen Server mitreissen; mit Grenze startet
+    # nur dieser Container neu.
+    mem_limit: 3g
+    security_opt:
+      - no-new-privileges:true
+    # Kein Port nach aussen: erreichbar ist nur Caddy, der intern
+    # weiterleitet. Damit steht Streamlit nie ungeschuetzt im Netz.
+    expose:
+      - "8501"
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: congress-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      # Domain in deploy/.env setzen — das Caddyfile bleibt unveraendert,
+      # sonst kollidiert die Aenderung mit dem naechsten 'git pull'.
+      SITE_DOMAIN: "${SITE_DOMAIN:?SITE_DOMAIN fehlt — in deploy/.env setzen}"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data      # Let's-Encrypt-Zertifikate (ueberleben Neustarts)
+      - caddy_config:/config
+      - caddy_logs:/var/log/caddy
+    depends_on:
+      - dashboard
+
+volumes:
+  caddy_data:
+  caddy_config:
+  caddy_logs:

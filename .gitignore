@@ -1,4 +1,5 @@
 .env
+.deploy.env
 /data/agent_exports/
 venv
 __pycache__/
@@ -86,3 +87,8 @@ data/committee_matcher_v2/runs/
 
 # LibreOffice-Lockdateien tragen Benutzer-, Rechner- und Pfadangaben
 .~lock.*#
+
+# Deployment-Snapshot (aus dem Master gebaut, wird per rsync auf den Server
+# kopiert — nicht ins Repo, damit die Historie schlank bleibt und die
+# Trade-Daten nicht dauerhaft oeffentlich im Repo liegen)
+data/deploy/

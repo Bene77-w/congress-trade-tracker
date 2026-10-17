@@ -1035,6 +1035,67 @@ Default-Port: **8501** → im Browser öffnen: `http://localhost:8501`
 > (via `scoring/trade_score.py`), damit Paradox-Dämpfung und Ex-Officio-Bonus konsistent
 > bleiben. Einfaches String-Filtern würde diese Interaktionen brechen.
 
+### Deployment-Snapshot (`scripts/build_deploy_snapshot.py`)
+
+Eigenständiges Skript, **keine** Pipeline-Stage. Baut aus
+`trades_master_complete.csv` den eingefrorenen Datenstand für die öffentliche
+Dashboard-Instanz (Datenformat: `organisation/DATA_STRUCTURE.md` Abschnitt 7g;
+Server-Kontext: `organisation/DEPLOYMENT.md` Abschnitt 9). Manuell nach einem
+Import-Pipeline-Durchlauf ausführen — nicht Teil der `Ausfuehrungsreihenfolge`.
+
+```bash
+# Standardaufruf (nutzt config/settings.py-Defaults für alle Pfade)
+python scripts/build_deploy_snapshot.py
+```
+
+| Flag | Default | Zweck |
+|---|---|---|
+| `--source` | `data/processed/trades_master_complete.csv` | Quell-CSV |
+| `--target` | `data/deploy/trades_snapshot.parquet` | Ziel-Parquet |
+| `--manifest` | `data/deploy/snapshot_manifest.json` | Ziel-Manifest |
+| `--price-cache` | `data/cache/price_history.parquet` | Kurs-Cache, wird nach `data/deploy/` kopiert |
+| `--skip-price-cache` | aus | Kurs-Cache nicht mitkopieren (Kursverlauf-Charts bleiben dann leer) |
+
+### Website aktualisieren (`scripts/deploy_data.sh`, `scripts/deploy_code.sh`)
+
+Einmalig `.deploy.env.example` nach `.deploy.env` kopieren, mit den privaten
+Zielwerten befüllen und die Rechte mit `chmod 600 .deploy.env` beschränken.
+Die Zieldatei wird weder von Git noch vom Docker-Buildkontext erfasst.
+
+```bash
+# Nach einem vollstaendigen Import: Snapshot bauen, hochladen, App neu starten
+scripts/deploy_data.sh
+
+# Nach Code-Aenderungen: Code hochladen, Container neu bauen, Status anzeigen
+scripts/deploy_code.sh
+```
+
+Beide Skripte lesen das Ziel aus der ignorierten `.deploy.env`, akzeptieren
+`--dry-run` und lassen sich über `DEPLOY_TARGET` sowie `DEPLOY_PATH`
+überschreiben. Vorlage: `.deploy.env.example`. `deploy_data.sh` akzeptiert
+zusätzlich `PYTHON_BIN`. Der Code-Upload schliesst insbesondere
+die lokale Secret-Datei `.env`, `data/`, `logs/` und `deploy/.env` aus. Beide
+Rollouts verlangen einen initialisierten Zielpfad mit Endung
+`/congress-tracker` und warten maximal 180 Sekunden auf erfolgreiche
+Container-Healthchecks. Der Code-Rollout uebertraegt ausschliesslich den
+aktuellen Commit (`HEAD`) und lehnt einen unsauberen Git-Worktree ab. Der
+Compose-Projektname ist explizit (`DEPLOY_COMPOSE_PROJECT`, Default
+`congress-tracker`) und kann daher nicht durch eine Server-Umgebungsvariable
+ueberschrieben werden.
+
+Der echte Rollback-Test ist bewusst opt-in und nutzt eine isolierte
+VPS-Testinstanz mit eigenem Container, Image, Compose-Projekt, localhost-Port
+und Remote-Pfad. Er deployt Code- und Datenaenderung, rollt beide zurueck und
+entfernt alle Testartefakte per EXIT-Cleanup:
+
+```bash
+RUN_DEPLOY_E2E=1 tests/integration/test_deploy_e2e.sh
+```
+
+Der Test verlangt einen sauberen Git-Worktree und prueft ausschliesslich den
+committeten Stand. Produktionspfad, Produktionscontainer und Ports 80/443
+werden nicht verwendet.
+
 ---
 
 ## 15. Committee Matcher V2 – CLI und Settings (P2-Gerüst, P3-Kern, P4-Snapshot)
@@ -2115,3 +2176,6 @@ Congress Tracker stellt optional den neutralen CSV-Export aus Pipeline 10 bereit
 | Tests | `pytest tests/ -v` | Alle Unit-Tests |
 | Pipeline Reset | `python scripts/reset_pipeline.py --all --dry-run` | Logs/Caches/Stage/Processed reversibel zurücksetzen |
 | Streamlit Dashboard | `venv/bin/streamlit run app/streamlit_app.py` | Web-UI (Trades / Assets / Members) auf Port 8501 |
+| Deployment-Snapshot | `python scripts/build_deploy_snapshot.py` | Eingefrorenen Datenstand für die öffentliche Dashboard-Instanz bauen (s. Abschnitt 14) |
+| Website-Daten ausrollen | `scripts/deploy_data.sh` | Snapshot bauen, auf den VPS laden und Dashboard neu starten |
+| Website-Code ausrollen | `scripts/deploy_code.sh` | Code auf den VPS laden, Container neu bauen und Status anzeigen |
