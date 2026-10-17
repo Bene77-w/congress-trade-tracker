@@ -506,6 +506,37 @@ def test_empty_evidence_never_counts_as_supported():
     assert validation.evidence_supported(unit, "   ") is False
 
 
+def test_research_sentinel_is_supported_without_a_source_excerpt():
+    unit = _unit(evidence="")
+    assert validation.evidence_supported(unit, "  RECHERCHE  ") is True
+
+
+def test_research_sentinel_caps_confidence_at_three():
+    batch = _batch()
+    payload = _payload(batch, [_unit_payload(
+        batch.unit_ids[0], assignments=[_assignment(
+            evidence="Recherche", confidence=4)])])
+    outcome = validation.validate_payload(payload, batch, _snapshot())
+    assert "MAP_RESEARCH_CONFIDENCE_EXCEEDED" in {
+        violation.code for violation in outcome.violations}
+
+
+def test_research_sentinel_with_confidence_three_is_valid():
+    batch = _batch()
+    payload = _payload(batch, [_unit_payload(
+        batch.unit_ids[0], assignments=[_assignment(
+            evidence="Recherche", confidence=3)])])
+    assert validation.validate_payload(payload, batch, _snapshot()).ok
+
+
+def test_a_single_word_is_not_enough_as_real_evidence():
+    batch = _batch()
+    payload = _payload(batch, [_unit_payload(
+        batch.unit_ids[0], assignments=[_assignment(evidence="banking")])])
+    outcome = validation.validate_payload(payload, batch, _snapshot())
+    assert "MAP_EVIDENCE_TOO_SHORT" in {v.code for v in outcome.violations}
+
+
 def test_no_mapping_needs_no_evidence():
     batch = _batch()
     payload = _payload(batch, [_unit_payload(
@@ -540,12 +571,26 @@ def test_a_subcommittee_may_use_the_broad_scope_exception():
         unit.unit_id, broad_scope=True,
         broad_scope_reason="Drei getrennte Kernzustaendigkeiten.",
         assignments=[
-            _assignment("industry-0", evidence="banking", rationale="Erste."),
-            _assignment("industry-1", evidence="insurance", rationale="Zweite."),
+            _assignment("industry-0", evidence="commercial banks", rationale="Erste."),
+            _assignment("industry-1", evidence="banking, insurance", rationale="Zweite."),
             _assignment("industry-2", evidence="securities markets",
                         rationale="Dritte."),
         ])])
     assert validation.validate_payload(payload, batch, _snapshot()).ok
+
+
+def test_research_assignment_never_carries_a_broad_scope_exception():
+    batch = _batch()
+    payload = _payload(batch, [_unit_payload(
+        batch.unit_ids[0], broad_scope=True,
+        broad_scope_reason="Drei getrennte Kernzustaendigkeiten.",
+        assignments=[
+            _assignment("industry-0", evidence="commercial banks", rationale="Erste."),
+            _assignment("industry-1", evidence="banking, insurance", rationale="Zweite."),
+            _assignment("industry-2", evidence="Recherche", rationale="Dritte."),
+        ])])
+    outcome = validation.validate_payload(payload, batch, _snapshot())
+    assert "MAP_SCHEMA_INVALID" in {v.code for v in outcome.violations}
 
 
 def test_name_only_units_stay_at_two_assignments():
@@ -725,6 +770,155 @@ def test_more_repair_attempts_are_used_when_configured():
     assert provider.calls[2].call_id.endswith("-repair-2")
 
 
+def test_repair_may_not_replace_real_evidence_with_research():
+    batch = _batch()
+    repaired_id = mapping.batch_id_for(batch.unit_ids)
+    provider = FakeProvider([
+        _payload(batch, [_unit_payload(
+            batch.unit_ids[0], assignments=[_assignment(industry="unknown")])]),
+        {"requested_batch_id": repaired_id, "units": [_unit_payload(
+            batch.unit_ids[0], assignments=[_assignment(
+                industry="industry-0", evidence="Recherche")])]},
+        {"requested_batch_id": repaired_id, "units": [_unit_payload(
+            batch.unit_ids[0], assignments=[_assignment(
+                industry="industry-0",
+                evidence="the regulation of commercial banks")])]},
+    ])
+    outcome = mapping.map_batch(
+        provider, batch, _snapshot(), mapping_prompt=_prompt(),
+        repair_prompt=_prompt("repair_system"),
+        offline=_offline(max_repair_attempts=2),
+        provider_settings=_provider_settings())
+    assert outcome.ok
+    assert outcome.repairs == 2
+    assert "MAP_REPAIR_EVIDENCE_TO_RESEARCH" in {
+        violation.code for violation in outcome.calls[1].violations}
+
+
+def test_repair_may_keep_an_existing_research_sentinel():
+    batch = _batch()
+    provider = FakeProvider([
+        _payload(batch, [_unit_payload(
+            batch.unit_ids[0], assignments=[_assignment(
+                industry="unknown", evidence="Recherche")])]),
+        _payload(batch, [_unit_payload(
+            batch.unit_ids[0], assignments=[_assignment(
+                industry="industry-0", evidence="Recherche")])]),
+    ])
+    outcome = mapping.map_batch(
+        provider, batch, _snapshot(), mapping_prompt=_prompt(),
+        repair_prompt=_prompt("repair_system"), offline=_offline(),
+        provider_settings=_provider_settings())
+    assert outcome.ok
+    assert len(provider.calls) == 2
+
+
+def test_existing_sentinel_does_not_open_another_assignment_for_research():
+    batch = _batch()
+    original = [
+        _assignment("unknown", evidence="Recherche", rationale="Recherche."),
+        _assignment("industry-1", evidence="commercial banks",
+                    rationale="Textbelegt."),
+    ]
+    converted = [
+        _assignment("industry-0", evidence="Recherche", rationale="Korrigiert."),
+        _assignment("industry-1", evidence="Recherche", rationale="Umgestellt."),
+    ]
+    corrected = [
+        _assignment("industry-0", evidence="Recherche", rationale="Korrigiert."),
+        _assignment("industry-1", evidence="commercial banks",
+                    rationale="Textbelegt."),
+    ]
+    provider = FakeProvider([
+        _payload(batch, [_unit_payload(batch.unit_ids[0], assignments=original)]),
+        _payload(batch, [_unit_payload(batch.unit_ids[0], assignments=converted)]),
+        _payload(batch, [_unit_payload(batch.unit_ids[0], assignments=corrected)]),
+    ])
+    outcome = mapping.map_batch(
+        provider, batch, _snapshot(), mapping_prompt=_prompt(),
+        repair_prompt=_prompt("repair_system"),
+        offline=_offline(max_repair_attempts=2),
+        provider_settings=_provider_settings())
+    assert outcome.ok
+    assert "MAP_REPAIR_EVIDENCE_TO_RESEARCH" in {
+        violation.code for violation in outcome.calls[1].violations}
+
+
+def test_real_evidence_from_an_intermediate_repair_stays_protected():
+    batch = _batch()
+    provider = FakeProvider([
+        _payload(batch, [_unit_payload(batch.unit_ids[0], assignments=[
+            _assignment("unknown", evidence="Recherche")])]),
+        _payload(batch, [_unit_payload(batch.unit_ids[0], assignments=[
+            _assignment("industry-0", evidence="banking")])]),
+        _payload(batch, [_unit_payload(batch.unit_ids[0], assignments=[
+            _assignment("industry-0", evidence="Recherche")])]),
+    ])
+    outcome = mapping.map_batch(
+        provider, batch, _snapshot(), mapping_prompt=_prompt(),
+        repair_prompt=_prompt("repair_system"),
+        offline=_offline(max_repair_attempts=2),
+        provider_settings=_provider_settings())
+    assert not outcome.ok
+    assert "MAP_REPAIR_EVIDENCE_TO_RESEARCH" in {
+        violation.code for violation in outcome.violations}
+
+
+def test_real_evidence_survives_a_full_repair_after_a_schema_error():
+    batch = _batch()
+    broken = _payload(batch)
+    broken["units"][0]["assignments"][0]["confidence"] = "broken"
+    provider = FakeProvider([
+        broken,
+        _payload(batch, [_unit_payload(batch.unit_ids[0], assignments=[
+            _assignment("industry-0", evidence="Recherche")])]),
+    ])
+    outcome = mapping.map_batch(
+        provider, batch, _snapshot(), mapping_prompt=_prompt(),
+        repair_prompt=_prompt("repair_system"), offline=_offline(),
+        provider_settings=_provider_settings())
+    assert not outcome.ok
+    assert "MAP_REPAIR_EVIDENCE_TO_RESEARCH" in {
+        violation.code for violation in outcome.violations}
+
+
+def test_existing_research_survives_a_full_repair_after_a_schema_error():
+    batch = _batch()
+    broken = _payload(batch, [_unit_payload(batch.unit_ids[0], assignments=[
+        _assignment("industry-0", evidence="Recherche")])])
+    broken["units"][0]["assignments"][0]["confidence"] = "broken"
+    provider = FakeProvider([
+        broken,
+        _payload(batch, [_unit_payload(batch.unit_ids[0], assignments=[
+            _assignment("industry-0", evidence="Recherche")])]),
+    ])
+    outcome = mapping.map_batch(
+        provider, batch, _snapshot(), mapping_prompt=_prompt(),
+        repair_prompt=_prompt("repair_system"), offline=_offline(),
+        provider_settings=_provider_settings())
+    assert outcome.ok
+
+
+def test_research_id_correction_can_only_be_consumed_once():
+    batch = _batch()
+    provider = FakeProvider([
+        _payload(batch, [_unit_payload(batch.unit_ids[0], assignments=[
+            _assignment("unknown", evidence="Recherche")])]),
+        _payload(batch, [_unit_payload(batch.unit_ids[0], assignments=[
+            _assignment("industry-0", evidence="Recherche", confidence=4)])]),
+        _payload(batch, [_unit_payload(batch.unit_ids[0], assignments=[
+            _assignment("industry-1", evidence="Recherche", confidence=3)])]),
+    ])
+    outcome = mapping.map_batch(
+        provider, batch, _snapshot(), mapping_prompt=_prompt(),
+        repair_prompt=_prompt("repair_system"),
+        offline=_offline(max_repair_attempts=2),
+        provider_settings=_provider_settings())
+    assert not outcome.ok
+    assert "MAP_REPAIR_EVIDENCE_TO_RESEARCH" in {
+        violation.code for violation in outcome.violations}
+
+
 def test_every_call_is_recorded_for_the_audit():
     def broken(batch):
         return _payload(batch, [_unit_payload(
@@ -861,6 +1055,29 @@ def test_only_the_faulty_unit_goes_back_to_the_model():
     assert "u-3" in repair
     assert "u-1" not in repair and "u-2" not in repair
     assert outcome.ok
+
+
+def test_partial_repair_also_preserves_real_evidence():
+    units = _three_units()
+    batch = _batch(*units)
+    sub_id = mapping.batch_id_for(["u-3"])
+    provider = FakeProvider([
+        _broken_third(batch),
+        {"requested_batch_id": sub_id, "units": [_unit_payload(
+            "u-3", assignments=[_assignment(evidence="Recherche")])]},
+        {"requested_batch_id": sub_id, "units": [_unit_payload(
+            "u-3", assignments=[_assignment(
+                evidence="the regulation of commercial banks")])]},
+    ])
+    outcome = mapping.map_batch(
+        provider, batch, _snapshot(), mapping_prompt=_prompt(),
+        repair_prompt=_prompt("repair_system"),
+        offline=_offline(max_repair_attempts=2),
+        provider_settings=_provider_settings())
+    assert outcome.ok
+    assert outcome.repairs == 2
+    assert "MAP_REPAIR_EVIDENCE_TO_RESEARCH" in {
+        violation.code for violation in outcome.calls[1].violations}
 
 
 def test_untouched_units_keep_their_first_answer():
@@ -1156,17 +1373,35 @@ def test_invisible_characters_do_not_count_as_a_reason(blank):
     assert {v.code for v in outcome.violations} == {"MAP_SCHEMA_INVALID"}
 
 
-def test_broad_scope_evidence_must_differ_beyond_case_and_spacing():
-    """Sonst waere derselbe Beleg mit anderer Schreibweise eine eigene Evidence."""
+def test_broad_scope_rationale_must_differ_beyond_case_and_spacing():
+    """Sonst waere derselbe Grund mit anderer Schreibweise eine eigene Rationale."""
     unit = _unit()
     batch = _batch(unit)
     payload = _payload(batch, [_unit_payload(
         unit.unit_id, broad_scope=True, broad_scope_reason="Breit.",
         assignments=[
             _assignment("industry-0", evidence="banking", rationale="Erste."),
-            _assignment("industry-1", evidence="Banking", rationale="Zweite."),
+            _assignment("industry-1", evidence="securities markets",
+                        rationale="  ERSTE. "),
             _assignment("industry-2", evidence="securities markets",
                         rationale="Dritte."),
         ])])
     outcome = validation.validate_payload(payload, batch, _snapshot())
     assert {v.code for v in outcome.violations} == {"MAP_SCHEMA_INVALID"}
+
+
+def test_broad_scope_allows_shared_evidence_with_own_rationale():
+    """Ein Beleg darf mehrere Industries tragen, wenn jede ihren Grund hat."""
+    unit = _unit()
+    batch = _batch(unit)
+    payload = _payload(batch, [_unit_payload(
+        unit.unit_id, broad_scope=True, broad_scope_reason="Breit.",
+        assignments=[
+            _assignment("industry-0", evidence="securities markets",
+                        rationale="Erste."),
+            _assignment("industry-1", evidence="Securities  markets",
+                        rationale="Zweite."),
+            _assignment("industry-2", rationale="Dritte."),
+        ])])
+    outcome = validation.validate_payload(payload, batch, _snapshot())
+    assert not outcome.violations

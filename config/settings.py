@@ -437,9 +437,9 @@ COMMITTEE_MAPPING_FILE = 'subcommittee_sector_industry_mapping.csv'
 # Benannt wird die Revision, nicht ihr Pfad: er wird unter
 # data/committee_matcher_v2/reviews/<id>/ abgeleitet. Verbraucher:
 # config/committee_revision.py.
-# ACHTUNG: 'map-test-20260904' ist ein Probeartefakt ueber 5 von 225
-# Ausschuessen; vor dem Cutover (P4) gehoert hier die Fullrun-Revision hin.
-COMMITTEE_MAPPING_REVIEW_ID = 'map-test-20260904'
+# 'map-fullrun-20261016': Codex-Fullrun ueber alle 225 Units (522 Zuordnungen),
+# abgenommen 2026-10-16. Vorher gebunden: Probeartefakt 'map-test-20260904'.
+COMMITTEE_MAPPING_REVIEW_ID = 'map-fullrun-20261016'
 
 # Gilt die Zustaendigkeit des Ausschusses selbst auch fuer Mitglieder, die
 # zusaetzlich in einem seiner Unterausschuesse sitzen? Der Matcher bildet dazu
@@ -559,6 +559,13 @@ EXIT_DETECTION_WINDOW_DAYS = None
 POST_TRADE_PRICE_CACHE = 'data/cache/price_history.parquet'
 # Erstabruf-Fenster pro Ticker.
 POST_TRADE_PRICE_FETCH_YEARS = 5
+# Hoechster Abstand (Kalendertage) zwischen Zieldatum und dem naechsten Close,
+# den ein Preislookup noch als "Kurs an diesem Tag" gelten laesst. Deckt
+# Wochenenden und Feiertage ab. Liegt der naechste Close weiter weg - etwa weil
+# der Cache erst nach dem Trade beginnt -, ist der Preis unbekannt (NaN) statt
+# des ersten Cache-Kurses; sonst ergaeben Baseline und Horizont denselben Kurs
+# und damit 0 % Rendite. Gilt fuer post_return_*, signed_ar_*, Exit-Preise.
+POST_TRADE_MAX_PRICE_GAP_DAYS = 5
 # Refresh-Schwelle pro Ticker (max(date) < today - TTL -> Refresh).
 # 1 Tag: jeder orchestrierte --delta-Lauf erzwingt tagesaktuelle Preise (der
 # Lauf rechnet compute_post_trade_returns ueber den vollen kombinierten Master,
@@ -706,6 +713,15 @@ SCORE_CORR_DEFAULT_HORIZON_DAYS = 180
 # Master ~90k auswertbare Trades hat) und Punkt-Opazitaet. Die Kennzahlen
 # (Spearman/Pearson/n) werden IMMER ueber die volle Stichprobe gerechnet —
 # das Cap betrifft nur die Visualisierung.
+# Rendite-Auswertungen (app/score_correlation.py, Event Study):
+# Dublettenbehandlung vor der Analyse: 'full_row' (identische Zeilen = Quell-
+# wiederholung), 'trade_id' oder 'none'. Der Import behaelt Dubletten bewusst
+# (DEDUP_STRATEGY='keep_all'); bereinigt wird nur in der Analyse.
+ANALYSIS_DEDUP = 'full_row'
+# Exchange-Trades haben keine Richtung und fallen aus Rendite-Auswertungen.
+ANALYSIS_EXCLUDE_EXCHANGE = True
+# Iterationen des member-geclusterten Bootstraps im Dashboard (Pro-Signal-CI).
+SCORE_CORR_BOOTSTRAP_ITERS = 2000
 SCORE_CORR_SCATTER_MAX_POINTS = 20000
 SCORE_CORR_SCATTER_OPACITY = 0.3
 

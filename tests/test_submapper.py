@@ -418,14 +418,24 @@ def test_broad_scope_verlangt_hohe_confidence(paar, taxonomy) -> None:
     assert "GS_BROAD_SCOPE_INVALID" in codes(task, record, taxonomy)
 
 
-@pytest.mark.parametrize("feld", ["evidence_excerpt", "rationale_short"])
-def test_broad_scope_verlangt_eigene_begruendung(paar, taxonomy, feld) -> None:
-    """Ein wiederholter Beleg oder Grund traegt die Ausnahme nicht."""
+def test_broad_scope_verlangt_eigene_begruendung(paar, taxonomy) -> None:
+    """Ein wiederholter Grund traegt die Ausnahme nicht."""
     task, record = paar
     breit(record, taxonomy, gs.REGULAR_ASSIGNMENT_LIMIT + 1)
-    erste = record["answer"]["assignments"][0][feld]
-    record["answer"]["assignments"][1][feld] = f"  {erste.upper()} "
+    erste = record["answer"]["assignments"][0]["rationale_short"]
+    record["answer"]["assignments"][1]["rationale_short"] = \
+        f"  {erste.upper()} "
     assert "GS_BROAD_SCOPE_INVALID" in codes(task, record, taxonomy)
+
+
+def test_broad_scope_erlaubt_geteilten_beleg(paar, taxonomy) -> None:
+    """Ein Beleg darf mehrere Industries tragen, z. B. eine Behoerde fuer
+    mehrere Branchen; jede Zuordnung behaelt ihre eigene Rationale."""
+    task, record = paar
+    breit(record, taxonomy, gs.REGULAR_ASSIGNMENT_LIMIT + 1)
+    erste = record["answer"]["assignments"][0]["evidence_excerpt"]
+    record["answer"]["assignments"][1]["evidence_excerpt"] = erste
+    assert "GS_BROAD_SCOPE_INVALID" not in codes(task, record, taxonomy)
 
 
 def test_broad_scope_nicht_bei_no_mapping(paar, taxonomy) -> None:

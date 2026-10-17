@@ -10,17 +10,22 @@ Python + Streamlit zur Analyse von Aktiengeschäften von US-Kongressmitgliedern.
 - Frontend; keine Emojis
 - Antworten; immer mit `Bene, ` beginnen
 - Tokenintensive, unabhängige Teilaufgaben; Subagents einsetzen
+- Für neues Todo neue Plan-Datei anlegen statt unverwandte überschreiben (spart Read-Roundtrip).
+
+
 
 ## Dokumentation
 
 Routing + „Aktualisieren bei“-Trigger: `organisation/DOKU_INDEX.md`.
+ Single-Source-of-Truth pro Thema | Spalten → DATA_STRUCTURE.md · Score/Settings → Filter_Instanz_Parameter.md · Pipeline-Reihenfolge → Pipelines.md · Signal-Schema → tool_specific_md/signal_info.md · READMEs nur 1-Satz + Link |
 
 - Strukturänderung: neues Modul, Stage, Pipeline- oder Datenmodell; Skill `/doku-update` nutzen
 - Detailänderung: betroffene kanonische Doku selbst aktualisieren
 - Neue/geänderte Datenstrukturen oder Spalten; `organisation/DATA_STRUCTURE.md`
 - Neue/geänderte Scripts, Stages, Abläufe oder Abhängigkeiten; `organisation/CLI_Bedienungsanleitung.md`
 - Neue Daten-, Config- oder Script-Datei; zusätzlich in `DATA_STRUCTURE.md`; ausführbare Abläufe zusätzlich in `CLI_Bedienungsanleitung.md`
-- Neues, unabhängiges Vorhaben; neue Plan-Datei statt bestehende zu überschreiben
+- Single-Source pro Thema, Status-Tabellen statt Prosa, Historie → CHANGELOG.md; Optik/Doku erst im finalen Doku-Schritt
+
 
 ## Arbeitsgrundlage
 
@@ -32,26 +37,20 @@ Git:
 
 - Commit auf `agent/<name>` erlaubt
 - Kein Merge nach `main`, Push oder Stash ohne ausdrückliche Nutzerfreigabe
-- Freigegebener Merge; aus Haupt-Worktree `/home/bene/Nextcloud/backup_l9520/Projekte/bmb_trdprg/congress_tracker`
+- Freigegebener Merge; aus Haupt-Worktree `/home/bene/Nextcloud/Projekte/bmb_trdprg/congress_tracker`
 
 ```bash
 git merge --no-ff agent/<name> -m "Merge agent/<name>: ..."
 ```
 
 - Worktree- + Branch-Verwaltung; vorhandene Skripte vor manuellen Eingriffen prüfen und nutzen
-- Worktree-Skripte; `~/Nextcloud/backup_l9520/Projekte/bmb_trdprg/congress_tracker/scripts/`
+- Worktree-Skripte; `~/Nextcloud/Projekte/bmb_trdprg/congress_tracker/scripts/`
 - Jeder Agent; eigener Worktree + Branch `agent/<name>`
 
 
 ## Aktueller Stand
 
-- Committee Matcher V2; P0-P8 + S1-S5 implementiert; Gate B am 2026-08-21 beschlossen (Modell `deepseek/deepseek-v4-flash-0731`, freie Providerwahl, Kostenwache)
-- Providersettings gesetzt + Routing-Preflight `provider check` live; Contract-Smoke am 2026-08-22 live bestanden (Routing `Morph`, 0,000018 USD, Exit 0)
-- Kern vollstaendig: `mapping.py` + `validation.py` (P6), `workflow.py` (P7a), `artifacts.py` (P7b), Laufkommandos `run plan|execute|reconcile` (P7c), Review-Roundtrip `review export|import` (P7d), Live-Terminalstatus fuer alle Vorgaenge (S4)
-- Review-Workbook ist eine Arbeitstabelle ohne Steuerspalten: Wert aendern, Zeile loeschen, Zeile anhaengen; Provenienz + Aenderungsbilanz rechnet der Import aus dem Vergleich gegen die Laufartefakte
-- Ablauf: Mapping -> Review in Excel -> `reviewed_assignments.csv` -> Uebernahme in `import_trades`
-- P8 am 2026-08-28 live bestanden: Lauf `p8-run2` (7 Units House Agriculture, 6 mapped, 1 no_mapping, 0,003685 USD) plus Roundtrip `review-p8-run2`; Denktiefe je Call ist seither ueber `COMMITTEE_MATCHER_REASONING_EFFORT` begrenzt, gesendet wird `max_output_tokens + reasoning_reserve_tokens`
-- Phasenreviews abgeschlossen: P7c-Nachpruefung, S3, S5 (je nicht abgenommen, Befunde behoben) und P8 (mit Auflagen abgenommen, Auflagen erledigt)
-- Offen: P9 Entwicklungs-Gold-Set und Evaluation (kostenpflichtig, Gate); Bene labelt die 22 Units in data/committee_matcher_v2/goldset/development_goldset.xlsx
-- Entschieden 2026-08-27: CSV-Formelinterpretation bleibt unveraendert (Review laeuft ausschliesslich ueber die Excel), Confidence-Rubrik bleibt vierstufig, `unit_id` bleibt Modellfeld (Fehler faellt ueber Anzahl- und Evidenzpruefung auf), Boundary-Konflikte sind reine Information ohne Eingabefeld
-- Detailstand + History; `CHANGELOG.md`; laufende Entscheidungen + Plaene; `organisation/` und `~/.claude/plans/`
+- Programm läuft: Pipeline, Scoring und Dashboard funktionsfähig
+- In Arbeit: Deployment sowie Committee-Mapping-Workflow (offen: P9 Gold-Set + Evaluation, kostenpflichtig → Gate)
+- Befund: `trade_score` korreliert kaum mit dem Return — Konstrukt-Konflikt, kein Bug
+- Detailstand + History: `CHANGELOG.md`; Entscheidungen + Pläne: `organisation/`, `~/.claude/plans/`

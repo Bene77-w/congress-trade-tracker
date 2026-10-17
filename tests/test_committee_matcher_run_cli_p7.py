@@ -158,6 +158,45 @@ def test_plan_without_a_target_refuses_to_run(sandbox, capsys):
     assert workflow.load_manifest("run-test") is None
 
 
+def test_all_units_plans_the_whole_target_set(sandbox, capsys):
+    """Der filterlose Lauf ueber die Sollmenge braucht genau ein Flag."""
+    argv = ["run", "plan", "--run-id", "run-test", "--all-units"]
+    assert cli.main(argv) in (int(ExitCode.SUCCESS), int(ExitCode.SUCCESS_WITH_WARNINGS))
+    manifest = workflow.load_manifest("run-test")
+    assert manifest["selection"]["all_units"] is True
+    assert manifest["selection"]["committee"] is None
+    assert manifest["unit_count"] == 3
+    assert "Umfang:   3 von 3 Units" in capsys.readouterr().out
+
+
+def test_all_units_and_a_filter_together_are_an_operating_error(sandbox, capsys):
+    """Sonst wiese die Coverage eine Teilmenge als vollstaendige Sollmenge aus."""
+    argv = ["run", "plan", "--run-id", "run-test", "--all-units",
+            "--committee", "Committee on Testing"]
+    assert cli.main(argv) == int(ExitCode.PREFLIGHT_BLOCKED)
+    assert "CLI_RUN_TARGET_CONFLICT" in capsys.readouterr().out
+    assert workflow.load_manifest("run-test") is None
+
+
+def test_execute_takes_all_units_from_the_frozen_plan(scripted, capsys):
+    """Das Flag steht im Manifest; 'run execute' verlangt es nicht erneut."""
+    adapter = scripted.install()
+    assert cli.main(["run", "plan", "--run-id", "run-test", "--all-units"]) in (0, 2)
+    capsys.readouterr()
+    assert cli.main(["run", "execute", "--run-id", "run-test"]) in (0, 2)
+    assert len(adapter.calls) == 1
+    state = workflow.load_state("run-test")
+    assert len(state.units) == 3
+
+
+def test_a_full_scope_and_a_narrow_one_are_different_runs(sandbox, capsys):
+    """Ein Lauf ueber alles ist nicht derselbe wie einer ueber ein Committee."""
+    assert cli.main(["run", "plan", "--run-id", "run-test", "--all-units"]) in (0, 2)
+    capsys.readouterr()
+    assert cli.main(plan_argv()) == int(ExitCode.PREFLIGHT_BLOCKED)
+    assert "RUN_MANIFEST_DRIFT" in capsys.readouterr().out
+
+
 def test_plan_without_a_run_id_refuses_to_run(sandbox, capsys):
     assert cli.main(["run", "plan", "--committee", "Committee on Testing"]) == int(
         ExitCode.PREFLIGHT_BLOCKED)

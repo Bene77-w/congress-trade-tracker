@@ -252,6 +252,7 @@ es weder Anbieter noch Generation-ID.
 | `--model NAME` | `label` | Welches Modell genau. Ohne Angabe der Wert aus `config/settings.py`. |
 | `--effort STUFE` | `label` | Wie gründlich es denkt. Ohne Angabe der Wert aus `config/settings.py`. |
 | `--combined N` | `run`, `label` | N Ausschüsse gleichzeitig, 1 bis 5. Wird einer fertig, rückt der nächste nach. Ein Ratenlimit hält alle an, nicht jeden einzeln. Ohne Angabe: einer nach dem anderen. |
+| `--web-access-off` | `run`, `label` | Schaltet den standardmäßig aktiven Webzugriff aus; `Recherche` ist dann als Evidence unzulässig. |
 | `--force` | `label` | Alles neu erzeugen statt fortzusetzen. Bezahlt alle Läufe erneut. Die alte Tabelle wird vorher gesichert. |
 | `--eval-id NAME` | `finish` | Name der Evaluationsrevision, in die das Gold-Set kommt. Ohne `--fullrun` Pflichtangabe. |
 | `--review-id NAME` | `finish --fullrun` | Name der Reviewrevision, in die das Mapping kommt. Mit `--fullrun` oder `--test-fullrun` Pflichtangabe. |

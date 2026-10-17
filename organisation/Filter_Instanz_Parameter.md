@@ -107,6 +107,7 @@ Dies ist eine reine Daten-Anreicherung (Pipeline Stage 9) — fliesst NICHT in d
 | `EXIT_DETECTION_WINDOW_DAYS` | `None` | **Neu (2026-06-04):** Exit-Fenster für Gegengeschäft-Suche. `None` = unbegrenzt (durchsucht alle nachfolgenden Trades). Integer = Cap in Tagen (z.B. 365 = sucht nur bis zu 1 Jahr nach dem Eröffnungs-Trade). **WICHTIG:** Entkoppelt vom Return-Horizont — Return-Snapshots bleiben an die `POST_TRADE_HORIZONS_DAYS` gebunden. Das Exit-Fenster bestimmt NUR, wie weit die Exit-Detection nach gegensätzlichen Trades sucht. |
 | `POST_TRADE_PRICE_CACHE` | `'data/cache/price_history.parquet'` | Pfad zum yfinance-Preis-Cache |
 | `POST_TRADE_PRICE_FETCH_YEARS` | `5` | yfinance `period` beim Erstabruf pro Ticker |
+| `POST_TRADE_MAX_PRICE_GAP_DAYS` | `5` | **Neu (2026-10-16):** Liegt der erste Cache-Kurs mehr als so viele Tage nach dem Zieldatum, gilt der Kurs als unbekannt (NaN). Verhindert 0-%-Returns für Trades vor dem Cache-Beginn. Gilt für `post_return_*`, Paper-Returns und Abnormal Returns. |
 | `POST_TRADE_PRICE_CACHE_TTL_DAYS` | `7` | Refresh-Schwelle pro Ticker |
 | `POST_TRADE_EXIT_AMOUNT_TOLERANCE` | `0.0` | 0.0 = strikt (kumulierter opposing-max muss >= original-max); >0.0 = relative Toleranz (z.B. 0.1 = 10% Unterdeckung erlaubt) |
 

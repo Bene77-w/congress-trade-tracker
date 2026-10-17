@@ -12,10 +12,12 @@ AR_*-Settings (Horizonte/Schwellen) erfordern nur einen erneuten Skript-Lauf
 Kernfragen:
   1. Diskriminator: Korreliert trade_score beim AR besser als beim rohen
      Kalender-Return? -> Spearman(trade_score, post_return_90d) vs.
-     Spearman(trade_score, signed_ar_90d) auf IDENTISCHER Population (gleicher
-     Horizont H=90, nur Marktbereinigung unterscheidet sich).
-  2. Pro Signal: mittlerer signed_ar_90d MIT vs. OHNE Signal (Differenz +
-     member-geclustertes Bootstrap-CI).
+     Spearman(trade_score, signed_ar_H) auf IDENTISCHER Population (gleicher
+     Horizont H = AR_HEADLINE_HORIZON_DAYS, nur Marktbereinigung unterscheidet
+     sich).
+  2. Pro Signal: mittlerer signed_ar_H MIT vs. OHNE Signal (Differenz +
+     member-geclustertes Bootstrap-CI). Committee-Signale nur innerhalb der
+     Trades, die sie ausloesen koennten (committee_eligible_mask).
   3. Ausreisser-Charakterisierung: nach Signal / Kammer / Sektor / Member —
      empirische Grundlage fuer die spaetere Filter-Rekonstruktion.
 
@@ -34,6 +36,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
 
 from config import settings  # noqa: E402
+from app.score_correlation import (  # noqa: E402
+    COMMITTEE_SIGNALS,
+    analysis_population,
+    committee_eligible_mask,
+)
 from scoring.abnormal_returns import (  # noqa: E402
     clustered_bootstrap_diff,
     clustered_bootstrap_mean,
@@ -47,7 +54,7 @@ OUTLIERS_CSV = BASE_DIR / settings.DATA_PROCESSED_PATH / 'ar_outliers.csv'
 
 # Verdachts-Signale fuer die Pro-Signal-Analyse — echte Tokens aus signals_triggered
 # (siehe organisation/tool_specific_md/signal_info.md). NICHT abgeleitet.
-SIGNALS = ['committee_ex_officio', 'floor_action', 'swarm_buy', 'swarm_sell',
+SIGNALS = ['committee', 'committee_full', 'committee_ex_officio', 'floor_action', 'swarm_buy', 'swarm_sell',
            'accumulative']
 
 # Spalten, die wir aus dem Master brauchen (Rest wird nicht geladen).
@@ -61,7 +68,8 @@ _RAW_RETURN_COLS = sorted({
 })
 LOAD_COLS = ['trade_id', 'bio_guide_id', 'name', 'chamber', 'sector_yf',
              'ticker', 'transaction_type', 'transaction_date', 'disclosure_date',
-             'trade_score', 'signals_triggered'] + _RAW_RETURN_COLS
+             'trade_score', 'signals_triggered', 'industry_yf',
+             'Member_Committees_Full', 'asset_class_excluded'] + _RAW_RETURN_COLS
 
 
 def _spearman(a: pd.Series, b: pd.Series) -> tuple[float, int]:
@@ -90,7 +98,8 @@ def _load() -> pd.DataFrame:
     for c in ['trade_score'] + _RAW_RETURN_COLS:
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors='coerce')
-    return df
+    # Gleiche Population wie im Dashboard: Duplikate + Exchange raus.
+    return analysis_population(df).reset_index(drop=True)
 
 
 def main() -> None:
@@ -183,9 +192,12 @@ def main() -> None:
     L('')
     L('| Signal | N mit | Mittel mit | Mittel ohne | Differenz | 95%-CI | p |')
     L('|---|--:|--:|--:|--:|---|--:|')
-    clusters_all = df['bio_guide_id'].fillna('').astype(str).values
-    vals_all = df[head_col].values
+    elig_all = committee_eligible_mask(df)
+    df_all = df
     for sig in SIGNALS:
+        df = df_all[elig_all] if sig in COMMITTEE_SIGNALS else df_all
+        clusters_all = df['bio_guide_id'].fillna('').astype(str).values
+        vals_all = df[head_col].values
         mask = _has_signal(df['signals_triggered'], sig)
         mean_with = clustered_bootstrap_mean(
             df.loc[mask, head_col].values,
@@ -202,6 +214,7 @@ def main() -> None:
         p = 'n/a' if not np.isfinite(diff['p']) else f"{diff['p']:.3f}"
         L(f"| `{sig}` | {mean_with['n']:,} | {_fmt_pct(mean_with['point'])} | "
           f"{_fmt_pct(mean_wo['point'])} | {_fmt_pct(diff['point'])} | {ci} | {p} |")
+    df = df_all
     L('')
     L('_Der Vorgaenger-Report wies `committee_ex_officio` als robust signifikant '
       'aus (t=-2.55). Unter dem member-geclusterten Bootstrap ist KEIN Signal von 0 '

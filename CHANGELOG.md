@@ -11,6 +11,57 @@ Historie abgeschlossener Module/Phasen. **Aktiver WIP-Modul-Stand** steht im „
 
 ---
 
+## 2026-10-17 — Gate C: neues Mapping übernommen
+
+Bene hat Gate C freigegeben: Revision `map-fullrun-20261016` (`COMMITTEE_MAPPING_REVIEW_ID`)
+ersetzt die Legacy-CSV. P4 (Gewichtung 25 × Confidence-Faktor) wird nicht umgesetzt:
+Bei Käufen ab dem 118. Kongress zeigen die Confidence-Klassen 2–4 keine Rangfolge,
+sobald der dominierende Vielhändler (K000389, 55 % der Treffer-Käufe) herausgerechnet
+wird. Offen: richtungsabhängiges `committee_full`, Ausgleich für Vielhändler,
+Ticker-Aliase (FB, BRK.B, SQ), voller Pipeline-Rebuild.
+
+## 2026-10-16 — Analysewerkzeug korrigiert, Schattenvergleich Mapping alt/neu
+
+Preis-Lookups liefern NaN statt des ersten Cache-Kurses, wenn dieser mehr als
+`POST_TRADE_MAX_PRICE_GAP_DAYS` nach dem Zieldatum liegt. Vorher ergaben Trades
+vor dem Cache-Beginn (2021-05-28) künstlich 0 %. Kurse <= 0 werden verworfen.
+Die Analyse-Population (`analysis_population`) entfernt doppelte Zeilen und
+Exchange-Trades. Die Pro-Signal-Tabelle zeigt nun Cluster-CI, p und Trefferquoten
+und vergleicht Committee-Signale nur gegen geeignete Trades. Die Event Study
+misst jetzt auch `committee`/`committee_full`. Der Master wird erst mit dem
+nächsten Full-Rebuild neu geschrieben.
+
+Schattenvergleich (im Speicher, Revision `map-fullrun-20261016` gegen Legacy-CSV):
+committee_full trifft 10.699 statt 17.129 Trades. Auf keinem Horizont gibt es
+einen positiven, signifikanten Effekt (AR 120 T: alt -0,59 pp, neu -0,96 pp).
+Ein Confidence-Gradient fehlt, und die P4-Gewichtung senkt die
+Score-Korrelation leicht. Signifikant ist nur das schlechtere Timing bei
+Verkäufen (neu -2,5 pp). Bericht:
+`~/Downloads/committee_filter_alt_vs_neu_20261016.html`. Gate C ist offen.
+
+Tests: 2303 passed.
+
+## 2026-10-16 — Broad-Scope: ein Beleg darf mehrere Industries tragen
+
+Der Codex-Fullrun (225 Units, `gpt-6.1-sol`, Prompt v3) scheiterte an
+`verify`: In 36 von 62 Broad-Scope-Units teilten sich mehrere Industries
+denselben Evidence-Ausschnitt, z. B. „FOOD AND DRUG ADMINISTRATION (HHS)“ fuer
+Packaged Foods, Drug Manufacturers und Medical Devices. Fachlich ist das
+richtig: Eine Behoerde regelt oft mehrere Branchen, und ein kuenstlich anderer
+Ausschnitt waere kein besserer Beleg.
+
+Submapper (`check_broad_scope`) und API-Mapper (`MappingUnitResult`) verlangen
+deshalb nur noch eine eigene Rationale je Industry, nicht mehr eine eigene
+Evidence. Confidence >= 3, Recherche-Ausschluss und Anzahlgrenze bleiben
+unveraendert. Der Prompt (`mapping-system-v3`) bleibt bewusst unangetastet:
+Sein Hash ist an die Aufgabenpakete des Fullruns gebunden, und die strengere
+Formulierung schadet nicht. Beim naechsten Promptstand ist sie nachzuziehen.
+
+Test-Stand: 2297 Tests bestanden; `submapper verify --fullrun --source codex`
+ohne Befund.
+
+---
+
 ## 2026-09-06 — Korpusreparatur: House Appropriations um eine Position versetzt
 
 `data/committee_matcher_inputs/md/house_appropriations.md` trug unter jeder

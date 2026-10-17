@@ -3248,16 +3248,19 @@ def check_broad_scope(task: Mapping[str, Any], unit_id: str, decision: str,
             "Recherche-Zuordnungen entfernen oder auf hoechstens zwei "
             "Zuordnungen kuerzen."))
 
-    for feld, name in (("evidence_excerpt", "Evidence"),
-                       ("rationale_short", "Rationale")):
-        werte = [_normalized(str(item.get(feld, ""))).casefold()
-                 for item in items]
-        if len(set(werte)) != len(werte):
-            found.append(_broad_problem(
-                unit_id,
-                f"Die Ausnahme verlangt eine eigene {name} je Industry; "
-                f"{len(werte) - len(set(werte))} Wert(e) wiederholen sich.",
-                f"Spalte '{feld}' je Zeile eigenstaendig fuellen."))
+    # Nur die Rationale muss je Industry eigenstaendig sein. Ein Beleg darf
+    # mehrere Industries tragen: eine Behoerde wie die FDA regelt Lebensmittel,
+    # Arzneimittel und Medizinprodukte zugleich, und ein kuenstlich anderer
+    # Ausschnitt waere kein besserer Beleg. Gleichlauf mit
+    # models.MappingUnitResult.
+    werte = [_normalized(str(item.get("rationale_short", ""))).casefold()
+             for item in items]
+    if len(set(werte)) != len(werte):
+        found.append(_broad_problem(
+            unit_id,
+            "Die Ausnahme verlangt eine eigene Rationale je Industry; "
+            f"{len(werte) - len(set(werte))} Wert(e) wiederholen sich.",
+            "Spalte 'rationale_short' je Zeile eigenstaendig fuellen."))
     return found
 
 

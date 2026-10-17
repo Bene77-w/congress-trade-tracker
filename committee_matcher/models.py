@@ -51,6 +51,11 @@ MAX_UNITS_PER_BATCH = 3
 #: seine Enum daraus ab, damit Schema und Modell nicht auseinanderlaufen.
 MIN_CONFIDENCE = 1
 MAX_CONFIDENCE = 4
+#: Besonderer Evidence-Wert fuer rein webrecherchegestuetzte Zuordnungen.
+RESEARCH_EVIDENCE = "Recherche"
+#: Recherche kann die hoechste, nur textbelegten Zuordnungen vorbehaltene
+#: Confidence nicht erreichen (mapping-system-v3).
+RESEARCH_MAX_CONFIDENCE = 3
 
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
@@ -73,6 +78,16 @@ def normalize_text(text: str) -> str:
 def comparable_text(text: str) -> str:
     """Vergleichsform: kanonisiert und ohne Gross-/Kleinschreibung."""
     return normalize_text(text).casefold()
+
+
+def is_research_evidence(text: str) -> bool:
+    """Ist ``text`` genau der normalisierte Recherche-Sentinel?"""
+    return comparable_text(text) == comparable_text(RESEARCH_EVIDENCE)
+
+
+def evidence_word_count(text: str) -> int:
+    """Zahl sichtbarer, whitespace-getrennter Woerter einer Evidence."""
+    return len(normalize_text(text).split())
 
 
 def has_visible_text(value: str | None) -> bool:
@@ -361,12 +376,19 @@ class MappingUnitResult(MatcherModel):
                     "Broad-Scope-Ausnahme verlangt Confidence >= "
                     f"{BROAD_SCOPE_MIN_CONFIDENCE}: {', '.join(sorted(weak))}"
                 )
+            researched = [a.industry_id for a in self.assignments
+                          if is_research_evidence(a.evidence_excerpt)]
+            if researched:
+                raise ValueError(
+                    "Broad-Scope-Ausnahme erlaubt keine rein "
+                    "recherchegestuetzte Zuordnung: "
+                    f"{', '.join(sorted(researched))}"
+                )
+            # Ein Beleg darf mehrere Industries tragen (eine Behoerde regelt
+            # oft mehrere Branchen); eigenstaendig sein muss die Rationale.
             # Verglichen wird in derselben kanonischen Form wie die
             # Evidenzpruefung: sonst wuerden Gross-/Kleinschreibung oder ein
-            # zusaetzliches Leerzeichen denselben Beleg als eigenen ausgeben.
-            evidences = [comparable_text(a.evidence_excerpt) for a in self.assignments]
-            if len(set(evidences)) != len(evidences):
-                raise ValueError("Broad-Scope-Ausnahme verlangt eigene Evidence je Industry")
+            # zusaetzliches Leerzeichen denselben Grund als eigenen ausgeben.
             rationales = [comparable_text(a.rationale_short) for a in self.assignments]
             if len(set(rationales)) != len(rationales):
                 raise ValueError("Broad-Scope-Ausnahme verlangt eigene Rationale je Industry")

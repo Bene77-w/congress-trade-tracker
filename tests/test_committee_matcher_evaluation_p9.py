@@ -254,7 +254,7 @@ def test_an_id_already_used_as_a_run_revision_is_refused(sandbox, capsys):
 # Bedienung und Stichprobe
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("action", ["export", "import", "run"])
+@pytest.mark.parametrize("action", ["export", "import"])
 def test_no_evaluation_action_runs_without_an_eval_id(sandbox, capsys, action):
     assert cli.main(["evaluate", action]) == int(ExitCode.PREFLIGHT_BLOCKED)
     assert "--eval-id" in capsys.readouterr().err

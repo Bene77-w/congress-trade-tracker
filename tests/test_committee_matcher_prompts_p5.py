@@ -208,10 +208,11 @@ def test_shipped_prompts_are_valid():
     collector = ErrorCollector()
     loaded = prompts.load_all(collector)
     assert collector.findings == [], [f.message for f in collector.findings]
-    assert loaded["mapping_system"].version == "mapping-system-v2"
-    assert loaded["repair_system"].version == "repair-system-v1"
-    # Die Direktheitsregel ist der fachliche Kern; sie darf nicht verschwinden.
-    assert "unmittelbar" in loaded["mapping_system"].text
+    assert loaded["mapping_system"].version == "mapping-system-v3"
+    assert loaded["repair_system"].version == "repair-system-v2"
+    # Die beiden zulaessigen Wirkungswege duerfen nicht verschwinden.
+    assert "direkt" in loaded["mapping_system"].text
+    assert "einstufig" in loaded["mapping_system"].text
     assert "Confidence" in loaded["mapping_system"].text
 
 
@@ -273,8 +274,8 @@ def test_the_prompt_demands_null_instead_of_omitted_fields():
     assert "weglassen" not in prompt.text
 
 
-def test_confidence_one_does_not_reopen_the_directness_rule():
-    """Reviewbefund: Confidence darf kein Ventil fuer Zweifelsfaelle sein."""
+def test_confidence_does_not_replace_the_assignment_rule():
+    """Auch die neue Matrix macht aus einem Zweifelsfall keine Zuordnung."""
     prompt = prompts.load_all(ErrorCollector())["mapping_system"]
-    assert "kein Ventil fuer Zweifelsfaelle" in prompt.text
-    assert "auch nicht mit\nConfidence 1" in prompt.text
+    assert "Lieber keine\nZuordnung als eine hypothetische" in prompt.text
+    assert "nicht aus deiner sprachlichen Sicherheit" in prompt.text

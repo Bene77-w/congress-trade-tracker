@@ -147,6 +147,17 @@ def test_the_sheet_has_no_control_columns(mapped_run):
                 if name.startswith(("review_", "model_")) or name == "row_id"]
 
 
+def test_research_assignments_are_highlighted_without_a_new_column():
+    row = {name: "" for name in review.ASSIGNMENT_SHEET_COLUMNS}
+    row.update(unit_id="u-1", industry_id="x", confidence="3",
+               evidence_excerpt="Recherche", rationale_short="Belegt.")
+    book = review.build_workbook([row], [], [], {})
+    sheet = book[review.SHEET_ASSIGNMENTS]
+    assert [cell.value for cell in sheet[1]] == list(
+        review.ASSIGNMENT_SHEET_COLUMNS)
+    assert {cell.fill.fgColor.rgb for cell in sheet[2]} == {"00FFF2CC"}
+
+
 def test_every_decided_unit_has_a_row(mapped_run):
     assert cli.main(export_argv()) in (0, 2)
     rows = rows_of(workbook_of()[review.SHEET_ASSIGNMENTS])
@@ -460,6 +471,24 @@ def test_an_unknown_industry_is_rejected(exported, capsys):
     edit(exported, 0, industry_id="gibt-es-nicht")
     assert cli.main(import_argv()) == int(ExitCode.REVIEW_IMPORT_REJECTED)
     assert "REV_UNKNOWN_INDUSTRY" in capsys.readouterr().out
+
+
+def test_research_with_confidence_four_is_rejected(exported, capsys):
+    edit(exported, 0, evidence_excerpt="Recherche", confidence="4")
+    assert cli.main(import_argv()) == int(ExitCode.REVIEW_IMPORT_REJECTED)
+    assert "REV_RESEARCH_CONFIDENCE" in capsys.readouterr().out
+
+
+def test_research_in_a_broad_scope_review_is_rejected(exported, capsys):
+    unit_id = cell_of(exported, 0, "unit_id")
+    edit(exported, 0, evidence_excerpt="Recherche", confidence="3")
+    existing = cell_of(exported, 0, "industry_id")
+    additions = [industry for industry in INDUSTRY_POOL if industry != existing][:2]
+    for industry in additions:
+        add_row(exported, unit_id=unit_id, industry_id=industry,
+                confidence="3", evidence_excerpt="text based evidence")
+    assert cli.main(import_argv()) == int(ExitCode.REVIEW_IMPORT_REJECTED)
+    assert "REV_RESEARCH_IN_BROAD_SCOPE" in capsys.readouterr().out
 
 
 def test_an_unknown_unit_is_rejected(exported, capsys):

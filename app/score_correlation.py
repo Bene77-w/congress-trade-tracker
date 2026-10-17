@@ -6,7 +6,8 @@ behafteten Objective Return ``post_return_{X}d`` vorhersagt (exit-agnostisch,
 bereits ``sell_sign``-bereinigt -> positiv = Trade lag in seiner eigenen
 Richtung richtig, fuer Kauf UND Verkauf).
 
-Spearman wird als Pearson auf Raengen berechnet (``a.rank().corr(b.rank())``),
+Vor jeder Auswertung bereinigt :func:`analysis_population` den Master
+(Dubletten, Exchange). Spearman wird als Pearson auf Raengen berechnet (``a.rank().corr(b.rank())``),
 weil scipy im Projekt-venv nicht installiert ist und
 ``pandas.Series.corr(method='spearman')`` scipy benoetigt. Das Ergebnis ist
 identisch zur scipy-Spearman-Korrelation inkl. Tie-Korrektur (Average-Ranks).
@@ -16,7 +17,11 @@ from __future__ import annotations
 import math
 import re
 
+import numpy as np
 import pandas as pd
+
+from config import settings
+from scoring.abnormal_returns import clustered_bootstrap_diff
 
 
 # trade_score_breakdown-Token des Ex-Officio-Bonus: ``ex_officio:+15``.
@@ -123,23 +128,84 @@ def _ex_officio_bonus(breakdown: object) -> float:
         return 0.0
 
 
+def analysis_population(df: pd.DataFrame) -> pd.DataFrame:
+    """Bereinigt den Master fuer jede Rendite-Auswertung.
+
+    - ``ANALYSIS_DEDUP``: ``'full_row'`` entfernt vollstaendig identische
+      Zeilen (Quellwiederholungen, die der Import per ``keep_all`` behaelt),
+      ``'trade_id'`` alle Wiederholungen einer ``trade_id``, ``'none'`` nichts.
+    - ``ANALYSIS_EXCLUDE_EXCHANGE``: Exchange-Trades haben keine Richtung; ihr
+      Vorzeichen +1 wuerde sie als Kauf werten.
+    """
+    out = df
+    mode = getattr(settings, 'ANALYSIS_DEDUP', 'full_row')
+    if mode == 'full_row':
+        out = out.drop_duplicates()
+    elif mode == 'trade_id' and 'trade_id' in out.columns:
+        out = out.drop_duplicates(subset='trade_id')
+    if (getattr(settings, 'ANALYSIS_EXCLUDE_EXCHANGE', True)
+            and 'transaction_type' in out.columns):
+        tt = out['transaction_type'].astype('string').str.strip().str.lower()
+        out = out[~tt.fillna('').str.startswith('exchange')]
+    return out
+
+
+#: Signale, die nur feuern koennen, wenn der Trade einer Branche zugeordnet
+#: ist und das Mitglied Ausschuesse hat. Ihre Vergleichsgruppe ist auf solche
+#: Trades beschraenkt, sonst misst die Differenz die Datenabdeckung.
+COMMITTEE_SIGNALS = frozenset({'committee', 'committee_full',
+                               'committee_ex_officio'})
+
+
+def committee_eligible_mask(df: pd.DataFrame) -> pd.Series:
+    """True, wo ein Committee-Signal ueberhaupt feuern koennte."""
+    ok = pd.Series(True, index=df.index)
+    for col in ('sector_yf', 'industry_yf', 'Member_Committees_Full'):
+        if col in df.columns:
+            v = df[col].astype('string').str.strip()
+            ok &= v.notna() & (v != '')
+    if 'asset_class_excluded' in df.columns:
+        ex = df['asset_class_excluded']
+        ok &= ~ex.map(lambda x: str(x).strip().lower() in ('true', '1', 'yes'))
+    return ok
+
+
+def _hit_rate(values: pd.Series) -> float:
+    v = values.dropna()
+    return float((v > 0).mean()) if len(v) else float('nan')
+
+
 def per_signal_return_table(df: pd.DataFrame, ret_col: str,
                             signals_col: str = 'signals_triggered',
-                            breakdown_col: str = 'trade_score_breakdown'
+                            breakdown_col: str = 'trade_score_breakdown',
+                            cluster_col: str | None = None,
+                            n_iter: int | None = None,
                             ) -> pd.DataFrame:
-    """Pro-Signal-Korrelation: wie haengt jedes Signal mit dem Return zusammen.
+    """Pro Signal: Return mit gegen ohne Signal.
 
     Marginal/univariat — Signale ko-okkurrieren, dies sind also KEINE isolierten
     Beitraege. Signal-Universum datengetrieben aus den ``signals_triggered``-
-    Tokens (alle real gefeuerten Signale) plus Pseudo-Signal
-    ``committee_ex_officio``, das nicht in ``signals_triggered`` steht, sondern
-    aus dem Breakdown-Token ``ex_officio:+N`` (N>0) abgeleitet wird.
-    ``swarm_paradox`` ist ein Daempfer (negative Korrelation erwartet — kein
-    Bug). Pro Signal binaerer Indikator (1=gefeuert) gegen den signierten
-    Return. Liefert DataFrame ``[signal, n_fired, mean_fired, mean_not, delta,
-    spearman, pearson]`` absteigend nach |spearman|.
+    Tokens. ``committee_ex_officio`` steht dort seit dem Ex-Officio-Signal
+    selbst; nur aeltere Master ohne dieses Token leiten es aus dem
+    Breakdown-Token ``ex_officio:+N`` (N>0) ab. ``swarm_paradox`` ist ein
+    Daempfer (negative Korrelation erwartet — kein Bug).
+
+    Fuer ``COMMITTEE_SIGNALS`` zaehlt als Vergleichsgruppe nur, wer das Signal
+    haette ausloesen koennen (:func:`committee_eligible_mask`).
+
+    Leitkennzahl ist ``delta`` (Ø gefeuert − Ø nicht, in Prozentpunkten) mit
+    Trefferquote (Anteil Return > 0). Mit ``cluster_col`` (z. B.
+    ``bio_guide_id``) kommen 95 %-CI und p aus einem member-geclusterten
+    Bootstrap dazu — ohne Clustering waere die Unsicherheit stark
+    unterschaetzt, weil einzelne Mitglieder tausende Trades stellen.
+    Spearman/Pearson auf dem 0/1-Indikator bleiben zur Rueckverfolgung.
+
+    Liefert DataFrame ``[signal, n_fired, n_compare, mean_fired, mean_not,
+    delta, ci_lo, ci_hi, p, hit_fired, hit_not, spearman, pearson]``,
+    absteigend nach |delta|.
     """
-    cols = ['signal', 'n_fired', 'mean_fired', 'mean_not', 'delta',
+    cols = ['signal', 'n_fired', 'n_compare', 'mean_fired', 'mean_not',
+            'delta', 'ci_lo', 'ci_hi', 'p', 'hit_fired', 'hit_not',
             'spearman', 'pearson']
     if df.empty or signals_col not in df.columns:
         return pd.DataFrame(columns=cols)
@@ -153,32 +219,50 @@ def per_signal_return_table(df: pd.DataFrame, ret_col: str,
         if token:
             indicators[token] = dummies[token]
 
-    # Pseudo-Signal committee_ex_officio aus dem Breakdown ableiten.
-    if breakdown_col in df.columns:
+    # Rueckfall fuer aeltere Master: Pseudo-Signal aus dem Breakdown.
+    if ('committee_ex_officio' not in indicators
+            and breakdown_col in df.columns):
         ex_bonus = df[breakdown_col].map(_ex_officio_bonus)
         if (ex_bonus > 0).any():
             indicators['committee_ex_officio'] = (ex_bonus > 0).astype(int)
 
+    eligible = committee_eligible_mask(df)
+    iters = int(n_iter if n_iter is not None
+                else getattr(settings, 'SCORE_CORR_BOOTSTRAP_ITERS', 2000))
+    seed = int(getattr(settings, 'AR_BOOTSTRAP_SEED', 0))
+    nan = float('nan')
+
     rows = []
     for sig, ind in indicators.items():
-        pair = pd.DataFrame({'ind': ind.astype(float), 'ret': ret}).dropna()
+        scope = eligible if sig in COMMITTEE_SIGNALS else \
+            pd.Series(True, index=df.index)
+        pair = pd.DataFrame({'ind': ind.astype(float), 'ret': ret})[scope]
+        pair = pair.dropna()
         fired = pair.loc[pair['ind'] == 1, 'ret']
         not_fired = pair.loc[pair['ind'] == 0, 'ret']
-        mean_fired = fired.mean() if len(fired) else float('nan')
-        mean_not = not_fired.mean() if len(not_fired) else float('nan')
+        mean_fired = fired.mean() if len(fired) else nan
+        mean_not = not_fired.mean() if len(not_fired) else nan
         # Korrelation nur sinnvoll, wenn beide Gruppen (gefeuert/nicht) vorkommen.
-        if pair['ind'].nunique() > 1 and len(pair) >= 2:
-            spearman = _spearman(pair['ind'], pair['ret'])
-            pearson = pair['ind'].corr(pair['ret'])
-        else:
-            spearman = float('nan')
-            pearson = float('nan')
+        both = pair['ind'].nunique() > 1 and len(pair) >= 2
+        spearman = _spearman(pair['ind'], pair['ret']) if both else nan
+        pearson = pair['ind'].corr(pair['ret']) if both else nan
+        ci_lo = ci_hi = p = nan
+        if both and cluster_col and cluster_col in df.columns:
+            cl = df.loc[pair.index, cluster_col].fillna('').astype(str).values
+            d = clustered_bootstrap_diff(pair['ret'].values, cl,
+                                         (pair['ind'] == 1).values,
+                                         n_iter=iters, seed=seed)
+            ci_lo, ci_hi, p = d['ci_lo'], d['ci_hi'], d['p']
         rows.append({
             'signal': sig,
             'n_fired': int(len(fired)),
+            'n_compare': int(len(not_fired)),
             'mean_fired': mean_fired,
             'mean_not': mean_not,
             'delta': mean_fired - mean_not,
+            'ci_lo': ci_lo, 'ci_hi': ci_hi, 'p': p,
+            'hit_fired': _hit_rate(fired),
+            'hit_not': _hit_rate(not_fired),
             'spearman': spearman,
             'pearson': pearson,
         })
@@ -187,6 +271,6 @@ def per_signal_return_table(df: pd.DataFrame, ret_col: str,
     if out.empty:
         return out
     return out.sort_values(
-        'spearman', key=lambda s: s.abs(),
+        'delta', key=lambda s: s.abs(),
         ascending=False, na_position='last',
     ).reset_index(drop=True)

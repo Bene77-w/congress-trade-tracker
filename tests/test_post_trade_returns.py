@@ -8,6 +8,8 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+from config import settings
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -644,7 +646,7 @@ def test_fast_lookup_equivalent_to_original(multi_cache):
     probes = [
         ('AAPL', '2025-06-02'),   # exakter Handelstag
         ('AAPL', '2025-06-07'),   # Samstag -> Montag
-        ('AAPL', '2025-05-01'),   # vor erstem Tag -> erster Tag
+        ('AAPL', '2025-05-01'),   # weit vor erstem Tag -> None (Luecke)
         ('AAPL', '2026-01-01'),   # hinter letztem Tag -> None
         ('MSFT', '2024-02-15'),
         ('TSLA', '2025-06-03'),   # single-row Ticker
@@ -659,6 +661,30 @@ def test_fast_lookup_equivalent_to_original(multi_cache):
         old = _price_at_or_after(multi_cache, tkr, ts)
         new = _price_at_or_after_fast(lookup, tkr, ts)
         assert old == new, f"{tkr}@{d}: old={old} new={new}"
+
+
+def test_lookup_before_cache_start_is_unknown(multi_cache):
+    """Beginnt der Cache erst nach dem Ziel, ist der Preis unbekannt.
+
+    Frueher kam der erste Cache-Kurs zurueck; Baseline und Horizont eines
+    alten Trades trafen damit denselben Kurs und ergaben 0 % Rendite.
+    """
+    lookup = _build_price_lookup(multi_cache)
+    first = multi_cache.loc['AAPL'].dropna().index.min()
+    near = first - pd.Timedelta(days=settings.POST_TRADE_MAX_PRICE_GAP_DAYS)
+    far = near - pd.Timedelta(days=1)
+    assert _price_at_or_after_fast(lookup, 'AAPL', near) is not None
+    assert _price_at_or_after_fast(lookup, 'AAPL', far) is None
+    assert _price_at_or_after(multi_cache, 'AAPL', far) is None
+
+
+def test_build_price_lookup_drops_non_positive_close():
+    idx = pd.MultiIndex.from_tuples(
+        [('BAD', pd.Timestamp('2025-06-02')), ('BAD', pd.Timestamp('2025-06-03'))],
+        names=['ticker', 'date'])
+    cache = pd.DataFrame({'close': [-5.0, 10.0]}, index=idx)
+    lookup = _build_price_lookup(cache)
+    assert list(lookup['BAD'][1]) == [10.0]
 
 
 def test_build_price_lookup_drops_delisted_marker(multi_cache):
@@ -982,14 +1008,14 @@ def test_compute_paper_returns_offline(monkeypatch, tmp_path):
     fresh = _fresh_cache('AAPL', last_close=104.0)
     _save_price_cache(fresh, str(cache_path))
     # Baseline wird LIVE aus dem Cache abgeleitet (erster Close >=
-    # transaction_date); transaction_date liegt vor dem Cache-Beginn -> erster
+    # transaction_date); transaction_date = erster Cache-Tag -> erster
     # Cache-Eintrag (aelteste Zeile, nach Datum sortiert).
     first_close = float(fresh.sort_index()['close'].iloc[0])
 
     today = pd.Timestamp.now().normalize()
     df = pd.DataFrame([
         _make_trade_row(trade_id='RECENT', ticker='AAPL',
-                        transaction_date=(today - pd.Timedelta(days=10)),
+                        transaction_date=pd.bdate_range(end=today, periods=5)[0],
                         transaction_type='Purchase'),
         _make_trade_row(trade_id='OLD', ticker='AAPL',
                         transaction_date=(today - pd.Timedelta(days=400)),
@@ -1029,14 +1055,14 @@ def test_compute_paper_returns_split_immune(monkeypatch, tmp_path):
     cache_path = tmp_path / 'price_history.parquet'
     fresh = _fresh_cache('AAPL', last_close=104.0)
     _save_price_cache(fresh, str(cache_path))
-    # transaction_date liegt vor dem Cache-Beginn -> Live-Baseline = erster
+    # transaction_date = erster Cache-Tag -> Live-Baseline = erster
     # Close im Cache (aelteste Zeile, nach Datum sortiert).
     first_close = float(fresh.sort_index()['close'].iloc[0])
 
     today = pd.Timestamp.now().normalize()
     df = pd.DataFrame([
         _make_trade_row(trade_id='RECENT', ticker='AAPL',
-                        transaction_date=(today - pd.Timedelta(days=10)),
+                        transaction_date=pd.bdate_range(end=today, periods=5)[0],
                         transaction_type='Purchase'),
     ])
     df['post_trade_baseline_price'] = [1000.0]

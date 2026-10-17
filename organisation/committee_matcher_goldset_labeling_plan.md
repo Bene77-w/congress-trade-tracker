@@ -331,7 +331,8 @@ Nachgebaut sind: Obergrenze aus `unit_kind` und `input_basis` der Unit (zwei
 bei `committee_parent_core` und bei `name_only`, sonst fünf), Ausnahme erst ab
 drei Zuordnungen, gar nicht bei `no_mapping` und gar nicht bei den engen
 Unittypen, `broad_scope_reason` mit sichtbarem Text, Confidence mindestens 3
-sowie eigene Evidence und eigene Rationale je Industry. `collect` liest die
+sowie eine eigene Rationale je Industry (seit 2026-10-16 darf sich ein Beleg
+mehrere Industries teilen, siehe CHANGELOG). `collect` liest die
 Vertragsfelder dabei so streng wie Pydantic: `broad_scope_exception` muss ein
 echter Wahrheitswert sein (`bool("")` machte aus einem Textfeld sonst klaglos
 ein Nein), Textfelder müssen Text sein (`str(None)` ergäbe sonst den sichtbaren

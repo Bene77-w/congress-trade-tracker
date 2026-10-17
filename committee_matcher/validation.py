@@ -29,6 +29,7 @@ from pydantic import ValidationError
 from .models import (
     MAX_ASSIGNMENTS,
     MAX_ASSIGNMENTS_REGULAR,
+    RESEARCH_MAX_CONFIDENCE,
     InputBasis,
     MappingBatchResult,
     MappingDecision,
@@ -36,6 +37,8 @@ from .models import (
     TaxonomySnapshot,
     UnitKind,
     comparable_text,
+    evidence_word_count,
+    is_research_evidence,
 )
 
 #: Unittypen, die nie mehr als ``MAX_ASSIGNMENTS_REGULAR`` Zuordnungen tragen
@@ -141,6 +144,8 @@ def evidence_supported(unit: MatcherUnit, excerpt: str) -> bool:
     needle = comparable_text(excerpt)
     if not needle:
         return False
+    if is_research_evidence(excerpt):
+        return True
     return any(needle in comparable_text(text) for _, text in evidence_contexts(unit))
 
 
@@ -299,6 +304,23 @@ def validate_payload(payload: object, batch, snapshot: TaxonomySnapshot
             if not evidence_supported(unit, assignment.evidence_excerpt):
                 violations.append(
                     _evidence_violation(unit, position, assignment.evidence_excerpt))
+            elif is_research_evidence(assignment.evidence_excerpt):
+                if assignment.confidence > RESEARCH_MAX_CONFIDENCE:
+                    violations.append(Violation(
+                        "MAP_RESEARCH_CONFIDENCE_EXCEEDED",
+                        f"Die {position}. Zuordnung verwendet Recherche als "
+                        f"Evidence und darf hoechstens Confidence "
+                        f"{RESEARCH_MAX_CONFIDENCE} tragen.",
+                        unit.unit_id,
+                    ))
+            elif evidence_word_count(assignment.evidence_excerpt) < 2:
+                violations.append(Violation(
+                    "MAP_EVIDENCE_TOO_SHORT",
+                    f"Die Evidence der {position}. Zuordnung besteht nur aus "
+                    "einem Wort. Zitiere mindestens den tragenden Begriff mit "
+                    "seinem zusammenhaengenden Kontext.",
+                    unit.unit_id,
+                ))
 
     if violations:
         return ValidationOutcome(None, tuple(violations), parsed=result)

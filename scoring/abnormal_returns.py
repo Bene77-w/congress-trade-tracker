@@ -41,6 +41,7 @@ import pandas as pd
 from scoring.post_trade_returns import (
     _build_price_lookup,
     _load_price_cache,
+    _max_gap,
     _sell_sign_series,
 )
 
@@ -55,7 +56,8 @@ def _prices_for_dates(
     ``entry`` = ``(dates[datetime64[ns]], closes[float64])`` aus
     :func:`_build_price_lookup` (bereits NaN-gefiltert + nach Datum sortiert).
     ``targets`` = ``datetime64[ns]``-Array. NaT-Targets und Targets hinter dem
-    letzten Cache-Datum -> NaN. Ergebnis-aequivalent zu ``_price_at_or_after_fast``,
+    letzten Cache-Datum oder mehr als ``POST_TRADE_MAX_PRICE_GAP_DAYS`` vor dem
+    naechsten Close -> NaN. Ergebnis-aequivalent zu ``_price_at_or_after_fast``,
     nur vektorisiert (ein ``np.searchsorted`` statt N Einzel-Lookups).
     """
     dates, closes = entry
@@ -65,6 +67,9 @@ def _prices_for_dates(
         return out
     pos = np.searchsorted(dates, targets, side='left')
     ok = valid_t & (pos < len(dates))
+    # Liegt der naechste Close zu weit hinter dem Ziel (Cache beginnt spaeter),
+    # ist der Preis unbekannt - wie in _price_at_or_after_fast.
+    ok[ok] = (dates[pos[ok]] - targets[ok]) <= _max_gap()
     out[ok] = closes[pos[ok]]
     return out
 

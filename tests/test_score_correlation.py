@@ -191,5 +191,62 @@ def test_per_signal_return_table_negative_signal():
 def test_per_signal_return_table_empty_input():
     out = per_signal_return_table(pd.DataFrame(), 'post_return_180d')
     assert out.empty
-    assert list(out.columns) == ['signal', 'n_fired', 'mean_fired', 'mean_not',
-                                 'delta', 'spearman', 'pearson']
+    assert list(out.columns) == ['signal', 'n_fired', 'n_compare',
+                                 'mean_fired', 'mean_not', 'delta', 'ci_lo',
+                                 'ci_hi', 'p', 'hit_fired', 'hit_not',
+                                 'spearman', 'pearson']
+
+
+def test_committee_signal_compares_only_eligible_trades():
+    """Ein Trade ohne Branche kann committee_full nie ausloesen und gehoert
+    nicht in die Vergleichsgruppe."""
+    df = pd.DataFrame({
+        'signals_triggered': ['committee_full', '', ''],
+        'post_return_180d': [5.0, 1.0, -50.0],
+        'sector_yf': ['Tech', 'Tech', None],
+        'industry_yf': ['Software', 'Software', None],
+        'Member_Committees_Full': ['A', 'A', 'A'],
+    })
+    row = per_signal_return_table(df, 'post_return_180d') \
+        .set_index('signal').loc['committee_full']
+    assert row['n_compare'] == 1
+    assert math.isclose(row['delta'], 4.0)
+
+
+def test_ex_officio_token_is_not_overridden_by_breakdown():
+    df = pd.DataFrame({
+        'signals_triggered': ['committee_ex_officio', '', ''],
+        'post_return_180d': [3.0, 1.0, 1.0],
+        'trade_score_breakdown': ['ex_officio:+0', 'ex_officio:+15',
+                                  'ex_officio:+0'],
+    })
+    row = per_signal_return_table(df, 'post_return_180d') \
+        .set_index('signal').loc['committee_ex_officio']
+    assert row['n_fired'] == 1
+
+
+def test_hit_rates_and_cluster_ci():
+    df = pd.DataFrame({
+        'signals_triggered': ['swarm_buy', 'swarm_buy', '', '', 'swarm_buy', ''],
+        'post_return_180d': [4.0, -1.0, -2.0, 1.0, 3.0, -3.0],
+        'bio_guide_id': ['a', 'a', 'a', 'b', 'b', 'b'],
+    })
+    row = per_signal_return_table(df, 'post_return_180d',
+                                  cluster_col='bio_guide_id', n_iter=200) \
+        .set_index('signal').loc['swarm_buy']
+    assert math.isclose(row['hit_fired'], 2 / 3)
+    assert math.isclose(row['hit_not'], 1 / 3)
+    assert row['ci_lo'] <= row['delta'] <= row['ci_hi']
+
+
+def test_analysis_population_dedups_and_drops_exchange(monkeypatch):
+    from app import score_correlation as sc
+    monkeypatch.setattr(sc.settings, 'ANALYSIS_DEDUP', 'full_row')
+    monkeypatch.setattr(sc.settings, 'ANALYSIS_EXCLUDE_EXCHANGE', True)
+    df = pd.DataFrame({
+        'trade_id': ['x', 'x', 'y', 'z'],
+        'transaction_type': ['Purchase', 'Purchase', 'Exchange', 'Sale'],
+        'post_return_180d': [1.0, 1.0, 2.0, 3.0],
+    })
+    out = sc.analysis_population(df)
+    assert list(out['trade_id']) == ['x', 'z']

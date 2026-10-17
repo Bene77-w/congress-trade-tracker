@@ -2196,7 +2196,8 @@ with tab_analysis:
     st.caption('Hinweis: Beim Partei-Filter fallen Trades ohne hinterlegte '
                'Partei aus der Stichprobe.')
 
-    an_base = corr_base
+    # Analyse-Population: Duplikate raus, Exchange raus (ANALYSIS_* in settings).
+    an_base = score_corr.analysis_population(corr_base)
     if chambers and set(sel_chambers) != set(chambers):
         an_base = an_base[an_base['chamber'].isin(sel_chambers)]
     if parties and set(sel_parties) != set(parties):
@@ -2286,12 +2287,18 @@ with tab_analysis:
         'Pro Signal: binaerer „gefeuert"-Indikator gegen den signierten '
         'Return. Werte sind MARGINAL/univariat — Signale ko-okkurrieren, '
         'dies sind also KEINE isolierten Beitraege. swarm_paradox ist ein '
-        'Daempfer (negative Korrelation erwartet). Sortiert nach |Spearman|.'
+        'Daempfer (negative Korrelation erwartet). Committee-Signale werden '
+        'nur gegen Trades verglichen, die sie ausloesen koennten (Branche und '
+        'Ausschuesse bekannt). CI und p: member-geclusterter Bootstrap. '
+        'Sortiert nach |Δ|.'
     )
     if mat.empty:
         st.info('Keine auswertbaren Trades fuer die aktuelle Auswahl.')
     else:
-        ps = score_corr.per_signal_return_table(mat, rc)
+        ps = score_corr.per_signal_return_table(
+            mat, rc,
+            cluster_col='bio_guide_id' if 'bio_guide_id' in mat.columns
+            else None)
         if ps.empty:
             st.info('Keine getriggerten Signale in der Stichprobe.')
         else:
@@ -2306,8 +2313,19 @@ with tab_analysis:
                         'Ø Return gefeuert (%)', format='%.2f'),
                     'mean_not': st.column_config.NumberColumn(
                         'Ø Return nicht (%)', format='%.2f'),
+                    'n_compare': st.column_config.NumberColumn(
+                        'n Vergleich', format='%d'),
                     'delta': st.column_config.NumberColumn(
                         'Δ (%)', format='%.2f'),
+                    'ci_lo': st.column_config.NumberColumn(
+                        'CI 95 % unten', format='%.2f'),
+                    'ci_hi': st.column_config.NumberColumn(
+                        'CI 95 % oben', format='%.2f'),
+                    'p': st.column_config.NumberColumn('p', format='%.3f'),
+                    'hit_fired': st.column_config.NumberColumn(
+                        'Trefferquote gefeuert', format='percent'),
+                    'hit_not': st.column_config.NumberColumn(
+                        'Trefferquote nicht', format='percent'),
                     'spearman': st.column_config.NumberColumn(
                         'Spearman-Rangkorrelation (ρ)', format='%.3f',
                         help=help_for('spearman')),

@@ -8,7 +8,7 @@ import sys
 import unicodedata
 from collections import OrderedDict, defaultdict
 
-ROOT = '/home/bene/Nextcloud/backup_l9520/Projekte/bmb_trdprg/congress_tracker-agent-member_detailed_info_modul'
+ROOT = '/home/bene/Nextcloud/Projekte/bmb_trdprg/congress_tracker-agent-member_detailed_info_modul'
 sys.path.insert(0, ROOT)
 import scrapers.house_pdf_parsing_tool.parse_house_committee_pdf as P
 

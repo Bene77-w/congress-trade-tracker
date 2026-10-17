@@ -25,7 +25,8 @@ Zwei Eigenschaften bleiben Vertrag:
   Workbook aus einem anderen Lauf wird nie importiert.
 
 Geprueft wird nur, was das Ergebnis unbrauchbar machen wuerde: unbekannte
-Unit, unbekannte Industry, doppelte Industry, unlesbare Confidence. Die
+Unit, unbekannte Industry, doppelte Industry, unlesbare Confidence sowie die
+absoluten Confidence- und Broad-Scope-Grenzen des Recherche-Sentinels. Die
 Anzahlgrenzen des Modellvertrags gelten fuer den Menschen als Hinweis, nicht
 als Sperre - er entscheidet, das Modell nicht.
 """
@@ -39,12 +40,18 @@ from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
 from openpyxl import Workbook, load_workbook
+from openpyxl.styles import PatternFill
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
 
 from . import artifacts, paths, validation, workflow
 from .errors import ErrorCollector, MatcherError, Stage
-from .models import MAX_CONFIDENCE, MIN_CONFIDENCE
+from .models import (
+    MAX_CONFIDENCE,
+    MIN_CONFIDENCE,
+    RESEARCH_MAX_CONFIDENCE,
+    is_research_evidence,
+)
 from .status import ExitCode
 
 #: Reviewrevisionen liegen neben den Runrevisionen, nicht in ihnen: ein Review
@@ -101,6 +108,10 @@ COMPARED_FIELDS: tuple[str, ...] = (
 STRIPPED_COLUMNS: frozenset[str] = frozenset({
     "unit_id", "industry_id", "confidence",
 })
+
+#: Dezente Lesemarkierung; der Zellwert und damit der Importvertrag bleiben
+#: unveraendert.
+RESEARCH_ROW_FILL = PatternFill(fill_type="solid", fgColor="FFF2CC")
 
 
 class ReviewError(MatcherError):
@@ -233,6 +244,15 @@ def _write_sheet(sheet, columns: Sequence[str],
     sheet.freeze_panes = "B2"
 
 
+def _mark_research_rows(sheet, columns: Sequence[str]) -> None:
+    """Hebt rein recherchegestuetzte Zuordnungen im Review optisch hervor."""
+    evidence_column = columns.index("evidence_excerpt") + 1
+    for row in range(2, sheet.max_row + 1):
+        if is_research_evidence(_text(sheet.cell(row, evidence_column).value)):
+            for column in range(1, len(columns) + 1):
+                sheet.cell(row, column).fill = RESEARCH_ROW_FILL
+
+
 def _bind_industry_list(sheet, taxonomy_rows: int, data_rows: int) -> None:
     """Haengt die Auswahlliste der Industries an die Spalte ``industry_id``.
 
@@ -263,6 +283,7 @@ def build_workbook(rows: Sequence[Mapping[str, object]],
     sheet = book.active
     sheet.title = SHEET_ASSIGNMENTS
     _write_sheet(sheet, ASSIGNMENT_SHEET_COLUMNS, rows)
+    _mark_research_rows(sheet, ASSIGNMENT_SHEET_COLUMNS)
     _write_sheet(book.create_sheet(SHEET_BOUNDARY), BOUNDARY_SHEET_COLUMNS, boundary)
     _write_sheet(book.create_sheet(SHEET_TAXONOMY), TAXONOMY_SHEET_COLUMNS, taxonomy)
     _bind_industry_list(sheet, len(taxonomy), len(rows))
@@ -788,6 +809,15 @@ def check_units(units: Mapping[str, EffectiveUnit], corpus: Mapping[str, object]
                 f"erlaubt hoechstens {limit}.",
                 "Bewusst so gewollt: nichts zu tun. Sonst ueberzaehlige Zeilen "
                 "im Blatt 'assignments' loeschen und erneut importieren.")
+        researched = [entry for entry in state.assignments
+                      if is_research_evidence(entry.evidence_excerpt)]
+        if len(state.assignments) > validation.MAX_ASSIGNMENTS_REGULAR and researched:
+            _reject(
+                collector, "REV_RESEARCH_IN_BROAD_SCOPE", unit_id,
+                "Eine Unit mit mehr als zwei Zuordnungen enthaelt den "
+                "Evidence-Sentinel Recherche.",
+                "Recherche-Zuordnung entfernen oder die Unit auf hoechstens "
+                "zwei Zuordnungen kuerzen.")
         for entry in state.assignments:
             if entry.industry_id not in known_ids:
                 _reject(collector, "REV_UNKNOWN_INDUSTRY",
@@ -795,6 +825,17 @@ def check_units(units: Mapping[str, EffectiveUnit], corpus: Mapping[str, object]
                         "Die industry_id kommt im Snapshot des Laufs nicht vor.",
                         "ID aus dem Blatt 'taxonomy' uebernehmen; Sektor und "
                         "Namen leitet der Import selbst ab.")
+            if entry.confidence and \
+                    is_research_evidence(entry.evidence_excerpt) and \
+                    int(entry.confidence) > RESEARCH_MAX_CONFIDENCE:
+                _reject(
+                    collector, "REV_RESEARCH_CONFIDENCE",
+                    f"{unit_id}/{entry.industry_id}",
+                    f"Recherche als Evidence traegt Confidence "
+                    f"{entry.confidence}; zulaessig ist hoechstens "
+                    f"{RESEARCH_MAX_CONFIDENCE}.",
+                    f"Confidence auf hoechstens {RESEARCH_MAX_CONFIDENCE} "
+                    "senken oder eine echte Evidence eintragen.")
 
 
 def _industry_record(snapshot, industry_id: str):

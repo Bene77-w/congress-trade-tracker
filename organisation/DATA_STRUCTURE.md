@@ -489,6 +489,11 @@ Promptangaben aus dem Runmanifest; das Modell liefert nur die `industry_id`.
 Reviewimport. `no_mapping`-Units erzeugen hier keine Zeile und stehen
 vollzählig in der Unit-Coverage.
 
+`evidence_excerpt` ist entweder ein wörtlicher, zusammenhängender Ausschnitt
+aus einer erlaubten Unitquelle oder exakt `Recherche` für eine rein
+webrecherchegestützte Zuordnung. Der Sentinel ändert weder Spaltentyp noch
+Schemafassung; seine Confidence ist auf 3 begrenzt.
+
 `unit_coverage.csv`: `run_id`, `revision_id`, `unit_id`, `chamber`,
 `committee_name`, `unit_name`, `unit_kind`, `status`
 (`not_decided | mapped | no_mapping | failed`), `assignment_count`,
@@ -563,6 +568,8 @@ Excel. Eine
 `mapped`-Unit hat eine Zeile je Zuordnung, eine `no_mapping`-Unit genau eine
 Zeile ohne Industry; Units ohne Urteil (`failed`, `not_decided`) stehen nicht im
 Workbook und werden im Exportmanifest unter `incomplete_units` benannt.
+Recherche-Zeilen behalten denselben Spaltenvertrag und werden lediglich gelb
+markiert; die Farbe wird nicht zurückimportiert.
 
 Blatt `boundary`: `family_id`, `industry_id`, `industry_name`, `unit_count`,
 `unit_ids`. Reine Information ohne Eingabefeld; der Import liest das Blatt
@@ -1869,6 +1876,15 @@ Scoring-Parameter, daher nicht in
 - `SCORE_CORR_SCATTER_MAX_POINTS` / `SCORE_CORR_SCATTER_OPACITY` — `20000` /
   `0.3`; Sample-Cap + Opazität des Scatters (nur Visualisierung; die Kennzahlen
   Spearman/Pearson/n rechnen immer über die volle Stichprobe).
+- `ANALYSIS_DEDUP` — `'full_row'`; Deduplizierung der Analyse-Population
+  (`'full_row'` | `'trade_id'` | `'none'`), `app/score_correlation.py::analysis_population`.
+  Gilt für den Analyse-Tab und `scripts/analyse_event_study.py` (Neu 2026-10-16).
+- `ANALYSIS_EXCLUDE_EXCHANGE` — `True`; Exchange-Trades haben keine Richtung und
+  fallen aus der Analyse-Population.
+- `SCORE_CORR_BOOTSTRAP_ITERS` — `2000`; Iterationen des member-geclusterten
+  Bootstraps für CI und p in der Pro-Signal-Tabelle. Committee-Signale werden
+  dort nur gegen Trades verglichen, die sie auslösen könnten
+  (`committee_eligible_mask`).
 
 ### `config/settings.py::UI_SCOPE_PREFIX` / `UI_SCOPE_HELP`
 Reine **Anzeige-Config** (kein Scoring-Parameter): Grundtexte für die

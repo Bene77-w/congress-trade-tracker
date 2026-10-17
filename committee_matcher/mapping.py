@@ -48,6 +48,8 @@ from .models import (
     MappingDecision,
     MatcherUnit,
     TaxonomySnapshot,
+    has_visible_text,
+    is_research_evidence,
 )
 from .prompts import SystemPrompt, untrusted_block
 from .provider import StructuredOutputProvider, StructuredRequest, StructuredResponse
@@ -86,7 +88,9 @@ def _assignment_schema() -> dict:
             "evidence_excerpt": {
                 "type": "string",
                 "description": "Woertlicher zusammenhaengender Ausschnitt aus dem "
-                               "Zustaendigkeitstext dieser Unit.",
+                               "Zustaendigkeitstext oder Namen dieser Unit; exakt "
+                               "'Recherche' nur bei rein recherchegestuetzter "
+                               "Zuordnung (Confidence hoechstens 3).",
             },
             "rationale_short": {
                 "type": "string",
@@ -625,8 +629,140 @@ def _merged_outcome(batch: MappingBatch, snapshot: TaxonomySnapshot,
         if unit is None:  # kann nur bei einer unvollstaendigen Erstantwort auftreten
             return None
         merged.append(unit.model_dump(mode="json"))
-    return validate_payload(
+    merged_outcome = validate_payload(
         {"requested_batch_id": batch.batch_id, "units": merged}, batch, snapshot)
+    transition_violations = tuple(
+        violation for violation in repaired.violations
+        if violation.code == "MAP_REPAIR_EVIDENCE_TO_RESEARCH")
+    if transition_violations:
+        return ValidationOutcome(
+            None,
+            merged_outcome.violations + transition_violations,
+            parsed=merged_outcome.parsed,
+        )
+    return merged_outcome
+
+
+def _protect_repair_evidence(
+        original: ValidationOutcome,
+        repaired: ValidationOutcome,
+        scope: MappingBatch,
+        protected_real_ids: Mapping[str, set[str]],
+        allowed_research_ids: dict[str, set[str]],
+        research_rename_budget: dict[str, int]) -> ValidationOutcome:
+    """Verhindert, dass ein Repair echte Evidence durch Recherche ersetzt.
+
+    Der Validator allein kennt nur eine Antwort und kann diesen verbotenen
+    Zustandsuebergang deshalb nicht erkennen. Erlaubt bleibt ein Sentinel,
+    der bereits fuer dieselbe Industry vorhanden war. Ein entfallener alter
+    Sentinel darf genau einen Sentinel mit neuer ID legitimieren; das deckt
+    die Korrektur einer falsch geschriebenen Industry-ID ab, ohne eine zuvor
+    echte Zuordnung derselben Industry zu oeffnen.
+    """
+    if repaired.parsed is None:
+        return repaired
+    original_units = ({unit.unit_id: unit for unit in original.parsed.units}
+                      if original.parsed is not None else {})
+    violations = list(repaired.violations)
+    for repaired_unit in repaired.parsed.units:
+        if repaired_unit.unit_id not in scope.unit_ids:
+            continue
+        previous = original_units.get(repaired_unit.unit_id)
+        previous_by_id = {
+            assignment.industry_id: assignment
+            for assignment in (previous.assignments if previous else ())
+        }
+        for position, assignment in enumerate(repaired_unit.assignments):
+            if not is_research_evidence(assignment.evidence_excerpt):
+                continue
+            if assignment.industry_id in protected_real_ids.get(
+                    repaired_unit.unit_id, set()):
+                # Der kumulative Schutz greift auch dann, wenn die echte
+                # Evidence erst in einem formal noch ungueltigen Repair
+                # erschien und der unmittelbar vorige Payload wieder anders
+                # aussieht.
+                violations.append(Violation(
+                    "MAP_REPAIR_EVIDENCE_TO_RESEARCH",
+                    f"Die Evidence der {position + 1}. Zuordnung war in einem "
+                    "vorherigen Stand textbelegt und darf im Reparaturlauf "
+                    "nicht durch Recherche ersetzt werden. Behalte eine echte "
+                    "belegbare Evidence oder entferne die Zuordnung.",
+                    repaired_unit.unit_id,
+                ))
+                continue
+            before = previous_by_id.get(assignment.industry_id)
+            if assignment.industry_id in allowed_research_ids.get(
+                    repaired_unit.unit_id, set()):
+                continue
+            if before is not None and is_research_evidence(before.evidence_excerpt):
+                continue
+            if before is None and research_rename_budget.get(
+                    repaired_unit.unit_id, 0) > 0:
+                research_rename_budget[repaired_unit.unit_id] -= 1
+                allowed_research_ids.setdefault(
+                    repaired_unit.unit_id, set()).add(assignment.industry_id)
+                continue
+            violations.append(Violation(
+                "MAP_REPAIR_EVIDENCE_TO_RESEARCH",
+                f"Die Evidence der {position + 1}. Zuordnung war im vorherigen "
+                "Stand textbelegt und darf im Reparaturlauf nicht durch "
+                "Recherche ersetzt werden. Behalte eine echte belegbare "
+                "Evidence oder entferne die Zuordnung.",
+                repaired_unit.unit_id,
+            ))
+    if violations:
+        return ValidationOutcome(None, tuple(violations), parsed=repaired.parsed)
+    return repaired
+
+
+def _remember_real_evidence(
+        outcome: ValidationOutcome,
+        protected_real_ids: dict[str, set[str]]) -> None:
+    """Merkt jede im Repairverlauf einmal textbelegte Industry kumulativ."""
+    if outcome.parsed is None:
+        return
+    for unit in outcome.parsed.units:
+        protected_real_ids.setdefault(unit.unit_id, set()).update(
+            assignment.industry_id for assignment in unit.assignments
+            if not is_research_evidence(assignment.evidence_excerpt))
+
+
+def _remember_raw_real_evidence(
+        payload: object,
+        protected_real_ids: dict[str, set[str]],
+        allowed_unit_ids: tuple[str, ...],
+        research_ids: dict[str, set[str]] | None = None) -> None:
+    """Rettet erkennbare echte Evidence auch aus einem kaputten Schema.
+
+    Ein falscher Typ in einem anderen Feld nimmt Pydantic den gesamten
+    ``parsed``-Stand. Fuer die Repair-Sperre reichen jedoch drei konservativ
+    lesbare Strings: angefragte Unit-ID, Industry-ID und sichtbare Evidence.
+    Unbekannte oder unvollstaendige Strukturen werden ignoriert.
+    """
+    if not isinstance(payload, dict) or not isinstance(payload.get("units"), list):
+        return
+    allowed = set(allowed_unit_ids)
+    for unit in payload["units"]:
+        if not isinstance(unit, dict) or unit.get("unit_id") not in allowed:
+            continue
+        unit_id = unit["unit_id"]
+        assignments = unit.get("assignments")
+        if not isinstance(assignments, list):
+            continue
+        for assignment in assignments:
+            if not isinstance(assignment, dict):
+                continue
+            industry_id = assignment.get("industry_id")
+            evidence = assignment.get("evidence_excerpt")
+            if not isinstance(industry_id, str) or not has_visible_text(industry_id):
+                continue
+            if not isinstance(evidence, str) or not has_visible_text(evidence):
+                continue
+            if is_research_evidence(evidence):
+                if research_ids is not None:
+                    research_ids.setdefault(unit_id, set()).add(industry_id)
+            else:
+                protected_real_ids.setdefault(unit_id, set()).add(industry_id)
 
 
 def map_batch(provider: StructuredOutputProvider,
@@ -669,6 +805,18 @@ def map_batch(provider: StructuredOutputProvider,
     # Auftrag auf den ganzen Batch ausweiten - und damit gerade die Units
     # wieder oeffnen, die im Erstcall gueltig waren.
     scope = repair_scope(batch, outcome)
+    original = outcome
+    protected_real_ids: dict[str, set[str]] = {}
+    allowed_research_ids: dict[str, set[str]] = {}
+    _remember_real_evidence(original, protected_real_ids)
+    _remember_raw_real_evidence(
+        response.payload, protected_real_ids, batch.unit_ids,
+        allowed_research_ids)
+    known_ids = snapshot.industry_ids()
+    research_rename_budget = {
+        unit_id: sum(industry_id not in known_ids for industry_id in industry_ids)
+        for unit_id, industry_ids in allowed_research_ids.items()
+    }
     #: Letzter Stand, der alle Units des Batches abdeckt; er liefert beim Merge
     #: die unbeanstandeten Units.
     baseline = outcome
@@ -695,6 +843,12 @@ def map_batch(provider: StructuredOutputProvider,
                       open_violations=len(outcome.violations))
         response = provider.complete(repair_request)
         repaired = validate_payload(response.payload, scope, snapshot)
+        repaired = _protect_repair_evidence(
+            original, repaired, scope, protected_real_ids,
+            allowed_research_ids, research_rename_budget)
+        _remember_real_evidence(repaired, protected_real_ids)
+        _remember_raw_real_evidence(
+            response.payload, protected_real_ids, scope.unit_ids)
         if scope.unit_ids == batch.unit_ids:
             outcome = repaired
         else:
