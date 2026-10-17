@@ -726,10 +726,12 @@ SCORE_CORR_DEFAULT_HORIZON_DAYS = 180
 # (Spearman/Pearson/n) werden IMMER ueber die volle Stichprobe gerechnet —
 # das Cap betrifft nur die Visualisierung.
 # Rendite-Auswertungen (app/score_correlation.py, Event Study):
-# Dublettenbehandlung vor der Analyse: 'full_row' (identische Zeilen = Quell-
-# wiederholung), 'trade_id' oder 'none'. Der Import behaelt Dubletten bewusst
-# (DEDUP_STRATEGY='keep_all'); bereinigt wird nur in der Analyse.
-ANALYSIS_DEDUP = 'full_row'
+# Dublettenbehandlung vor der Analyse: 'trade_id' (je trade_id die frueheste
+# Offenlegung; erfasst auch Wiederholungen aus spaeteren Uploads/Amendments,
+# die sich nur in Metadaten unterscheiden), 'full_row' (nur identische Zeilen)
+# oder 'none'. Der Import behaelt Dubletten bewusst (DEDUP_STRATEGY='keep_all');
+# bereinigt wird nur in der Analyse.
+ANALYSIS_DEDUP = 'trade_id'
 # Exchange-Trades haben keine Richtung und fallen aus Rendite-Auswertungen.
 ANALYSIS_EXCLUDE_EXCHANGE = True
 # Iterationen des member-geclusterten Bootstraps im Dashboard (Pro-Signal-CI).

@@ -131,18 +131,23 @@ def _ex_officio_bonus(breakdown: object) -> float:
 def analysis_population(df: pd.DataFrame) -> pd.DataFrame:
     """Bereinigt den Master fuer jede Rendite-Auswertung.
 
-    - ``ANALYSIS_DEDUP``: ``'full_row'`` entfernt vollstaendig identische
-      Zeilen (Quellwiederholungen, die der Import per ``keep_all`` behaelt),
-      ``'trade_id'`` alle Wiederholungen einer ``trade_id``, ``'none'`` nichts.
+    - ``ANALYSIS_DEDUP``: ``'trade_id'`` behaelt je ``trade_id`` die Zeile mit
+      der fruehesten Offenlegung (Wiederholungen aus spaeteren Uploads und
+      Amendments unterscheiden sich nur in Metadaten oder ``disclosure_date``),
+      ``'full_row'`` entfernt nur vollstaendig identische Zeilen, ``'none'``
+      nichts.
     - ``ANALYSIS_EXCLUDE_EXCHANGE``: Exchange-Trades haben keine Richtung; ihr
       Vorzeichen +1 wuerde sie als Kauf werten.
     """
     out = df
-    mode = getattr(settings, 'ANALYSIS_DEDUP', 'full_row')
+    mode = getattr(settings, 'ANALYSIS_DEDUP', 'trade_id')
     if mode == 'full_row':
         out = out.drop_duplicates()
     elif mode == 'trade_id' and 'trade_id' in out.columns:
-        out = out.drop_duplicates(subset='trade_id')
+        if 'disclosure_date' in out.columns:
+            order = pd.to_datetime(out['disclosure_date'], errors='coerce')
+            out = out.loc[order.sort_values(kind='stable').index]
+        out = out.drop_duplicates(subset='trade_id').sort_index()
     if (getattr(settings, 'ANALYSIS_EXCLUDE_EXCHANGE', True)
             and 'transaction_type' in out.columns):
         tt = out['transaction_type'].astype('string').str.strip().str.lower()
@@ -234,7 +239,9 @@ def per_signal_return_table(df: pd.DataFrame, ret_col: str,
 
     rows = []
     for sig, ind in indicators.items():
-        scope = eligible if sig in COMMITTEE_SIGNALS else \
+        # Gefeuerte Trades gehoeren immer dazu, auch wenn die Eignungsmaske
+        # sie (z. B. per asset_class_excluded) ausschliessen wuerde.
+        scope = (eligible | (ind == 1)) if sig in COMMITTEE_SIGNALS else \
             pd.Series(True, index=df.index)
         pair = pd.DataFrame({'ind': ind.astype(float), 'ret': ret})[scope]
         pair = pair.dropna()

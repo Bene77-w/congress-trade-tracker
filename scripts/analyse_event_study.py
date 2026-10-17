@@ -98,7 +98,7 @@ def _load() -> pd.DataFrame:
     for c in ['trade_score'] + _RAW_RETURN_COLS:
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors='coerce')
-    # Gleiche Population wie im Dashboard: Duplikate + Exchange raus.
+    # Gleiche Population wie im Dashboard: Duplikate (nach trade_id) + Exchange raus.
     return analysis_population(df).reset_index(drop=True)
 
 
@@ -195,7 +195,11 @@ def main() -> None:
     elig_all = committee_eligible_mask(df)
     df_all = df
     for sig in SIGNALS:
-        df = df_all[elig_all] if sig in COMMITTEE_SIGNALS else df_all
+        if sig in COMMITTEE_SIGNALS:
+            # Gefeuerte Trades bleiben immer in der Vergleichsmenge.
+            df = df_all[elig_all | _has_signal(df_all['signals_triggered'], sig)]
+        else:
+            df = df_all
         clusters_all = df['bio_guide_id'].fillna('').astype(str).values
         vals_all = df[head_col].values
         mask = _has_signal(df['signals_triggered'], sig)

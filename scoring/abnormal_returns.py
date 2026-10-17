@@ -342,8 +342,9 @@ def clustered_bootstrap_diff(
     if len(bb) == 0:
         p = nan
     else:
-        frac = (bb <= 0).mean() if point > 0 else (bb >= 0).mean()
-        p = float(min(1.0, 2.0 * frac))
+        # (k+1)/(n+1): kein p = 0 allein durch die endliche Iterationszahl.
+        cnt = int((bb <= 0).sum() if point > 0 else (bb >= 0).sum())
+        p = float(min(1.0, 2.0 * (cnt + 1) / (len(bb) + 1)))
     return {'point': float(point), 'ci_lo': float(lo), 'ci_hi': float(hi),
             'p': p, 'n_with': int(wc.sum()), 'n_without': int(oc.sum()),
             'n_clusters': k}

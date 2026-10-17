@@ -20,6 +20,12 @@ sobald der dominierende Vielhändler (K000389, 55 % der Treffer-Käufe) herausge
 wird. Offen: richtungsabhängiges `committee_full`, Ausgleich für Vielhändler,
 Ticker-Aliase (FB, BRK.B, SQ), voller Pipeline-Rebuild.
 
+Review-Befunde behoben: Die Analyse-Population dedupliziert jetzt nach `trade_id`
+(früheste Offenlegung) statt nach identischen Zeilen; vorher blieben 1.174
+Wiederholungen aus späteren Uploads und Amendments doppelt gezählt. Gefeuerte
+Committee-Trades bleiben immer in der Vergleichsmenge. Bootstrap-p nutzt
+(k+1)/(n+1) und wird damit nie 0. Tests: 2351 passed.
+
 ## 2026-10-16 — Analysewerkzeug korrigiert, Schattenvergleich Mapping alt/neu
 
 Preis-Lookups liefern NaN statt des ersten Cache-Kurses, wenn dieser mehr als

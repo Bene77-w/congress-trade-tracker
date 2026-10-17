@@ -1905,7 +1905,7 @@ Scoring-Parameter, daher nicht in
 - `SCORE_CORR_SCATTER_MAX_POINTS` / `SCORE_CORR_SCATTER_OPACITY` — `20000` /
   `0.3`; Sample-Cap + Opazität des Scatters (nur Visualisierung; die Kennzahlen
   Spearman/Pearson/n rechnen immer über die volle Stichprobe).
-- `ANALYSIS_DEDUP` — `'full_row'`; Deduplizierung der Analyse-Population
+- `ANALYSIS_DEDUP` — `'trade_id'`; Deduplizierung der Analyse-Population (je `trade_id` die früheste Offenlegung; Alternativen `'full_row'`, `'none'`)
   (`'full_row'` | `'trade_id'` | `'none'`), `app/score_correlation.py::analysis_population`.
   Gilt für den Analyse-Tab und `scripts/analyse_event_study.py` (Neu 2026-10-16).
 - `ANALYSIS_EXCLUDE_EXCHANGE` — `True`; Exchange-Trades haben keine Richtung und
