@@ -1,0 +1,14 @@
+# codex | gpt-5.6-sol | effort high
+# exit 0 | 16.5 s
+
+--- stdout ---
+{"type":"thread.started","thread_id":"01a05dab-8ef2-7a12-9f33-7b1b1bb12c3f"}
+{"type":"turn.started"}
+{"type":"item.started","item":{"id":"item_0","type":"web_search","id":"exec-5ad99278-bf94-490d-a5d0-ff974eb647d5","query":"","action":{"type":"other"}}}
+{"type":"item.completed","item":{"id":"item_0","type":"web_search","id":"exec-5ad99278-bf94-490d-a5d0-ff974eb647d5","query":"site:rules.house.gov Subcommittee on Legislative and Budget Process jurisdiction budget process","action":{"type":"search","query":"site:rules.house.gov Subcommittee on Legislative and Budget Process jurisdiction budget process"}}}
+{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"{\"unit_id\":\"house--rules--legislative-and-budget-process\",\"decision\":\"no_mapping\",\"no_mapping_reason\":\"Die Zuständigkeit betrifft ausschließlich das interne Gesetzgebungs- und Haushaltsverfahren sowie die Beziehungen zwischen Kongress und Exekutive; keine Industry der Taxonomie hat diese staatlichen Verfahren als unmittelbar reguliertes Kerngeschäft.\",\"broad_scope_exception\":false,\"broad_scope_reason\":null,\"assignments\":[],\"sources\":[{\"url\":\"https://rules.house.gov/about/subcommittees\",\"belegt\":\"bestätigt die Zuständigkeit für Beziehungen zwischen Kongress und Exekutive, insbesondere den Haushaltsprozess\"}],\"label_uncertain\":false,\"uncertainty_note\":null}"}}
+{"type":"turn.completed","usage":{"input_tokens":51580,"cached_input_tokens":23296,"cache_write_input_tokens":0,"output_tokens":333,"reasoning_output_tokens":123}}
+
+--- stderr ---
+WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries under temporary dir "/tmp" (codex_home: AbsolutePathBuf("/tmp/goldset-label-e3l95dl1/codex-home"))
+2026-09-01T15:51:59.479916Z ERROR codex_core::session::session: failed to load skill /home/bene/.agents/skills/put-simply/SKILL.md: invalid YAML: did not find expected comment or line break at line 2 column 17, while scanning a block scalar at line 2 column 14

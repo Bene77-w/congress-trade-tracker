@@ -1,0 +1,47 @@
+{
+  "version": "review-export-v2",
+  "workbook_version": "review-workbook-v2",
+  "review_id": "review-p8-run2",
+  "run_id": "p8-run2",
+  "revision_id": "p8-run2",
+  "snapshot_id": "run-p4-spike",
+  "taxonomy_content_hash": "8c3da76572d994be167115502e646785f97c299d43244bc161468457b5ffbb6f",
+  "input_manifest_hash": "26280924070b522986f8b9c0470dde90fce8ad355bda5cdad4d505c9514bf2c7",
+  "model": "deepseek/deepseek-v4-flash-0731",
+  "unit_count": 7,
+  "row_count": 10,
+  "boundary_count": 2,
+  "incomplete_units": [],
+  "columns": {
+    "assignments": [
+      "unit_id",
+      "industry_id",
+      "confidence",
+      "evidence_excerpt",
+      "rationale_short",
+      "no_mapping_reason"
+    ],
+    "boundary": [
+      "family_id",
+      "industry_id",
+      "industry_name",
+      "unit_count",
+      "unit_ids"
+    ],
+    "taxonomy": [
+      "industry_id",
+      "industry_name",
+      "sector_id",
+      "sector_name"
+    ]
+  },
+  "units": [
+    "house--agriculture",
+    "house--agriculture--commodity-markets-digital-assets-and-rural-development",
+    "house--agriculture--conservation-research-and-biotechnology",
+    "house--agriculture--forestry-and-horticulture",
+    "house--agriculture--general-farm-commodities-risk-management-and-credit",
+    "house--agriculture--livestock-dairy-and-poultry",
+    "house--agriculture--nutrition-and-foreign-agriculture"
+  ]
+}
