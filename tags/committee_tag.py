@@ -2,7 +2,7 @@ import logging
 import re
 from typing import Dict, List, Any, Optional
 from config import settings
-from config.committee_mapping import CommitteeMapper
+from config.committee_mapping import CommitteeMapper, dedupe_entries
 from utils.committee_parser import parse_committees_full
 
 logger = logging.getLogger(__name__)
@@ -86,6 +86,15 @@ class CommitteeTag:
         self.match_mode = getattr(settings, 'RELEVANT_SECTORS_MATCH_MODE',
                                   'sector_or_industry')
 
+        # Gilt die Zustaendigkeit des Ausschusses auch bei Unterausschuss-Sitz?
+        # Nur fuer das V2-Mapping: dort ist der Committee-Lookup der eigene
+        # Text des Ausschusses. Die Legacy-CSV aggregiert an derselben Stelle
+        # ihre Unterausschusszeilen — dieselbe Regel bedeutete dort etwas
+        # anderes und veraenderte den Vergleichsstand, gegen den gemessen wird.
+        self.parent_core_additive = (
+            getattr(self.mapper, 'revision', None) is not None
+            and getattr(settings, 'COMMITTEE_PARENT_CORE_ADDITIVE', True))
+
     @staticmethod
     def _norm(value: Any) -> str:
         """Normalisiert Sektor/Industry-Strings für robusten Vergleich."""
@@ -157,6 +166,23 @@ class CommitteeTag:
                         s['subcommittee_role'] = subcom['role']
                         s['committee'] = comm['committee']
                         s['subcommittee'] = subcom['name']
+                    all_sectors.extend(sectors)
+                if self.parent_core_additive:
+                    # Die Zustaendigkeit des Ausschusses selbst gilt auch, wenn
+                    # jemand zusaetzlich in einem Unterausschuss sitzt. Der
+                    # Matcher fuehrt sie als eigene Unit aus dem eigenen Text
+                    # des Ausschusses - kein Aggregat seiner Kinder, deshalb
+                    # doppelt hier auch nichts. subcommittee_role bleibt leer:
+                    # eine Fuehrungsrolle im Unterausschuss darf nicht auf die
+                    # Committee-Ebene abfaerben.
+                    sectors = self.mapper.get_all_sectors_for_committee(
+                        chamber, comm['committee']
+                    )
+                    for s in sectors:
+                        s['committee_role'] = comm['role']
+                        s['subcommittee_role'] = ''
+                        s['committee'] = comm['committee']
+                        s['subcommittee'] = ''
                     all_sectors.extend(sectors)
             else:
                 sectors = self.mapper.get_all_sectors_for_committee(
@@ -242,14 +268,10 @@ class CommitteeTag:
     def _deduplicate_sectors(self, sectors: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Dedupliziert (sector, industry)-Kombinationen.
-        Bei Duplikaten gewinnt der niedrigere Rank (= primärer Sektor),
-        bei Gleichstand bleibt der erste Eintrag.
+        Bei Duplikaten gewinnt die höhere Konfidenz; wo keine numerische
+        Konfidenz steht (Legacy-Mapping), entscheidet weiter der niedrigere
+        Rank. Die Regel steht in `config/committee_mapping.dedupe_entries` —
+        der Mapper dedupliziert eine Ebene tiefer nach derselben, und zwei
+        Fassungen derselben Regel könnten verschiedene Sieger küren.
         """
-        unique: Dict[tuple, Dict[str, Any]] = {}
-        for sector in sectors:
-            key = (sector['sector'], sector['industry'])
-            if key not in unique:
-                unique[key] = sector
-            elif sector.get('rank', 99) < unique[key].get('rank', 99):
-                unique[key] = sector
-        return list(unique.values())
+        return dedupe_entries(sectors)

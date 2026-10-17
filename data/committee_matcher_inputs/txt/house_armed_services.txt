@@ -1,0 +1,41 @@
+input text for house Armed Services committee:
+
+
+Cyber, Information Technologies, and Innovation:
+Jurisdiction: Department of Defense policy related to the acquisition of computer software, the electromagnetic spectrum, and electromagnetic warfare; and Department of Defense policy and programs and accounts related to artificial intelligence, cyber security, cyber operations, cyber forces, information technology, and science and technology (including defense-wide programs and accounts related to research, development, testing, and evaluation, except for those defense-wide programs and accounts related to research, development, testing, and evaluation of missile defense systems). 
+
+
+
+Intelligence and Special Operations
+Jurisdiction: Department of Defense policy and programs and accounts related to military intelligence, national intelligence, countering weapons of mass destruction, counter-proliferation, counter-terrorism, other sensitive military operations, special operations forces, information operations policy and military information support operations, and security cooperation. 
+
+
+
+Military Personnel 
+Jurisdiction: Department of Defense policy and programs and accounts related to military personnel and their families, Reserve Component integration and employment, military health care, military education, dependent schools, POW/MIA issues, Morale, Welfare and Recreation, commissaries, cemeteries under the jurisdiction of the Department of Defense, the Uniform Code of Military Justice, military retirement issues, and the civilian and contract workforce. 
+
+
+
+
+Readiness
+Jurisdiction: Department of Defense policy and programs and accounts related to military readiness, training, logistics and maintenance, military construction, organic industrial base, environment, military installations and real property management, family housing, base realignments and closures, and energy. 
+
+
+
+
+Seapower and Projection Forces
+Jurisdiction: Navy and Marine Corps acquisition programs and accounts related to shipbuilding and conversion, reconnaissance and surveillance, tanker, and airlift aircraft, ship and submarine-launched weapons, ammunition, and other procurements; Air Force programs and accounts related to bomber, tanker, and airlift aircraft; Army programs and accounts related to waterborne vessels; and Maritime policy and programs and accounts under the jurisdiction of the Committee as delineated in paragraphs 5 and 9 of clause 1(c) of rule X of the Rules of the House of Representatives. 
+
+
+
+Strategic Forces 
+Jurisdiction: Department of Defense and Department of Energy policy related to strategic deterrence, strategic stability, nuclear weapons, strategic and nuclear arms control, non-proliferation, nuclear safety, missile defense, and space; Department of Defense programs and accounts related to nuclear weapons, strategic missiles, nuclear command and control systems, Department of Defense intelligence space, space systems and services of the military departments, and intermediate and long-range missile defense systems; and Department of Energy national security programs and accounts. 
+
+
+
+
+Tactical Air and Land Forces 
+Jurisdiction: Army programs and accounts related to aircraft, ground equipment, missiles, ammunition, and other procurement; Marine Corps programs and accounts related to ground and amphibious equipment, fighter aircraft, helicopters, air-launched weapons, and ammunition; Air Force programs and accounts related to fighter, training, reconnaissance and surveillance, and electronic warfare aircraft, helicopters, air-launched weapons, ground equipment, and ammunition; Navy programs and accounts related to fighter, training, and electronic warfare aircraft, helicopters, and air-launched weapons; tactical air and missile defense programs and accounts; chemical agent and munition destruction programs and accounts; and National Guard and Reserve equipment programs and accounts. 
+'
+
+

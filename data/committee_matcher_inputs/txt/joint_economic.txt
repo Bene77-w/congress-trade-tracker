@@ -1,0 +1,38 @@
+input text für joint committee on economic:
+
+
+
+# Joint Economic Committee (JEC)
+
+## Kernaussage
+
+Beratendes Analyse-Gremium **ohne Gesetzgebungszuständigkeit** — kann keine Gesetzentwürfe berichten, keine Mittel bewilligen, keine Behörde beaufsichtigen. Folge fürs Mapping: **breiter Makro-Themenradius, minimale regulatorische Durchgriffsmacht auf einzelne Industries.**
+
+## Struktur & Mandat
+
+- **Employment Act of 1946** (§ 5); 20 Mitglieder (10 Senat, 10 House), Vorsitz rotiert kammerweise je Kongress
+- Keine Unterausschüsse mit eigener Jurisdiktion (anders als die 38 Standing Committees)
+- Aufgaben: Prüfung des **Economic Report of the President** + eigener Jahresbericht; Untersuchung gesamtwirtschaftlicher Entwicklungen; **Anhörungen** (Fed, CEA, BLS/BEA/CBO, externe Ökonomen), traditionell rund um zentrale Datenveröffentlichungen; Studien von Mehrheits- und Minderheitsstab (oft gegensätzlich); Empfehlungen an die Fachausschüsse ohne Umsetzungskompetenz
+
+## Themenradius → Sektoren
+
+| Themenfeld | Betroffene Sektoren |
+|---|---|
+| Geldpolitik, Zinsen, Inflation | Financials, Real Estate, Homebuilders, Utilities |
+| Arbeitsmarkt, Löhne, Produktivität | breiter Markt, Staffing, Consumer Discretionary |
+| Fiskalpolitik, Steuern, Schulden | breiter Markt, Treasuries |
+| Handel, Zölle, Lieferketten | Industrials, Semiconductors, Retail, Agriculture |
+| Energiepreise, Klimaökonomie | Energy, Utilities |
+| Gesundheitskosten, Demografie | Healthcare, Insurance |
+| Technologie-/KI-Ökonomie, Wettbewerb | Information Technology, Communication Services |
+| Wohnkosten, Regionalökonomie | Real Estate, Materials |
+
+## Gewichtungshinweise
+
+- **Niedriges Basisgewicht.** Sektorspezifische Informationsvorteile eines Mitglieds stammen praktisch immer aus dessen Standing-Committee-Sitzen, nicht aus dem JEC.
+- **Signal ist makro, nicht mikro** — eher Index-ETFs und zinssensitive Titel als Einzelwerte.
+- **Doppelzählung vermeiden:** JEC-Mitglieder sitzen meist zusätzlich in Finance/Banking/Ways and Means.
+- **Vorsitz beachten:** prägt die Hearing-Agenda stark → dynamischer Themen-Pull statt statischer Sektorliste.
+- **Stabil vs. volatil:** Mandat/Struktur seit 1946 konstant, Themenagenda wechselt je Kongress.
+
+**Kurzformel für den Reasoner:** *„Beratendes Makro-Gremium ohne Gesetzgebungsmacht; Themenradius gesamtwirtschaftlich; Sektorzuordnung breit und schwach gewichtet."*

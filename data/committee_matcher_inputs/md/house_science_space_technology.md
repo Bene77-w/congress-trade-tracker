@@ -1,0 +1,62 @@
+---
+schema_version: 1
+congress: 119
+chamber: house
+committee: Committee on Science, Space, and Technology
+committee_type: standing
+source_url: null
+retrieved_at: null
+source_metadata_status: pending
+source_files:
+  - "data/committee_matcher_inputs/txt/house_science_space_technology.txt"
+  - "data/committee_matcher_inputs/md/house-rule-x-committee-jurisdictions.md"
+unit_input_basis:
+  committee: jurisdiction_text
+  subcommittees:
+    "Subcommittee on Energy": jurisdiction_text
+    "Subcommittee on Environment": jurisdiction_text
+    "Subcommittee on Research and Technology": jurisdiction_text
+    "Subcommittee on Space and Aeronautics": jurisdiction_text
+    "Subcommittee on Investigations and Oversight": jurisdiction_text
+---
+
+# Committee jurisdiction
+
+1. All energy research, development, and demonstration, and projects therefor, and all federally owned or operated nonmilitary energy laboratories.
+2. Astronautical research and development, including resources, personnel, equipment, and facilities.
+3. Civil aviation research and development.
+4. Environmental research and development.
+5. Marine research.
+6. Commercial application of energy technology.
+7. National Institute of Standards and Technology, standardization of weights and measures, and the metric system.
+8. National Aeronautics and Space Administration.
+9. National Space Council.
+10. National Science Foundation.
+11. National Weather Service.
+12. Outer space, including exploration and control thereof.
+13. Science scholarships.
+14. Scientific research, development, and demonstration, and projects therefor.
+
+## Subcommittee on Energy
+
+Shall have jurisdiction over the following subject matters: all matters relating to energy research, development, and demonstration projects therefor; commercial application of energy technology; Department of Energy research, development, and demonstration programs; Department of Energy laboratories; Department of Energy science activities; Department of Energy cybersecurity activities; Department of Energy international research, development, and demonstration projects; energy supply activities; nuclear, solar, and renewable energy, and other advanced energy technologies; uranium supply and enrichment, and Department of Energy waste management; Department of Energy environmental management research, development, and demonstration; fossil energy research and development; clean coal technology; energy conservation research and development, including building performance, alternate fuels, distributed power systems, and industrial process improvements; pipeline research, development, and demonstration projects; energy standards; other appropriate matters as referred by the Chair; and relevant oversight.
+
+## Subcommittee on Environment
+
+Shall have jurisdiction over the following subject matters: all matters relating to environmental research; Environmental Protection Agency research and development; environmental standards; climate change research and development; the National Oceanic and Atmospheric Administration, including all activities related to weather, weather services, climate, the atmosphere, marine fisheries, and oceanic research; risk assessment activities; scientific issues related to environmental policy, including climate change;; other appropriate matters as referred by the Chair; and relevant oversight.
+
+## Subcommittee on Research and Technology
+
+Shall have jurisdiction over the following subject matters: All matters relating to science policy and STEM education; competitiveness, technology, standards, and innovation; National Science Foundation; The National Institute of Standards and Technology; The Office of Science and Technology Policy; The National Technical Information Service; Research, development, and demonstration activities of the Department of Transportation; Research, development, demonstration, and standards-related activities of the Department of Homeland Security; Innovation programs at the Economic Development Administration of the Department of Commerce; Intergovernmental mechanisms for research, development, and demonstration and cross-cutting programs; All scientific research, and scientific and engineering resources (including human resources); All matters relating to science, technology, engineering and mathematics education,including matters related to diversity in STEM; Technology transfer, including civilian use of defense technologies; Emerging technology policy, including biotechnology, artificial intelligence, and quantum; Small Business Innovation Research and Technology Transfer; International scientific cooperation; Standardization of weights and measures, including technical standards, standardization, and conformity assessment; Measurement, including the metric system of measurement; Competitiveness, including small business competitiveness; Tax, antitrust, regulatory and other legal and governmental policies as they relate to technological development and commercialization; Patent and intellectual property policy; International technology trade; University research policy, including infrastructure and overhead; University research partnerships, including those with industry;  Science scholarships; Surface and water transportation research, development, and demonstration programs; Earthquake programs, windstorm programs, and fire research programs, including those related to wildfire proliferation research and prevention; Voting and elections systems technologies and standards; Computing, communications, networking, and information technology; Research and development relating to health, biomedical, and nutritional programs; Research, development, and demonstration relating to nanoscience, nanoengineering, and nanotechnology; Agricultural, geological, biological and life sciences research; Materials research, development, demonstration, and policy; Other appropriate matters as referred by the Chairman; and relevant oversight.
+
+## Subcommittee on Space and Aeronautics
+
+Shall have jurisdiction over the following subject matters: all matters relating to astronautical and aeronautical research and development; national space policy, including access to space; sub-orbital access and applications; National Aeronautics and Space Administration and its contractor and government-operated labs; space commercialization, including commercial space activities relating to the Department of Transportation and the Department of Commerce; exploration and use of outer space; international space cooperation; the National Space Council; space applications, space communications and related matters; Earth remote sensing policy; civil aviation including unmanned aerial systems, research, development, and demonstration; research, development, and demonstration programs of the Federal Aviation Administration; space law; other appropriate matters as referred by the Chair; and relevant oversight.
+
+## Subcommittee on Investigations and Oversight
+
+Shall have general and special investigative authority on all matters within the jurisdiction of the Committee on Science, Space, and Technology.
+
+## Zusätzliche Kommentare
+
+Präambel und entfernte input text-Anweisung aus der Rohdatei dokumentiert.

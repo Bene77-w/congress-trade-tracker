@@ -1,0 +1,891 @@
+"""Tests der Run-CLI des Committee Matchers V2 (P7c).
+
+Netzwerkfrei: der Providerrand ist in jedem Test entweder verboten oder durch
+``FakeProvider`` ersetzt. Corpus, Artefaktwurzel und Settings liegen unter
+``tmp_path``; das Repository wird nur lesend fuer Prompts benutzt.
+"""
+from __future__ import annotations
+
+import json
+import sys
+from dataclasses import replace
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from committee_matcher import cli, input_corpus, paths, taxonomy_snapshot, workflow  # noqa: E402
+from committee_matcher.settings_view import load_settings  # noqa: E402
+from committee_matcher.status import ExitCode  # noqa: E402
+
+from tests.test_committee_matcher_input_units import build_corpus, make_markdown  # noqa: E402
+
+#: Zwei Industries genuegen; geprueft wird der Ablauf, nicht die Taxonomie.
+INDUSTRIES = [
+    {
+        "industry_id": "agricultural-inputs",
+        "industry_name": "Agricultural Inputs",
+        "sector_id": "basic-materials",
+        "sector_name": "Basic Materials",
+        "description": "Duenger, Saatgut und Pflanzenschutz.",
+    },
+    {
+        "industry_id": "farm-products",
+        "industry_name": "Farm Products",
+        "sector_id": "consumer-defensive",
+        "sector_name": "Consumer Defensive",
+        "description": "Erzeugung und Vermarktung von Agrarprodukten.",
+    },
+]
+
+
+def settings_module(**overrides):
+    """Vollstaendige Settings eines Laufs; Werte wie nach Gate B."""
+    values = {
+        "COMMITTEE_MATCHER_MAX_FILE_BYTES": 512_000,
+        "COMMITTEE_MATCHER_MAX_FRONTMATTER_BYTES": 32_000,
+        "COMMITTEE_MATCHER_MIN_EVIDENCE_CHARS": 60,
+        "COMMITTEE_MATCHER_YFINANCE_REQUEST_PAUSE_S": 1.5,
+        "COMMITTEE_MATCHER_YFINANCE_MAX_RETRIES": 3,
+        "COMMITTEE_MATCHER_YFINANCE_CHECKPOINT_EVERY": 10,
+        "COMMITTEE_MATCHER_BATCH_SIZE": 3,
+        "COMMITTEE_MATCHER_WORKFLOW_RETRIES": 2,
+        "COMMITTEE_MATCHER_MAX_REPAIR_ATTEMPTS": 1,
+        "COMMITTEE_MATCHER_CHARS_PER_TOKEN": 3.0,
+        "COMMITTEE_MATCHER_RECONCILE_MIN_AGE_S": 300.0,
+        "COMMITTEE_MATCHER_COST_GUARD": True,
+        "COMMITTEE_MATCHER_EVALUATION_BATCH_SIZES": (1, 3),
+        "COMMITTEE_MATCHER_EVALUATION_REPETITIONS": 3,
+        "COMMITTEE_MATCHER_EVALUATION_MAX_REPETITIONS": 5,
+        "COMMITTEE_MATCHER_MODEL": "anbieter/modell",
+        "COMMITTEE_MATCHER_QUANTIZATIONS": ("fp8", "bf16"),
+        "COMMITTEE_MATCHER_DATA_COLLECTION": "deny",
+        "COMMITTEE_MATCHER_ZDR": True,
+        "COMMITTEE_MATCHER_MAX_PRICE_USD_PER_MTOK": {"prompt": 3.0, "completion": 15.0},
+        "COMMITTEE_MATCHER_ENDPOINT_CONTEXT_TOKENS": 200_000,
+        "COMMITTEE_MATCHER_MAX_OUTPUT_TOKENS": 8_000,
+        "COMMITTEE_MATCHER_REASONING_RESERVE_TOKENS": 4_000,
+        "COMMITTEE_MATCHER_REASONING_EFFORT": "low",
+        "COMMITTEE_MATCHER_REQUEST_TIMEOUT_S": 120.0,
+        "COMMITTEE_MATCHER_MAX_RUN_COST_USD": 5.0,
+        "COMMITTEE_MATCHER_MAX_EVALUATION_COST_USD": 5.0,
+        "COMMITTEE_MATCHER_MAX_QUALIFICATION_COST_USD": 5.0,
+    }
+    values.update(overrides)
+    return SimpleNamespace(**values)
+
+
+def write_baseline(*, run_id: str = "run-taxonomy") -> str:
+    """Legt eine freigegebene Taxonomie an und liefert ihren Content-Hash."""
+    digest = taxonomy_snapshot.hash_records(INDUSTRIES)
+    target = taxonomy_snapshot.baseline_path()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(
+        json.dumps(
+            {
+                "content_version": taxonomy_snapshot.TAXONOMY_CONTENT_VERSION,
+                "approved_run_id": run_id,
+                "taxonomy_content_hash": digest,
+                "yfinance_version": "0.2.99",
+                "industries": INDUSTRIES,
+            },
+            ensure_ascii=False, indent=2,
+        ) + "\n",
+        encoding="utf-8",
+    )
+    return digest
+
+
+@pytest.fixture
+def sandbox(tmp_path, monkeypatch):
+    """Corpus, Artefaktwurzel, Settings und ein verbotener Providerrand."""
+    monkeypatch.setattr(paths, "ARTIFACT_ROOT", tmp_path / "artifacts")
+    root = build_corpus(tmp_path, {
+        "house_testing.md": make_markdown(
+            sections=("Subcommittee on Livestock", "Subcommittee on Nutrition")),
+    })
+    original = input_corpus.load_documents
+    monkeypatch.setattr(
+        cli.input_corpus, "load_documents",
+        lambda collector, offline, input_root=root: original(collector, offline, root),
+    )
+    monkeypatch.setattr(cli, "load_settings", lambda: load_settings(settings_module()))
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("run plan darf keinen Provider aufbauen")
+
+    monkeypatch.setattr(cli.provider.OpenRouterProvider, "create", forbidden)
+    write_baseline()
+    return SimpleNamespace(root=root, tmp_path=tmp_path, monkeypatch=monkeypatch)
+
+
+def plan_argv(run_id: str = "run-test", *extra: str) -> list[str]:
+    return ["run", "plan", "--run-id", run_id, "--committee",
+            "Committee on Testing", *extra]
+
+
+# ---------------------------------------------------------------------------
+# run plan
+# ---------------------------------------------------------------------------
+
+def test_plan_writes_the_manifest_and_stays_provider_free(sandbox, capsys):
+    assert cli.main(plan_argv()) in (int(ExitCode.SUCCESS), int(ExitCode.SUCCESS_WITH_WARNINGS))
+    manifest = workflow.load_manifest("run-test")
+    assert manifest is not None
+    assert manifest["unit_count"] == 3
+    assert manifest["selection"]["committee"] == "Committee on Testing"
+    out = capsys.readouterr().out
+    assert "Kosten: 0.00 USD (providerfreie Phase" in out
+    assert "[START] workflow | run=run-test | action=plan" in out
+
+
+def test_plan_reports_scope_and_worst_case_cost(sandbox, capsys):
+    cli.main(plan_argv())
+    out = capsys.readouterr().out
+    assert "Umfang:   3 von 3 Units" in out
+    assert "Worst Case" in out
+    assert "[OK] cost | run=run-test" in out
+
+
+def test_plan_without_a_target_refuses_to_run(sandbox, capsys):
+    assert cli.main(["run", "plan", "--run-id", "run-test"]) == int(ExitCode.PREFLIGHT_BLOCKED)
+    assert "CLI_RUN_TARGET_REQUIRED" in capsys.readouterr().out
+    assert workflow.load_manifest("run-test") is None
+
+
+def test_all_units_plans_the_whole_target_set(sandbox, capsys):
+    """Der filterlose Lauf ueber die Sollmenge braucht genau ein Flag."""
+    argv = ["run", "plan", "--run-id", "run-test", "--all-units"]
+    assert cli.main(argv) in (int(ExitCode.SUCCESS), int(ExitCode.SUCCESS_WITH_WARNINGS))
+    manifest = workflow.load_manifest("run-test")
+    assert manifest["selection"]["all_units"] is True
+    assert manifest["selection"]["committee"] is None
+    assert manifest["unit_count"] == 3
+    assert "Umfang:   3 von 3 Units" in capsys.readouterr().out
+
+
+def test_all_units_and_a_filter_together_are_an_operating_error(sandbox, capsys):
+    """Sonst wiese die Coverage eine Teilmenge als vollstaendige Sollmenge aus."""
+    argv = ["run", "plan", "--run-id", "run-test", "--all-units",
+            "--committee", "Committee on Testing"]
+    assert cli.main(argv) == int(ExitCode.PREFLIGHT_BLOCKED)
+    assert "CLI_RUN_TARGET_CONFLICT" in capsys.readouterr().out
+    assert workflow.load_manifest("run-test") is None
+
+
+def test_execute_takes_all_units_from_the_frozen_plan(scripted, capsys):
+    """Das Flag steht im Manifest; 'run execute' verlangt es nicht erneut."""
+    adapter = scripted.install()
+    assert cli.main(["run", "plan", "--run-id", "run-test", "--all-units"]) in (0, 2)
+    capsys.readouterr()
+    assert cli.main(["run", "execute", "--run-id", "run-test"]) in (0, 2)
+    assert len(adapter.calls) == 1
+    state = workflow.load_state("run-test")
+    assert len(state.units) == 3
+
+
+def test_a_full_scope_and_a_narrow_one_are_different_runs(sandbox, capsys):
+    """Ein Lauf ueber alles ist nicht derselbe wie einer ueber ein Committee."""
+    assert cli.main(["run", "plan", "--run-id", "run-test", "--all-units"]) in (0, 2)
+    capsys.readouterr()
+    assert cli.main(plan_argv()) == int(ExitCode.PREFLIGHT_BLOCKED)
+    assert "RUN_MANIFEST_DRIFT" in capsys.readouterr().out
+
+
+def test_plan_without_a_run_id_refuses_to_run(sandbox, capsys):
+    assert cli.main(["run", "plan", "--committee", "Committee on Testing"]) == int(
+        ExitCode.PREFLIGHT_BLOCKED)
+    assert "CLI_RUN_ID_REQUIRED" in capsys.readouterr().out
+
+
+def test_unknown_unit_id_blocks_instead_of_shrinking_the_scope(sandbox, capsys):
+    argv = ["run", "plan", "--run-id", "run-test", "--unit-id", "gibt-es-nicht"]
+    assert cli.main(argv) == int(ExitCode.PREFLIGHT_BLOCKED)
+    out = capsys.readouterr().out
+    assert "CLI_RUN_TARGET_UNKNOWN" in out
+    assert workflow.load_manifest("run-test") is None
+
+
+def test_target_without_any_match_blocks(sandbox, capsys):
+    argv = ["run", "plan", "--run-id", "run-test", "--committee", "Committee on Nothing"]
+    assert cli.main(argv) == int(ExitCode.PREFLIGHT_BLOCKED)
+    assert "CLI_RUN_TARGET_EMPTY" in capsys.readouterr().out
+
+
+def test_missing_taxonomy_approval_waits_instead_of_mapping(sandbox, capsys):
+    taxonomy_snapshot.baseline_path().unlink()
+    assert cli.main(plan_argv()) == int(ExitCode.AWAITING_TAXONOMY_APPROVAL)
+    out = capsys.readouterr().out
+    assert "TAX_BASELINE_MISSING" in out
+    assert "[WAIT] taxonomy | run=run-test | awaiting_taxonomy_approval" in out
+
+
+def test_plan_beyond_the_budget_is_refused_before_any_call(sandbox, capsys):
+    sandbox.monkeypatch.setattr(
+        cli, "load_settings",
+        lambda: load_settings(settings_module(COMMITTEE_MATCHER_MAX_RUN_COST_USD=0.000001)),
+    )
+    assert cli.main(plan_argv()) == int(ExitCode.COST_BLOCKED)
+    out = capsys.readouterr().out
+    assert "COST_BUDGET_EXCEEDED" in out
+    assert workflow.load_manifest("run-test") is None
+
+
+def test_replanning_the_same_conditions_is_allowed(sandbox, capsys):
+    assert cli.main(plan_argv()) in (int(ExitCode.SUCCESS), int(ExitCode.SUCCESS_WITH_WARNINGS))
+    capsys.readouterr()
+    assert cli.main(plan_argv()) in (int(ExitCode.SUCCESS), int(ExitCode.SUCCESS_WITH_WARNINGS))
+    assert "RUN_MANIFEST_DRIFT" not in capsys.readouterr().out
+
+
+def test_replanning_with_another_scope_needs_a_new_revision(sandbox, capsys):
+    cli.main(plan_argv())
+    capsys.readouterr()
+    units = [unit for unit in _units(sandbox)]
+    argv = ["run", "plan", "--run-id", "run-test", "--unit-id", units[0].unit_id]
+    assert cli.main(argv) == int(ExitCode.PREFLIGHT_BLOCKED)
+    assert "RUN_MANIFEST_DRIFT" in capsys.readouterr().out
+
+
+def test_finished_revision_is_never_overwritten(sandbox, capsys):
+    for name in ("assignments_long.csv", "unit_coverage.csv", "boundary_conflicts.csv",
+                 "roster_coverage.csv", "cost_report.json"):
+        workflow.mapping_path("run-test", name, create_parents=True).write_text(
+            "", encoding="utf-8")
+    workflow.mapping_path("run-test", "artifacts_manifest.json", create_parents=True).write_text(
+        json.dumps({
+            "version": "artifact-index-v1",
+            "run_id": "run-test",
+            "files": [{"name": name} for name in (
+                "assignments_long.csv", "unit_coverage.csv", "boundary_conflicts.csv",
+                "roster_coverage.csv", "cost_report.json")],
+        }),
+        encoding="utf-8",
+    )
+    assert cli.main(plan_argv()) == int(ExitCode.PREFLIGHT_BLOCKED)
+    assert "RUN_REVISION_COMPLETE" in capsys.readouterr().out
+
+
+def _units(sandbox):
+    from committee_matcher import units as unit_module
+    from committee_matcher.errors import ErrorCollector
+    collector = ErrorCollector()
+    result = input_corpus.load_documents(
+        collector, load_settings(settings_module()).offline, sandbox.root)
+    return unit_module.build_units(collector, result.documents)
+
+
+# ---------------------------------------------------------------------------
+# run execute
+# ---------------------------------------------------------------------------
+
+def _assignment(industry_id: str = "farm-products") -> dict:
+    return {
+        "industry_id": industry_id,
+        "confidence": 3,
+        "evidence_excerpt": "Zustaendig fuer",
+        "rationale_short": "Kerngeschaeft der Industry.",
+    }
+
+
+def unit_result(unit_id: str, *, decision: str = "mapped",
+                assignments=None, no_mapping_reason=None) -> dict:
+    return {
+        "unit_id": unit_id,
+        "decision": decision,
+        "no_mapping_reason": no_mapping_reason,
+        "broad_scope_exception": False,
+        "broad_scope_reason": None,
+        "assignments": [] if decision == "no_mapping" else (
+            assignments if assignments is not None else [_assignment()]),
+    }
+
+
+def batch_payload(request, *, decision: str = "mapped") -> dict:
+    """Baut die Antwort zu einem Request aus den Unit-IDs seines Batches."""
+    # Durchlauf- und Retrypraefixe gehoeren zur Call-ID, nicht zum Batch.
+    batch_id = "batch-" + request.call_id.split("-repair-")[0].split("batch-", 1)[1]
+    reason = "keine direkte Zustaendigkeit" if decision == "no_mapping" else None
+    return {
+        "requested_batch_id": batch_id,
+        "units": [unit_result(unit_id, decision=decision, no_mapping_reason=reason)
+                  for unit_id in _requested_units(request)],
+    }
+
+
+def _requested_units(request) -> list[str]:
+    """Liest die Unit-IDs aus dem gerenderten Nutzdatenblock."""
+    found = []
+    for line in request.user_content.splitlines():
+        if line.startswith("## unit_id:"):
+            found.append(line.split(":", 1)[1].strip())
+    return found
+
+
+class ScriptedProvider:
+    """Antwortet auf jeden Request mit einer gueltigen Batchantwort."""
+
+    def __init__(self, *, cost_usd: float | None = 0.000012,
+                 provider_name: str | None = "fake", errors=None,
+                 decision: str = "mapped"):
+        self.calls = []
+        self._cost = cost_usd
+        self._provider = provider_name
+        self._errors = list(errors or [])
+        self._decision = decision
+
+    def complete(self, request):
+        self.calls.append(request)
+        if self._errors:
+            error = self._errors.pop(0)
+            if error is not None:
+                raise error
+        payload = batch_payload(request, decision=self._decision)
+        return cli.provider.StructuredResponse(
+            call_id=request.call_id,
+            payload=payload,
+            model="anbieter/modell",
+            provider=self._provider,
+            prompt_tokens=100,
+            completion_tokens=50,
+            cost_usd=self._cost,
+            finish_reason="stop",
+            generation_id=f"gen-{request.call_id}",
+        )
+
+
+@pytest.fixture
+def scripted(sandbox):
+    """Ersetzt den Providerrand durch ein Skript und plant den Lauf."""
+    def install(**kwargs):
+        adapter = ScriptedProvider(**kwargs)
+        sandbox.monkeypatch.setattr(
+            cli.provider.OpenRouterProvider, "create",
+            classmethod(lambda cls, collector, settings: adapter))
+        return adapter
+    sandbox.install = install
+    return sandbox
+
+
+def execute_argv(run_id: str = "run-test") -> list[str]:
+    return ["run", "execute", "--run-id", run_id, "--committee", "Committee on Testing"]
+
+
+def test_execute_maps_every_unit_and_writes_the_artifact_set(scripted, capsys):
+    adapter = scripted.install()
+    assert cli.main(plan_argv()) in (0, 2)
+    capsys.readouterr()
+    assert cli.main(execute_argv()) in (0, 2)
+    out = capsys.readouterr().out
+
+    assert len(adapter.calls) == 1
+    state = workflow.load_state("run-test")
+    assert state.state.value == "awaiting_manual_review"
+    assert {record.status.value for record in state.units.values()} == {"mapped"}
+    for record in state.units.values():
+        assert record.call_id and record.provider == "fake"
+        assert record.generation_id.startswith("gen-")
+        assert record.from_repair is False
+    for name in ("assignments_long.csv", "unit_coverage.csv", "cost_report.json",
+                 "artifacts_manifest.json"):
+        assert workflow.mapping_path("run-test", name).exists(), name
+    assert "[OK] mapping | unit=" in out
+    assert "Kosten:   0.000012 USD gebucht" in out
+
+
+def test_execute_without_a_plan_refuses_to_call(scripted, capsys):
+    adapter = scripted.install()
+    assert cli.main(execute_argv()) == int(ExitCode.PREFLIGHT_BLOCKED)
+    assert "RUN_NOT_PLANNED" in capsys.readouterr().out
+    assert adapter.calls == []
+
+
+def test_audit_trail_and_cost_report_cover_every_call(scripted, capsys):
+    scripted.install()
+    cli.main(plan_argv())
+    cli.main(execute_argv())
+    capsys.readouterr()
+    calls_dir = workflow.mapping_path("run-test", "calls")
+    audits = sorted(path.name for path in calls_dir.glob("*.json"))
+    assert audits and all(not name.endswith(".intent.json") for name in audits)
+    report = json.loads(
+        workflow.mapping_path("run-test", "cost_report.json").read_text(encoding="utf-8"))
+    assert report["calls"] == 1
+    assert report["audited_calls"] == 1
+
+
+def test_no_mapping_is_a_decision_and_not_a_failure(scripted, capsys):
+    scripted.install(decision="no_mapping")
+    cli.main(plan_argv())
+    capsys.readouterr()
+    assert cli.main(execute_argv()) in (0, 2)
+    out = capsys.readouterr().out
+    assert "RUN_UNITS_FAILED" not in out
+    assert "[INFO] mapping | unit=" in out and "no_mapping" in out
+    state = workflow.load_state("run-test")
+    assert {record.status.value for record in state.units.values()} == {"no_mapping"}
+    rows = workflow.mapping_path("run-test", "assignments_long.csv").read_text(
+        encoding="utf-8").splitlines()
+    assert len(rows) == 1, "no_mapping erzeugt keine Zuordnungszeile"
+
+
+def test_budget_stops_the_run_before_the_first_call(scripted, capsys):
+    adapter = scripted.install()
+    cli.main(plan_argv())
+    capsys.readouterr()
+    scripted.monkeypatch.setattr(
+        cli, "load_settings",
+        lambda: load_settings(settings_module(COMMITTEE_MATCHER_MAX_RUN_COST_USD=0.000001)),
+    )
+    assert cli.main(execute_argv()) == int(ExitCode.COST_BLOCKED)
+    assert adapter.calls == []
+    assert not workflow.mapping_path("run-test", "assignments_long.csv").exists()
+
+
+def test_missing_call_provenance_fails_the_unit_instead_of_inventing_one(scripted, capsys):
+    scripted.install(provider_name=None)
+    cli.main(plan_argv())
+    capsys.readouterr()
+    assert cli.main(execute_argv()) == int(ExitCode.FAILED_MAPPING_UNITS)
+    out = capsys.readouterr().out
+    assert "RUN_UNITS_FAILED" in out
+    state = workflow.load_state("run-test")
+    assert {record.status.value for record in state.units.values()} == {"failed"}
+
+
+def test_unreported_cost_is_reserved_and_reported(scripted, capsys):
+    scripted.install(cost_usd=None)
+    cli.main(plan_argv())
+    capsys.readouterr()
+    assert cli.main(execute_argv()) == int(ExitCode.SUCCESS_WITH_WARNINGS)
+    out = capsys.readouterr().out
+    assert "COST_UNKNOWN_REPORTED" in out
+    assert "reserviert" in out
+
+
+def test_a_finished_revision_is_not_executed_twice(scripted, capsys):
+    scripted.install()
+    cli.main(plan_argv())
+    cli.main(execute_argv())
+    capsys.readouterr()
+    assert cli.main(execute_argv()) == int(ExitCode.PREFLIGHT_BLOCKED)
+    assert "RUN_REVISION_COMPLETE" in capsys.readouterr().out
+
+
+def _provider_error(*, retryable: bool, outcome_unknown: bool):
+    return cli.provider._call_failure(
+        "PROV_TEST", "call", "Testfehler.", "Testhinweis.",
+        retryable=retryable, outcome_unknown=outcome_unknown)
+
+
+def _single_unit_batches(monkeypatch):
+    """Ein Batch je Unit; nur so ist ein Teilabbruch beobachtbar."""
+    monkeypatch.setattr(
+        cli, "load_settings",
+        lambda: load_settings(settings_module(COMMITTEE_MATCHER_BATCH_SIZE=1)))
+
+
+def test_resume_reuses_paid_units_and_sends_only_the_open_batches(scripted, capsys):
+    _single_unit_batches(scripted.monkeypatch)
+    first = scripted.install(errors=[None, _provider_error(
+        retryable=False, outcome_unknown=False)])
+    cli.main(plan_argv())
+    capsys.readouterr()
+    assert cli.main(execute_argv()) == int(ExitCode.PROVIDER_ERROR)
+    assert len(first.calls) == 2
+    state = workflow.load_state("run-test")
+    assert len(state.units) == 1
+    assert not workflow.mapping_path("run-test", "assignments_long.csv").exists()
+    assert "RUN_ARTIFACTS_DEFERRED" in capsys.readouterr().out
+
+    second = scripted.install()
+    assert cli.main(execute_argv()) in (0, 2)
+    out = capsys.readouterr().out
+    assert len(second.calls) == 2, "die bezahlte Unit wird nicht erneut gesendet"
+    assert "[INFO] workflow | run=run-test | pending=2 | cached=1" in out
+    assert workflow.mapping_path("run-test", "artifacts_manifest.json").exists()
+
+
+def test_a_paid_answer_lost_by_the_state_is_reused_instead_of_resent(
+        scripted, capsys):
+    """Abbruch zwischen Audit- und Zustandspersistenz.
+
+    Die Antwort ist bezahlt und liegt auf der Platte; kennt der Zustand sie
+    nicht, wuerde derselbe Batch ein zweites Mal gesendet und bezahlt.
+    """
+    _single_unit_batches(scripted.monkeypatch)
+    first = scripted.install(errors=[None, _provider_error(
+        retryable=False, outcome_unknown=False)])
+    cli.main(plan_argv())
+    capsys.readouterr()
+    assert cli.main(execute_argv()) == int(ExitCode.PROVIDER_ERROR)
+    assert len(first.calls) == 2
+    paid_batch = first.calls[0].call_id
+    capsys.readouterr()
+
+    # Der Zustand geht verloren, die Auditspur bleibt.
+    workflow.state_path("run-test").unlink()
+    second = scripted.install()
+    assert cli.main(execute_argv()) in (0, 2)
+    out = capsys.readouterr().out
+    assert not any(paid_batch in call_id for call_id in _sent_batches(second)), (
+        "der bezahlte Batch wird nie erneut gesendet")
+    assert len(second.calls) == 2, "nur die offenen Batches laufen"
+    assert f"batch={paid_batch}" in out and "source=audit" in out
+    assert workflow.mapping_path("run-test", "artifacts_manifest.json").exists()
+
+
+def _sent_batches(adapter) -> list[str]:
+    return [call.call_id for call in adapter.calls]
+
+
+def test_an_unusable_audit_is_not_reused(scripted, capsys):
+    """Ohne vollstaendige Provenienz ist eine Antwort nicht rueckverfolgbar."""
+    _single_unit_batches(scripted.monkeypatch)
+    first = scripted.install(errors=[None, _provider_error(
+        retryable=False, outcome_unknown=False)])
+    cli.main(plan_argv())
+    capsys.readouterr()
+    cli.main(execute_argv())
+    paid_batch = first.calls[0].call_id
+    capsys.readouterr()
+
+    target = workflow.call_path("run-test", paid_batch)
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    payload["generation_id"] = None
+    target.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    workflow.state_path("run-test").unlink()
+
+    second = scripted.install()
+    assert cli.main(execute_argv()) in (0, 2)
+    err = capsys.readouterr().err
+    assert any(paid_batch in call_id for call_id in _sent_batches(second)), (
+        "unbrauchbares Audit laeuft erneut")
+    assert "audit_unusable" in err
+
+
+def test_an_unusable_manifest_is_never_overwritten(scripted, capsys):
+    """Daneben liegt ein Laufzustand mit bezahlten Ergebnissen.
+
+    Ein stiller Neustart stellte sie unter Bedingungen, die sie nie erzeugt
+    haben.
+    """
+    scripted.install()
+    cli.main(plan_argv())
+    capsys.readouterr()
+    workflow.manifest_path("run-test").write_text("{kaputt", encoding="utf-8")
+    assert cli.main(plan_argv()) == int(ExitCode.PREFLIGHT_BLOCKED)
+    out = capsys.readouterr().out
+    assert "RUN_MANIFEST_UNUSABLE" in out
+    assert workflow.manifest_path("run-test").read_text(encoding="utf-8") == "{kaputt"
+
+
+def test_a_rejected_call_is_repeated_under_a_new_call_id(scripted, capsys):
+    adapter = scripted.install(errors=[_provider_error(
+        retryable=True, outcome_unknown=False)])
+    cli.main(plan_argv())
+    capsys.readouterr()
+    assert cli.main(execute_argv()) in (0, 2)
+    out = capsys.readouterr()
+    assert len(adapter.calls) == 2
+    assert adapter.calls[1].call_id.startswith("retry1-")
+    assert "[WARN] provider" in out.err
+    audits = sorted(path.name for path
+                    in workflow.mapping_path("run-test", "calls").glob("*.json"))
+    assert len(audits) == 1, "nur der erfolgreiche Call traegt eine Auditdatei"
+
+
+def test_an_open_outcome_is_never_repeated(scripted, capsys):
+    adapter = scripted.install(errors=[_provider_error(
+        retryable=True, outcome_unknown=True)])
+    cli.main(plan_argv())
+    capsys.readouterr()
+    # Der offene Ausgang bestimmt den Exit-Code, nicht der Providerfehler:
+    # der naechste Schritt ist 'run reconcile', und die Bedienungsanleitung
+    # bindet ihn an Exit 8. Mit Exit 9 bliebe die Reservierung liegen, bis ein
+    # zweites 'run execute' den Lauf blockiert.
+    assert cli.main(execute_argv()) == int(ExitCode.OUTCOME_UNKNOWN)
+    out = capsys.readouterr().out
+    assert len(adapter.calls) == 1, "ein offener Ausgang wird nie erneut gesendet"
+    assert "RUN_OUTCOME_UNKNOWN" in out
+    state = workflow.load_state("run-test")
+    assert state.state.value == "outcome_unknown"
+    assert len(workflow.open_intents("run-test")) == 1
+
+
+# ---------------------------------------------------------------------------
+# run reconcile
+# ---------------------------------------------------------------------------
+
+def reconcile_argv(run_id: str = "run-test") -> list[str]:
+    return ["run", "reconcile", "--run-id", run_id]
+
+
+def _age_intent(call_id, seconds=3_600, run_id="run-test"):
+    """Datiert die Vormerkung zurueck; 'run reconcile' verlangt ein Mindestalter."""
+    target = workflow.intent_path(run_id, call_id)
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    stamp = datetime.now(timezone.utc) - timedelta(seconds=seconds)
+    payload["created_at"] = stamp.isoformat(timespec="seconds")
+    target.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+                      encoding="utf-8")
+
+
+def _leave_one_open(scripted, capsys, *, generation_id="gen-offen"):
+    """Erzeugt genau einen Call mit offenem Ausgang."""
+    scripted.install(errors=[cli.provider._call_failure(
+        "PROV_TEST", "call", "Testfehler.", "Testhinweis.",
+        retryable=False, outcome_unknown=True, generation_id=generation_id)])
+    cli.main(plan_argv())
+    cli.main(execute_argv())
+    capsys.readouterr()
+    open_calls = workflow.open_intents("run-test")
+    assert len(open_calls) == 1
+    return open_calls[0]
+
+
+@pytest.fixture
+def api_key(monkeypatch):
+    monkeypatch.setenv(cli.provider.API_KEY_ENV, "sk-test")
+
+
+def test_reconcile_without_open_calls_does_nothing(scripted, capsys, api_key,
+                                                   monkeypatch):
+    scripted.install()
+    cli.main(plan_argv())
+    cli.main(execute_argv())
+    capsys.readouterr()
+    monkeypatch.setattr(cli.provider, "fetch_generation", _forbidden_fetch)
+    assert cli.main(reconcile_argv()) in (0, 2)
+    assert "kein Call mit offenem Ausgang" in capsys.readouterr().out
+
+
+def _forbidden_fetch(*args, **kwargs):
+    raise AssertionError("ohne offenen Call wird nichts abgefragt")
+
+
+def test_a_generation_the_provider_does_not_know_was_never_charged(
+        scripted, capsys, api_key, monkeypatch):
+    call_id = _leave_one_open(scripted, capsys)
+    _age_intent(call_id)
+    monkeypatch.setattr(
+        cli.provider, "fetch_generation",
+        lambda generation_id, key: cli.provider.GenerationRecord(
+            generation_id=generation_id, found=False))
+    assert cli.main(reconcile_argv()) in (0, 2)
+    out = capsys.readouterr().out
+    assert "1 von 1 Call(s) geklaert" in out
+    assert workflow.open_intents("run-test") == ()
+    payload = json.loads(
+        workflow.reconciled_path("run-test", call_id).read_text(encoding="utf-8"))
+    assert payload["outcome"] == "not_charged"
+    assert payload["released_usd"] > 0
+
+
+def test_a_charged_generation_settles_the_reservation(scripted, capsys, api_key,
+                                                      monkeypatch):
+    call_id = _leave_one_open(scripted, capsys)
+    monkeypatch.setattr(
+        cli.provider, "fetch_generation",
+        lambda generation_id, key: cli.provider.GenerationRecord(
+            generation_id=generation_id, found=True, cost_usd=0.000021,
+            provider="fake", model="anbieter/modell"))
+    assert cli.main(reconcile_argv()) in (0, 2)
+    out = capsys.readouterr().out
+    assert "0.000021 USD tatsaechlich abgerechnet" in out
+    payload = json.loads(
+        workflow.reconciled_path("run-test", call_id).read_text(encoding="utf-8"))
+    assert payload["outcome"] == "charged"
+    assert payload["cost_usd"] == 0.000021
+
+
+def test_a_call_without_a_generation_id_stays_open(scripted, capsys, api_key,
+                                                   monkeypatch):
+    _leave_one_open(scripted, capsys, generation_id=None)
+    monkeypatch.setattr(cli.provider, "fetch_generation", _forbidden_fetch)
+    assert cli.main(reconcile_argv()) == int(ExitCode.OUTCOME_UNKNOWN)
+    out = capsys.readouterr().out
+    assert "RUN_OUTCOME_UNKNOWN" in out
+    assert len(workflow.open_intents("run-test")) == 1
+
+
+def test_an_unreachable_provider_keeps_the_reservation(scripted, capsys, api_key,
+                                                       monkeypatch):
+    _leave_one_open(scripted, capsys)
+
+    def unavailable(generation_id, key):
+        raise cli.provider.CatalogUnavailable("HTTP 503")
+
+    monkeypatch.setattr(cli.provider, "fetch_generation", unavailable)
+    assert cli.main(reconcile_argv()) == int(ExitCode.OUTCOME_UNKNOWN)
+    out = capsys.readouterr().out
+    assert "COST_RECONCILE_UNAVAILABLE" in out
+    assert len(workflow.open_intents("run-test")) == 1
+
+
+def test_reconcile_without_an_api_key_blocks(scripted, capsys, monkeypatch):
+    _leave_one_open(scripted, capsys)
+    monkeypatch.delenv(cli.provider.API_KEY_ENV, raising=False)
+    monkeypatch.setattr(cli.provider, "fetch_generation", _forbidden_fetch)
+    # Kein Providercall gescheitert: der Lauf startet gar nicht erst.
+    assert cli.main(reconcile_argv()) == int(ExitCode.PREFLIGHT_BLOCKED)
+    assert "PROV_NO_API_KEY" in capsys.readouterr().out
+
+
+def test_a_paid_call_without_a_reported_amount_is_clarified(scripted, capsys,
+                                                            api_key, monkeypatch):
+    """Ein bezahlter Call ohne Kostenmeldung haelt eine Reservierung.
+
+    Ohne diesen Klaerweg bliebe sie fuer die Lebensdauer der Revision stehen
+    und schmaelerte jedes weitere Budget des Laufs.
+    """
+    scripted.install(cost_usd=None)
+    cli.main(plan_argv())
+    cli.main(execute_argv())
+    capsys.readouterr()
+    assert workflow.open_intents("run-test") == ()
+    unpriced = workflow.unpriced_audits("run-test")
+    assert len(unpriced) == 1
+
+    monkeypatch.setattr(
+        cli.provider, "fetch_generation",
+        lambda generation_id, key: cli.provider.GenerationRecord(
+            generation_id=generation_id, found=True, cost_usd=0.000021,
+            provider="fake", model="anbieter/modell"))
+    assert cli.main(reconcile_argv()) in (0, 2)
+    assert "0.000021 USD tatsaechlich abgerechnet" in capsys.readouterr().out
+    assert workflow.unpriced_audits("run-test") == ()
+
+
+def test_a_paid_call_the_provider_does_not_know_keeps_its_reservation(
+        scripted, capsys, api_key, monkeypatch):
+    """Die Antwort belegt, dass der Call gelaufen ist.
+
+    Ihn wie eine unbekannte Vormerkung als 'nicht abgerechnet' zu werten wuerde
+    Budget freigeben, das ausgegeben ist.
+    """
+    scripted.install(cost_usd=None)
+    cli.main(plan_argv())
+    cli.main(execute_argv())
+    capsys.readouterr()
+    call_id = workflow.unpriced_audits("run-test")[0]
+    monkeypatch.setattr(
+        cli.provider, "fetch_generation",
+        lambda generation_id, key: cli.provider.GenerationRecord(
+            generation_id=generation_id, found=False))
+    assert cli.main(reconcile_argv()) == int(ExitCode.OUTCOME_UNKNOWN)
+    assert "COST_RECONCILE_INCOMPLETE" in capsys.readouterr().out
+    assert not workflow.reconciled_path("run-test", call_id).exists()
+    assert workflow.unpriced_audits("run-test") == (call_id,)
+
+
+def test_a_cleared_batch_runs_again_under_a_new_call_id(scripted, capsys, api_key,
+                                                        monkeypatch):
+    call_id = _leave_one_open(scripted, capsys)
+    _age_intent(call_id)
+    monkeypatch.setattr(
+        cli.provider, "fetch_generation",
+        lambda generation_id, key: cli.provider.GenerationRecord(
+            generation_id=generation_id, found=False))
+    cli.main(reconcile_argv())
+    capsys.readouterr()
+    adapter = scripted.install()
+    assert cli.main(execute_argv()) in (0, 2)
+    assert len(adapter.calls) == 1
+    assert adapter.calls[0].call_id == f"pass2-{call_id}"
+    assert workflow.mapping_path("run-test", "artifacts_manifest.json").exists()
+
+
+# ---------------------------------------------------------------------------
+# Wiederaufnahme, Kostenstand und Reparaturen (P7c-Reviewbefunde)
+# ---------------------------------------------------------------------------
+
+def test_open_intents_block_the_next_execute(scripted, capsys):
+    _leave_one_open(scripted, capsys)
+    adapter = scripted.install()
+    assert cli.main(execute_argv()) == int(ExitCode.OUTCOME_UNKNOWN)
+    out = capsys.readouterr().out
+    assert adapter.calls == [], "vor der Klaerung wird kein weiterer Call gesendet"
+    assert "RUN_OUTCOME_UNKNOWN" in out
+    assert "run reconcile --run-id run-test" in out
+
+
+def test_cost_of_earlier_passes_carries_into_the_next_run(scripted, capsys):
+    _single_unit_batches(scripted.monkeypatch)
+    first = scripted.install(errors=[None, _provider_error(
+        retryable=False, outcome_unknown=False)])
+    cli.main(plan_argv())
+    capsys.readouterr()
+    assert cli.main(execute_argv()) == int(ExitCode.PROVIDER_ERROR)
+    capsys.readouterr()
+    assert len(first.calls) == 2
+
+    second = scripted.install()
+    assert cli.main(execute_argv()) in (0, 2)
+    out = capsys.readouterr().out
+    assert "[INFO] cost | run=run-test | prior_calls=1" in out
+    report = json.loads(workflow.mapping_path(
+        "run-test", "cost_report.json").read_text(encoding="utf-8"))
+    # Ein bezahlter Call des ersten Durchlaufs plus zwei des zweiten.
+    assert report["calls"] == 3
+    assert report["spent_usd"] == pytest.approx(3 * 0.000012)
+
+
+class RepairProvider(ScriptedProvider):
+    """Erster Call verletzt den Vertrag, der Reparaturcall scheitert."""
+
+    def complete(self, request):
+        if "-repair-" in request.call_id:
+            self.calls.append(request)
+            raise _provider_error(retryable=True, outcome_unknown=False)
+        response = super().complete(request)
+        payload = dict(response.payload)
+        payload["units"] = [
+            unit_result(unit["unit_id"], assignments=[_assignment("gibt-es-nicht")])
+            for unit in payload["units"]
+        ]
+        return replace(response, payload=payload)
+
+
+def test_a_failed_repair_does_not_resend_the_paid_first_call(scripted, capsys):
+    adapter = RepairProvider()
+    scripted.monkeypatch.setattr(
+        cli.provider.OpenRouterProvider, "create",
+        classmethod(lambda cls, collector, settings: adapter))
+    cli.main(plan_argv())
+    capsys.readouterr()
+    assert cli.main(execute_argv()) == int(ExitCode.PROVIDER_ERROR)
+    capsys.readouterr()
+    kinds = [request.call_id for request in adapter.calls]
+    assert len(kinds) == 2, "der bezahlte Erstcall wird nicht erneut gesendet"
+    assert "-repair-1" in kinds[1]
+    assert not any(call_id.startswith("retry") for call_id in kinds)
+
+
+def test_a_fresh_generation_is_not_declared_uncharged(scripted, capsys, api_key,
+                                                      monkeypatch):
+    _leave_one_open(scripted, capsys)
+    monkeypatch.setattr(
+        cli.provider, "fetch_generation",
+        lambda generation_id, key: cli.provider.GenerationRecord(
+            generation_id=generation_id, found=False))
+    assert cli.main(reconcile_argv()) == int(ExitCode.OUTCOME_UNKNOWN)
+    out = capsys.readouterr().out
+    assert "COST_RECONCILE_TOO_FRESH" in out
+    assert len(workflow.open_intents("run-test")) == 1
+
+
+def test_execute_without_target_flags_uses_the_planned_scope(scripted, capsys):
+    adapter = scripted.install()
+    assert cli.main(plan_argv("run-test", "--unit-id", "house--testing")) in (0, 2)
+    capsys.readouterr()
+    assert cli.main(["run", "execute", "--run-id", "run-test"]) in (0, 2)
+    capsys.readouterr()
+    sent = sorted(unit for request in adapter.calls
+                  for unit in _requested_units(request))
+    assert sent == ["house--testing"], "die eingefrorene Auswahl bleibt massgeblich"

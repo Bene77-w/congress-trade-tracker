@@ -1,0 +1,1316 @@
+"""Runzustand, Auditspur, Kostenkontrolle und Cache/Resume (Plan 2.6).
+
+Dieses Modul haelt den Lauf zusammen, ohne selbst zu mappen. Es beantwortet
+vier Fragen:
+
+- Was ist fuer diesen Lauf eingefroren?  ``RunManifest``
+- Was ist bisher passiert?               ``RunState`` (atomar persistiert)
+- Darf der naechste Call Geld kosten?    ``CostGuard``
+- Gibt es das Ergebnis schon?            ``cache_key`` + ``RunState.cached``
+
+Kostenwache und Auditspur sitzen bewusst am Providerrand (``AuditedProvider``)
+statt im Mappingkern: so wird jeder Call erfasst - auch ein Reparaturcall -,
+die Response liegt vor der Fachvalidierung auf der Platte, und ``mapping.py``
+bleibt frei von Runzustand.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Iterable, Mapping, Sequence
+
+from . import mapping, paths, provider as provider_module
+from .errors import (Finding, MatcherError, SILENT_REPORTER, Severity, Stage,
+                     TerminalReporter)
+from .models import MappingUnitResult, MatcherUnit
+from .prompts import SystemPrompt
+from .settings_view import MatcherSettings, OfflineSettings, ProviderSettings
+from .status import ExitCode, MappingDecision, UnitStatus, WorkflowState
+
+#: Verzeichnis der Runrevisionen; identisch mit dem der Taxonomiephase, damit
+#: Snapshot, Calls und Ergebnisse eines Laufs beieinander liegen.
+RUNS_DIR = "runs"
+MAPPING_DIRNAME = "mapping"
+CALLS_DIRNAME = "calls"
+MANIFEST_FILENAME = "run_manifest.json"
+STATE_FILENAME = "run_state.json"
+
+#: Vertragsversionen der persistierten Formen. Ein fremder Wert fuehrt nie zu
+#: einer Teilinterpretation, sondern zum Neuanfang beziehungsweise Blocker.
+MANIFEST_VERSION = "run-manifest-v1"
+STATE_VERSION = "run-state-v2"
+CALL_AUDIT_VERSION = "call-audit-v1"
+CALL_INTENT_VERSION = "call-intent-v1"
+
+#: Version der Klaerung eines Calls mit offenem Ausgang.
+CALL_RECONCILIATION_VERSION = "call-reconciliation-v1"
+CACHE_KEY_VERSION = "cache-key-v1"
+
+#: Inferenzparameter, die in den Cache-Key eingehen. Bewusst eine feste Liste:
+#: ein spaeter hinzugefuegter Parameter darf nicht stillschweigend aus dem
+#: Schluessel fallen.
+CACHE_INFERENCE_FIELDS = ("max_output_tokens", "reasoning_reserve_tokens",
+                          "reasoning_effort")
+
+#: Welcher Unitstatus zu welchem Modellurteil gehoert. Andere Kombinationen
+#: gibt es nicht; ``not_decided`` und ``failed`` tragen nie ein Ergebnis.
+STATUS_FOR_DECISION: dict[MappingDecision, UnitStatus] = {
+    MappingDecision.MAPPED: UnitStatus.MAPPED,
+    MappingDecision.NO_MAPPING: UnitStatus.NO_MAPPING,
+}
+
+
+# ---------------------------------------------------------------------------
+# Pfade
+# ---------------------------------------------------------------------------
+
+def mapping_path(run_id: str, *parts: str, create_parents: bool = False) -> Path:
+    return paths.artifact_path(RUNS_DIR, run_id, MAPPING_DIRNAME, *parts,
+                               create_parents=create_parents)
+
+
+def manifest_path(run_id: str, *, create_parents: bool = False) -> Path:
+    return mapping_path(run_id, MANIFEST_FILENAME, create_parents=create_parents)
+
+
+def state_path(run_id: str, *, create_parents: bool = False) -> Path:
+    return mapping_path(run_id, STATE_FILENAME, create_parents=create_parents)
+
+
+def call_path(run_id: str, call_id: str, *, create_parents: bool = False) -> Path:
+    """Auditdatei eines Calls.
+
+    ``call_id`` geht durch die Pfadwache und darf keinen Pfadanteil enthalten;
+    er stammt aus dem Mappingkern, nicht aus einer Providerantwort.
+    """
+    return mapping_path(run_id, CALLS_DIRNAME, f"{call_id}.json",
+                        create_parents=create_parents)
+
+
+def intent_path(run_id: str, call_id: str, *, create_parents: bool = False) -> Path:
+    """Vormerkung eines Calls, der gleich gesendet wird.
+
+    Sie entsteht **vor** dem Netzaufruf und verschwindet erst, wenn die
+    Auditdatei steht oder feststeht, dass der Provider die Anfrage abgewiesen
+    hat. Eine liegengebliebene Vormerkung ist damit die einzige Spur, die einen
+    bezahlten Call nach einem Prozessabsturz noch belegt.
+    """
+    return mapping_path(run_id, CALLS_DIRNAME, f"{call_id}.intent.json",
+                        create_parents=create_parents)
+
+
+def reconciled_path(run_id: str, call_id: str, *, create_parents: bool = False) -> Path:
+    """Klaerung eines Calls, dessen Ausgang offen war.
+
+    Sie tritt neben die Vormerkung und ersetzt keine Auditdatei: geklaert ist
+    der Kostenstand, nicht der Inhalt der Antwort. Der Inhalt bleibt verloren,
+    die betroffene Unit laeuft erneut.
+    """
+    return mapping_path(run_id, CALLS_DIRNAME, f"{call_id}.reconciled.json",
+                        create_parents=create_parents)
+
+
+def open_intents(run_id: str) -> tuple[str, ...]:
+    """Call-IDs, deren Vormerkung ohne Auditdatei liegengeblieben ist.
+
+    Jede davon ist ein Call mit offenem Ausgang: gesendet, moeglicherweise
+    bezahlt, ohne verwertbare Antwort auf der Platte. Eine vorhandene Klaerung
+    schliesst den Call ab, auch wenn die Vormerkung als Beleg liegen bleibt.
+    """
+    folder = mapping_path(run_id, CALLS_DIRNAME)
+    if not folder.is_dir():
+        return ()
+    open_calls = []
+    for entry in sorted(folder.glob("*.intent.json")):
+        call_id = entry.name[: -len(".intent.json")]
+        if (not call_path(run_id, call_id).exists()
+                and not reconciled_path(run_id, call_id).exists()):
+            open_calls.append(call_id)
+    return tuple(open_calls)
+
+
+def load_intent(run_id: str, call_id: str) -> dict | None:
+    """Liest eine Vormerkung; alles Unstimmige gilt als nicht vorhanden.
+
+    Eine unlesbare Vormerkung darf nicht als 'nichts passiert' durchgehen: der
+    Aufrufer meldet sie als ungeklaert, statt sie zu ignorieren.
+    """
+    target = intent_path(run_id, call_id)
+    try:
+        data = json.loads(target.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    if not isinstance(data, dict) or data.get("version") != CALL_INTENT_VERSION:
+        return None
+    if data.get("run_id") != run_id or data.get("call_id") != call_id:
+        return None
+    return data
+
+
+def write_reconciliation(run_id: str, call_id: str,
+                         payload: Mapping[str, object]) -> Path:
+    """Haelt das Ergebnis einer Klaerung neben der Vormerkung fest."""
+    entry = dict(payload)
+    entry.update({
+        "version": CALL_RECONCILIATION_VERSION,
+        "run_id": run_id,
+        "call_id": call_id,
+    })
+    return _write_json(reconciled_path(run_id, call_id, create_parents=True), entry)
+
+
+def call_taken(run_id: str, call_id: str) -> bool:
+    """Ist diese Call-ID im Lauf bereits belegt?
+
+    Belegt ist sie durch jede Spur: Auditdatei, liegengebliebene Vormerkung
+    oder Klaerung. Eine zweite Anfrage unter derselben ID wuerde die Zuordnung
+    zwischen bezahltem Call und Spur zerstoeren.
+    """
+    return (call_path(run_id, call_id).exists()
+            or intent_path(run_id, call_id).exists()
+            or reconciled_path(run_id, call_id).exists())
+
+
+#: Obergrenze der Durchlaufpraefixe; sie greift nur, wenn derselbe Batch
+#: hundertmal gesendet wurde - dann ist der Lauf ohnehin zu pruefen.
+MAX_CALL_PASSES = 99
+
+
+def free_call_prefix(run_id: str, batch_id: str) -> str:
+    """Praefix, unter dem ``batch_id`` in diesem Lauf noch frei ist.
+
+    Ein Batch, der nach einer Klaerung erneut laeuft, braucht eine neue
+    Call-ID: die alte gehoert zu einem moeglicherweise bezahlten Call.
+    """
+    if not call_taken(run_id, batch_id):
+        return ""
+    for number in range(2, MAX_CALL_PASSES + 1):
+        prefix = f"pass{number}-"
+        if not call_taken(run_id, f"{prefix}{batch_id}"):
+            return prefix
+    return f"pass{MAX_CALL_PASSES + 1}-"
+
+
+def _now_iso() -> str:
+    """Zeitpunkt in UTC; ausschliesslich fuer Vormerkungen und Klaerungen."""
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+@dataclass(frozen=True)
+class PriorCosts:
+    """Was ein Lauf vor dem aktuellen Durchlauf bereits ausgegeben hat.
+
+    Ohne diesen Stand begaenne jeder Resume mit leerem Budget: derselbe Lauf
+    koennte sein Kostenlimit beliebig oft ausschoepfen, und der Kostenbericht
+    der Revision naennte nur den letzten Durchlauf.
+    """
+
+    calls: int = 0
+    spent_usd: float = 0.0
+    unknown_calls: int = 0
+    reserved_usd: float = 0.0
+    #: Calls mit eigener Spur auf der Platte (Auditdatei oder Klaerung).
+    documented_calls: int = 0
+    #: Call-IDs mit Auditdatei, aber ohne Eintrag im Laufzustand.
+    orphaned_audits: tuple[str, ...] = ()
+
+
+def _read_json(target: Path) -> dict | None:
+    try:
+        data = json.loads(target.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def prior_costs(run_id: str, rates: CostRates, state: "RunState | None" = None
+                ) -> PriorCosts:
+    """Rekonstruiert den Kostenstand frueherer Durchlaeufe aus den Callspuren.
+
+    Gelesen werden die Auditdateien (bezahlte, verwertete Calls), die
+    Klaerungen (bezahlte Calls ohne Antwort und nachweislich nicht ausgefuehrte
+    Calls) und die liegengebliebenen Vormerkungen (offener Ausgang). Ein Call
+    ohne gemeldete Kosten wird mit den Kosten seiner tatsaechlichen Tokenzahl
+    reserviert - der Preisdeckel macht daraus eine Obergrenze, keine Schaetzung.
+    """
+    folder = mapping_path(run_id, CALLS_DIRNAME)
+    if not folder.is_dir():
+        return PriorCosts()
+
+    known_units = {record.call_id for record in (state.units.values() if state else ())}
+    calls = documented = unknown = 0
+    spent = reserved = 0.0
+    orphaned: list[str] = []
+    # Eine Klaerung ersetzt die Reservierung ihres Calls. Ohne diese Vorabliste
+    # zaehlte ein geklaerter Call zweimal: einmal reserviert aus der Auditdatei,
+    # einmal gebucht aus der Klaerung.
+    settled = {entry.name[: -len(".reconciled.json")]
+               for entry in folder.glob("*.reconciled.json")}
+
+    for entry in sorted(folder.glob("*.json")):
+        name = entry.name
+        if name.endswith(".intent.json"):
+            continue
+        if name.endswith(".reconciled.json"):
+            data = _read_json(entry) or {}
+            if data.get("outcome") != "charged":
+                continue
+            cost = data.get("cost_usd")
+            calls += 1
+            documented += 1
+            spent += float(cost) if isinstance(cost, (int, float)) else 0.0
+            continue
+        data = _read_json(entry) or {}
+        call_id = name[: -len(".json")]
+        calls += 1
+        documented += 1
+        cost = data.get("cost_usd")
+        if isinstance(cost, (int, float)) and not isinstance(cost, bool):
+            spent += float(cost)
+        elif call_id not in settled:
+            unknown += 1
+            reserved += unknown_reservation(data, rates)
+        if state is not None and call_id not in known_units:
+            orphaned.append(call_id)
+
+    for call_id in open_intents(run_id):
+        data = load_intent(run_id, call_id) or {}
+        calls += 1
+        unknown += 1
+        # 'worst_case_usd' ist der Feldname aelterer Vormerkungen.
+        reserved += float(data.get("reserved_usd")
+                          or data.get("worst_case_usd") or 0.0)
+
+    return PriorCosts(calls=calls, spent_usd=spent, unknown_calls=unknown,
+                      reserved_usd=reserved, documented_calls=documented,
+                      orphaned_audits=tuple(sorted(orphaned)))
+
+
+def unknown_reservation(audit: Mapping[str, object], rates: "CostRates") -> float:
+    """Reservierung fuer einen Call, der eine Antwort, aber keine Kosten meldet.
+
+    Die Tokenzahlen der Antwort ergeben die genauere Obergrenze. Fehlen sie -
+    der Provider meldet Usage nicht immer -, gilt der beim Senden festgehaltene
+    Worst Case. Aus fehlender Usage 0.00 USD zu machen waere die einzige
+    Variante, die Budget freigibt, das moeglicherweise ausgegeben ist.
+    """
+    prompt_tokens = int(audit.get("prompt_tokens") or 0)
+    completion_tokens = int(audit.get("completion_tokens") or 0)
+    if prompt_tokens or completion_tokens:
+        return rates.worst_case_usd(prompt_tokens, completion_tokens)
+    return float(audit.get("worst_case_usd") or 0.0)
+
+
+def _write_json(target: Path, payload: object) -> Path:
+    return paths.write_text_atomic(
+        target, json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+
+
+# ---------------------------------------------------------------------------
+# Cache-Key
+# ---------------------------------------------------------------------------
+
+def schema_hash(json_schema: Mapping) -> str:
+    """Hash des erzwungenen Ausgabeschemas; sortiert, damit er stabil bleibt."""
+    text = json.dumps(json_schema, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def inference_fingerprint(provider_settings: ProviderSettings) -> dict[str, object]:
+    """Die Inferenzparameter, die den fachlichen Schluessel mitbestimmen."""
+    return {name: getattr(provider_settings, name) for name in CACHE_INFERENCE_FIELDS}
+
+
+def cache_key(*, mapping_input_hash: str, taxonomy_content_hash: str,
+              prompt: SystemPrompt, schema_name: str, schema_sha256: str,
+              model: str, inference: Mapping[str, object]) -> str:
+    """Fachlicher Schluessel eines Unitergebnisses.
+
+    Enthalten ist ausschliesslich, was das Ergebnis inhaltlich bestimmt:
+    Unitinput, Taxonomiestand, Prompt, Schema, Modell und Inferenzparameter.
+    Volatile Provenienz - Run-, Snapshot-, Call-, Evaluations- und
+    Wiederholungs-IDs - bleibt bewusst draussen, sonst waere jeder Lauf ein
+    Cache-Miss.
+
+    Auch der geroutete Endpoint bleibt draussen. Plan 2.6 nennt ihn noch als
+    Schluesselbestandteil; das stammt aus der Zeit vor dem Gate-B-Beschluss
+    vom 2026-08-21, der die Providerwahl ausdruecklich freigegeben hat. Bei
+    freier Wahl ist der Endpoint des naechsten Calls im Voraus unbekannt - ein
+    Schluessel mit Endpoint waere nie wieder treffbar und der Cache damit tot.
+    Der Endpoint bleibt Auditprovenienz und wird je Call protokolliert.
+    """
+    payload = {
+        "version": CACHE_KEY_VERSION,
+        "mapping_input_hash": mapping_input_hash,
+        "taxonomy_content_hash": taxonomy_content_hash,
+        "prompt_id": prompt.prompt_id,
+        "prompt_sha256": prompt.sha256,
+        "schema_name": schema_name,
+        "schema_sha256": schema_sha256,
+        "model": model,
+        "inference": dict(sorted(inference.items())),
+    }
+    text = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def unit_cache_key(unit: MatcherUnit, *, taxonomy_content_hash: str,
+                   prompt: SystemPrompt, model: str,
+                   inference: Mapping[str, object],
+                   json_schema: Mapping | None = None) -> str:
+    """Cache-Key einer Unit; ohne fachlichen Inputhash nicht bildbar.
+
+    ``inference`` muss genau ``CACHE_INFERENCE_FIELDS`` enthalten. Ein
+    unvollstaendiges Mapping wuerde den Schluessel gegenueber einem
+    ergebnisrelevanten Parameter blind machen - ein Fehler des Aufrufers, kein
+    Laufzustand, deshalb ``ValueError``.
+    """
+    if not unit.mapping_input_hash:
+        raise ValueError(f"Unit {unit.unit_id} hat keinen mapping_input_hash")
+    if set(inference) != set(CACHE_INFERENCE_FIELDS):
+        raise ValueError(
+            f"inference muss genau {set(CACHE_INFERENCE_FIELDS)} enthalten, "
+            f"erhalten: {sorted(inference)}")
+    schema = json_schema if json_schema is not None else mapping.batch_schema()
+    return cache_key(
+        mapping_input_hash=unit.mapping_input_hash,
+        taxonomy_content_hash=taxonomy_content_hash,
+        prompt=prompt,
+        schema_name=mapping.SCHEMA_NAME,
+        schema_sha256=schema_hash(schema),
+        model=model,
+        inference=inference,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Kosten
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class CostRates:
+    """Preisdeckel des Laufs in USD je Million Token.
+
+    Gerechnet wird mit dem Deckel, nicht mit einem erwarteten Preis: er ist die
+    einzige Zahl, die vor dem Call feststeht, und die Routingbedingungen lassen
+    keinen teureren Endpoint zu.
+    """
+
+    prompt: float
+    completion: float
+
+    @classmethod
+    def from_settings(cls, provider_settings: ProviderSettings) -> "CostRates":
+        prices = provider_settings.max_price_usd_per_mtok
+        return cls(prompt=float(prices["prompt"]), completion=float(prices["completion"]))
+
+    def worst_case_usd(self, prompt_tokens: int, completion_tokens: int) -> float:
+        return (prompt_tokens * self.prompt + completion_tokens * self.completion) / 1_000_000
+
+
+def request_worst_case_usd(request: provider_module.StructuredRequest,
+                           rates: CostRates, offline: OfflineSettings) -> float:
+    """Obergrenze der Kosten eines Calls.
+
+    Eingabe wird geschaetzt (dieselbe Schaetzung wie im Context-Gate,
+    absichtlich zu hoch), Ausgabe mit ``max_output_tokens`` angesetzt - mehr
+    kann der Endpoint nicht liefern.
+    """
+    prompt_tokens = mapping.estimate_request_tokens(
+        request.system_prompt, request.user_content, offline.chars_per_token,
+        json_schema=request.json_schema)
+    return rates.worst_case_usd(prompt_tokens, request.max_output_tokens)
+
+
+@dataclass
+class CostGuard:
+    """Budgetwache eines Laufs.
+
+    Gefuehrt werden zwei Betraege: tatsaechlich gemeldete Kosten und
+    Reservierungen fuer Calls, deren Kosten unbekannt blieben. Beide zaehlen
+    gegen das Budget - ein Call ohne Kostenmeldung ist nicht kostenlos, nur
+    ungeklaert.
+
+    ``enabled=False`` schaltet allein das Blockieren ab, nicht die Buchfuehrung:
+    der Kostenbericht bleibt vollstaendig.
+    """
+
+    budget_usd: float
+    rates: CostRates
+    enabled: bool = True
+    spent_usd: float = 0.0
+    reserved_usd: float = 0.0
+    unknown_calls: int = 0
+    calls: int = 0
+
+    @property
+    def committed_usd(self) -> float:
+        return self.spent_usd + self.reserved_usd
+
+    @property
+    def remaining_usd(self) -> float:
+        return self.budget_usd - self.committed_usd
+
+    def _blocker(self, obj: str, amount: float) -> Finding:
+        return Finding(
+            severity=Severity.BLOCKER,
+            code="COST_BUDGET_EXCEEDED",
+            stage=Stage.COST,
+            obj=obj,
+            message=(f"Worst-Case-Kosten {amount:.6f} USD passen nicht in den "
+                     f"Rest von {self.remaining_usd:.6f} USD "
+                     f"(Budget {self.budget_usd:.6f} USD, gebucht "
+                     f"{self.committed_usd:.6f} USD)."),
+            hint=("Budget in config/settings.py erhoehen oder den Laufumfang "
+                  "verkleinern; ungeklaerte Calls zuerst abgleichen."),
+            exit_code=ExitCode.COST_BLOCKED,
+        )
+
+    def check(self, amount_usd: float, obj: str) -> Finding | None:
+        """Prueft, ob ``amount_usd`` noch in das Budget passt.
+
+        Gibt den Blocker zurueck, statt ihn zu werfen: der Aufrufer entscheidet,
+        ob der Lauf endet oder der Befund nur gesammelt wird.
+        """
+        if not self.enabled:
+            return None
+        if amount_usd <= self.remaining_usd:
+            return None
+        return self._blocker(obj, amount_usd)
+
+    def settle(self, worst_case_usd: float,
+               response: provider_module.StructuredResponse | None = None,
+               *, cost_usd: float | None = None) -> None:
+        """Verbucht einen ausgefuehrten Call.
+
+        Die Kosten stammen aus der Antwort oder - wenn ein Call zwar scheiterte,
+        die Antwort aber eine Kostenmeldung trug - aus ``cost_usd``. Fehlt beides,
+        wird der Worst Case reserviert. Reservierungen loest erst die Reconciliation
+        ueber die Generation-ID auf, nie eine Schaetzung.
+        """
+        self.calls += 1
+        reported = cost_usd if cost_usd is not None else getattr(response, "cost_usd", None)
+        if reported is not None:
+            self.spent_usd += float(reported)
+            return
+        self.reserved_usd += worst_case_usd
+        self.unknown_calls += 1
+
+    def report(self) -> dict[str, object]:
+        """Kostenstand fuer Runmanifest und Terminalbericht."""
+        return {
+            "budget_usd": self.budget_usd,
+            "spent_usd": round(self.spent_usd, 6),
+            "reserved_usd": round(self.reserved_usd, 6),
+            "committed_usd": round(self.committed_usd, 6),
+            "remaining_usd": round(self.remaining_usd, 6),
+            "calls": self.calls,
+            "unknown_calls": self.unknown_calls,
+            "guard_enabled": self.enabled,
+        }
+
+
+#: Zuschlag der Verstossliste eines Reparaturcalls in Tokens. Der Reparaturcall
+#: traegt zusaetzlich zum Erstcall die vorherige Antwort und die Liste der
+#: Verstoesse; gerechnet wird mit einem grosszuegigen Festwert, damit die
+#: Vorabpruefung nie zu niedrig liegt.
+REPAIR_VIOLATION_TOKENS = 2_000
+
+
+def plan_cost_usd(requests: Sequence[provider_module.StructuredRequest],
+                  rates: CostRates, offline: OfflineSettings) -> float:
+    """Worst-Case-Kosten aller geplanten Erstcalls samt erlaubter Reparaturen.
+
+    Ein Batch darf ``max_repair_attempts`` mal nachgebessert werden. Ein
+    Reparaturcall ist nie billiger als der Erstcall: er wiederholt dessen
+    Eingabe und legt die vorherige Antwort samt Verstossliste dazu. Die
+    Vorabpruefung rechnet deshalb je Reparatur mit Erstcall plus voller
+    Ausgabelaenge plus Verstossliste - sonst reisst das Budget mitten im Lauf.
+    """
+    attempts = max(0, offline.max_repair_attempts)
+    total = 0.0
+    for request in requests:
+        first = request_worst_case_usd(request, rates, offline)
+        surcharge = rates.worst_case_usd(
+            request.max_output_tokens + REPAIR_VIOLATION_TOKENS, 0)
+        total += first + attempts * (first + surcharge)
+    return total
+
+
+# ---------------------------------------------------------------------------
+# Auditspur am Providerrand
+# ---------------------------------------------------------------------------
+
+def audit_record(request: provider_module.StructuredRequest,
+                 response: provider_module.StructuredResponse,
+                 worst_case_usd: float = 0.0) -> dict[str, object]:
+    """Bereinigte Auditform eines Calls.
+
+    Enthalten sind Provenienz und die rohe Antwortnutzlast - nicht enthalten
+    sind Systemprompt, Nutzdaten und jede Form von Zugangsdaten. Der Prompt
+    liegt bereits versioniert als Kontrollinput vor; ihn je Call zu kopieren
+    wuerde den Auditordner vervielfachen, ohne etwas nachweisbar zu machen.
+    """
+    entry = response.manifest_entry()
+    entry.update({
+        "version": CALL_AUDIT_VERSION,
+        "schema_name": request.schema_name,
+        "max_output_tokens": request.max_output_tokens,
+        # Meldet der Provider keine Kosten, reserviert der Lauf diesen Betrag.
+        # Ohne ihn muesste ein Resume die Reservierung aus den Tokenzahlen
+        # schaetzen - und faende bei fehlender Usage 0.00 USD.
+        "worst_case_usd": round(worst_case_usd, 6),
+        "payload": response.payload,
+    })
+    return entry
+
+
+@dataclass
+class AuditedProvider:
+    """Providerdekorator: persistiert jede Antwort und fuehrt die Kostenwache.
+
+    Die Reihenfolge ist Vertrag: pruefen, senden, persistieren, verbuchen,
+    zurueckgeben. Die Antwort liegt damit auf der Platte, bevor irgendeine
+    Fachpruefung sie sehen kann; ein Absturz waehrend der Validierung verliert
+    keinen bezahlten Call.
+
+    Ein fehlgeschlagener Call wird ebenfalls verbucht: ob der Provider ihn
+    abgerechnet hat, ist von hier aus nicht feststellbar, also gilt der Worst
+    Case als reserviert.
+    """
+
+    inner: provider_module.StructuredOutputProvider
+    run_id: str
+    guard: CostGuard
+    offline: OfflineSettings
+    #: Befunde der Kostenwache; der Lauf wertet sie nach dem Batch aus.
+    blockers: list[Finding] = field(default_factory=list)
+    audited: list[str] = field(default_factory=list)
+    #: Calls, deren Ausgang offen blieb. Sie halten ihre Reservierung, bis der
+    #: Abgleich ueber die Generation-ID sie aufloest.
+    unknown: list["UnknownCall"] = field(default_factory=list)
+    #: Bezahlte Calls ohne verwertbare Antwort; ihr Kostenstand ist geklaert,
+    #: ihre Spur ist die Klaerungsdatei statt einer Auditdatei.
+    settled: list[str] = field(default_factory=list)
+    #: Live-Status; ohne Terminal bleibt der stille Reporter stehen.
+    reporter: TerminalReporter = field(default_factory=lambda: SILENT_REPORTER)
+
+    def complete(self, request: provider_module.StructuredRequest
+                 ) -> provider_module.StructuredResponse:
+        worst_case = request_worst_case_usd(request, self.guard.rates, self.offline)
+        blocker = self.guard.check(worst_case, request.call_id)
+        if blocker is not None:
+            self.blockers.append(blocker)
+            raise CostBlocked([blocker], "Kostenbudget erschoepft")
+        self._reserve(request, worst_case)
+        try:
+            response = self.inner.complete(request)
+        except provider_module.ProviderCallError as exc:
+            raise self._failed(request, worst_case, exc) from None
+        except BaseException as exc:
+            # Die Anfrage ist raus. Ob sie ankam und abgerechnet wurde, ist von
+            # hier aus nicht feststellbar - ein Abbruch mitten im Call (Strg-C,
+            # Programmierfehler im Adapter) gilt deshalb als offener Ausgang.
+            # Ohne diese Buchung waere ein moeglicherweise bezahlter Call weder
+            # reserviert noch fuer die Reconciliation auffindbar.
+            committed_before = self.guard.committed_usd
+            self.guard.settle(worst_case, None)
+            self._report_cost(request.call_id, committed_before, "unknown")
+            self._mark_open(
+                request.call_id,
+                reason=f"CALL_INTERRUPTED: {exc.__class__.__name__}",
+                reserved_usd=worst_case)
+            raise
+        # Gebucht wird, sobald die Antwort vorliegt - vor der Persistenz. Sonst
+        # bliebe ein bezahlter Call bei einem Schreibfehler ungebucht, und das
+        # Budget haette Luft, die es nicht mehr hat.
+        committed_before = self.guard.committed_usd
+        self.guard.settle(worst_case, response)
+        self._report_cost(request.call_id, committed_before, "charged")
+        self._persist(request, response, worst_case)
+        return response
+
+    def _report_cost(self, call_id: str, committed_before: float,
+                     outcome: str) -> None:
+        """Meldet den Kostenstand nach einem gebuchten Call (Statusplan S4).
+
+        Ohne die Zeile waere die Kostenentwicklung erst nach dem Batch
+        sichtbar; ein teurer Reparaturcall verschwaende in dessen Summe.
+        Gemeldet wird nur, was tatsaechlich gebucht ist - ein vom Provider
+        abgewiesener Call kostet nichts und bekommt keine Zeile.
+        """
+        self.reporter.info(
+            Stage.COST, call=call_id, outcome=outcome,
+            call_usd=round(self.guard.committed_usd - committed_before, 6),
+            committed_usd=round(self.guard.committed_usd, 6))
+
+    def _reserve(self, request, worst_case: float) -> None:
+        """Legt die Vormerkung an, bevor die Anfrage das Haus verlaesst.
+
+        Eine bereits belegte Call-ID blockiert: sonst wuerde die Auditdatei des
+        frueheren Versuchs ueberschrieben und der neue Call waere weder als
+        offen erkennbar noch historisch nachweisbar.
+        """
+        if call_taken(self.run_id, request.call_id):
+            raise CallIdReused([Finding(
+                severity=Severity.BLOCKER,
+                code="CALL_ID_REUSED",
+                stage=Stage.WORKFLOW,
+                obj=request.call_id,
+                message="Diese Call-ID traegt bereits eine Spur im Lauf.",
+                hint="Je physischem Versuch eine eigene Call-ID bilden; eine "
+                     "ueberschriebene Auditspur verliert einen bezahlten Call.",
+                exit_code=ExitCode.PREFLIGHT_BLOCKED,
+            )], f"CALL_ID_REUSED: {request.call_id}")
+        _write_json(intent_path(self.run_id, request.call_id, create_parents=True), {
+            "version": CALL_INTENT_VERSION,
+            "run_id": self.run_id,
+            "call_id": request.call_id,
+            "schema_name": request.schema_name,
+            # Der Feldname ist Vertrag: 'prior_costs' und 'run reconcile' lesen
+            # 'reserved_usd'. Stuende der Betrag unter einem anderen Namen,
+            # kaeme ein Abbruch mitten im Call mit 0.00 USD reserviert zurueck.
+            "reserved_usd": round(worst_case, 6),
+            # Ohne Zeitstempel darf 'run reconcile' eine unbekannte Generation
+            # nie als 'nicht abgerechnet' werten; der Frischeschutz griffe nicht.
+            "created_at": _now_iso(),
+        })
+
+    def _release(self, call_id: str) -> None:
+        """Loest die Vormerkung auf.
+
+        Best effort: die Auditdatei oder die belegte Ablehnung steht bereits
+        fest. Ein gescheitertes Aufraeumen darf einen bezahlten, erfolgreichen
+        Call nicht als Fehlschlag erscheinen lassen - er wuerde sonst erneut
+        gesendet.
+        """
+        try:
+            intent_path(self.run_id, call_id).unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    def _settle_without_audit(self, call_id: str, *, reason: str,
+                              cost_usd: float, generation_id: str | None) -> None:
+        """Haelt einen bezahlten Call ohne verwertbare Antwort als geklaert fest.
+
+        Die Klaerung tritt an die Stelle der Auditdatei: die Kosten stehen fest,
+        der Inhalt ist verloren. Die Vormerkung bleibt als Beleg liegen.
+        """
+        self.settled.append(call_id)
+        try:
+            write_reconciliation(self.run_id, call_id, {
+                "outcome": "charged",
+                "cost_usd": float(cost_usd),
+                "reserved_usd": float(cost_usd),
+                "released_usd": 0.0,
+                "generation_id": generation_id,
+                "reason": reason,
+                "source": "call_failed_with_cost",
+            })
+        except Exception:
+            # Ohne Klaerungsdatei bleibt der Call offen und faellt der
+            # Reconciliation zu; die Vormerkung benennt ihn.
+            self.settled.remove(call_id)
+            self._mark_open(call_id, reason=reason, reserved_usd=float(cost_usd),
+                            generation_id=generation_id, cost_usd=float(cost_usd))
+
+    def _mark_open(self, call_id: str, *, reason: str, reserved_usd: float,
+                   generation_id: str | None = None,
+                   cost_usd: float | None = None) -> None:
+        """Schreibt fest, was ueber einen Call ohne Auditdatei bekannt ist.
+
+        Die Vormerkung bleibt liegen und nimmt auf, was die Antwort noch
+        hergab. Ohne sie waere ein bezahlter Call nach einem Prozessabbruch
+        weder rekonstruierbar noch vom Wiederaufsetzen als bereits gesendet
+        erkennbar - und wuerde ein zweites Mal bezahlt.
+        """
+        entry = UnknownCall(call_id=call_id, generation_id=generation_id,
+                            reserved_usd=float(reserved_usd), reason=reason)
+        self.unknown.append(entry)
+        target = intent_path(self.run_id, call_id, create_parents=True)
+        payload = dict(entry.as_payload())
+        payload.update({
+            "version": CALL_INTENT_VERSION,
+            "run_id": self.run_id,
+            "cost_usd": cost_usd,
+            # Der Zeitpunkt entscheidet spaeter, ob eine dem Provider
+            # unbekannte Generation als 'nie ausgefuehrt' gelten darf: kurz
+            # nach dem Call ist sie moeglicherweise nur noch nicht sichtbar.
+            "created_at": _now_iso(),
+        })
+        try:
+            _write_json(target, payload)
+        except Exception:
+            # Die Vormerkung aus ``_reserve`` liegt bereits und benennt den
+            # Call; mehr ist an dieser Stelle nicht zu retten.
+            pass
+
+    def _failed(self, request, worst_case: float,
+                exc: provider_module.ProviderCallError
+                ) -> provider_module.ProviderCallError:
+        """Verbucht einen gescheiterten Call und entscheidet ueber die Wiederholung.
+
+        Drei Faelle: meldet die Antwort ihre Kosten, wird gebucht und der Ausgang
+        gilt als geklaert. Steht fest, dass der Provider die Anfrage abgewiesen
+        hat, kostet sie nichts und darf wiederholt werden. Bleibt der Ausgang
+        offen, gilt der Worst Case als reserviert, der Call wird als ungeklaert
+        vorgemerkt und nie automatisch wiederholt (Plan 2.6).
+        """
+        reason = exc.findings[0].code if exc.findings else "PROV_CALL_FAILED"
+        if exc.cost_usd is not None:
+            # Die Antwort kam an und trug ihre Kosten; unbrauchbar war nur ihr
+            # Inhalt. Der Ausgang ist damit bekannt - der Call ist bezahlt und
+            # geklaert, nur ohne verwertbare Antwort. Ihn als 'offen' zu fuehren
+            # wuerde eine Reconciliation verlangen, die nichts mehr klaeren kann.
+            committed_before = self.guard.committed_usd
+            self.guard.settle(worst_case, cost_usd=exc.cost_usd)
+            self._report_cost(request.call_id, committed_before, "charged")
+            self._settle_without_audit(
+                request.call_id, reason=reason, cost_usd=exc.cost_usd,
+                generation_id=exc.generation_id)
+            return exc
+        if not exc.outcome_unknown:
+            self._release(request.call_id)
+            return exc
+        committed_before = self.guard.committed_usd
+        self.guard.settle(worst_case, None)
+        self._report_cost(request.call_id, committed_before, "unknown")
+        self._mark_open(request.call_id, reason=reason, reserved_usd=worst_case,
+                        generation_id=exc.generation_id)
+        exc.retryable = False
+        return exc
+
+    def _persist(self, request, response, worst_case: float = 0.0) -> None:
+        target = call_path(self.run_id, request.call_id, create_parents=True)
+        try:
+            _write_json(target, audit_record(request, response, worst_case))
+        except Exception:
+            # Jede Ausnahme nach bezahlter Antwort hat dieselbe Folge, nicht nur
+            # ein OSError: die Pfadwache, ein Serialisierungsfehler oder ein
+            # voller Datentraeger lassen denselben unbelegten Call zurueck.
+            self._mark_open(request.call_id, reason="AUDIT_WRITE_FAILED",
+                            reserved_usd=(response.cost_usd if response.cost_usd
+                                          is not None else worst_case),
+                            generation_id=response.generation_id,
+                            cost_usd=response.cost_usd)
+            raise
+        self.audited.append(request.call_id)
+        self._release(request.call_id)
+
+
+class CallIdReused(MatcherError):
+    """Eine Call-ID wird ein zweites Mal gesendet; der Lauf haelt an."""
+
+
+class CostBlocked(MatcherError):
+    """Der naechste Call wuerde das Budget sprengen; er wird nicht gesendet."""
+
+
+# ---------------------------------------------------------------------------
+# Runzustand
+# ---------------------------------------------------------------------------
+
+@dataclass
+class UnitRecord:
+    """Stand einer Unit im Lauf.
+
+    ``result`` traegt das vollstaendig gepruefte Modellergebnis; nur damit ist
+    eine Unit fuer Cache und Resume brauchbar. ``violations`` haelt die Gruende
+    eines Fehlschlags fest, damit ein Resume nicht blind wiederholt.
+    """
+
+    unit_id: str
+    status: UnitStatus
+    cache_key: str
+    result: MappingUnitResult | None = None
+    violations: tuple[str, ...] = ()
+    #: Herkunft des Ergebnisses. Sie gehoert zum Urteil, nicht zum Lauf: erst
+    #: sie erlaubt es, eine Zeile der Long-CSV auf den Call zurueckzufuehren,
+    #: der sie erzeugt hat - auch wenn der Cache sie Runden spaeter wieder
+    #: hervorholt.
+    call_id: str | None = None
+    provider: str | None = None
+    generation_id: str | None = None
+    #: True, wenn die finale Fassung aus einem Reparaturcall stammt. Der
+    #: Reparaturprompt darf Zuordnungen, Evidence und sogar die Entscheidung
+    #: aendern; dann hat nicht der Mappingprompt allein das Urteil erzeugt.
+    from_repair: bool = False
+
+    @property
+    def reusable(self) -> bool:
+        """Nur ein entschiedenes, geprueftes Ergebnis darf wiederverwendet werden.
+
+        Status und Modellurteil muessen dasselbe sagen. Ein Eintrag mit Status
+        ``mapped`` und Entscheidung ``no_mapping`` ist in sich widerspruechlich
+        und wird nie uebernommen, egal wie er entstanden ist.
+        """
+        if self.result is None or self.result.unit_id != self.unit_id:
+            return False
+        expected = STATUS_FOR_DECISION.get(self.result.decision)
+        return expected is not None and expected is self.status
+
+    def as_payload(self) -> dict[str, object]:
+        return {
+            "unit_id": self.unit_id,
+            "status": self.status.value,
+            "cache_key": self.cache_key,
+            "result": self.result.model_dump(mode="json") if self.result else None,
+            "violations": list(self.violations),
+            "call_id": self.call_id,
+            "provider": self.provider,
+            "generation_id": self.generation_id,
+            "from_repair": self.from_repair,
+        }
+
+    @classmethod
+    def from_payload(cls, data: Mapping) -> "UnitRecord | None":
+        """Liest einen Eintrag; alles Unstimmige gilt als nicht vorhanden."""
+        try:
+            unit_id = data["unit_id"]
+            status = UnitStatus(data["status"])
+            key = data["cache_key"]
+        except (KeyError, TypeError, ValueError):
+            return None
+        if not isinstance(unit_id, str) or not isinstance(key, str):
+            return None
+        raw = data.get("result")
+        result: MappingUnitResult | None = None
+        if raw is not None:
+            try:
+                result = MappingUnitResult.model_validate(raw)
+            except Exception:
+                return None
+            if result.unit_id != unit_id:
+                return None
+        violations = data.get("violations") or []
+        if not isinstance(violations, list) or any(
+                not isinstance(item, str) for item in violations):
+            return None
+        provenance = {}
+        for field_name in ("call_id", "provider", "generation_id"):
+            value = data.get(field_name)
+            if value is not None and not isinstance(value, str):
+                return None
+            provenance[field_name] = value
+        # ``run-state-v2`` verlangt das Feld: ein fehlendes still als ``False``
+        # zu lesen hiesse, einen reparierten Stand als unrepariert auszuweisen.
+        repaired = data.get("from_repair")
+        if not isinstance(repaired, bool):
+            return None
+        return cls(unit_id=unit_id, status=status, cache_key=key,
+                   result=result, violations=tuple(violations),
+                   from_repair=repaired, **provenance)
+
+
+@dataclass
+class RunState:
+    """Persistierter Laufzustand: Workflowstatus plus Stand je Unit.
+
+    Workflowstatus und Unitstatus bleiben getrennt (Plan 2.6). Ein Lauf in
+    ``outcome_unknown`` faellt nie in ein Mappingurteil zurueck; die Units
+    behalten ihren eigenen, unabhaengigen Stand.
+    """
+
+    run_id: str
+    state: WorkflowState = WorkflowState.PENDING
+    units: dict[str, UnitRecord] = field(default_factory=dict)
+
+    def record(self, entry: UnitRecord) -> None:
+        self.units[entry.unit_id] = entry
+
+    def cached(self, unit_id: str, key: str) -> UnitRecord | None:
+        """Wiederverwendbarer Stand einer Unit unter genau diesem Schluessel."""
+        entry = self.units.get(unit_id)
+        if entry is None or entry.cache_key != key or not entry.reusable:
+            return None
+        return entry
+
+    def pending(self, units: Iterable[MatcherUnit],
+                keys: Mapping[str, str]) -> tuple[MatcherUnit, ...]:
+        """Die Units, die noch laufen muessen.
+
+        Fehlt ein Schluessel, laeuft die Unit - eine Unit ohne bildbaren
+        Schluessel gilt nie als erledigt.
+        """
+        return tuple(unit for unit in units
+                     if self.cached(unit.unit_id, keys.get(unit.unit_id, "")) is None)
+
+    def counts(self) -> dict[str, int]:
+        result = {status.value: 0 for status in UnitStatus}
+        for entry in self.units.values():
+            result[entry.status.value] += 1
+        return result
+
+    def as_payload(self) -> dict[str, object]:
+        return {
+            "version": STATE_VERSION,
+            "run_id": self.run_id,
+            "workflow_state": self.state.value,
+            "units": [self.units[unit_id].as_payload()
+                      for unit_id in sorted(self.units)],
+        }
+
+    def write(self) -> Path:
+        return _write_json(state_path(self.run_id, create_parents=True),
+                           self.as_payload())
+
+
+class RunStateUnusable(MatcherError):
+    """Der vorhandene Laufzustand ist nicht verwendbar; der Lauf haelt an."""
+
+
+def _state_blocker(target: Path, detail: str) -> Finding:
+    return Finding(
+        severity=Severity.BLOCKER,
+        code="RUN_STATE_MALFORMED",
+        stage=Stage.WORKFLOW,
+        obj=paths.relative_to_base(target),
+        message=f"Laufzustand ist nicht verwendbar: {detail}",
+        hint=("Nicht ueberschreiben: die Auditdateien unter calls/ zeigen, welche "
+              "Calls bereits bezahlt wurden. Ein Neustart unter derselben Run-ID "
+              "sendet diese Calls erneut und rechnet sie ein zweites Mal ab. "
+              "Regelweg ist eine neue --run-id; den Zustand zu entfernen ist eine "
+              "Entscheidung von Bene nach Sichtung der Auditdateien."),
+        exit_code=ExitCode.PREFLIGHT_BLOCKED,
+    )
+
+
+def load_state(run_id: str) -> RunState:
+    """Laedt den Laufzustand; ein vorhandener, unbrauchbarer Zustand blockiert.
+
+    Fehlt die Datei, beginnt der Lauf frisch - dann ist auch nichts bezahlt
+    worden. Ist sie vorhanden, aber unlesbar oder vertragswidrig, wird der Lauf
+    angehalten statt neu begonnen: die Datei belegt, dass bereits gelaufen ist,
+    und ein stiller Neustart wuerde bezahlte Calls ein zweites Mal senden. Ein
+    teilweises Uebernehmen kommt ebenso wenig in Frage - dann wuerden einzelne
+    Units aus einer kaputten Datei geglaubt.
+    """
+    target = state_path(run_id)
+    if not target.exists():
+        return RunState(run_id=run_id)
+
+    def stop(detail: str) -> "RunState":
+        raise RunStateUnusable([_state_blocker(target, detail)],
+                               f"Laufzustand unbrauchbar: {detail}")
+
+    try:
+        data = json.loads(target.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        stop("kein gueltiges JSON.")
+    if not isinstance(data, dict):
+        stop("kein JSON-Objekt.")
+    if data.get("version") != STATE_VERSION:
+        stop(f"Version {data.get('version')!r} statt {STATE_VERSION!r}.")
+    if data.get("run_id") != run_id:
+        stop(f"gehoert zu Run {data.get('run_id')!r}.")
+    try:
+        state = WorkflowState(data.get("workflow_state"))
+    except ValueError:
+        stop(f"unbekannter Workflowstatus {data.get('workflow_state')!r}.")
+    entries = data.get("units")
+    if not isinstance(entries, list):
+        stop("Unitliste fehlt oder ist keine Liste.")
+    records: dict[str, UnitRecord] = {}
+    for item in entries:
+        if not isinstance(item, dict):
+            stop("Uniteintrag ist kein JSON-Objekt.")
+        entry = UnitRecord.from_payload(item)
+        if entry is None:
+            stop("Uniteintrag verletzt den Zustandsvertrag.")
+        if entry.unit_id in records:
+            # Ein Duplikat wuerde beim Einlesen still den frueheren Eintrag
+            # ueberschreiben - also genau die teilweise Interpretation, die
+            # ausgeschlossen sein soll.
+            stop(f"Unit {entry.unit_id} kommt mehrfach vor.")
+        records[entry.unit_id] = entry
+    return RunState(run_id=run_id, state=state, units=records)
+
+
+# ---------------------------------------------------------------------------
+# Runmanifest
+# ---------------------------------------------------------------------------
+
+def build_manifest(*, run_id: str, settings: MatcherSettings,
+                   provider_settings: ProviderSettings,
+                   prompts_used: Sequence[SystemPrompt],
+                   taxonomy_content_hash: str, snapshot_id: str,
+                   input_manifest_hash: str, unit_count: int,
+                   budget_usd: float, json_schema: Mapping | None = None,
+                   selection: Mapping[str, object] | None = None,
+                   ) -> dict[str, object]:
+    """Friert die Laufparameter ein (Plan 2.6).
+
+    Kein Zugangsdatum und kein Prompttext: das Manifest wird versioniert
+    abgelegt und ist damit so oeffentlich wie das Repository. Der Prompt ist
+    ueber ``prompt_sha256`` eindeutig belegt.
+    """
+    schema = json_schema if json_schema is not None else mapping.batch_schema()
+    return {
+        "version": MANIFEST_VERSION,
+        "run_id": run_id,
+        "snapshot_id": snapshot_id,
+        "input_manifest_hash": input_manifest_hash,
+        "taxonomy_content_hash": taxonomy_content_hash,
+        "unit_count": unit_count,
+        # Die Zielauswahl eines Entwicklungsruns gehoert ins Manifest
+        # (Plan 2.7). Sie bestimmt, welche Units der Lauf ueberhaupt umfasst,
+        # und damit auch, was die Coverage als vollstaendig ausweist.
+        "selection": dict(selection or {}),
+        "model": provider_settings.model,
+        "routing": {
+            "require_parameters": provider_settings.require_parameters,
+            "allow_fallbacks": provider_settings.allow_fallbacks,
+            "quantizations": list(provider_settings.quantizations or []),
+            "data_collection": provider_settings.data_collection,
+            "zdr": provider_settings.zdr,
+            "max_price_usd_per_mtok": dict(provider_settings.max_price_usd_per_mtok),
+            "sdk_retries": provider_settings.sdk_retries,
+            "max_concurrent_calls": provider_settings.max_concurrent_calls,
+        },
+        "context": {
+            "endpoint_context_tokens": provider_settings.endpoint_context_tokens,
+            "max_output_tokens": provider_settings.max_output_tokens,
+            "reasoning_reserve_tokens": provider_settings.reasoning_reserve_tokens,
+            "reasoning_effort": provider_settings.reasoning_effort,
+            "request_timeout_s": provider_settings.request_timeout_s,
+        },
+        "batching": {
+            "batch_size": settings.offline.batch_size,
+            "max_repair_attempts": settings.offline.max_repair_attempts,
+            "chars_per_token": settings.offline.chars_per_token,
+            "workflow_retries": settings.offline.workflow_retries,
+        },
+        "prompts": [prompt.manifest_entry() for prompt in prompts_used],
+        "schema": {
+            "schema_name": mapping.SCHEMA_NAME,
+            "schema_sha256": schema_hash(schema),
+        },
+        "cache_key_version": CACHE_KEY_VERSION,
+        "budget_usd": budget_usd,
+        "cost_guard": settings.offline.cost_guard,
+    }
+
+
+def write_manifest(run_id: str, manifest: Mapping) -> Path:
+    return _write_json(manifest_path(run_id, create_parents=True), dict(manifest))
+
+
+def load_manifest(run_id: str) -> dict | None:
+    """Liest ein vorhandenes Manifest; fehlt oder faellt es aus dem Vertrag, None.
+
+    ``None`` heisst hier ausschliesslich 'nicht vorhanden oder unbrauchbar'.
+    Wer entscheidet, ob unter dieser Revision geschrieben werden darf, muss
+    zusaetzlich ``manifest_unusable`` fragen: ein unlesbares Manifest darf nicht
+    wie ein fehlendes behandelt und ueberschrieben werden, denn daneben kann ein
+    Laufzustand mit bezahlten Ergebnissen liegen.
+    """
+    target = manifest_path(run_id)
+    if not target.exists():
+        return None
+    try:
+        data = json.loads(target.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    if not isinstance(data, dict) or data.get("version") != MANIFEST_VERSION:
+        return None
+    if data.get("run_id") != run_id:
+        return None
+    return data
+
+
+def unpriced_audits(run_id: str) -> tuple[str, ...]:
+    """Calls mit gueltiger Antwort, aber ohne gemeldete Kosten.
+
+    Fuer sie steht der Worst Case reserviert, bis die Generation den Betrag
+    liefert. Ohne diesen Klaerweg bliebe die Reservierung fuer die Lebensdauer
+    der Revision stehen und schmaelerte jedes weitere Budget des Laufs.
+    """
+    folder = mapping_path(run_id, CALLS_DIRNAME)
+    if not folder.is_dir():
+        return ()
+    open_calls = []
+    for entry in sorted(folder.glob("*.json")):
+        name = entry.name
+        if name.endswith(".intent.json") or name.endswith(".reconciled.json"):
+            continue
+        call_id = name[: -len(".json")]
+        if reconciled_path(run_id, call_id).exists():
+            continue
+        data = load_audit(run_id, call_id)
+        if data is None:
+            continue
+        cost = data.get("cost_usd")
+        if not isinstance(cost, (int, float)) or isinstance(cost, bool):
+            open_calls.append(call_id)
+    return tuple(open_calls)
+
+
+def load_audit(run_id: str, call_id: str) -> dict | None:
+    """Liest die Auditdatei eines Calls; alles Unstimmige gilt als nicht da."""
+    target = call_path(run_id, call_id)
+    if not target.exists():
+        return None
+    try:
+        data = json.loads(target.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    if not isinstance(data, dict) or data.get("version") != CALL_AUDIT_VERSION:
+        return None
+    if data.get("call_id") != call_id or not isinstance(data.get("payload"), dict):
+        return None
+    return data
+
+
+def audit_response(data: Mapping[str, object]
+                   ) -> provider_module.StructuredResponse | None:
+    """Baut die Antwort eines bezahlten Calls aus seiner Auditdatei zurueck.
+
+    Gebraucht wird das, wenn der Prozess zwischen Auditpersistenz und
+    Zustandspersistenz abgebrochen ist: die Antwort ist bezahlt und liegt auf
+    der Platte, der Laufzustand kennt sie nicht. Ohne Rueckbau wuerde derselbe
+    Batch ein zweites Mal gesendet und ein zweites Mal bezahlt.
+
+    Die Provenienz bleibt die des urspruenglichen Calls - Provider, Generation
+    und Kosten stehen im Audit. Fehlt eine davon, ist die Antwort nicht
+    rueckverfolgbar und wird nicht wiederverwendet.
+    """
+    call_id = data.get("call_id")
+    payload = data.get("payload")
+    provider_name = data.get("provider")
+    generation_id = data.get("generation_id")
+    if not (isinstance(call_id, str) and isinstance(payload, dict)
+            and provider_name and generation_id):
+        return None
+    cost = data.get("cost_usd")
+    return provider_module.StructuredResponse(
+        call_id=call_id,
+        payload=payload,
+        model=str(data.get("model") or ""),
+        provider=str(provider_name),
+        prompt_tokens=int(data.get("prompt_tokens") or 0),
+        completion_tokens=int(data.get("completion_tokens") or 0),
+        cost_usd=float(cost) if isinstance(cost, (int, float))
+        and not isinstance(cost, bool) else None,
+        finish_reason=data.get("finish_reason"),
+        generation_id=str(generation_id),
+    )
+
+
+def manifest_unusable(run_id: str) -> str | None:
+    """Grund, warum ein vorhandenes Manifest nicht gelesen werden kann.
+
+    ``None`` heisst: entweder liegt keines vor, oder es ist brauchbar.
+    """
+    target = manifest_path(run_id)
+    if not target.exists():
+        return None
+    try:
+        data = json.loads(target.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        return f"nicht lesbar ({exc.__class__.__name__})"
+    if not isinstance(data, dict):
+        return "kein Objekt"
+    if data.get("version") != MANIFEST_VERSION:
+        return f"Vertragsversion {data.get('version')!r} statt {MANIFEST_VERSION!r}"
+    if data.get("run_id") != run_id:
+        return f"gehoert zu Run {data.get('run_id')!r}"
+    return None
+
+
+#: Manifestfelder, deren Aenderung einen Resume verbietet: sie bestimmen das
+#: fachliche Ergebnis. Volatile Provenienz steht bewusst nicht darin.
+RESUME_BOUND_FIELDS = ("taxonomy_content_hash", "input_manifest_hash", "model",
+                       "prompts", "schema", "batching", "context",
+                       "cache_key_version", "selection", "unit_count",
+                       # Zwei inhaltsgleiche Snapshots liefern dasselbe
+                       # Ergebnis - der Artefaktabschluss verlangt aber die
+                       # Revision des Manifests (ART_SNAPSHOT_MISMATCH). Ohne
+                       # diese Bindung liefe der Resume durch, bezahlte jeden
+                       # offenen Batch und scheiterte erst danach am
+                       # Artefaktschreiben.
+                       "snapshot_id",
+                       # Routing traegt die Datenschutzzusage (ZDR,
+                       # data_collection) und die Preisdeckel des Laufs; ein
+                       # Wechsel mitten im Lauf hiesse, dass Teile des
+                       # Ergebnisses unter anderen Zusagen entstanden sind.
+                       "routing")
+
+
+def resume_conflicts(previous: Mapping, current: Mapping) -> tuple[str, ...]:
+    """Felder, in denen sich ein fortgesetzter Lauf vom urspruenglichen unterscheidet.
+
+    Nur diese Felder entscheiden ueber die Wiederverwendbarkeit. Ein anderer
+    Zeitpunkt, ein anderes Budget oder ein anderer Endpoint sind kein Grund,
+    bezahlte Ergebnisse wegzuwerfen.
+    """
+    return tuple(name for name in RESUME_BOUND_FIELDS
+                 if previous.get(name) != current.get(name))
+
+
+def resume_blocker(run_id: str, conflicts: Sequence[str]) -> Finding:
+    return Finding(
+        severity=Severity.BLOCKER,
+        code="RUN_MANIFEST_DRIFT",
+        stage=Stage.WORKFLOW,
+        obj=run_id,
+        message=("Der Lauf wurde unter anderen Bedingungen begonnen; abweichend: "
+                 + ", ".join(conflicts) + "."),
+        hint=("Neuen Run starten statt fortzusetzen; Ergebnisse aus "
+              "unterschiedlichen Bedingungen werden nicht gemischt."),
+        exit_code=ExitCode.PREFLIGHT_BLOCKED,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Ungeklaerte Calls und Reconciliation
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class UnknownCall:
+    """Ein Call, dessen Ausgang offen blieb.
+
+    Nur ``generation_id`` erlaubt den Abgleich beim Provider. Fehlt sie, bleibt
+    der Call dauerhaft ungeklaert - erneutes Senden ist eine Entscheidung von
+    Bene, keine automatische Wiederholung (Plan 2.6).
+    """
+
+    call_id: str
+    generation_id: str | None
+    reserved_usd: float
+    reason: str
+
+    @property
+    def reconcilable(self) -> bool:
+        return bool(self.generation_id)
+
+    def as_payload(self) -> dict[str, object]:
+        return {
+            "call_id": self.call_id,
+            "generation_id": self.generation_id,
+            "reserved_usd": round(self.reserved_usd, 6),
+            "reason": self.reason,
+            "reconcilable": self.reconcilable,
+        }
+
+
+def outcome_unknown_finding(unknown: Sequence[UnknownCall]) -> Finding:
+    """Meldet ungeklaerte Calls als eigenen Endzustand, nie als Mappingurteil."""
+    blind = [call.call_id for call in unknown if not call.reconcilable]
+    hint = ("Kosten ueber die Generation-ID abgleichen; erneutes Senden nur nach "
+            "ausdruecklicher Freigabe, es kann doppelt abgerechnet werden.")
+    if blind:
+        hint = (f"{len(blind)} Call(s) ohne Generation-ID sind nicht abgleichbar. "
+                + hint)
+    return Finding(
+        severity=Severity.BLOCKER,
+        code="RUN_OUTCOME_UNKNOWN",
+        stage=Stage.COST,
+        obj=f"{len(unknown)} Call(s)",
+        message=("Der Ausgang einzelner Calls ist offen; die reservierten Kosten "
+                 "bleiben gebucht."),
+        hint=hint,
+        exit_code=ExitCode.OUTCOME_UNKNOWN,
+    )

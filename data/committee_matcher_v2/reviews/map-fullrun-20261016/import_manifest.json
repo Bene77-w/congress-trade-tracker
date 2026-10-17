@@ -1,0 +1,42 @@
+{
+  "version": "fullrun-import-v1",
+  "review_id": "map-fullrun-20261016",
+  "run_id": "map-fullrun-20261016",
+  "origin": "submapper.py --fullrun",
+  "scope": "fullrun",
+  "source": "codex",
+  "snapshot_id": "tax-20261002T233100Z",
+  "taxonomy_content_hash": "8c3da76572d994be167115502e646785f97c299d43244bc161468457b5ffbb6f",
+  "unit_count": 225,
+  "assignment_count": 522,
+  "manual_assignment_count": 0,
+  "no_mapping_units": [
+    "house--appropriations",
+    "house--energy-and-commerce",
+    "house--ethics",
+    "house--financial-services",
+    "house--house-administration",
+    "house--house-administration--elections",
+    "house--house-administration--modernization-and-innovation",
+    "house--intelligence",
+    "house--intelligence--central-intelligence-agency",
+    "house--intelligence--national-intelligence-enterprise",
+    "house--intelligence--oversight-and-investigations",
+    "house--judiciary",
+    "house--rules",
+    "house--rules--legislative-and-budget-process",
+    "house--rules--rules-and-organization-of-the-house",
+    "house--transportation-and-infrastructure",
+    "joint--library",
+    "senate--commerce-science-and-transportation",
+    "senate--environment-and-public-works",
+    "senate--ethics",
+    "senate--foreign-relations--multilateral-international-development-multilateral-institutions-and-international-economic-energy-and-environmental-policy"
+  ],
+  "review_status": "reviewed",
+  "files": [
+    "reviewed_assignments.csv",
+    "reviewed_unit_coverage.csv"
+  ],
+  "created_at": "2026-10-16T19:39:29+00:00"
+}

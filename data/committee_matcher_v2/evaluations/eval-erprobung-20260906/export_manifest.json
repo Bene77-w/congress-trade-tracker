@@ -1,0 +1,124 @@
+{
+  "version": "evaluation-export-v1",
+  "eval_id": "eval-erprobung-20260906",
+  "created_at": "2026-09-06T05:35:30+00:00",
+  "state": "awaiting_development_goldset",
+  "sample_version": "goldset-sample-v1",
+  "mapping_input_hashes": {
+    "house--appropriations--transportation-housing-and-urban-development-and-related-agencies": "dea865388964ddfad6361672a1f70917a2429acce70ecf2ae1c8eaf8a6b67555",
+    "house--energy-and-commerce--energy": "855f9e61e4b5d0834af340e782bbd6aee40e15756f14ee5df83509bae4c1f5e0",
+    "house--energy-and-commerce--health": "d67442fae265c5504ce975cc2da74e97ea342f99e34f3f4748f2e27b0f3a6c61",
+    "house--financial-services--financial-institutions": "25c3608f57905c4b2900469dcd75ecac08a1be22ed824999627a61554173075a",
+    "house--financial-services--housing-and-insurance": "e148cc5df71d2450ae872a5c07b6b135f38ce2a8b10e3db8450de392b3bdd693",
+    "house--foreign-affairs--africa": "20227acbe39855d5772b89836ae5bf2d3ca064154c5d2e4d2fd20fd7bf39e78b",
+    "house--homeland-security--cybersecurity-and-infrastructure-protection": "4b141d76d7d69752f89a26555394edbf9402f15e78a39012954bff442c9020ef",
+    "house--judiciary--courts-intellectual-property-artificial-intelligence-and-the-internet": "8a2a1740e70e903d847f8ddf252a048fba8fa169db5f09bf7db249fa9fd70546",
+    "house--natural-resources--energy-and-mineral-resources": "4aa80b39da91f52fe0983b419eecee9c6d8608646fc04a6dacb63aa1351fb024",
+    "house--rules--legislative-and-budget-process": "d53571d1558e1c6569a58b4180096d209e29516fe3323ea68a7bf90274c3af87",
+    "house--science-space-and-technology--space-and-aeronautics": "6c0feb9f3e947bf530ac9ecd700e47513ff5281ffeed291ebe2bd362e1feb863",
+    "house--transportation-and-infrastructure--aviation": "fad22d2a9ea8bcb519182e67d608545a55dcf0191f5611af2946eb7b03752ac3",
+    "house--ways-and-means--health": "a8f8e9cca8be4331a60c71b1179a4cfa5bfe17cd66e1d4a97bfcb85863a5a89f",
+    "senate--agriculture-nutrition-and-forestry--livestock-dairy-poultry-and-food-safety": "cb4dde813cc367196bcd3879fc04155f8a2aec64656c28996434bc5921ac5fa4",
+    "senate--appropriations--department-of-homeland-security": "126e752eefcbf18215d3c851571348eee43aa30fd5dfe69f8839db1a50c87819",
+    "senate--banking-housing-and-urban-affairs--digital-assets": "fe03d519cfe19b948091a6b7ad5189aababcbffe518915d90646dad5c2bd6ca0",
+    "senate--commerce-science-and-transportation--surface-transportation-freight-pipelines-and-safety": "9c248500d3f3d92e841517227603d9fab8795f44f35154bed57fc5559f7c68b5",
+    "senate--commerce-science-and-transportation--telecommunications-and-media": "504e7de876c6fd41ae37202c2e86890b112da7d52642254934291b6035d9a951",
+    "senate--energy-and-natural-resources--public-lands-forests-and-mining": "d9d2d621a39b6bcad7db281a8cb4437ab2df0fb31c2d5de2d6ddf400e4c27080",
+    "senate--environment-and-public-works--chemical-safety-waste-management-environmental-justice-and-regulatory-oversight": "18272242081234c66c167f2906d81614637afa29880bbe3bb5c8c5fdcd5c6cb9",
+    "senate--finance--health-care": "964d49f098c5a442280a1e5c84b0cd3697282182c38b2dd20c278db639a2469a",
+    "senate--homeland-security-and-governmental-affairs--border-management-federal-workforce-and-regulatory-affairs": "3f41fabd655d046d36c5d376243d8eb605ebb4e837d48ca384c58d909e87f27e"
+  },
+  "variants": {
+    "batch_sizes": [
+      1,
+      3
+    ],
+    "repetitions": 3,
+    "max_repetitions": 5
+  },
+  "snapshot_id": "tax-20260905T001425Z",
+  "input_manifest_hash": "369ba76b084b9941e10d2bfec0d323aa88758aa8aa820a32ea6a7b2f9aab6e65",
+  "taxonomy_content_hash": "8c3da76572d994be167115502e646785f97c299d43244bc161468457b5ffbb6f",
+  "unit_count": 22,
+  "selection": {
+    "chamber": null,
+    "committee": null,
+    "unit_ids": [
+      "house--appropriations--transportation-housing-and-urban-development-and-related-agencies",
+      "house--energy-and-commerce--energy",
+      "house--energy-and-commerce--health",
+      "house--financial-services--financial-institutions",
+      "house--financial-services--housing-and-insurance",
+      "house--foreign-affairs--africa",
+      "house--homeland-security--cybersecurity-and-infrastructure-protection",
+      "house--judiciary--courts-intellectual-property-artificial-intelligence-and-the-internet",
+      "house--natural-resources--energy-and-mineral-resources",
+      "house--rules--legislative-and-budget-process",
+      "house--science-space-and-technology--space-and-aeronautics",
+      "house--transportation-and-infrastructure--aviation",
+      "house--ways-and-means--health",
+      "senate--agriculture-nutrition-and-forestry--livestock-dairy-poultry-and-food-safety",
+      "senate--appropriations--department-of-homeland-security",
+      "senate--banking-housing-and-urban-affairs--digital-assets",
+      "senate--commerce-science-and-transportation--surface-transportation-freight-pipelines-and-safety",
+      "senate--commerce-science-and-transportation--telecommunications-and-media",
+      "senate--energy-and-natural-resources--public-lands-forests-and-mining",
+      "senate--environment-and-public-works--chemical-safety-waste-management-environmental-justice-and-regulatory-oversight",
+      "senate--finance--health-care",
+      "senate--homeland-security-and-governmental-affairs--border-management-federal-workforce-and-regulatory-affairs"
+    ]
+  },
+  "model": "deepseek/deepseek-v4-flash-0731",
+  "routing": {
+    "require_parameters": true,
+    "allow_fallbacks": true,
+    "quantizations": [
+      "fp8",
+      "bf16",
+      "fp16"
+    ],
+    "data_collection": "deny",
+    "zdr": true,
+    "max_price_usd_per_mtok": {
+      "prompt": 0.3,
+      "completion": 0.9
+    },
+    "sdk_retries": 0,
+    "max_concurrent_calls": 1
+  },
+  "context": {
+    "endpoint_context_tokens": 200000,
+    "max_output_tokens": 8000,
+    "reasoning_reserve_tokens": 24000,
+    "reasoning_effort": "low",
+    "request_timeout_s": 300.0
+  },
+  "batching": {
+    "max_repair_attempts": 1,
+    "chars_per_token": 3.0,
+    "workflow_retries": 2
+  },
+  "prompts": [
+    {
+      "prompt_id": "mapping_system",
+      "prompt_version": "mapping-system-v3",
+      "schema_version": "mapping-output-v1",
+      "prompt_sha256": "8137e0a079429dd26950e0490b2dc58cd8066184eed16253f5da9f08daa70bcd",
+      "path": "data/config/committee_matcher_prompts/mapping_system.md"
+    },
+    {
+      "prompt_id": "repair_system",
+      "prompt_version": "repair-system-v2",
+      "schema_version": "mapping-output-v1",
+      "prompt_sha256": "a18e0f9ef84edd6dd92be3c62b763a3d71cfdda4b8cc2ad4d4ce088140bb64dd",
+      "path": "data/config/committee_matcher_prompts/repair_system.md"
+    }
+  ],
+  "schema": {
+    "schema_name": "MappingBatchResult",
+    "schema_sha256": "9752b7a537de28dc67cbf495e52c3f9ddfc10fc4849d7ff180a0297aa70a47f6"
+  },
+  "cache_key_version": "cache-key-v1",
+  "budget_usd": 40.0,
+  "cost_guard": true
+}

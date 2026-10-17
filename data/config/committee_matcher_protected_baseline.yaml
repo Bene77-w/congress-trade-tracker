@@ -1,0 +1,32 @@
+# Committee Matcher V2 - Schutzbaseline matcherbezogener Produktionspfade; erzeugt von scripts/committee_matcher_baseline.py.
+baseline_version: protected-paths-v1
+scope: committee_matcher_v2
+note: Matcherbezogene Produktionspfade; V2 liest sie ausschliesslich und schreibt nie hinein. Nicht aus der globalen reset_pipeline.py-Liste abgeleitet.
+paths:
+- path: data/mappings/subcommittee_sector_industry_mapping.csv
+  bytes: 101117
+  sha256: c95ae56207ed7055c7f8630e8d72f8f2e4819213bf7fc5eb7b09c256c96c1dad
+- path: data/mappings/subcommittee_sector_industry_mapping.xlsx
+  bytes: 77128
+  sha256: de6bb13c9b90b7db3d664c39ce0384c63e1523ba72bcc1308d27828f2640cbdf
+- path: data/mappings/house_member&(sub)committees.csv
+  bytes: 93516
+  sha256: 8c90e0c40ffc13d41e894ca516add29339b89752320ffb582ba523327c476713
+- path: data/mappings/senate_member&(sub)committees.csv
+  bytes: 79276
+  sha256: 58e0568683a1e84a39905c4e34c1b4f10c75bc846f383db924fda52754a71ac8
+- path: data/mappings/yf_sectors_with_industries_enriched.json
+  bytes: 32737
+  sha256: 58391da1dc2ec8a7f728e549905f0858285296f8af037739a54c0d495f3e6667
+- path: data/mappings/yf_sectors_with_industries.json
+  bytes: 4302
+  sha256: e4d88edad9aef53a34900feb1129eb48322b2c3716de49f609b0ed11ca8c038b
+- path: data/mappings/yf_sectors_with_industries.xlsx
+  bytes: 8255
+  sha256: 7110e4c680871d209805682e72a2fa101efd7e3bae41230963feeed5006d14b2
+- path: data/mappings/us_house_all_committees.csv
+  bytes: 6268
+  sha256: abad9d5633473f95c557a309158f1aa44801659c79e89ed50c25e9a430c68487
+- path: data/mappings/us_senate_all_committees.csv
+  bytes: 5936
+  sha256: cffd3f98f1440a8ef493a8982a42c4ebb5f2463fb80227456e69aeb4a3c82afb

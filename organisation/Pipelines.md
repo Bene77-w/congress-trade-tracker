@@ -1077,30 +1077,15 @@ Zwischensummen pro Gruppe, finale Zusammenfassung.
 
 ---
 
-## Pipeline 11: Committee-Mapping-Agent (in Arbeit, auf Befehl, kein Scheduler)
+## Pipeline 11: Committee Matcher V2 (auf Befehl, kein Scheduler)
 
-**Script:** `scripts/committee_mapping_agent/run.py` (`python -m scripts.committee_mapping_agent.run <subcommand>`)
-**Zweck:** Erzeugt/erneuert reproduzierbar `data/mappings/subcommittee_sector_industry_mapping.csv` — den Input von
-`config/committee_mapping.py` (Committee-Tag, Abschnitt "Code-Konvention" in `AGENTS.md`).
-**Modelle/Rollen, Caches, Confidence-Logik, Datenstrukturen:** `DATA_STRUCTURE.md` Abschnitt 3a.
-**Volle CLI-Referenz (Subcommands, Flags, Exit-Codes, Beispielabläufe):** `CLI_Bedienungsanleitung.md`.
-
-**Stufenfolge** (jede Stufe cached → Resume/Delta):
-
-```
-enrich-taxonomy (einmalig)
-  → research   (LLM sammelt Jurisdiktionstexte, gegroundet)
-  → map        (LLM klassifiziert Sector/Industry je Subcommittee)
-  → validate   (reine Diagnose, kein Cache-Schreiben)
-  → review     (LLM-Zweitmeinung; bei config.REVIEW_ENABLED=False (Default) Pass-Through ohne API-Calls)
-  → export-review            (3 Review-xlsx schreiben)
-  [User editiert comment-Spalte in den xlsx]
-  → finalize   (Kommentare einarbeiten → Staging-CSV)
-  → promote    (Staging → Master, Timestamp-Backup des alten Masters)
-```
-
-**Status (2026-06-12):** Probelauf 3 Committees abgeschlossen (Map 17:33 min, Review 8:20 min,
-ThreadPool-parallelisiert). Full-Run über alle House/Senate-Committees + `promote` stehen aus.
+Der frühere Committee-Mapping-Agent (`scripts/committee_mapping_agent/`) ist entfernt.
+Sein Nachfolger ist das Paket `committee_matcher/` (`venv/bin/python -m committee_matcher <kommando>`).
+Ablauf: Input/Roster prüfen → Taxonomie-Snapshot → Mapping → Review in Excel →
+`data/committee_matcher_v2/reviews/<id>/reviewed_assignments.csv`. Die aktive Revision
+wählt `COMMITTEE_MAPPING_REVIEW_ID` in `config/settings.py`; `import_trades` liest sie
+über `config/committee_mapping.py`.
+**CLI-Referenz:** `CLI_Bedienungsanleitung.md` (Committee Matcher V2) · **Datenverträge:** `DATA_STRUCTURE.md` Abschnitt 3a.
 
 ---
 

@@ -1,0 +1,23 @@
+{
+  "version": "review-import-v2",
+  "review_id": "review-p8-run2",
+  "run_id": "p8-run2",
+  "snapshot_id": "run-p4-spike",
+  "taxonomy_content_hash": "8c3da76572d994be167115502e646785f97c299d43244bc161468457b5ffbb6f",
+  "input_manifest_hash": "26280924070b522986f8b9c0470dde90fce8ad355bda5cdad4d505c9514bf2c7",
+  "unit_count": 7,
+  "assignment_count": 9,
+  "manual_assignment_count": 3,
+  "removed_assignments": 2,
+  "added_assignments": 2,
+  "changed_assignments": 1,
+  "changed_no_mapping_reasons": 0,
+  "no_mapping_units": [
+    "house--agriculture--conservation-research-and-biotechnology"
+  ],
+  "review_status": "reviewed",
+  "files": [
+    "reviewed_assignments.csv",
+    "reviewed_unit_coverage.csv"
+  ]
+}

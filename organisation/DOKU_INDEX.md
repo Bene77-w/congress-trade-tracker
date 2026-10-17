@@ -23,9 +23,13 @@ Dieser Index ist die **Routing-Quelle** für den Skill `/doku-update` und den `d
 | Datei | Zweck (1 Satz) | Aktualisieren bei |
 |---|---|---|
 | `DATA_STRUCTURE.md` | Vollständige Spalten-Definition **aller** CSV/JSON/XLSX. | Neue/geänderte Spalte (CSV, Cache, JSON), neue Datendatei, Suffix-Konvention geändert. |
-| `Pipelines.md` | Ausführungsreihenfolge aller 9 Pipelines + Import-Stages (aktuell **17**). | Neue/entfernte Stage, Stage-Abhängigkeiten geändert, neue Problem-Output-Datei, Dedup-Logik. |
+| `Pipelines.md` | Ausführungsreihenfolge aller Pipelines + Import-Stages (aktuell **17**), Pipeline 11 = Committee Matcher V2. | Neue/entfernte Stage, Stage-Abhängigkeiten geändert, neue Problem-Output-Datei, Dedup-Logik. |
 | `CLI_Bedienungsanleitung.md` | Vollständige CLI-Referenz aller Scripts inkl. Flag-Matrix. | Neues CLI-Flag, neues Script, geänderter Default-Workflow. |
 | `DEPLOYMENT.md` | Deployment-/Plattformwechsel-Referenz (Linux↔Windows, USB-Betrieb, Docker). | Neue Python-Abhängigkeit, neue ENV-Variable, neue plattformspezifische Permission, Docker-Setup. |
+| `committee_matcher_v2_implementierungsplan.md` | Konsolidierte Phasen-, Gate- und Abnahmeplanung für die vollständige Neuimplementierung des Committee Matchers. | Architekturentscheidung, Gate, Phase, Scope oder Abnahmekriterium des Committee-Matcher-V2 geändert; Phase abgeschlossen (Umsetzungsstandtabelle). |
+| `committee_matcher_planung_entscheidungen_codex.md` | Verbindliche Architektur- und Planungsentscheidungen des Committee Matchers V2 (Grundlage des Implementierungsplans). | Entscheidung zu Scope, Units, Taxonomie, Provider, Kosten, Review oder Evaluation geändert. |
+| `committee_matcher_gate_b_entscheidungsvorlage.md` | Entscheidungsvorlage für Gate B: Modell, Endpoint, Routing, Datenschutz, Token-, Timeout- und Budgetgrenzen mit Kostenmatrix am realen Corpus. | Gate-B-Wert bestätigt, geändert oder durch den Contract-Smoke widerlegt; Modell- oder Endpointwechsel. |
+| `committee_jurisdiction_input_template_codex.md` | Inputvertrag der kanonischen Committee-Markdowns (Frontmatter + Abschnittsstruktur). | Frontmatter-Feld, `unit_input_basis`-Wert oder Abschnittskonvention geändert. |
 
 ## `organisation/tool_specific_md/`
 

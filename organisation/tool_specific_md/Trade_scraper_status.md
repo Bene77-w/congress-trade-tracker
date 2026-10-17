@@ -105,4 +105,4 @@ Der einzige Senator mit Paper-PTRs (Richard Blumenthal, via Elias Law Group) han
 
 Aktuelle primäre Datenquelle ist **Quiver** (`congress-trading-all.csv`, vollständiger Snapshot ab 2012), eingelesen von `scripts/import_trades.py`. Der Importer baut die Master bei Full-Rebuild komplett neu (kein Dedup gegen alte Master) und bietet **Checkpoint-Support** (`CHECKPOINT_INTERVAL`, Pickle) sowie einen **`--delta`-Modus** für inkrementelle Läufe.
 
-Die detaillierte chronologische Änderungshistorie (Quiver-Migration, OCR-QS, Dedup-Umbau) steht im `CHANGELOG.md` bzw. `git log -- scripts/import_trades.py`. Spalten-Semantik → `../DATA_STRUCTURE.md`, Stage-Ablauf → `../Pipelines.md`.
+Die detaillierte chronologische Änderungshistorie (Quiver-Migration, OCR-QS, Dedup-Umbau) steht im `CHANGELOG.md` bzw. `git log -- scripts/import_trades.py`. Spalten-Semantik → `../DATA_STRUCTURE.md`, Aufrufe → `../CLI_Bedienungsanleitung.md`.

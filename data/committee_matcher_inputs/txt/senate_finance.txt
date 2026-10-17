@@ -1,0 +1,12 @@
+Input text senate finance committee:
+
+
+
+#userinput: 'keine Subcommittee beschreibung. Zunächst das commitee mit allen passeden industries mappen und basierend auf den namen der Subcommittees die passenden industries den subcommittees zuordnen'
+ 
+Social Security, Pensions, and Family Policy
+International Trade, Customs, and Global Competitiveness
+Energy, Natural Resources, and Infrastructure
+Health Care
+Taxation and IRS Oversight
+Fiscal Responsibility and Economic Growth

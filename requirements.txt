@@ -22,6 +22,8 @@ jiter==0.13.0
 numpy==2.4.1
 opencv-python-headless==4.13.0.92
 openpyxl==3.1.5
+openrouter==1.1.71        # offizielles OpenRouter-Python-SDK (Committee Matcher V2)
+jsonpath-python==1.1.6    # transitive Abhaengigkeit des OpenRouter-SDK
 packaging==26.0
 pandas==3.0.0
 pdfminer.six==20251230
@@ -41,6 +43,7 @@ pytest==9.0.2
 pytest-mock==3.15.1
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.1
+PyYAML==6.0.3            # Frontmatter/Manifest des Committee Matchers V2
 RapidFuzz==3.14.3
 requests==2.32.5
 six==1.17.0
@@ -60,9 +63,6 @@ multitasking==0.0.13
 
 # Nachtraeglich ergaenzt (Debug-Intervall 4): waren im venv, fehlten in requirements
 curl_cffi==0.15.0          # scrapers/senate_committee_xml (Senate-Roster-Producer)
-openai==2.41.1             # scripts/committee_mapping_agent (DeepSeek via OpenAI-SDK)
-ddgs==9.14.4               # scripts/committee_mapping_agent (Grounding-Suche)
-jsonschema==4.26.0         # scripts/committee_mapping_agent (Schema-Validierung)
 
 # Parquet-Engine fuer den Deployment-Snapshot (scripts/build_deploy_snapshot.py,
 # app/streamlit_app.py). Kam bisher nur transitiv ueber streamlit — ohne sie

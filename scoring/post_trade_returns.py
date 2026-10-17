@@ -503,12 +503,20 @@ def _progress_tick(i: int, total: int, tkr: str,
           f"letzter={tkr}", flush=True)
 
 
+def _max_gap() -> np.timedelta64:
+    """Erlaubter Abstand Ziel -> naechster Close (``POST_TRADE_MAX_PRICE_GAP_DAYS``)."""
+    days = int(getattr(settings, 'POST_TRADE_MAX_PRICE_GAP_DAYS', 5))
+    return np.timedelta64(days, 'D')
+
+
 def _price_at_or_after(
     cache: pd.DataFrame, ticker: object, target_date: pd.Timestamp,
 ) -> float | None:
     """Erster close >= target_date (Wochenende -> naechster Handelstag).
 
-    None falls target > letztem Cache-Eintrag oder Ticker nicht im Cache.
+    None falls target > letztem Cache-Eintrag, Ticker nicht im Cache oder der
+    naechste Close mehr als ``POST_TRADE_MAX_PRICE_GAP_DAYS`` hinter dem Ziel
+    liegt (Cache beginnt erst nach dem Ziel).
     """
     if not _is_valid_yf_ticker(ticker):
         return None
@@ -523,6 +531,8 @@ def _price_at_or_after(
     target = pd.Timestamp(target_date).normalize()
     after = series[series.index >= target]
     if after.empty:
+        return None
+    if after.index[0] - target > pd.Timedelta(_max_gap()):
         return None
     val = after.iloc[0]['close']
     if pd.isna(val):
@@ -551,7 +561,8 @@ def _build_price_lookup(cache: pd.DataFrame) -> dict[str, tuple | None]:
             sub.index.get_level_values(1).values, dtype='datetime64[ns]',
         )
         closes = sub['close'].to_numpy(dtype='float64')
-        keep = ~np.isnan(closes)
+        # Close <= 0 ist ein Datenfehler der Quelle, kein Kurs.
+        keep = ~np.isnan(closes) & (closes > 0)
         if not keep.all():
             dates = dates[keep]
             closes = closes[keep]
@@ -581,6 +592,8 @@ def _price_at_or_after_fast(
     target = np.datetime64(pd.Timestamp(target_date).normalize().to_datetime64())
     pos = int(np.searchsorted(dates, target, side='left'))
     if pos >= len(dates):
+        return None
+    if dates[pos] - target > _max_gap():
         return None
     val = closes[pos]
     if np.isnan(val):

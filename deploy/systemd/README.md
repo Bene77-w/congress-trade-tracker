@@ -19,7 +19,7 @@ ausgeschaltetem Rechner nie ausloesen.
 `~/.config/systemd/user/` kopieren:
 
 ```bash
-PROJECT_DIR=/path/to/congress_tracker
+PROJECT_DIR=/home/bene/Nextcloud/Projekte/bmb_trdprg/congress_tracker
 mkdir -p ~/.config/systemd/user
 sed "s#__PROJECT_DIR__#$PROJECT_DIR#g" deploy/systemd/quiver-import.service > ~/.config/systemd/user/quiver-import.service
 cp deploy/systemd/quiver-import.timer ~/.config/systemd/user/quiver-import.timer

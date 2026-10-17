@@ -432,6 +432,23 @@ HOUSE_COMMITTEES_FILE = 'house_member&(sub)committees.csv'
 SENATE_COMMITTEES_FILE = 'senate_member&(sub)committees.csv'
 NAME_ALIASES_FILE = 'name_aliases.csv'
 COMMITTEE_MAPPING_FILE = 'subcommittee_sector_industry_mapping.csv'
+
+# Aktive Mappingrevision des Committee Matchers V2 (Integrationsplan P2).
+# Benannt wird die Revision, nicht ihr Pfad: er wird unter
+# data/committee_matcher_v2/reviews/<id>/ abgeleitet. Verbraucher:
+# config/committee_revision.py.
+# 'map-fullrun-20261016': Codex-Fullrun ueber alle 225 Units (522 Zuordnungen),
+# abgenommen 2026-10-16. Vorher gebunden: Probeartefakt 'map-test-20260904'.
+COMMITTEE_MAPPING_REVIEW_ID = 'map-fullrun-20261016'
+
+# Gilt die Zustaendigkeit des Ausschusses selbst auch fuer Mitglieder, die
+# zusaetzlich in einem seiner Unterausschuesse sitzen? Der Matcher bildet dazu
+# eine eigene Unit (committee_parent_core) aus dem Zustaendigkeitstext des
+# Ausschusses - sie ist kein Aggregat seiner Unterausschuesse. Ohne diese
+# Einstellung erreichten die 31 Parent-Core-Units nur die wenigen Mitglieder
+# ohne Unterausschuss-Sitz. Wirkt nur auf das V2-Mapping; die Legacy-CSV
+# aggregiert ihre Unterausschusszeilen ohnehin selbst.
+COMMITTEE_PARENT_CORE_ADDITIVE = True
 IGNORED_TICKERS_FILE = 'ignored_tickers.csv'
 
 # Trade-Daten
@@ -547,6 +564,13 @@ EXIT_DETECTION_WINDOW_DAYS = None
 POST_TRADE_PRICE_CACHE = 'data/cache/price_history.parquet'
 # Erstabruf-Fenster pro Ticker.
 POST_TRADE_PRICE_FETCH_YEARS = 5
+# Hoechster Abstand (Kalendertage) zwischen Zieldatum und dem naechsten Close,
+# den ein Preislookup noch als "Kurs an diesem Tag" gelten laesst. Deckt
+# Wochenenden und Feiertage ab. Liegt der naechste Close weiter weg - etwa weil
+# der Cache erst nach dem Trade beginnt -, ist der Preis unbekannt (NaN) statt
+# des ersten Cache-Kurses; sonst ergaeben Baseline und Horizont denselben Kurs
+# und damit 0 % Rendite. Gilt fuer post_return_*, signed_ar_*, Exit-Preise.
+POST_TRADE_MAX_PRICE_GAP_DAYS = 5
 # Refresh-Schwelle pro Ticker (max(date) < today - TTL -> Refresh).
 # 1 Tag: jeder orchestrierte --delta-Lauf erzwingt tagesaktuelle Preise (der
 # Lauf rechnet compute_post_trade_returns ueber den vollen kombinierten Master,
@@ -701,6 +725,17 @@ SCORE_CORR_DEFAULT_HORIZON_DAYS = 180
 # Master ~90k auswertbare Trades hat) und Punkt-Opazitaet. Die Kennzahlen
 # (Spearman/Pearson/n) werden IMMER ueber die volle Stichprobe gerechnet —
 # das Cap betrifft nur die Visualisierung.
+# Rendite-Auswertungen (app/score_correlation.py, Event Study):
+# Dublettenbehandlung vor der Analyse: 'trade_id' (je trade_id die frueheste
+# Offenlegung; erfasst auch Wiederholungen aus spaeteren Uploads/Amendments,
+# die sich nur in Metadaten unterscheiden), 'full_row' (nur identische Zeilen)
+# oder 'none'. Der Import behaelt Dubletten bewusst (DEDUP_STRATEGY='keep_all');
+# bereinigt wird nur in der Analyse.
+ANALYSIS_DEDUP = 'trade_id'
+# Exchange-Trades haben keine Richtung und fallen aus Rendite-Auswertungen.
+ANALYSIS_EXCLUDE_EXCHANGE = True
+# Iterationen des member-geclusterten Bootstraps im Dashboard (Pro-Signal-CI).
+SCORE_CORR_BOOTSTRAP_ITERS = 2000
 SCORE_CORR_SCATTER_MAX_POINTS = 20000
 SCORE_CORR_SCATTER_OPACITY = 0.3
 
@@ -725,6 +760,134 @@ UI_SCOPE_HELP = {
     'tab': 'Gilt nur in diesem Tab.',
     'detail': 'Gilt nur in diesem Popup.',
 }
+
+
+# ---------------------------------------------------------------------------
+# COMMITTEE MATCHER V2 (Modul: committee_matcher/)
+# ---------------------------------------------------------------------------
+# Alle veraenderbaren Laufparameter des neu implementierten Committee Matchers.
+# Verbraucher ist ausschliesslich committee_matcher/settings_view.py; dort
+# werden Typ und Wertebereich geprueft, bevor irgendein Pfad laeuft.
+#
+# Zwei Gruppen:
+#   offline    -> muessen immer gueltig sein (Parser, Snapshot, Artefakte)
+#   provider   -> seit dem Gate-B-Beschluss gesetzt; ein auf None
+#                 zurueckgesetzter Wert blockiert jeden Providerpfad mit
+#                 Exit-Code 4 statt zu raten.
+#
+# Feste Invarianten (require_parameters=true, allow_fallbacks=true, kein
+# provider.only und kein order, keine SDK-Retries, genau ein gleichzeitiger
+# Call) stehen bewusst NICHT hier, sondern als Konstanten im Code: sie sind
+# Sicherheitsvertrag und kein Bedienparameter. Den Endpoint waehlt OpenRouter
+# innerhalb der unten gesetzten Eigenschaftsfilter.
+
+# --- offline: Inputparser (Verbraucher: committee_matcher/input_corpus.py) ---
+# Groessengrenzen gegen praeparierte oder versehentlich riesige Inputs.
+COMMITTEE_MATCHER_MAX_FILE_BYTES = 512_000          # int, 1_000..10_000_000
+COMMITTEE_MATCHER_MAX_FRONTMATTER_BYTES = 32_000    # int, 200..1_000_000
+# Mindestlaenge eines Jurisdiktionstexts (normalisiert, in Zeichen). Kuerzere
+# Texte sind faktisch namensgleich und werden als Warnung gemeldet, damit
+# abgeschnittene Quellen sichtbar werden statt still ins Mapping zu laufen.
+COMMITTEE_MATCHER_MIN_EVIDENCE_CHARS = 60           # int, 0..5_000
+
+# --- offline: yfinance-Snapshot (Verbraucher: taxonomy_source.py) ----------
+# Pause zwischen zwei yfinance-Requests in Sekunden und Retrybudget je Request.
+COMMITTEE_MATCHER_YFINANCE_REQUEST_PAUSE_S = 1.5    # float, 0.0..60.0
+COMMITTEE_MATCHER_YFINANCE_MAX_RETRIES = 3          # int, 0..10
+# Groesse eines Checkpoint-Schritts: nach so vielen Industries wird der
+# run-lokale Checkpoint geschrieben (Resume ohne Teilfreigabe).
+COMMITTEE_MATCHER_YFINANCE_CHECKPOINT_EVERY = 10    # int, 1..500
+
+# --- offline: Mappinglauf (Verbraucher: mapping_engine.py, workflow.py) ----
+# Units je Mappingcall; zulaessig sind ausschliesslich 1 oder 3. Ein
+# Context-Split darf zur Laufzeit 3->2->1 erzeugen.
+COMMITTEE_MATCHER_BATCH_SIZE = 3                    # int, {1, 3}
+# Workflowseitige Wiederholungen eines fachlich fehlgeschlagenen Calls.
+# SDK-Retries bleiben unabhaengig davon aus (Doppelabrechnungsrisiko).
+COMMITTEE_MATCHER_WORKFLOW_RETRIES = 2              # int, 0..5
+# Gezielte Reparaturversuche je Batch, nachdem die formale Pruefung Verstoesse
+# gemeldet hat. 0 schaltet den Repair ab; der Batch scheitert dann sofort.
+COMMITTEE_MATCHER_MAX_REPAIR_ATTEMPTS = 1           # int, 0..3
+# Zeichen je Token in der Kontextschaetzung. Der Wert ist bewusst niedriger als
+# das reale Verhaeltnis (~4), damit die Schaetzung ueber- statt unterschaetzt:
+# ein zu klein geschaetzter Batch wuerde am Endpoint abgeschnitten. Die
+# Obergrenze liegt deshalb bei 4.0 - darueber wuerde die Schaetzung fuer
+# lateinischen Text systematisch unter dem realen Verbrauch liegen.
+COMMITTEE_MATCHER_CHARS_PER_TOKEN = 3.0             # float, 1.0..4.0
+# Mindestalter eines Calls, bevor 'run reconcile' eine unbekannte Generation als
+# 'nicht abgerechnet' werten darf. Der Provider zeigt eine frische Generation
+# teils verzoegert; ein zu frueher Abgleich wuerde die Reservierung aufloesen und
+# einen zweiten kostenpflichtigen Call erlauben.
+COMMITTEE_MATCHER_RECONCILE_MIN_AGE_S = 300.0       # float, 0..86400
+
+# Der API-Key steht ausschliesslich in .env (gitignored) und wird ueber
+# os.getenv gelesen. Er gehoert bewusst NICHT in den COMMITTEE_MATCHER_*-Block:
+# der ist per UI ueberschreibbar und landet in Auditartefakten.
+OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY', '')
+
+# --- provider: mit Gate B gesetzt (Verbraucher: provider.py) ---------------
+# Die Endpointwahl trifft OpenRouter (kein 'only', kein 'order'); gefiltert wird
+# nur ueber Faehigkeit, Quantisierung, Datenschutz und Preis. Der tatsaechlich
+# geroutete Provider wird je Call protokolliert, aber nicht gebunden.
+COMMITTEE_MATCHER_MODEL = "deepseek/deepseek-v4-flash-0731"  # str|None, Modellslug
+# Rechenpraezision der zulaessigen Endpoints. Ohne Filter mischt ein Lauf
+# 4-Bit- und 16-Bit-Endpoints, womit Evaluationsergebnisse nicht mehr auf den
+# Produktionslauf uebertragbar sind. None hebt die Einschraenkung auf.
+COMMITTEE_MATCHER_QUANTIZATIONS = ("fp8", "bf16", "fp16")  # tuple|None
+COMMITTEE_MATCHER_DATA_COLLECTION = "deny"          # 'deny'|'allow'|None
+COMMITTEE_MATCHER_ZDR = True                        # bool, Zero Data Retention verlangen
+COMMITTEE_MATCHER_MAX_PRICE_USD_PER_MTOK = {"prompt": 0.30, "completion": 0.90}
+COMMITTEE_MATCHER_ENDPOINT_CONTEXT_TOKENS = 200_000  # int|None, bewusst unter dem Modellfenster
+COMMITTEE_MATCHER_MAX_OUTPUT_TOKENS = 8_000         # int|None
+COMMITTEE_MATCHER_REASONING_RESERVE_TOKENS = 24_000  # int|None, Reserve im Context-Gate
+# Denktiefe des Modells. Ohne Begrenzung verbraucht das Modell auf der
+# Mappingaufgabe das gesamte Ausgabebudget im Reasoning und liefert keine
+# Antwort (PROV_TRUNCATED). Reasoning zaehlt beim Endpoint gegen dieselbe
+# Grenze wie die Antwort, deshalb ist der Wert Teil des Cache-Keys.
+# 'none' schaltet das Reasoning ab.
+COMMITTEE_MATCHER_REASONING_EFFORT = "low"          # 'none'|'minimal'|'low'|'medium'|'high'
+COMMITTEE_MATCHER_REQUEST_TIMEOUT_S = 300.0         # float|None, Sekunden
+
+# --- provider: Kostengrenzen (Verbraucher: workflow.py) --------------------
+# Konservative Worst-Case-Kosten muessen vor Run UND vor jedem Call in das
+# jeweilige Budget passen. None blockiert den zugehoerigen Lauf.
+COMMITTEE_MATCHER_MAX_RUN_COST_USD = 25.0           # float|None, 0 < x <= 10000
+COMMITTEE_MATCHER_MAX_EVALUATION_COST_USD = 40.0    # float|None, 0 < x <= 10000
+COMMITTEE_MATCHER_MAX_QUALIFICATION_COST_USD = 15.0  # float|None, 0 < x <= 10000
+# Kostenwache: prueft vor Run und vor jedem Call gegen das Budget. Per
+# --disable-cost-guard je Lauf abschaltbar; Ist-Kosten werden dann weiterhin
+# protokolliert und angezeigt, der abgeschaltete Guard steht im Runmanifest.
+COMMITTEE_MATCHER_COST_GUARD = True                 # bool
+
+# --- Evaluation: Variantenmatrix (Verbraucher: evaluation.py) --------------
+# Die Matrix wird bei 'evaluate export' eingefroren; sie spaeter zu aendern
+# verlangt eine neue Evaluationsrevision. Verglichen werden Batchgroessen; je
+# Variante laeuft der Prueflauf mehrfach ohne Cache-Reads, damit die Stabilitaet
+# messbar wird.
+COMMITTEE_MATCHER_EVALUATION_BATCH_SIZES = (1, 3)   # Tuple aus 1 und/oder 3
+COMMITTEE_MATCHER_EVALUATION_REPETITIONS = 3        # int 1..10
+# Obergrenze fuer die Nachforderung bei uneindeutiger Stabilitaet; jede
+# Erhoehung ueber die regulaere Wiederholungszahl hinaus verlangt eine erneute
+# Budgetpruefung.
+COMMITTEE_MATCHER_EVALUATION_MAX_REPETITIONS = 5    # int, >= REPETITIONS
+
+# --- Gold-Set-Labeling (Verbraucher: committee_matcher/submapper.py)
+# Bewusst ohne das Praefix COMMITTEE_MATCHER_: das Werkzeug laesst das
+# Entwicklungs-Gold-Set von einem headless Agenten labeln und ist nicht Teil
+# eines Matcherlaufs. Seine Werte gehoeren weder in settings_view noch in die
+# Auditartefakte einer Runrevision.
+# Modell und Denktiefe werden roh an die jeweilige CLI durchgereicht; es gibt
+# bewusst keine Whitelist, damit kuenftige Modelle ohne Codeaenderung
+# funktionieren. Gegen den Tippfehler steht 'preflight'.
+GOLDSET_LABEL_ENGINE = "claude"                     # 'claude'|'codex'
+GOLDSET_LABEL_MODEL_CLAUDE = "opus"                 # str, an 'claude --model'
+GOLDSET_LABEL_MODEL_CODEX = "gpt-5.6-sol"           # str, an 'codex exec -m'
+GOLDSET_LABEL_EFFORT = "high"                       # str, Denktiefe beider CLIs
+# Notbremse, keine Ablaufsteuerung: ein Lauf mit Recherche und hoher Denktiefe
+# braucht 3 bis 10 Minuten. Der Deckel greift bei Haenger, Endlosschleife oder
+# wartendem Ratenlimit, nicht bei langem Nachdenken.
+GOLDSET_LABEL_TIMEOUT_SECONDS = 1800                # int, 60..172800 (30 min)
+GOLDSET_LABEL_TOTAL_TIMEOUT_SECONDS = 43200         # int, 60..172800 (12 h)
 
 # Waehlbare Groessen des globalen Sidebar-Zeitfensters (Label -> Tage;
 # None = kein Zeitfilter). Reihenfolge = Anzeige, Default s. GLOBAL_WINDOW_DEFAULT.

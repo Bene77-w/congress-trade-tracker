@@ -1,0 +1,14 @@
+{
+  "findings": [
+    {
+      "severity": "WARNUNG",
+      "code": "INP_EVIDENCE_TOO_SHORT",
+      "stage": "input",
+      "object": "md/senate_appropriations.md#Subcommittee on Department of Homeland Security",
+      "line": 125,
+      "message": "Jurisdiktionstext hat nur 31 Zeichen (Minimum 60).",
+      "hint": "Quelltext pruefen; sonst bewusst auf name_only umstellen.",
+      "exit_code": null
+    }
+  ]
+}

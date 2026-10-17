@@ -1,0 +1,214 @@
+{
+  "findings": [
+    {
+      "severity": "WARNUNG",
+      "code": "INP_EVIDENCE_TOO_SHORT",
+      "stage": "input",
+      "object": "md/senate_appropriations.md#Subcommittee on Department of Homeland Security",
+      "line": 125,
+      "message": "Jurisdiktionstext hat nur 31 Zeichen (Minimum 60).",
+      "hint": "Quelltext pruefen; sonst bewusst auf name_only umstellen.",
+      "exit_code": null
+    },
+    {
+      "severity": "BLOCKER",
+      "code": "EVAL_LABEL_UNIT_ABSENT",
+      "stage": "evaluation",
+      "object": "house--appropriations--transportation-housing-and-urban-development-and-related-agencies",
+      "line": null,
+      "message": "Zu dieser Unit der Stichprobe gibt es keine Zeile.",
+      "hint": "Unit labeln; eine fehlende Unit waere kein 'no_mapping', sondern eine Luecke im Gold-Set.",
+      "exit_code": 7
+    },
+    {
+      "severity": "BLOCKER",
+      "code": "EVAL_LABEL_UNIT_ABSENT",
+      "stage": "evaluation",
+      "object": "house--energy-and-commerce--energy",
+      "line": null,
+      "message": "Zu dieser Unit der Stichprobe gibt es keine Zeile.",
+      "hint": "Unit labeln; eine fehlende Unit waere kein 'no_mapping', sondern eine Luecke im Gold-Set.",
+      "exit_code": 7
+    },
+    {
+      "severity": "BLOCKER",
+      "code": "EVAL_LABEL_UNIT_ABSENT",
+      "stage": "evaluation",
+      "object": "house--financial-services--financial-institutions",
+      "line": null,
+      "message": "Zu dieser Unit der Stichprobe gibt es keine Zeile.",
+      "hint": "Unit labeln; eine fehlende Unit waere kein 'no_mapping', sondern eine Luecke im Gold-Set.",
+      "exit_code": 7
+    },
+    {
+      "severity": "BLOCKER",
+      "code": "EVAL_LABEL_UNIT_ABSENT",
+      "stage": "evaluation",
+      "object": "house--financial-services--housing-and-insurance",
+      "line": null,
+      "message": "Zu dieser Unit der Stichprobe gibt es keine Zeile.",
+      "hint": "Unit labeln; eine fehlende Unit waere kein 'no_mapping', sondern eine Luecke im Gold-Set.",
+      "exit_code": 7
+    },
+    {
+      "severity": "BLOCKER",
+      "code": "EVAL_LABEL_UNIT_ABSENT",
+      "stage": "evaluation",
+      "object": "house--foreign-affairs--africa",
+      "line": null,
+      "message": "Zu dieser Unit der Stichprobe gibt es keine Zeile.",
+      "hint": "Unit labeln; eine fehlende Unit waere kein 'no_mapping', sondern eine Luecke im Gold-Set.",
+      "exit_code": 7
+    },
+    {
+      "severity": "BLOCKER",
+      "code": "EVAL_LABEL_UNIT_ABSENT",
+      "stage": "evaluation",
+      "object": "house--homeland-security--cybersecurity-and-infrastructure-protection",
+      "line": null,
+      "message": "Zu dieser Unit der Stichprobe gibt es keine Zeile.",
+      "hint": "Unit labeln; eine fehlende Unit waere kein 'no_mapping', sondern eine Luecke im Gold-Set.",
+      "exit_code": 7
+    },
+    {
+      "severity": "BLOCKER",
+      "code": "EVAL_LABEL_UNIT_ABSENT",
+      "stage": "evaluation",
+      "object": "house--judiciary--courts-intellectual-property-artificial-intelligence-and-the-internet",
+      "line": null,
+      "message": "Zu dieser Unit der Stichprobe gibt es keine Zeile.",
+      "hint": "Unit labeln; eine fehlende Unit waere kein 'no_mapping', sondern eine Luecke im Gold-Set.",
+      "exit_code": 7
+    },
+    {
+      "severity": "BLOCKER",
+      "code": "EVAL_LABEL_UNIT_ABSENT",
+      "stage": "evaluation",
+      "object": "house--natural-resources--energy-and-mineral-resources",
+      "line": null,
+      "message": "Zu dieser Unit der Stichprobe gibt es keine Zeile.",
+      "hint": "Unit labeln; eine fehlende Unit waere kein 'no_mapping', sondern eine Luecke im Gold-Set.",
+      "exit_code": 7
+    },
+    {
+      "severity": "BLOCKER",
+      "code": "EVAL_LABEL_UNIT_ABSENT",
+      "stage": "evaluation",
+      "object": "house--science-space-and-technology--space-and-aeronautics",
+      "line": null,
+      "message": "Zu dieser Unit der Stichprobe gibt es keine Zeile.",
+      "hint": "Unit labeln; eine fehlende Unit waere kein 'no_mapping', sondern eine Luecke im Gold-Set.",
+      "exit_code": 7
+    },
+    {
+      "severity": "BLOCKER",
+      "code": "EVAL_LABEL_UNIT_ABSENT",
+      "stage": "evaluation",
+      "object": "house--transportation-and-infrastructure--aviation",
+      "line": null,
+      "message": "Zu dieser Unit der Stichprobe gibt es keine Zeile.",
+      "hint": "Unit labeln; eine fehlende Unit waere kein 'no_mapping', sondern eine Luecke im Gold-Set.",
+      "exit_code": 7
+    },
+    {
+      "severity": "BLOCKER",
+      "code": "EVAL_LABEL_UNIT_ABSENT",
+      "stage": "evaluation",
+      "object": "house--ways-and-means--health",
+      "line": null,
+      "message": "Zu dieser Unit der Stichprobe gibt es keine Zeile.",
+      "hint": "Unit labeln; eine fehlende Unit waere kein 'no_mapping', sondern eine Luecke im Gold-Set.",
+      "exit_code": 7
+    },
+    {
+      "severity": "BLOCKER",
+      "code": "EVAL_LABEL_UNIT_ABSENT",
+      "stage": "evaluation",
+      "object": "senate--agriculture-nutrition-and-forestry--livestock-dairy-poultry-and-food-safety",
+      "line": null,
+      "message": "Zu dieser Unit der Stichprobe gibt es keine Zeile.",
+      "hint": "Unit labeln; eine fehlende Unit waere kein 'no_mapping', sondern eine Luecke im Gold-Set.",
+      "exit_code": 7
+    },
+    {
+      "severity": "BLOCKER",
+      "code": "EVAL_LABEL_UNIT_ABSENT",
+      "stage": "evaluation",
+      "object": "senate--appropriations--department-of-homeland-security",
+      "line": null,
+      "message": "Zu dieser Unit der Stichprobe gibt es keine Zeile.",
+      "hint": "Unit labeln; eine fehlende Unit waere kein 'no_mapping', sondern eine Luecke im Gold-Set.",
+      "exit_code": 7
+    },
+    {
+      "severity": "BLOCKER",
+      "code": "EVAL_LABEL_UNIT_ABSENT",
+      "stage": "evaluation",
+      "object": "senate--banking-housing-and-urban-affairs--digital-assets",
+      "line": null,
+      "message": "Zu dieser Unit der Stichprobe gibt es keine Zeile.",
+      "hint": "Unit labeln; eine fehlende Unit waere kein 'no_mapping', sondern eine Luecke im Gold-Set.",
+      "exit_code": 7
+    },
+    {
+      "severity": "BLOCKER",
+      "code": "EVAL_LABEL_UNIT_ABSENT",
+      "stage": "evaluation",
+      "object": "senate--commerce-science-and-transportation--surface-transportation-freight-pipelines-and-safety",
+      "line": null,
+      "message": "Zu dieser Unit der Stichprobe gibt es keine Zeile.",
+      "hint": "Unit labeln; eine fehlende Unit waere kein 'no_mapping', sondern eine Luecke im Gold-Set.",
+      "exit_code": 7
+    },
+    {
+      "severity": "BLOCKER",
+      "code": "EVAL_LABEL_UNIT_ABSENT",
+      "stage": "evaluation",
+      "object": "senate--commerce-science-and-transportation--telecommunications-and-media",
+      "line": null,
+      "message": "Zu dieser Unit der Stichprobe gibt es keine Zeile.",
+      "hint": "Unit labeln; eine fehlende Unit waere kein 'no_mapping', sondern eine Luecke im Gold-Set.",
+      "exit_code": 7
+    },
+    {
+      "severity": "BLOCKER",
+      "code": "EVAL_LABEL_UNIT_ABSENT",
+      "stage": "evaluation",
+      "object": "senate--energy-and-natural-resources--public-lands-forests-and-mining",
+      "line": null,
+      "message": "Zu dieser Unit der Stichprobe gibt es keine Zeile.",
+      "hint": "Unit labeln; eine fehlende Unit waere kein 'no_mapping', sondern eine Luecke im Gold-Set.",
+      "exit_code": 7
+    },
+    {
+      "severity": "BLOCKER",
+      "code": "EVAL_LABEL_UNIT_ABSENT",
+      "stage": "evaluation",
+      "object": "senate--environment-and-public-works--chemical-safety-waste-management-environmental-justice-and-regulatory-oversight",
+      "line": null,
+      "message": "Zu dieser Unit der Stichprobe gibt es keine Zeile.",
+      "hint": "Unit labeln; eine fehlende Unit waere kein 'no_mapping', sondern eine Luecke im Gold-Set.",
+      "exit_code": 7
+    },
+    {
+      "severity": "BLOCKER",
+      "code": "EVAL_LABEL_UNIT_ABSENT",
+      "stage": "evaluation",
+      "object": "senate--finance--health-care",
+      "line": null,
+      "message": "Zu dieser Unit der Stichprobe gibt es keine Zeile.",
+      "hint": "Unit labeln; eine fehlende Unit waere kein 'no_mapping', sondern eine Luecke im Gold-Set.",
+      "exit_code": 7
+    },
+    {
+      "severity": "BLOCKER",
+      "code": "EVAL_LABEL_UNIT_ABSENT",
+      "stage": "evaluation",
+      "object": "senate--homeland-security-and-governmental-affairs--border-management-federal-workforce-and-regulatory-affairs",
+      "line": null,
+      "message": "Zu dieser Unit der Stichprobe gibt es keine Zeile.",
+      "hint": "Unit labeln; eine fehlende Unit waere kein 'no_mapping', sondern eine Luecke im Gold-Set.",
+      "exit_code": 7
+    }
+  ]
+}

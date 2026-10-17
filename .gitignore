@@ -79,10 +79,14 @@ data/cache/price_history.parquet
 # opencode-Config (lokal)
 opencode.json
 
-# Committee-Mapping-Agent: regenerierbare Artefakte (Cache, Review-xlsx, Report)
-scripts/committee_mapping_agent/cache/
-scripts/committee_mapping_agent/review_out/
-scripts/committee_mapping_agent/run_report.json
+# Committee Matcher V2 - volatile Laufartefakte (Fehlerberichte, Run-Revisionen,
+# Checkpoints). Versioniert bleibt nur die freigegebene Taxonomiebaseline unter
+# data/committee_matcher_v2/taxonomy/.
+data/committee_matcher_v2/reports/
+data/committee_matcher_v2/runs/
+
+# LibreOffice-Lockdateien tragen Benutzer-, Rechner- und Pfadangaben
+.~lock.*#
 
 # Deployment-Snapshot (aus dem Master gebaut, wird per rsync auf den Server
 # kopiert — nicht ins Repo, damit die Historie schlank bleibt und die

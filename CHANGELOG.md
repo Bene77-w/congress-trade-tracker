@@ -11,6 +11,293 @@ Historie abgeschlossener Module/Phasen. **Aktiver WIP-Modul-Stand** steht im „
 
 ---
 
+## 2026-10-17 — Gate C: neues Mapping übernommen
+
+Bene hat Gate C freigegeben: Revision `map-fullrun-20261016` (`COMMITTEE_MAPPING_REVIEW_ID`)
+ersetzt die Legacy-CSV. P4 (Gewichtung 25 × Confidence-Faktor) wird nicht umgesetzt:
+Bei Käufen ab dem 118. Kongress zeigen die Confidence-Klassen 2–4 keine Rangfolge,
+sobald der dominierende Vielhändler (K000389, 55 % der Treffer-Käufe) herausgerechnet
+wird. Offen: richtungsabhängiges `committee_full`, Ausgleich für Vielhändler,
+Ticker-Aliase (FB, BRK.B, SQ), voller Pipeline-Rebuild.
+
+Review-Befunde behoben: Die Analyse-Population dedupliziert jetzt nach `trade_id`
+(früheste Offenlegung) statt nach identischen Zeilen; vorher blieben 1.174
+Wiederholungen aus späteren Uploads und Amendments doppelt gezählt. Gefeuerte
+Committee-Trades bleiben immer in der Vergleichsmenge. Bootstrap-p nutzt
+(k+1)/(n+1) und wird damit nie 0. Tests: 2351 passed.
+
+## 2026-10-16 — Analysewerkzeug korrigiert, Schattenvergleich Mapping alt/neu
+
+Preis-Lookups liefern NaN statt des ersten Cache-Kurses, wenn dieser mehr als
+`POST_TRADE_MAX_PRICE_GAP_DAYS` nach dem Zieldatum liegt. Vorher ergaben Trades
+vor dem Cache-Beginn (2021-05-28) künstlich 0 %. Kurse <= 0 werden verworfen.
+Die Analyse-Population (`analysis_population`) entfernt doppelte Zeilen und
+Exchange-Trades. Die Pro-Signal-Tabelle zeigt nun Cluster-CI, p und Trefferquoten
+und vergleicht Committee-Signale nur gegen geeignete Trades. Die Event Study
+misst jetzt auch `committee`/`committee_full`. Der Master wird erst mit dem
+nächsten Full-Rebuild neu geschrieben.
+
+Schattenvergleich (im Speicher, Revision `map-fullrun-20261016` gegen Legacy-CSV):
+committee_full trifft 10.699 statt 17.129 Trades. Auf keinem Horizont gibt es
+einen positiven, signifikanten Effekt (AR 120 T: alt -0,59 pp, neu -0,96 pp).
+Ein Confidence-Gradient fehlt, und die P4-Gewichtung senkt die
+Score-Korrelation leicht. Signifikant ist nur das schlechtere Timing bei
+Verkäufen (neu -2,5 pp). Bericht:
+`~/Downloads/committee_filter_alt_vs_neu_20261016.html`. Gate C ist offen.
+
+Tests: 2303 passed.
+
+## 2026-10-16 — Broad-Scope: ein Beleg darf mehrere Industries tragen
+
+Der Codex-Fullrun (225 Units, `gpt-6.1-sol`, Prompt v3) scheiterte an
+`verify`: In 36 von 62 Broad-Scope-Units teilten sich mehrere Industries
+denselben Evidence-Ausschnitt, z. B. „FOOD AND DRUG ADMINISTRATION (HHS)“ fuer
+Packaged Foods, Drug Manufacturers und Medical Devices. Fachlich ist das
+richtig: Eine Behoerde regelt oft mehrere Branchen, und ein kuenstlich anderer
+Ausschnitt waere kein besserer Beleg.
+
+Submapper (`check_broad_scope`) und API-Mapper (`MappingUnitResult`) verlangen
+deshalb nur noch eine eigene Rationale je Industry, nicht mehr eine eigene
+Evidence. Confidence >= 3, Recherche-Ausschluss und Anzahlgrenze bleiben
+unveraendert. Der Prompt (`mapping-system-v3`) bleibt bewusst unangetastet:
+Sein Hash ist an die Aufgabenpakete des Fullruns gebunden, und die strengere
+Formulierung schadet nicht. Beim naechsten Promptstand ist sie nachzuziehen.
+
+Test-Stand: 2297 Tests bestanden; `submapper verify --fullrun --source codex`
+ohne Befund.
+
+---
+
+## 2026-09-06 — Korpusreparatur: House Appropriations um eine Position versetzt
+
+`data/committee_matcher_inputs/md/house_appropriations.md` trug unter jeder
+Unterausschussüberschrift den Zuständigkeitstext des alphabetisch nächsten
+Unterausschusses; der letzte erhielt nur das Bruchstück `ppropriations`. Beim
+Erzeugen der Markdown-Datei war der erste Block der Quelle
+`txt/house_appropriations.txt` übersprungen worden, wodurch sich alle zwölf
+Sektionen um eine Position verschoben.
+
+Alle zwölf Sektionen wurden aus der unveränderten `.txt`-Quelle neu gesetzt und
+`corpus_manifest.yaml` neu erzeugt. Eine Prüfung aller 48 Korpusdateien auf
+dasselbe Muster fand keinen weiteren Versatz. `input validate` meldet wieder
+225 Units, deckungsgleich mit der eingefrorenen Sollmenge; als einzige Warnung
+bleibt der 31 Zeichen kurze Text von `senate--appropriations--department-of-
+homeland-security`, der so in der Quelle steht.
+
+Folgen: Die Stichprobendokumentation führte Unit 10 als „Extremfall unter der
+Mindestlänge" (13 Zeichen) — das war der Fehler, nicht der Fall; die Unit trägt
+jetzt 455 Zeichen über zwei Ressorts. Die Mediane der Stichprobe bleiben
+unverändert. Die 34 Antworten des angefangenen Fullruns waren durch den
+Wechsel auf Prompt v3 ohnehin bereits entwertet.
+
+Der angefangene Fullrun (34 von 225 Units, Sol/high gegen Prompt v2) ist aus
+dem Repository heraus nach
+`~/Nextcloud/Projekte/archiv/congress_tracker-committee-fullrun-20260905-sol-high-promptv2/`
+verschoben; die dortige `HERKUNFT.md` nennt Modell, Promptstand, Taxonomie und
+beide Verwerfungsgründe. `data/committee_matcher_v2/fullrun/runs/` ist leer,
+ein Neustart beginnt ohne `--force` bei null.
+
+Test-Stand: `input validate` Exit 2 (nur die genannte Warnung);
+`baseline manifest --verify` ohne Befund.
+
+---
+
+## 2026-09-05 — Mapping-Prompt v3: Recherche als Evidence-Sentinel
+
+API-Mapper und Submapper akzeptieren `Recherche` jetzt als rein
+webrecherchegestützte Evidence. Solche Zuordnungen sind auf Confidence 3
+begrenzt und aus Broad-Scope-Ausnahmen ausgeschlossen; echte Evidence muss
+mindestens zwei Wörter umfassen. Der API-Repair darf eine zuvor textbelegte
+Zuordnung nicht zum Sentinel herabstufen.
+
+Reviewmappen markieren Recherche-Zeilen gelb, ohne den bestehenden
+CSV-/JSON-Vertrag zu ändern. Die Evaluationsmetriken weisen Anzahl und
+Precision der Recherche-Zuordnungen zusätzlich getrennt aus.
+
+Test-Stand: 1283 Tests der Committee-Matcher-/Submapper-Suite bestanden;
+unabhängiger Agent-Review ohne offene Befunde hoher oder mittlerer Schwere.
+
+---
+
+## 2026-09-05 — Submapper: mehrere Units gleichzeitig (--combined)
+
+`--combined N` (1 bis 5) fuer `run` und `label`: N Units laufen gleichzeitig,
+wird eine fertig, rueckt die naechste nach. Jeder Aufruf enthaelt weiterhin
+genau eine Unit - kein Batching, die Antworten sind dieselben.
+
+Der Ratenlimitfall trug den Entwurf. Ohne Vorkehrung liefen N Arbeiter
+nebeneinander in dasselbe erschoepfte Abo-Fenster und fragten es zu N-t im
+Zehnminutentakt an. Das neue `Abofenster` ist ein gemeinsames Tor: der erste,
+der ein Limit sieht, haelt es zu und probiert stellvertretend weiter, die
+uebrigen warten still. Der Stellvertreter gibt das Tor im `finally` frei,
+damit ein Abbruch die anderen nicht dauerhaft aussperrt.
+
+Bei N=1 und ohne Angabe bleibt der sequenzielle Weg; der Pool wird gar nicht
+erst gebaut. Ein Test haelt das fest, weil der Pool die einzige Stelle ist, an
+der sich Reihenfolge und Ausgabe des bisherigen Laufs aendern koennten.
+
+Die Vorpruefungen je Unit (Task laden, Bindung pruefen, Resume) laufen weiter
+sequenziell im Hauptthread: sie brechen mit einem Befund ab, und in einem
+Arbeiter faende dieser Abbruch niemanden vor, der ihn weitergibt.
+
+Nach dem Review nachgezogen: das Stop-Flag faellt im Arbeiter statt erst im
+Hauptthread - bis der ein Ergebnis entgegennimmt, haette derselbe Arbeiter
+sonst laengst den naechsten Auftrag begonnen. Dasselbe bei einer Exception und
+bei Strg-C: ohne das Flag liefe der Executor beim Verlassen des ``with`` die
+restliche Warteschlange ab, bei 225 Units also 224 bezahlte Aufrufe fuer ein
+Ergebnis, das niemand mehr verbucht. Der Wartetakt am Ratenlimit ist im
+Parallelbetrieb unterbrechbar, sonst haengt Strg-C bis zu zehn Minuten.
+Doppelte `--unit-id` werden dedupliziert - zwei Arbeiter an derselben Unit
+schrieben sonst dieselbe Antwortdatei. `label` prueft den Wertebereich, bevor
+`prepare` laeuft und der Preflight bezahlt wird.
+
+Test-Stand: 198 in tests/test_submapper.py, dreimal stabil; Gesamtsuite 2295.
+
+---
+
+## 2026-09-05 — Filter 3: der Parent-Core gilt additiv
+
+`COMMITTEE_PARENT_CORE_ADDITIVE` (Default `True`): die Zustaendigkeit eines
+Ausschusses gilt auch fuer Mitglieder, die zusaetzlich in einem seiner
+Unterausschuesse sitzen. Vorher fragte `CommitteeTag` den Committee-Lookup
+nur ab, wenn kein Unterausschuss-Sitz bestand - die 31
+`committee_parent_core`-Units des Matchers erreichten damit kaum jemanden,
+obwohl 69 % der Committee-Zugehoerigkeiten im Master mit einem
+Unterausschuss-Sitz einhergehen.
+
+Kein Aggregat: der Parent-Core traegt den eigenen Zustaendigkeitstext des
+Ausschusses, deshalb doppelt hier nichts. `subcommittee_role` bleibt an
+diesen Eintraegen leer, sonst stuende der Bonus einer Unterausschussrolle in
+den Rollenkeys, obwohl der Unterausschuss den Trade nicht beruehrt. Fuer den
+Legacy-Mapper gilt die Regel nicht - dort aggregiert der Committee-Lookup
+seine Unterausschuesse selbst, und der Stand, gegen den der
+Schattenvergleich misst, bliebe sonst nicht derselbe.
+
+Test-Stand: 2254 passed.
+
+---
+
+## 2026-09-05 — Pipeline-Integration P3: V2-Adapter, Legacy-Weg bleibt
+
+`CommitteeMapper()` ohne Pfad liest die aktive Mappingrevision; mit Pfad
+weiter die Legacy-CSV. Der alte Weg bleibt erhalten, bis der Cutover (P4) ihn
+entfernt - der Schattenvergleich baut beide Staende nebeneinander, und ein
+Schalter im Produktivcode waere teurer als der erhaltene Pfad.
+
+Drei Festlegungen unterscheiden den neuen Weg:
+- Kanonisiert wird mit `units.match_key`, derselben Funktion, mit der der
+  Matcher seine Unit-IDs bildet; `_normalize` wurde nicht erweitert.
+- `joint` trifft beide Kammern - die Regel kommt aus
+  `roster_coverage._lookup_committee` und wurde nicht nachgebaut.
+- Den Committee-Lookup speisen allein `committee_direct` und
+  `committee_parent_core`. Die Legacy-Aggregation aller Subcommittee-Zeilen
+  entfaellt; sie fuellte den Parent-Core mit Sektoren auf, die dort niemand
+  gemappt hat.
+
+`Sector_Rank` ist als Dublettenkriterium abgeloest: `dedupe_entries` waehlt
+die hoechste `confidence` und faellt nur fuer Legacy-Eintraege auf den Rang
+zurueck. `CommitteeTag._deduplicate_sectors` benutzt dieselbe Funktion, damit
+beide Ebenen nicht verschiedene Sieger kueren.
+
+Tests, die den Legacy-Stand messen (`test_committee_tag.py`,
+`test_committee_mapping.py::test_real_csv_...`), nennen ihren Pfad jetzt
+ausdruecklich statt ihn vom Default zu erben.
+
+Gate C ist offen: die Mechanik steht, das Material fehlt. Der
+Schattenvergleich gegen die Testrevision zeigt 1 Voll-Treffer gegen 5.022 im
+Legacy-Stand - erwartbar bei 5 von 225 Ausschuessen und keine Aussage ueber
+die Verschiebung, die freizugeben waere.
+
+Test-Stand: `tests/test_committee_mapping_v2_p3.py` 21 Faelle, Gesamtsuite
+2250 passed.
+
+---
+
+## 2026-09-04 — Pipeline-Integration P2: die aktive Mappingrevision binden
+
+`reviews/<id>/` ist eine Menge, kein Pfad. `COMMITTEE_MAPPING_REVIEW_ID` in
+`config/settings.py` benennt die geltende Revision; `config/committee_revision.py`
+loest sie auf und prueft vier Dinge: Manifest vorhanden (Abschlussmarker des
+Imports), `review_status == "reviewed"`, Zeilenzahl gegen `assignment_count`
+und jede `industry_id` gegen die freigegebene Baseline - nicht gegen den
+Taxonomiehash, der sich mit jedem Refresh aus P1 aendert und die eben
+freigegebene Revision sonst beim naechsten Lauf abwiese.
+
+Keine Hartsperre gegen ein Probeartefakt: `scope: test-fullrun` wird geladen,
+beim Laden aber als solches ausgewiesen. Gebunden ist derzeit die
+Testlaufrevision `map-test-20260904` (5 Units, 7 Zuordnungen, Codex
+gpt-5.6-sol/high). Vor dem Cutover (P4) gehoert dort die Fullrun-Revision hin.
+
+`config/committee_mapping.py` liest weiter die Legacy-CSV - der Adapter ist
+P3, und kein Schritt entfernt eine Referenz, bevor der Vergleich gegen sie
+gelaufen ist.
+
+Test-Stand: `tests/test_committee_revision_p2.py` 17 Faelle (Gate B: je
+abgewiesener Fall ein eigener Code), Gesamtsuite 2229 passed.
+
+---
+
+## 2026-09-04 — Committee Matcher V2: Testablage haelt 24 Stunden
+
+`prepare --test-fullrun` verwirft `data/committee_matcher_v2/fullrun_test/`,
+wenn die Ziehung aelter als `TEST_MAX_AGE` (24 h) ist, und zieht neu. Vorher
+blockierte der zweite Testlauf mit `GS_TAXONOMY_RUN_ACTIVE`: die liegenden
+Antworten binden ihren Taxonomiesnapshot, ein frischer Abruf entwertete sie -
+aufloesen liess sich das nur von Hand mit einem `rm -rf` auf ein
+Datenverzeichnis. Innerhalb des Tages bleibt die Ablage liegen, damit ein
+unterbrochener Lauf fortgesetzt und nicht neu bezahlt wird. Geloescht wird nur,
+was sich selbst als alt ausweist: fehlt `drawn_at` oder ist es unlesbar, bleibt
+die Ablage stehen.
+
+Nebenbefund: die Bindung der Ziehung an die Aufgabenpakete las
+`TASK_ROOT/index.json` auch dann, wenn `TASK_ROOT` gar nicht zur Testablage
+gehoerte, und meldete den Gold-Set-Index als fremde Ziehung. Sie greift jetzt
+nur noch unterhalb der Auswahl.
+
+Test-Stand: `tests/test_submapper.py` 175 passed (drei neue Faelle: abgelaufen,
+frisch, ohne Zeitpunkt). Ziehungszeitpunkte in den Fixtures sind jetzt relativ
+- feste Daten waeren ab dem Folgetag abgelaufen.
+
+---
+
+## 2026-09-03 — Committee Matcher V2: Probelauf des Fullruns (`--test-fullrun`)
+
+`submapper.py --test-fullrun` geht denselben Weg wie `--fullrun`, aber ueber
+fuenf zufaellig gezogene Korpus-Units - der Probelauf vor einem Mehrtageslauf.
+Eigene Wurzel `data/committee_matcher_v2/fullrun_test/`; die Ziehung liegt als
+`test_units.json` und bindet jeden Folgeschritt an dieselben fuenf Units, sonst
+meinte `collect` andere als `prepare`. Ein Neuziehen verlangt das Loeschen der
+Datei (`GS_TEST_SELECTION` bei unbrauchbarer oder veralteter Ziehung).
+
+`fullrun_import.py --test-fullrun` schreibt dasselbe Reviewformat, das Manifest
+traegt aber `scope: test-fullrun`. Das Feld gibt es, weil ein Probelauf sonst
+dieselbe `review_status: reviewed`-Marke truege wie ein abgenommener Fullrun.
+
+Nebenbefund: `use_fullrun_paths` hatte seine Wurzel als Signaturvorgabe und
+haette damit eine ersetzte `FULLRUN_ROOT` ignoriert - der Wert ist beim Import
+gebunden. Jetzt wird er im Rumpf aufgeloest.
+
+---
+
+## 2026-09-03 — Committee Matcher V2: Taxonomie je Lauf frisch (Integration P1)
+
+`submapper.py prepare` baut die Taxonomie vor den Aufgabenpaketen frisch:
+Abruf, Driftvergleich gegen die geltende Baseline, Freigabe, Archivierung der
+abgeloesten Baseline unter `data/committee_matcher_v2/taxonomy/archiv/`. Die
+Reihenfolge ist die Sicherung — archiviert wird bei der Freigabe, nicht vor dem
+Build, sonst endete jeder Build wie eine Erstfreigabe und ein gescheiterter
+Abruf liesse gar keinen gueltigen Stand zurueck.
+
+Zwei Faelle halten an statt still weiterzulaufen: ein begonnener Lauf bleibt an
+seinem Snapshot (`GS_TAXONOMY_RUN_ACTIVE`), und Identitaetsdrift entscheidet
+Bene (`GS_TAXONOMY_REFRESH`). Reine Beschreibungsaenderungen laufen durch.
+
+Neu: `taxonomy_snapshot.archive_baseline` / `refresh_baseline`,
+`prepare|label --no-taxonomy-refresh`. Tests 2197 gruen (13 neu, jede Wache
+ueber eine Mutationsprobe belegt).
+
+---
+
 ## 2026-09-01 — Speicherverbrauch des Dashboards gesenkt
 
 Anlass: Der Kernel hat den Dashboard-Container im Livebetrieb wegen
@@ -109,6 +396,697 @@ Details: `organisation/DEPLOYMENT.md` Abschnitt 9,
 
 Test-Stand: 995 Tests grün (davon 21 neu), App-Smoke-Test gegen den Snapshot
 ohne Exceptions.
+
+## 2026-08-28 — Committee Matcher V2: Entwicklungsrun und Roundtrip live (P8)
+
+Lauf `p8-run2` ueber 7 Units des House Committee on Agriculture: 6 mapped,
+1 no_mapping, 0 failed, 0,003685 USD Ist gegen 0,233431 USD Worst Case. Ein
+Batch kippte einmalig mit `PROV_INVALID_JSON` (leere Antwort, 0 USD); die
+Wiederaufnahme holte die drei bereits bezahlten Units aus dem Cache und lief
+durch - der vorgesehene Weg, ohne Doppelabrechnung.
+
+Roundtrip `review-p8-run2`, von Bene in Excel bearbeitet: 1 Zuordnung
+geaendert, 2 neu, 2 entfernt, beide Richtungen `mapped ↔ no_mapping`,
+2 Boundary-Konflikte unveraendert uebernommen. Der erste Importversuch wurde
+mit `REV_UNKNOWN_INDUSTRY` abgelehnt, weil Excels Autokorrektur
+`packaged-foods` zu `Packaged-foods` gross geschrieben hatte; abgelehnt heisst
+keine Datei geschrieben, der zweite Versuch lief sauber durch.
+
+Beobachtungen ohne Codefolge: Excel speichert neu getippte Confidence-Werte als
+Zahl statt als Text, der Import liest beides. Der Hinweis "Wiederholbar" an
+`PROV_INVALID_JSON` fuehrt in die Irre, weil der Workflow nach einem gebuchten
+Call nie wiederholt (Schutz vor Doppelabrechnung).
+
+---
+
+## 2026-08-28 — Committee Matcher V2: Denktiefe begrenzt (P8-Befund)
+
+Der erste Live-Run scheiterte zweimal an `PROV_TRUNCATED`, ohne ein Zeichen
+Antwort zu liefern: das Modell verbrauchte erst 9.592, dann 32.000 Tokens im
+Reasoning. Zwei Ursachen, beide behoben:
+
+- Der Endpoint zaehlt Reasoningtokens gegen dieselbe Grenze wie die Antwort,
+  gesendet wurde aber nur `MAX_OUTPUT_TOKENS`. Die Reasoningreserve war im
+  Kontextfenster freigehalten, dem Endpoint aber nie eingeraeumt. Gesendet wird
+  jetzt `max_output_tokens + reasoning_reserve_tokens`; die Worst-Case-Rechnung
+  der Kostenwache zieht automatisch mit, weil sie an derselben Zahl haengt.
+- Neu ist `COMMITTEE_MATCHER_REASONING_EFFORT` (Standard `low`), das die
+  Denktiefe je Call begrenzt. Der Wert geht in den Cache-Key ein: ein Lauf mit
+  anderer Denktiefe greift nicht auf Ergebnisse des vorherigen zu.
+
+Kosten der beiden Fehlversuche: 0,010106 USD.
+
+Tests: 1894 passed.
+
+---
+
+## 2026-08-28 — Committee Matcher V2: Abnahme des Statusvertrags (S5)
+
+Der Statusplan verlangt mindestens zwoelf deterministische Terminaltests; es
+sind 49. Ergaenzt wurden die Faelle, die bisher fehlten:
+
+- Mapping mit 1, 2 und 5 Industries; die 5 erreicht die Obergrenze des
+  Modellvertrags samt Broad-Scope-Ausnahme, eigener Evidence und eigener
+  Rationale je Zuordnung. Der uebergeordnete Zustaendigkeitskern bleibt dabei
+  bei zwei Zuordnungen, wie sein Unittyp es vorschreibt.
+- Taxonomie-Freigabegate als `WAIT` statt als Fehler, mit Exit 5.
+- Geheimnisfreiheit der Live-Ausgabe: der API-Schluessel taucht in keiner
+  Statuszeile und in keinem Bericht auf.
+- Streamtrennung ueber einen ganzen Lauf: keine Warnung auf `stdout`, keine
+  Fortschrittszeile auf `stderr`.
+- Genau ein Abschlussbericht, sowohl bei Erfolg als auch bei Fehlschlag.
+
+Tests: 1893 passed (49 im Terminalstatus).
+
+---
+
+## 2026-08-27 — Committee Matcher V2: Terminalstatus des Mappinglaufs (S4)
+
+Der Live-Status deckt jetzt auch die kostenpflichtigen Vorgaenge ab. Vorhanden
+waren Batchstart mit Position, Batchabschluss mit Reparaturzahl und
+Kostenstand, das Ergebnis je Unit (`no_mapping` als `INFO`, nicht als Fehler),
+die Zusammenfassung je Committee sowie Retry und Providerfehler auf `stderr`.
+
+Neu ist die Kostenzeile nach jedem gebuchten Modellcall: `AuditedProvider`
+nimmt einen optionalen Reporter und meldet Einzelbetrag und Gesamtstand,
+`outcome=charged` oder `outcome=unknown`. Ein vom Provider abgewiesener Call
+kostet nichts und bekommt keine Zeile. Ohne sie verschwand ein teurer
+Reparaturcall in der Batchsumme.
+
+Aus dem Phasenreview nachgezogen: ein abgebrochener Batch schliesst seinen
+`START` mit einer `ERROR`-Zeile und benennt jede offen gebliebene Einheit als
+`not_decided`; der Reparaturversuch wird gemeldet, bevor er gesendet wird, und
+ist damit auch bei scheiterndem Reparaturcall sichtbar; eine Ausnahme nach dem
+ersten gebuchten Call fuehrt nicht mehr an der Kostenangabe des
+Abschlussberichts vorbei (`RUN_ABORTED_AFTER_CALL`, `RUN_ABORTED_BY_USER`);
+endgueltige Unit-Fehlschlaege nennen ihren Code.
+
+Aus dem Nachreview: die offenen Einheiten eines abgebrochenen Batches werden
+nicht mehr ueber den Laufzustand gezaehlt - ein Batch besteht ohnehin nur aus
+offenen Einheiten, und ein `failed`-Eintrag aus einem frueheren Durchlauf
+haette die Einheit verschluckt. Der Ausnahmepfad schliesst jetzt ebenfalls den
+laufenden Batch. Ein Abbruch mitten im Providercall (Strg-C, Adapterfehler)
+gilt als offener Ausgang und bleibt reserviert, statt unbemerkt zu
+verschwinden. Die Committee-Zusammenfassung trennt `failed` und `not_decided`.
+
+21 Terminaltests fuer Mappinglauf, Repair, Abbruch, Wiederaufnahme und Review;
+Doku in `CLI_Bedienungsanleitung.md` Abschnitt 15k.
+
+Tests: 1885 passed (41 im Terminalstatus).
+
+---
+
+## 2026-08-27 — Committee Matcher V2: Reviewbefunde zu Bindung und Wertetreue
+
+Nachbesserung des Review-Roundtrips nach dem Phasenreview. Sechs Befunde
+betrafen die Datenverarbeitung selbst:
+
+- Der Import ist jetzt auch beim Schreiben alles-oder-nichts; bricht eine der
+  drei Ergebnisdateien ab, werden die bereits geschriebenen entfernt.
+- Lauf, Reviewrevision und Snapshot werden dreifach gleichgesetzt: CLI-Lauf
+  gegen Exportmanifest, Exportmanifest gegen Runmanifest, Runmanifest gegen den
+  geladenen Snapshot. Zusaetzlich traegt das Blatt `info` die Kennungen des
+  Exports und wird gegen sie geprueft, womit ein fremdes Workbook per
+  `--workbook` nicht mehr angenommen wird. Der Export blockiert, wenn der
+  freigegebene Snapshot nicht der des Laufs ist (`REV_SNAPSHOT_MISMATCH`).
+- Werte werden nicht mehr still veraendert: CSVs werden mit erhaltenen
+  eingebetteten Zeilenumbruechen gelesen, Textfelder zeichengenau aus der
+  Zelle uebernommen (getrimmt werden nur Kennungen), und ein geleerter
+  `no_mapping_reason` wird nicht aus dem Lauf wieder aufgefuellt.
+- Die Confidence folgt dem Modellvertrag (1..4 statt 1..5).
+- Die exportierte Einheitenmenge rechnet der Import aus `unit_coverage.csv`
+  nach; `units` im Exportmanifest ist nur noch die Gegenprobe
+  (`REV_UNITS_MISMATCH`).
+- Der Ausnahmegrund `broad_scope_reason` bleibt nur an unveraenderten
+  Einheiten stehen, eine doppelte Herkunftszeile im Lauf ist ein Ablehnungs-
+  grund statt eines stillen Vorrangs, und die Bilanz weist geaenderte
+  `no_mapping`-Gruende gesondert aus.
+
+Tests: 1866 passed (53 im Review-Roundtrip).
+
+---
+
+## 2026-08-27 — Committee Matcher V2: Review-Workbook als Arbeitstabelle
+
+Das Workbook verlangt keine Eintraege mehr, die nicht der Sache dienen. Die
+Spalten `review_action`, `review_decision`, `review_note`, die Broad-Scope-
+Flags und die `model_*`-Spiegelspalten sind ersatzlos entfallen, ebenso die
+Boundary-Aktionen und saemtliche Belegpflichten.
+
+Geblieben ist eine Tabelle mit den Werten selbst: Wert aendern, Zeile
+loeschen, Zeile anhaengen. Was geschehen ist, rechnet der Import aus dem
+Vergleich gegen die Laufartefakte aus - gleiche Werte heisst Modellzeile mit
+Callprovenienz, abweichende heisst `assignment_source=manual` ohne Provenienz,
+fehlende Zeile heisst entfernt. Statt der frueheren Pflichtbestaetigung nennt
+der Import eine Aenderungsbilanz (geaendert, neu, entfernt); daran faellt eine
+versehentlich geloeschte Zeile auf.
+
+Neu ist das Blatt `taxonomy` mit allen zulaessigen Industries des
+Laufsnapshots; es speist zugleich die Auswahlliste der Spalte `industry_id`.
+Abgelehnt wird nur noch, was das Ergebnis unbrauchbar machen wuerde: unbekannte
+Unit, unbekannte Industry, doppelte Industry, unlesbare Confidence, Formel,
+stale Bindung. Die 0/2/5-Regel des Modellvertrags ist fuer den Review eine
+Warnung - ueber den Einzelfall entscheidet der Mensch.
+
+Vertragsversionen: `review-workbook-v2`, `review-export-v2`,
+`review-import-v2`.
+
+Tests: 1852 netzwerkfrei, gruen.
+
+---
+
+## 2026-08-27 — Committee Matcher V2: P7c/P7d Laufkommandos und Review-Roundtrip
+
+Der Ablauf steht jetzt durchgehend: Mapping, Review in Excel, Rueckuebernahme
+in CSV.
+
+`run plan` zeigt den Lauf providerfrei vorab, `run execute` fuehrt ihn mit
+Resume, Kostenwache und Alles-oder-nichts-Artefakten aus, `run reconcile`
+klaert Calls, deren Ausgang offen blieb, gegen die Providerhistorie. Eine
+unbekannte Generation gilt erst nach `COMMITTEE_MATCHER_RECONCILE_MIN_AGE_S`
+als nicht abgerechnet, da der Provider frische Generationen verzoegert zeigt
+und ein zu frueher Abgleich einen zweiten kostenpflichtigen Call erlauben
+wuerde. Fehlerberichte liegen ab jetzt beim Lauf (`runs/<run_id>/reports/`).
+
+`committee_matcher/review.py` traegt den Roundtrip. Der Export baut ein
+XLSX-Workbook aus den Laufartefakten und haengt an jede Modellzeile einen
+Zeilenhash; der Import prueft die Bindung an Lauf und Export, weist Formeln ab
+und erzwingt dieselben 0/2/5- und Broad-Scope-Regeln wie beim Modellresultat.
+Ergebnis sind `reviewed_assignments.csv` und `reviewed_unit_coverage.csv` unter
+`reviews/<review_id>/`.
+
+Terminalstatus S3 ergaenzt: `input validate`, `roster validate` und
+`snapshot approve` melden nach dem Statusvertrag, inklusive Retryhinweis je
+yfinance-Fetch und Driftgate als `WAIT`.
+
+Tests: 1851 netzwerkfrei, gruen.
+
+---
+
+## 2026-08-27 — Committee Matcher V2: P7b Ergebnisartefakte
+
+`committee_matcher/artifacts.py`: die einzige Stelle, die Laufergebnisse in
+Dateien gießt. Long-CSV je Unit-Industry-Zuordnung, Unit-Coverage über die
+gesamte erwartete Unitmenge, Boundary-Konflikte, Roster-Coverage und
+Kostenbericht — alle unter `runs/<run_id>/mapping/`.
+
+Zwei Regeln bestimmen den Zuschnitt: keine Zeile weniger als der Lauf hergab
+(fehlende Unit ist `not_decided`, nicht abwesend) und kein Fremdwert als
+Provenienz (Industry- und Sektornamen aus dem Snapshot, Modell- und
+Promptangaben aus dem Runmanifest; das Modell liefert nur die `industry_id`).
+
+Geschrieben wird alles oder nichts: sieben Blockerprüfungen laufen vor der
+ersten Datei — unvollständige Provenienz, fremdes Manifest, fremder Snapshot,
+unerwartete oder doppelte Unit, Zustand im Widerspruch zum eigenen Ergebnis,
+Industry außerhalb des Snapshots.
+
+Phasenreview (GPT Sol) mit sieben hohen Befunden, alle behoben:
+
+- Write-Ahead statt RAM-Vormerkung — `calls/<call_id>.intent.json` entsteht vor
+  dem Netzaufruf und bleibt liegen, bis die Auditdatei steht; ein bezahlter Call
+  überlebt damit einen Prozessabsturz.
+- Callprovenienz im Laufzustand (`call_id`, `provider`, `generation_id`) und als
+  Pflichtspalten der Long-CSV; `mapping_input_hash` blockiert statt still leer.
+- Vollständige Runbindung: Laufzustand, Snapshotrevision und Unitzahl des
+  Manifests werden geprüft.
+- Zustandsinvariante in beide Richtungen — auch `failed` mit gespeichertem
+  Ergebnis blockiert.
+- Rollback nach fehlgeschlagenem Schreibvorgang plus Abschlussmarker
+  `artifacts_manifest.json`; `is_complete()` ist die Vollständigkeitsprobe.
+- Roster-Coverage ist Pflicht, Revisionen werden nie überschrieben,
+  Kostenbericht muss zur Kostenwache passen.
+
+Nachprüfung mit acht weiteren hohen Befunden, ebenfalls behoben: Callprovenienz
+vollständig und auch für `no_mapping` verpflichtend, `from_repair` als eigene
+Spalte (der Reparaturprompt darf das Urteil ändern), Zustandsvertrag auf
+`run-state-v2` gehoben, Call-ID nie zweimal gesendet, `is_complete()` verlangt
+exakt den Pflichtsatz, `ART_REVISION_EXISTS` greift nur bei vollständigen
+Sätzen, Kostenzähler derselben Semantik, Roster-Coverage gegen die Zahl der
+Rostervorkommen geprüft.
+
+Zweite Nachprüfung mit drei weiteren hohen Befunden, ebenfalls behoben: Marker
+eines abgebrochenen Vorlaufs fällt vor dem Ersatzschreiben, Kostenbericht
+verlangt Gleichheit statt Obergrenze, `from_repair` ist Pflichtfeld und
+erzwingt den `repair_system`-Eintrag im Manifest.
+
+Offen zur Entscheidung: CSV-Formelinterpretation in Excel bei Feldern aus
+Committee-Text. Der Reviewer sieht keine Lösung, die weder Werte still ändert
+noch legitime Läufe blockiert.
+
+Tests: 1762 grün (+79 netzwerkfrei).
+
+Davor im selben Zug: die zweite Nachprüfung zu P7a (Commit `5efe01b`) — 4xx
+nicht mehr pauschal als belegte Ablehnung, Generation-ID und Kosten auch im
+Fehlerfall.
+
+---
+
+## 2026-08-22 — Committee Matcher V2: Contract-Smoke live bestanden
+
+Erster kostenpflichtiger Call nach Freigabe durch Bene. Antwort vertragsgemäß,
+Schema eingehalten, Exit 0, 0,000018 USD.
+
+Der Lauf deckte zwei Fehler auf, die nur ein echter Call zeigen konnte:
+
+- **Routing blieb „unbekannt".** `_routed_provider` las
+  `openrouter_metadata.attempts`; dort steht der Endpoint aber erst, wenn ein
+  Fallback gegriffen hat. Im Normalfall trägt ihn
+  `endpoints.available` mit `selected=true`. Damit wäre der geroutete Provider
+  entgegen dem Gate-B-Beschluss dauerhaft unprotokolliert geblieben. Beide Wege
+  werden jetzt gelesen; der Name wird als Fremdwert auf eine Zeile und 60
+  Zeichen begrenzt, weil er in Audit und Terminalbericht landet.
+- **Der Abschlussbericht wies einen bezahlten Call als providerfreie Phase
+  aus.** `run_command` hat die Kosten eines Handlers nie an den Bericht
+  weitergereicht. Ein Handler darf jetzt als drittes Element seine
+  Providerkosten melden; ohne dieses Element bleibt der Lauf wie bisher
+  providerfrei. Die Kostenzeile zeigt sechs statt vier Nachkommastellen — bei
+  vier verschwand der Betrag in der Rundung.
+
+Tests: 1646 grün, davon 15 neu.
+
+---
+
+## 2026-08-22 — Committee Matcher V2, P7a: Runzustand, Auditspur, Kosten
+
+`workflow.py` liefert die Bausteine, die das Runkommando am Ende von P7
+zusammensetzt: Runmanifest, Laufzustand, Auditspur, Kostenwache, Cache-Key.
+
+**Kostenwache und Auditspur am Providerrand.** Beide sitzen in einem
+Providerdekorator statt im Mappingkern. Damit wird jeder Call erfasst — auch
+ein Reparaturcall —, die Antwort liegt vor der Fachvalidierung auf der Platte,
+und `mapping.py` bleibt frei von Runzustand. Die Reihenfolge ist Vertrag:
+prüfen, senden, persistieren, verbuchen, zurückgeben.
+
+Gerechnet wird mit dem Preisdeckel, nicht mit einem erwarteten Preis — er ist
+die einzige vor dem Call feststehende Zahl. Ein Call ohne Kostenmeldung gilt
+als ungeklärt, nicht als kostenlos: sein Worst Case bleibt reserviert und zählt
+gegen das Budget. Ein gescheiterter Call ebenso; ob der Provider ihn
+abgerechnet hat, ist von hier aus nicht feststellbar.
+`COMMITTEE_MATCHER_COST_GUARD = False` schaltet allein das Blockieren ab, nicht
+die Buchführung.
+
+**Cache-Key ohne Endpoint.** Plan 2.6 nennt den gerouteten Endpoint als
+Schlüsselbestandteil. Das stammt aus der Zeit vor dem Gate-B-Beschluss vom
+2026-08-21, der die Providerwahl freigegeben hat: bei freier Wahl ist der
+Endpoint des nächsten Calls im Voraus unbekannt, ein Schlüssel mit Endpoint
+wäre nie wieder treffbar und der Cache damit tot. Der Endpoint bleibt
+Auditprovenienz je Call. Enthalten sind stattdessen Unitinput,
+Taxonomie-Content-Hash, Prompt, Schema, Modell und die Inferenzparameter;
+volatile IDs bleiben draußen.
+
+**Laufzustand.** Workflowstatus und Unitstatus werden getrennt persistiert. Ein
+beschädigter Zustand führt nie zu einem teilweise übernommenen Lauf — er wird
+als Ganzes verworfen; die Alternative wäre, einzelne Units aus einer kaputten
+Datei zu glauben. Ein Resume gegen ein vorhandenes Manifest ist nur zulässig,
+solange die ergebnisbestimmenden Felder unverändert sind; ein anderes Budget
+oder eine andere Snapshot-ID werfen keine bezahlten Ergebnisse weg.
+
+**Phasenreview (GPT Sol).** Fünf hohe und fünf mittlere Befunde; sieben
+behoben, zwei abgelehnt, einer als nicht erfüllbar dokumentiert:
+
+- Die Kosten wurden erst nach dem Schreiben der Auditdatei gebucht. Ein
+  Schreibfehler hätte einen bezahlten Call ungebucht gelassen. Gebucht wird
+  jetzt, sobald die Antwort vorliegt.
+- Jeder gescheiterte Call reservierte pauschal seinen Worst Case und blieb
+  wiederholbar. Beides war falsch herum: eine belegt abgewiesene Anfrage kostet
+  nichts und darf wiederholt werden, ein offener Ausgang kostet und wird nie
+  automatisch wiederholt. Der Adapter markiert das je Fehlerpfad
+  (`ProviderCallError.outcome_unknown`, fail closed).
+- Ein beschädigter Laufzustand führte zu einem stillen Neustart — und damit zum
+  erneuten Senden bereits bezahlter Calls. Er hält den Lauf jetzt an, ohne die
+  Datei zu überschreiben.
+- Ein doppelter Uniteintrag überschrieb still den früheren.
+- `UnitRecord.reusable` prüfte nicht, ob Unitstatus und Modellurteil dasselbe
+  sagen.
+- Der Cache-Key nahm beliebige Inferenzmappings an und wäre bei einem
+  unvollständigen gegenüber einem ergebnisrelevanten Parameter blind gewesen.
+- Die Resume-Bindung ignorierte `context`, obwohl `max_output_tokens` im
+  Cache-Key steht.
+
+Nicht übernommen: die Modellantwort im Audit zu redigieren. Das Audit soll
+belegen, was zurückkam; spiegelt das Modell den Prompt, ist genau das der
+Befund. Ein Geheimnis kann es nicht spiegeln — der API-Key steht in keinem
+Prompt. Ebenfalls nicht übernommen: getrennte Request- und Upstream-IDs; das
+gepinnte SDK liefert sie nicht (im Plan als offener Punkt vermerkt).
+
+Noch kein Kommando: `map run` entsteht am Ende von P7 zusammen mit den
+Artefakten.
+
+Tests: 1662 grün, davon 72 neu und netzwerkfrei.
+
+---
+
+## 2026-08-22 — Committee Matcher V2, P6: Mappingkern
+
+Ein Batch läuft jetzt vom Zuschnitt bis zum geprüften Ergebnis durch — ohne
+Runzustand, der entsteht in P7.
+
+**Batching und Kontext.** `COMMITTEE_MATCHER_BATCH_SIZE` ist der Wunsch, nicht
+die Zusage: passt ein Batch nicht in das Eingabebudget
+(`ENDPOINT_CONTEXT_TOKENS` minus Ausgabe- und Reasoningreserve), wird er 3→2→1
+geteilt. Die Tokenschätzung rechnet über den neuen Wert
+`COMMITTEE_MATCHER_CHARS_PER_TOKEN = 3.0` bewusst zu pessimistisch — eine
+Unterschätzung würde Antworten abschneiden, eine Überschätzung kostet nur einen
+zusätzlichen Batch. Passt eine einzelne Unit nicht, blockiert der Lauf mit
+`MAP_UNIT_TOO_LARGE`; gekürzt wird weder Zuständigkeitstext noch Taxonomie.
+
+**Ausgabeschema.** Der Vertrag 2.5 liegt als JSON-Schema vor und ist per Golden
+Test eingefroren. Optionale Felder sind nullable statt abwesend, damit ein
+fehlender Schlüssel von einem bewusst leeren unterscheidbar bleibt.
+`industry_id` bleibt ein freier String: eine Enum über alle Snapshot-IDs wäre
+strenger, würde das Schema aber um hunderte Werte aufblähen und den Lauf an
+eine Schemafähigkeit binden, die nicht jeder Endpoint zuverlässig beherrscht.
+Unbekannte IDs fängt die formale Prüfung ab.
+
+**Formale Prüfung.** `validation.py` prüft Batchdeckung, Snapshotbindung,
+Evidenzherkunft und die unittypabhängigen Obergrenzen. Erlaubte Belegquelle ist
+der eigene Name beziehungsweise der eigene Zuständigkeitstext — der Text des
+übergeordneten Committees ist Kontext und bekommt als häufigster Fehlerfall
+eine eigene Meldung (`MAP_EVIDENCE_FROM_PARENT`). `committee_parent_core` und
+`name_only` bleiben bei zwei Zuordnungen.
+
+**Repair ohne Silent-Fix.** Zurück gehen nur die beanstandeten Units mit ihrer
+Verstoßliste, höchstens `COMMITTEE_MATCHER_MAX_REPAIR_ATTEMPTS` mal (Default 1);
+die unbeanstandeten behalten ihre Erstantwort und werden dem Modell nicht erneut
+vorgelegt. Verstöße ohne Unitbezug wiederholen den ganzen Batch. Der
+zusammengeführte Stand wird vollständig neu geprüft. Bleibt ein Verstoß,
+scheitert der Batch mit benannten Gründen — nichts wird gekappt, gelöscht oder
+in der Confidence verschoben.
+
+**Boundary-Erkennung.** Dieselbe Industry in Geschwister-Units einer
+Committee-Familie wird gemeldet, nicht entfernt: Überlappung kann legitim sein
+und wird im Review entschieden.
+
+**Phasenreview (GPT Sol).** Vier hohe Befunde, alle behoben: Werte aus der
+Modellantwort standen unmaskiert in der Verstoßliste und damit im autoritativen
+Teil des Reparaturprompts; der
+Repair umfasste den ganzen Batch und konnte gültige Units still überschreiben;
+die Kontextschätzung zählte Zeichen statt UTF-8-Bytes und veranschlagte das
+Schema pauschal; die Mitglieder eines Boundary-Konflikts folgten der
+Antwortreihenfolge des Providers. Dazu drei mittlere: Broad-Scope-Belege galten
+schon bei abweichender Schreibweise als eigene Evidence, unsichtbare
+Unicode-Formatzeichen bestanden als Pflichttext, und der Systemprompt verlangte
+weggelassene Felder, wo das Schema `null` erzwingt (`mapping-system-v2`).
+
+**Nachprüfung (GPT Sol).** Drei weitere hohe Befunde, alle behoben:
+
+- Zitieren blieb ein Injektionspfad, auch einzeilig und gekürzt. Die
+  Verstoßliste nennt jetzt ausschließlich Positionen aus dem eigenen Vertrag
+  (`units[3].assignments[1].confidence`, „1. Zuordnung"); Schlüssel außerhalb
+  von `KNOWN_FIELDS` erscheinen als `<unbekanntes Feld>`. Kein Wert aus der
+  Modellantwort erreicht mehr den autoritativen Promptteil.
+- Ein gescheiterter Teil-Repair konnte den Folgeversuch wieder auf den ganzen
+  Batch ausweiten und den letzten vollständigen Stand verlieren. Der
+  Reparaturauftrag wird jetzt einmal nach dem Erstcall festgelegt und bleibt
+  über alle Versuche gleich; gemergt wird immer gegen den letzten Stand, der
+  aus einem zustande gekommenen Merge stammt. Vollzähligkeit allein genügt
+  dafür nicht — eine abgelehnte Reparatur, die ungefragt alle Units mitschickt,
+  wird nicht zum Ausgangsstand des nächsten Versuchs.
+- Die Tokenschätzung erlaubte bis zu 8 Zeichen je Token und hätte damit
+  systematisch unterschätzt. Der Bereich endet jetzt bei 4.0.
+
+Restunschärfe bewusst offen: die Schätzung bleibt eine Heuristik ohne
+beweisbare Obergrenze, weil der Tokenizer des Endpoints nicht bekannt ist. Die
+harte Grenze ist die Ablehnung durch den Endpoint — benannter Abbruch, keine
+stille Kürzung.
+
+Nicht übernommen: der Vorschlag, auch zu große Reparaturcalls noch einmal
+3→2→1 zu teilen. Der Fall setzt voraus, dass bereits der Erstcall am Limit lag;
+der Zusatzaufwand in Kosten- und Callführung steht dazu außer Verhältnis.
+Ebenfalls nicht übernommen: Schemafehler einer einzelnen Unit als Teil-Repair
+zu behandeln. Eine unparsebare Antwort hinterlässt keinen gültigen Teilstand,
+gegen den gemergt werden könnte; der Batch wiederholt als Ganzes, der Unitbezug
+steht in der Verstoßliste.
+
+Tests: 1571 grün, davon 95 neu und netzwerkfrei.
+
+---
+
+## 2026-08-22 — Committee Matcher V2, P5: Systemprompts und Provideradapter
+
+Der Matcher kann jetzt mit einem Modell sprechen — tut es aber erst auf
+ausdrückliche Freigabe.
+
+**Prompts.** `mapping_system.md` und `repair_system.md` liegen als editierbare
+Kontrollinputs unter `data/config/committee_matcher_prompts/`. `prompts.py`
+prüft ihr Frontmatter und bindet die `schema_version` an den Ausgabevertrag des
+Codestands: ein Prompt, der ein anderes Schema beschreibt als der Code
+erzwingt, erzeugt systematisch ungültige Antworten und blockiert deshalb.
+Der Inhaltshash deckt nur den Text ohne Frontmatter ab — eine reine
+Versionsangabe bewegt ihn nicht, jede Textänderung schon. Vertauschte Dateien
+fallen über `prompt_id` auf. Fremdtexte gehen in markierte Datenblöcke; eine
+Zeile, die den Rahmen nachbildet, wird entschärft statt den Block zu schließen.
+
+**Provideradapter.** `provider.py` hält zusätzlich das providerneutrale
+Structured-Output-Interface, einen `FakeProvider` für netzwerkfreie P6/P7-Tests
+und den `OpenRouterProvider` als einzigen Ort mit SDK-Kontakt. `create()`
+prüft API-Key und ruft den Routing-Preflight vorgeschaltet auf — kein Call ohne
+zulässigen Endpoint. Je Call genau ein Versuch: SDK-Retries bleiben aus, weil
+ein wiederholter Call doppelt abrechnen kann, während der Workflow in P7 selbst
+entscheidet, was wiederholt wird. Jeder Ausgang wird fachlich übersetzt (Auth,
+Guthaben, abgewiesene oder zu große Anfrage, Refusal, Abschneiden am
+Ausgabelimit, ungültiges JSON, leere Antwort); ein unbekannter SDK-Fehler gilt
+fail closed als nicht wiederholbar. Fehlende Kosten bleiben `None`
+(`cost_unknown`) statt stillschweigend 0.0 zu werden.
+
+**Contract-Smoke.** `provider smoke` setzt einen einzelnen kostenpflichtigen
+Minimalcall ab und prüft, was der kostenlose Preflight nicht sehen kann: Auth,
+echte Structured-Output-Fähigkeit des gerouteten Endpoints, gemeldete Kosten
+und ZDR-Verträglichkeit. Das Kommando ist implementiert, aber noch nicht live
+ausgeführt — der erste kostenpflichtige Call ist ein Gate.
+
+**API-Key.** `OPENROUTER_API_KEY` steht ausschließlich in `.env`, wird über
+`os.getenv` in `config/settings.py` gelesen und erscheint in keinem Artefakt,
+Manifest oder Terminalbericht.
+
+60 neue netzwerkfreie Tests; Gesamtsuite 1403 grün.
+
+---
+
+## 2026-08-21 — Committee Matcher V2, Gate B: Providersettings + Routing-Preflight
+
+Gate B ist beschlossen. Defaultmodell ist `deepseek/deepseek-v4-flash-0731`, den
+Endpoint wählt OpenRouter selbst: kein `only`, kein `order`,
+`allow_fallbacks = true`. Gefiltert wird ausschließlich über Eigenschaften —
+`require_parameters`, Quantisierung (`fp8`/`bf16`/`fp16`), `data_collection =
+"deny"`, `zdr = true` und ein Preisdeckel. Der neue Filter
+`COMMITTEE_MATCHER_QUANTIZATIONS` ersetzt die frühere Endpointbindung
+`COMMITTEE_MATCHER_PROVIDER_SLUG`: ohne ihn mischt ein Lauf 4-Bit- und
+16-Bit-Endpoints, womit Evaluationsergebnisse nicht mehr auf den
+Produktionslauf übertragbar wären. Die Kostenwache ist über
+`COMMITTEE_MATCHER_COST_GUARD` abschaltbar, ohne Provider oder Modell zu binden.
+
+Neu ist `committee_matcher/provider.py` mit dem Routing-Preflight und dem
+Kommando `provider check`. Er fragt den öffentlichen Endpointkatalog
+`models/<modell>/endpoints` ab — ohne Key, ohne Kosten, ohne Modellaufruf — und
+bricht sofort mit Exit 4 ab, wenn zur Konfiguration kein Endpoint existiert.
+Grund für die Vorschaltung: Eine leere Endpointmenge ist der einzige
+Konfigurationsfehler, den `allow_fallbacks` nicht abfangen kann; ohne Preflight
+scheitert stattdessen der erste kostenpflichtige Call mit einer generischen
+SDK-Meldung. Jede Leerungsursache meldet sich getrennt
+(`PROV_CATALOG_UNREACHABLE`, `PROV_MODEL_UNKNOWN`, `PROV_NO_STRUCTURED_OUTPUT`,
+`PROV_NO_ENDPOINT` je für Quantisierungsfilter und Preisdeckel), und jeder
+Befund nennt die beiden Stellschrauben, die die Workflowlogik nicht berühren:
+Modellwechsel und `COMMITTEE_MATCHER_ZDR = False`. Fehlt einem Modell die
+Structured-Output-Fähigkeit, fordert der Befund ausdrücklich einen Modellwechsel.
+
+Was der Katalog nicht hergibt, ist ZDR: die Eigenschaft steht nicht je Endpoint
+darin. Scheitert ein realer Call trotz grünem Preflight am Routing, listet
+`routing_failure_finding` alle wirksamen Bedingungen und benennt `zdr=true` als
+wahrscheinlichste Ursache.
+
+Preise wertet der Preflight fail closed: ein fehlendes, leeres oder nicht
+lesbares Preisfeld gilt als unendlich teuer statt als 0.0, sonst passierte ein
+Endpoint mit unbekanntem Preis jeden Deckel und erschiene als der günstigste.
+Ebenso belegt nur eine echte Liste in `supported_parameters` die
+Structured-Output-Fähigkeit — bei einem String wäre `in` eine Teilstringsuche
+und bejahte die Fähigkeit fälschlich.
+
+Live geprüft am 2026-08-22: 7 von 30 Endpoints des Defaultmodells sind
+zulässig, günstigster zu 0.080 USD pro Mtok Prompt — Katalogwerte, die sich
+ohne Zutun des Projekts ändern. Tests: 25 netzwerkfreie Tests in
+`tests/test_committee_matcher_provider_preflight.py`; Gesamtsuite grün.
+
+---
+
+## 2026-08-21 — Committee Matcher V2, P4: Taxonomie-Snapshot (yfinance)
+
+Der Matcher holt seine Zielseite jetzt selbst. `taxonomy_source.py` ist das
+einzige Modul des Pakets, das Netzwerk berührt; yfinance wird erst beim ersten
+Abruf importiert, damit der providerfreie Kern importierbar bleibt. Der Adapter
+zieht die elf Sector-Seeds aus den gepinnten yfinance-Konstanten, holt je Sector
+die Industries und je Industry die Beschreibung — mit Pause zwischen den Abrufen
+und endlichen Retries, weil Yahoo einen ungedrosselten Durchlauf über alle
+Sektoren mit Rate-Limits beantwortet und ein halb abgerufener Snapshot wertlos
+ist. Eine leere Sectorantwort gilt als Drosselung und ist retrybar.
+
+Entscheidend ist, was **nicht** durchkommt: `INDUSTRY_FIELDS` ist eine
+abschließende Allowlist aus `industry_id`, `industry_name`, `sector_id`,
+`sector_name`, `description`. Market Cap, Market Weight, Firmen- und
+Mitarbeiterzahlen sowie Symbole liefert yfinance mit, sie werden am Adapterrand
+verworfen und erreichen kein Artefakt — eine Zuordnung soll fachliche Nähe von
+Jurisdiktion und Industry belegen, nicht Marktgröße.
+
+`taxonomy_snapshot.py` friert das Ergebnis ein: Inhaltshash `taxonomy-content-v1`
+(SHA-256 über die sortierten Industries, ohne Abrufzeiten, damit zwei Läufe mit
+gleichem Inhalt denselben Hash tragen), ein nach Sektoren gruppierter
+Markdown-Katalog und ein run-lokaler Checkpoint. Bricht ein Lauf ab, persistiert
+er nur den Checkpoint; `snapshot resume` setzt ohne erneuten Abruf des bereits
+Geholten fort. Snapshot und Katalog werden all-or-nothing geschrieben.
+
+Der Driftvergleich gegen `taxonomy/approved_baseline.json` trennt zwei Fälle:
+Identitätsdrift (Industry neu, entfallen, umbenannt oder in einen anderen Sektor
+verschoben) blockiert mit Exit 5 in `awaiting_taxonomy_approval`, weil sich die
+Mappingzielmenge geändert hat und das eine menschliche Freigabe braucht; eine
+reine Beschreibungsänderung warnt nur. Fehlt die Baseline ganz, stoppt jeder
+Lauf ebenfalls mit Exit 5. `snapshot approve` bindet die Freigabe an den
+Snapshotinhalt und weist einen nachträglich manipulierten Snapshot ab.
+
+CLI: `python -m committee_matcher snapshot build|resume|approve --run-id ...`.
+Livelauf gegen yfinance 1.3.0: 145 Industries in 11 Sektoren, Inhaltshash
+`8c3da76572d9…`; ein absichtlich gedrosselter Zweitlauf blockierte mit
+`TAX_SECTOR_EMPTY` und wurde per `resume` auf denselben Hash driftfrei
+abgeschlossen. Versioniert ist nur die freigegebene Baseline; `runs/` und
+`reports/` sind gitignoriert.
+
+Review-Auflagen (gpt-5.6-terra, „Phase mit Auflagen abgenommen") direkt
+nachgezogen: der Checkpoint ist jetzt an seine `run_id` gebunden und wird strikt
+gegen den Inhaltsvertrag gelesen statt teilweise übernommen; `snapshot approve`
+prüft zusätzlich Inhaltsvertrag, Feldmenge und die Bindung
+`snapshot_id == run_id`, sodass ein in ein fremdes Runverzeichnis kopierter
+Snapshot nicht freigabefähig ist; die Baseline wird vor jedem Driftvergleich
+gegen ihren eigenen Hash nachgerechnet (`TAX_BASELINE_TAMPERED`), weil eine am
+Hash vorbei editierte Baseline sonst genau die Drift verdecken könnte, die sie
+melden soll. Beim Resume kommt nur noch die Beschreibung aus dem Checkpoint —
+Name und Sektor holt auch der Fortsetzungslauf frisch, sonst entstünde ein
+Mischsnapshot, in dem eine zwischenzeitlich umbenannte Industry unbemerkt
+weiterliefe. Eine leere `Industry.overview` gilt wie ein leerer Sector als
+Drosselung und fällt in die Retrylogik. In der Nachprüfung kam eine fehlende
+Objektprüfung der JSON-Wurzel hinzu: eine Baseline, ein Snapshot oder ein
+Checkpoint, dessen Wurzel eine Liste oder `null` ist, endet jetzt in einem
+`TAX_*_MALFORMED`-Befund statt in einem `AttributeError`.
+
+Tests: 45 netzwerkfreie P4-Tests gegen einen Fake-Client
+(`tests/test_committee_matcher_taxonomy_p4.py`) inklusive Allowlist-,
+Drift-, Checkpoint- und Manipulationsmatrix; Gesamtsuite 1318 grün.
+Doku: `CLI_Bedienungsanleitung.md` 15c, `DATA_STRUCTURE.md` 3a.
+
+---
+
+## 2026-08-20 — Committee Matcher V2, P3: Input, Identität und Roster
+
+Der providerfreie Kern liest den Corpus jetzt produktiv. `input_corpus.py` parst
+jedes Mapping-Markdown strikt gegen den Inputvertrag: Manifestverifikation gegen
+die Dateibytes, Größengrenzen, Frontmatter-Pflichtfelder, Kammer-Dateiname-
+Konsistenz, `source_files`-Rollenprüfung, Bodyvertrag (eine H1, eindeutige H2 vor
+dem Kommentarabschnitt) und ein Fremdanweisungsgate: `#userinput` blockiert mit
+Datei und Zeile, sofern es nicht im reservierten Kommentarabschnitt steht.
+Nichts wird geraten — jede Abweichung wird gemeldet.
+
+`units.py` bildet daraus die Units und friert zwei Verträge ein: `unit-id-v1`
+(Amtspräfix, NFKC, Typografie, Slug → `<kammer>--<committee>[--<sub>]`) und
+`mapping-input-v1` (SHA-256 über den kanonischen Modellinput). Beide sind durch
+Golden Tests gepinnt; die 225 IDs stehen als Sollmenge in
+`data/config/committee_matcher_unit_ids_v1.yaml` und werden bei jedem Lauf
+mengengleich verglichen. ID-Kollisionen blockieren statt umbenannt zu werden.
+
+`roster_coverage.py` prüft die House-/Senate-Roster read-only gegen die Units.
+Zugeordnet wird nur kanonisch oder per expliziter Aliasregel
+(`data/config/committee_matcher_roster_rules.yaml`, `roster-rules-v1`, Pflichtfeld
+`reason`); Fuzzy-Treffer sind reine Vorschläge. Fehlt ein Committee unter seiner
+Rosterkammer, greift die Joint-Cross-Chamber-Regel. Stand: 227 von 230 Vorkommen
+gemappt, 3 offen, 2 Units ohne Rostervorkommen — Entscheidung darüber liegt bei
+Gate C, deshalb Warnung statt Blocker.
+
+Neuer Parameter `COMMITTEE_MATCHER_MIN_EVIDENCE_CHARS` (Default 60): ein als
+`jurisdiction_text` deklarierter Text darunter wird als `INP_EVIDENCE_TOO_SHORT`
+gemeldet. Damit sind zwei abgeschnittene Appropriations-Abschnitte sichtbar,
+statt still ins Mapping zu laufen.
+
+Bedienung: `python -m committee_matcher input validate` und `roster validate`,
+beide netzwerkfrei und ohne Schreibzugriff außerhalb der Artefaktwurzel.
+
+Aus dem Phasenreview nachgezogen: Subcommittees tragen den Parent-Kontext als
+eigenes Feld (im Inputhash, nie als Beleg), das Frontmatter wird auch auf
+Provenienz geprüft, nicht dekodierbare Dateien und Größendrift melden Befunde
+statt zu crashen, verwaiste Quelldateien blockieren, Units ohne Rostervorkommen
+sind ein eigener Warnbefund und die eingefrorene Sollmenge wird inklusive
+Kopffeldern validiert.
+
+Test-Stand: 1276 Tests grün, davon 89 neu in
+`tests/test_committee_matcher_input_units.py`; Corpusmanifest und
+P0-Schutzbaseline nach dem Lauf unverändert verifiziert.
+
+## 2026-08-20 — Committee Matcher V2, P2: providerfreies Gerüst
+
+Das neue Paket `committee_matcher/` hält den providerfreien Kern. Die
+Ownership-Karte über alle 17 Zielmodule steht im Docstring von `__init__.py`;
+implementiert sind sechs davon: `status.py` (Workflow-, Unit- und
+Coverage-Zustände, Exit-Code-Matrix mit bewusst unbelegtem Code 1), `errors.py`
+(Befunde, strukturierte Persistenz, nach Schweregrad und Stage gruppierter
+Terminalbericht), `paths.py` (Pfadwache), `settings_view.py` (typisierte
+Settingssicht), `models.py` (Pydantic-Datenverträge) und `cli.py`
+(`python -m committee_matcher`).
+
+Die Pfadwache erlaubt Schreiben ausschließlich unter
+`data/committee_matcher_v2/` und blockiert Traversal, Symlink-Ausbrüche, die
+Inputbaseline sowie alle neun Pfade der P0-Schutzbaseline; fehlt oder bricht
+die Schutzbaseline, blockiert sie (fail closed) statt ungeschützt zu schreiben.
+
+`config/settings.py` enthält den Block `COMMITTEE_MATCHER_*` mit Typ, Bereich,
+Default und Verbraucher je Setting. Offline-Settings müssen immer gültig sein;
+die Provider-Settings bleiben bis Gate B `None` und blockieren jeden
+Providerpfad mit Exit 4, fehlende Budgets mit Exit 6. Die
+Sicherheitsinvarianten (`require_parameters=true`, `allow_fallbacks=false`,
+genau ein `provider.only`-Eintrag, keine SDK-Retries, ein gleichzeitiger Call)
+sind Codekonstanten und nicht konfigurierbar.
+
+`models.py` pinnt die formalen Mappingregeln aus Plan 2.5 (0 Zuordnungen mit
+Grund, 1–2 als Normalfall, 3–5 nur mit Broad-Scope-Ausnahme samt Confidence ≥ 3
+und eigener Evidence/Rationale je Industry, > 5 immer ungültig) und weist über
+`extra="forbid"` Market-Cap- und Weight-Felder auch am Modellrand zurück.
+Kontextabhängige Regeln (Unittyp-Obergrenze, Snapshot- und Evidenceprüfung)
+folgen bewusst erst in P6, die Artefaktschemata in P7/P8.
+
+Der Paketimport zieht weder `openrouter` noch `yfinance` oder eine
+HTTP-Bibliothek nach — durch Test gesichert. Neu:
+`tests/test_committee_matcher_scaffold.py` (127 netzwerkfreie Tests; Gesamtsuite
+1187). CLI, Familien, Exit-Codes und Settingstabelle:
+`organisation/CLI_Bedienungsanleitung.md` Abschnitt 15.
+
+## 2026-08-20 — Committee Matcher V2, P0: Inputbaseline migriert und eingefroren
+
+Die 46 kanonischen Committee-Markdowns unter `data/committee_matcher_inputs/md/`
+folgen jetzt dem Inputvertrag aus
+`organisation/committee_jurisdiction_input_template_codex.md`. Das versionierte,
+idempotente Migrationsskript `scripts/committee_matcher_migrate_inputs.py`
+(`input-basis-v1`, Modi `--check`/`--apply`/`--report`) hat `unit_input_basis`
+ergänzt, die zwölf alten `input_basis:`-Frontmatterfelder und die acht
+HTML-Ersatzmarker entfernt und dabei Jurisdiktionstexte und Identitäten
+unverändert gelassen.
+
+`scripts/committee_matcher_baseline.py` erzeugt und prüft die beiden
+Kontrollinputs: `data/committee_matcher_inputs/corpus_manifest.yaml`
+(95 Dateien: 46 `mapping_input`, 2 `source_only`, 46 `raw_source`,
+1 `administrative_excluded`, jeweils mit Rolle und SHA-256) und
+`data/config/committee_matcher_protected_baseline.yaml` (SHA-256 der neun
+matcherbezogenen Produktionspfade). Die Unit-Sollmenge ist mit 179
+`subcommittee` + 31 `committee_parent_core` + 15 `committee_direct` = 225
+eingefroren; kanonische Unit-IDs folgen erst in P3.
+
+`PyYAML==6.0.3` ist in `requirements.txt` gepinnt. Die V1-Einträge des alten
+Mapping-Agenten wurden aus `.gitignore` entfernt; gitignorierte Altartefakte mit
+nicht reproduzierbarer Reviewarbeit existieren nicht mehr.
+
+Nach dem Phasenreview nachgezogen: `--apply` ist corpusweit all-or-nothing
+(Preflight vor jedem Schreiben, Rollback bei Schreibfehler), Mischzustände aus
+migrierten und unmigrierten Dateien blockieren statt zu raten, und
+`manifest`/`protect --verify` vergleichen feldweise gegen den neu berechneten
+Sollpayload statt nur Hashes zu prüfen.
+
+Test-Stand: `tests/test_committee_matcher_input_baseline.py` 90 Tests
+(netzwerkfrei, schreibende Fälle nur auf synthetischem Corpus), Gesamtsuite
+1060 Tests grün.
 
 ---
 

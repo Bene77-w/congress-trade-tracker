@@ -1,0 +1,8 @@
+review_id,run_id,unit_id,chamber,committee_name,unit_name,unit_kind,decision,assignment_count,no_mapping_reason,broad_scope_exception,broad_scope_reason,manual_assignments,review_status
+review-p8-run2,p8-run2,house--agriculture,house,Committee on Agriculture,Committee on Agriculture,committee_parent_core,mapped,2,,false,,1,reviewed
+review-p8-run2,p8-run2,house--agriculture--commodity-markets-digital-assets-and-rural-development,house,Committee on Agriculture,"Subcommittee on Commodity Markets, Digital Assets, and Rural Development",subcommittee,mapped,1,,false,,0,reviewed
+review-p8-run2,p8-run2,house--agriculture--conservation-research-and-biotechnology,house,Committee on Agriculture,"Subcommittee on Conservation, Research, and Biotechnology",subcommittee,no_mapping,0,Zustaendigkeit zu allgemein fuer eine einzelne Industry,false,,0,reviewed
+review-p8-run2,p8-run2,house--agriculture--forestry-and-horticulture,house,Committee on Agriculture,Subcommittee on Forestry and Horticulture,subcommittee,mapped,3,,true,,1,reviewed
+review-p8-run2,p8-run2,house--agriculture--general-farm-commodities-risk-management-and-credit,house,Committee on Agriculture,"Subcommittee on General Farm Commodities, Risk Management, and Credit",subcommittee,mapped,1,,false,,0,reviewed
+review-p8-run2,p8-run2,house--agriculture--livestock-dairy-and-poultry,house,Committee on Agriculture,"Subcommittee on Livestock, Dairy, and Poultry",subcommittee,mapped,1,,false,,0,reviewed
+review-p8-run2,p8-run2,house--agriculture--nutrition-and-foreign-agriculture,house,Committee on Agriculture,Subcommittee on Nutrition and Foreign Agriculture,subcommittee,mapped,1,,false,,1,reviewed

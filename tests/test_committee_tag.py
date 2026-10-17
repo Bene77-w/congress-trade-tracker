@@ -16,10 +16,18 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from config import settings  # noqa: E402
+from config.committee_mapping import CommitteeMapper  # noqa: E402
 from tags.committee_tag import (  # noqa: E402
     CommitteeTag,
     role_keys_for_entries,
 )
+
+#: Diese Datei prueft die Tag-Logik gegen das Legacy-Mapping und nennt seinen
+#: Pfad seit P3 ausdruecklich: ohne Pfad laedt der Mapper die aktive
+#: Mappingrevision des Matchers, und die kennt diese Ausschuesse nicht.
+LEGACY_CSV = str(ROOT / settings.DATA_MAPPINGS_PATH
+                 / settings.COMMITTEE_MAPPING_FILE)
 
 # Realer Walberg-Roster-String in F2 (s. tests/test_member_metrics.py).
 WALBERG = ('Education And Workforce|Chairman:Early Childhood, Elementary, And '
@@ -31,7 +39,7 @@ WALBERG = ('Education And Workforce|Chairman:Early Childhood, Elementary, And '
 
 @pytest.fixture(scope='module')
 def tag() -> CommitteeTag:
-    t = CommitteeTag()
+    t = CommitteeTag(mapper=CommitteeMapper(mapping_path=LEGACY_CSV))
     # Match-Modus fixieren, damit der Test nicht von settings abhaengt.
     t.match_mode = 'sector_or_industry'
     return t

@@ -205,7 +205,7 @@ Foreign Affairs Committees mit schwacher Sektor-Zuordnung
 **Format**: CSV
 **Größe**: 99 KB
 **Zeilen**: 862 (861 Mappings + Header)
-**Generierung**: durch den Committee-Mapping-Agent (`scripts/committee_mapping_agent/`, s. Abschnitt 3a); das fruehere `scripts/convert_xlsx_to_csv.py` wurde entfernt (Debug-Intervall 4)
+**Status**: geschützter Produktionsmaster; der frühere Generator wurde entfernt. Eine Neugenerierung erfolgt erst nach separater Freigabe der geplanten V2-Integration (siehe Abschnitt 3a).
 
 **Spalten**: Gleich wie Industry_Mapping Sheet (siehe oben)
 
@@ -214,86 +214,543 @@ Wird von `CommitteeMapper` geladen.
 
 ---
 
-## 3a. Committee-Mapping-Agent (`scripts/committee_mapping_agent/`, in Arbeit)
+## 3a. Committee Matcher V2 (in Arbeit)
 
-3-Rollen-LLM-Agent (DeepSeek V4), der `subcommittee_sector_industry_mapping.csv` (Abschnitt 3)
-reproduzierbar aus den Roh-Committee-Listen neu erzeugt. Pipeline + CLI: `CLI_Bedienungsanleitung.md`.
-Allow-Liste-Taxonomie (`yf_sectors_with_industries_enriched.json`): Abschnitt 4.
+Der frühere Committee-Mapping-Agent unter `scripts/committee_mapping_agent/` wurde
+vollständig entfernt. Der bestehende Produktionsmaster
+`data/mappings/subcommittee_sector_industry_mapping.csv` bleibt bis zur späteren,
+separat freizugebenden Integration von V2 unverändert in Benutzung.
 
-### `data/mappings/subcommittee_sector_industry_mapping_generated.csv` (Staging)
-**Quelle**: `python -m scripts.committee_mapping_agent.run finalize`
-**Format**: CSV, identisches 7-Spalten-Schema wie der Master (Abschnitt 3, `Industry_Mapping`-Sheet):
-```csv
-Chamber,Committee,Subcommittee,Sector,Industry,Sector_Rank,Konfidenz
-```
-**Verwendung**: Review-Stage vor `promote` — `promote` ersetzt `subcommittee_sector_industry_mapping.csv` (Master) durch diese Datei und legt vom alten Master ein Timestamp-Backup an.
+Verbindlicher Entscheidungsstand und Implementierungsreihenfolge stehen in
+`committee_matcher_planung_entscheidungen_codex.md` und
+`committee_matcher_v2_implementierungsplan.md`. Der Mappingkern selbst ist noch
+nicht implementiert; verbindlich sind bereits die Inputartefakte aus P0
+(Inputbaseline) sowie die in P3 eingefrorenen Unit-IDs.
 
-### Caches `scripts/committee_mapping_agent/cache/` (gitignored)
-Jede Pipeline-Stufe cached ihr Ergebnis als JSON → Resume/Delta-Faehigkeit (`--force` erzwingt Neuberechnung).
+### `data/committee_matcher_inputs/md/*.md` (46 Mapping-Inputs + 2 Sammelquellen)
 
-**`research/{chamber}_{committee_slug}.json`**:
-```json
-{
-  "chamber": "House", "committee": "Budget", "subcommittees": [...],
-  "jurisdiction": {
-    "<unit_key>": {
-      "text": "...", "source_url": "...", "quote": "...",
-      "grounding_quality": "direct|fallback|none"
-    }
-  },
-  "search_log": [...]
-}
-```
-`unit_key` = Subcommittee-Name oder `__committee__` (Platzhalter fuer Committees ohne Subcommittees).
-`grounding_quality`: `direct` = woertliches Zitat von der offiziellen Committee-Site, `fallback` = Zitat aus Fallback-Quelle (GovInfo/Rules-PDF), `none` = kein verwertbares Zitat. Deckelt die maximal erlaubte Konfidenz (`config.GROUNDING_CONFIDENCE_CAP`).
+Kanonische Committee-Jurisdiktionstexte im Format aus
+`committee_jurisdiction_input_template_codex.md`. Nach der P0-Migration
+(`input-basis-v1`) traegt jede der 46 Mapping-MDs ein `unit_input_basis` im
+Frontmatter; die alten `input_basis:`-Felder (12) und HTML-Ersatzmarker (8) sind
+entfernt.
 
-**`mapping/{chamber}_{committee}_{sub_slug}.json`**:
-```json
-{
-  "chamber": "House", "committee": "Budget", "unit_key": "__committee__",
-  "grounding_quality": "direct",
-  "rows": [
-    {"sector": "...", "industry": "...", "rank": 1, "confidence": "high", "grounding_source": "..."}
-  ],
-  "no_mapping": false, "attempts": 1, "validation_messages": []
-}
-```
-`no_mapping: true` = nach `MAP_EMPTY_RETRIES` Versuchen keine valide Zeile gefunden → erscheint im Review-xlsx als graue Platzhalterzeile (flag `no_mapping`) und wird in der finalen CSV uebersprungen.
+| Frontmatter-Feld | Typ | Bedeutung |
+|---|---|---|
+| `schema_version` | int | Version des Inputvertrags (aktuell 1) |
+| `congress` | int | Kongressnummer (119) |
+| `chamber` | enum | `house` \| `senate` \| `joint`; muss zum Dateinamenpraefix passen |
+| `committee` | str | Offizieller Committee-Name (Identitaet) |
+| `committee_type` | str | z. B. `standing`, `select`, `joint` |
+| `source_url` | str \| null | Quell-URL; bei `pending` zulaessig `null`, wird nie erfunden |
+| `retrieved_at` | str \| null | Abrufzeit (ISO-8601) oder `null` |
+| `source_metadata_status` | enum | `complete` \| `pending`; `complete` verlangt URL **und** Abrufzeit |
+| `source_files` | list[str] | Referenzen auf manifestierte `raw_source`/`source_only`-Dateien |
+| `unit_input_basis.committee` | enum | immer `jurisdiction_text` |
+| `unit_input_basis.subcommittees` | map | H2-Name → `jurisdiction_text` \| `name_only`; Keys exakt gleich der H2-Menge ohne Kommentarabschnitt, ausnahmslos doppelt gequotet |
 
-**`review/{chamber}_{committee_slug}.json`**:
-```json
-{
-  "chamber": "House", "committee": "Budget",
-  "reviewed_rows": [
-    {
-      "mapping_id": "af9c03d639", "chamber": "House", "committee": "Budget",
-      "subcommittee": "Budget", "sector": "", "industry": "", "rank": "",
-      "confidence": "", "grounding_source": "...",
-      "review_flag": "no_mapping", "review_reason": "..."
-    }
-  ],
-  "missing": [],
-  "llm_reviewed": true
-}
-```
-`reviewed_rows[].confidence` = vom Reviewer ggf. neu gesetzte Konfidenz (`reviewed_confidence`, direktes LLM-Urteil statt Formel). `review_reason` enthaelt bei Konfidenz-Abweichungen ein Praefix `"Konfidenz X -> Y."`. `missing` = advisory vorgeschlagene, im Mapping fehlende Sektor/Industry-Paare. `llm_reviewed`: `true` = echter LLM-Review-Cache, `false` = Pass-Through-Cache (`config.REVIEW_ENABLED=False`) — steuert automatischen Re-Review beim naechsten Lauf mit aktiviertem Review.
+Body: genau eine H1 `# Committee jurisdiction`, je Subcommittee ein
+`## <offizieller Name>`, optional H3-Untergliederungen im Jurisdiktionsabschnitt
+und als letzter Abschnitt `## Zusätzliche Kommentare` — dieser ist reserviert und
+wird nie Mapping-Unit oder Promptkontext.
 
-`review_flag`-Werte: `ok`, `confidence_too_high`, `confidence_too_low`, `weak_grounding`, `off_topic`, `no_mapping`, `not_reviewed`.
+Abgeleitete Unit-Sollmenge (eingefroren): **179** `subcommittee` + **31**
+`committee_parent_core` + **15** `committee_direct` = **225**; davon 8 Units
+`name_only`. Die kanonischen IDs dazu stehen seit P3 in
+`data/config/committee_matcher_unit_ids_v1.yaml`.
 
-### Review-xlsx `scripts/committee_mapping_agent/review_out/`
-**Quelle**: `python -m scripts.committee_mapping_agent.run export-review`
-**Format**: 3 Excel-Dateien — `review_all.xlsx` (alle Zeilen), `review_low.xlsx` (confidence `low` + alle `no_mapping`-Zeilen), `review_medium.xlsx` (confidence `medium`)
+### `data/committee_matcher_inputs/corpus_manifest.yaml`
 
-**Spalten**:
-```
-mapping_id, Chamber, Committee, Subcommittee, Sector, Industry, Sector_Rank,
-confidence, grounding_source, review_reason, review_flag, comment
-```
-- `mapping_id` = `sha1(chamber|committee|subcommittee|sector|industry)[:10]`, stabil über Re-Runs — Merge-Schlüssel beim Kommentar-Reimport.
-- `confidence`-Zelle farbig: `low` rot, `medium` gelb, `high` gruen; `no_mapping`-Zeilen grau (statt Konfidenz-Farbe).
-- `comment`: leer beim Export — manuelle Anweisungen des Reviewers, eingearbeitet von `finalize`.
+Rollen- und Hashmanifest jeder regulaeren Datei unter dem Inputroot; erzeugt von
+`scripts/committee_matcher_baseline.py manifest --write`, nicht von Hand pflegen.
+Das Manifest ist Kontrollmetadata und deshalb selbst kein Corpusmitglied.
 
-**Verwendung**: manueller Review-Prozess, s. `CLI_Bedienungsanleitung.md`.
+| Feld | Typ | Bedeutung |
+|---|---|---|
+| `manifest_version` | str | `corpus-manifest-v1` |
+| `migration_version` | str | Version der Inputmigration (`input-basis-v1`) |
+| `input_root` | str | Projektrelativer Inputroot |
+| `role_counts` | map | `mapping_input=46`, `source_only=2`, `raw_source=46`, `administrative_excluded=1` |
+| `unit_counts` | map | Eingefrorene Unit-Sollmenge (s. oben) |
+| `files[].path` | str | Inputroot-relativer Pfad |
+| `files[].role` | enum | Corpusrolle; nur `mapping_input` erzeugt Units |
+| `files[].bytes` | int | Dateigroesse |
+| `files[].sha256` | str | SHA-256 der exakten Dateibytes (Post-Migrations-Stand) |
+
+`source_files` darf ausschliesslich Dateien der Rollen `raw_source` und
+`source_only` referenzieren; alle 46 TXTs und beide Sammel-MDs sind mindestens
+einmal referenziert.
+
+### `data/config/committee_matcher_protected_baseline.yaml`
+
+SHA-256-Baseline der neun matcherbezogenen Produktionspfade, die V2
+ausschliesslich liest (Produktionsmaster + XLSX, House-/Senate-Roster,
+yfinance-Mappingdateien, Committee-Listen). Erzeugt von
+`scripts/committee_matcher_baseline.py protect --write`; der Schutztest in
+`tests/test_committee_matcher_input_baseline.py` prueft die Unveraendertheit.
+Die Liste ist matcherbezogen und **nicht** aus der globalen
+`reset_pipeline.py`-Schutzliste abgeleitet.
+
+| Feld | Typ | Bedeutung |
+|---|---|---|
+| `baseline_version` | str | `protected-paths-v1` |
+| `scope` | str | `committee_matcher_v2` |
+| `paths[].path` | str | Projektrelativer Pfad |
+| `paths[].bytes` | int | Dateigroesse |
+| `paths[].sha256` | str | SHA-256 zum Zeitpunkt der Baseline |
+
+Beide YAML-Artefakte enthalten bewusst keine Zeitstempel; `--write` ist damit
+reproduzierbar und die Provenienz laeuft ueber Git.
+
+### `data/config/committee_matcher_unit_ids_v1.yaml` (P3, eingefroren)
+
+Die 225 kanonischen Unit-IDs als Sollmenge. `input validate` vergleicht die aus
+dem Corpus gebildeten IDs mengengleich dagegen; jede Abweichung blockiert
+(`UNIT_MISSING`, `UNIT_UNEXPECTED`). Erzeugt von
+`scripts/committee_matcher_baseline.py units --write`.
+
+| Feld | Typ | Bedeutung |
+|---|---|---|
+| `canonicalization_version` | str | `unit-id-v1`; Regeländerung erfordert neue Version |
+| `mapping_input_version` | str | `mapping-input-v1` (Hashvertrag des Modellinputs) |
+| `unit_count` | int | 225 |
+| `unit_counts` | map | Aufschlüsselung nach `kind` |
+| `units[].unit_id` | str | `<kammer>--<committee-slug>[--<subcommittee-slug>]` |
+| `units[].kind` | enum | `subcommittee` \| `committee_parent_core` \| `committee_direct` |
+| `units[].chamber` | enum | `house` \| `senate` \| `joint` |
+
+Die Kanonisierungsregeln selbst sind in `CLI_Bedienungsanleitung.md` 15a
+beschrieben und durch Golden-Tests eingefroren.
+
+### `data/config/committee_matcher_roster_rules.yaml` (P3)
+
+Explizite Zuordnungsregeln für `roster validate`; ohne Eintrag wird
+ausschließlich kanonisch gematcht. Inhaltlich noch leer — die drei offenen
+Rostervorkommen entscheidet Gate C.
+
+| Feld | Typ | Bedeutung |
+|---|---|---|
+| `rules_version` | str | `roster-rules-v1` |
+| `aliases[].chamber` / `.committee` / `.subcommittee` | str | Rosterschreibweise |
+| `aliases[].unit_id` | str | Ziel-Unit; muss existieren |
+| `aliases[].reason` | str | Pflicht; ohne Begründung blockiert der Lauf |
+| `exclusions[].chamber` / `.committee` / `.subcommittee` | str | Vorkommen ohne Unit |
+| `exclusions[].reason` | str | Pflicht |
+
+### `data/committee_matcher_v2/` (reservierte Artefaktwurzel)
+
+Einzige Schreibwurzel des Matchers. Ab P4 entstehen darunter unveränderliche
+Run-, Snapshot-, Review-, Evaluations- und Qualifikationsrevisionen; die
+Feldlisten der Long-CSV und des Review-Workbooks werden erst mit den Artefakten
+in P7/P8 eingefroren.
+
+Der Schreibschutz ist technisch durchgesetzt (`committee_matcher/paths.py`):
+Schreiben außerhalb dieser Wurzel, in die Inputbaseline oder in einen der neun
+Pfade der P0-Schutzbaseline blockiert mit Exit 4; ebenso ein Symlink- oder
+Hardlink-Schreibziel. Fehlt die Schutzbaseline, ist sie kaputt oder trägt sie
+falsche Kopffelder (`baseline_version`, `scope`) beziehungsweise eine leere
+Pfadliste, blockiert die Wache ebenfalls (fail closed). Geschrieben wird
+ausschließlich über `write_text_atomic` (Temporärdatei im Zielverzeichnis,
+`O_NOFOLLOW`, `os.replace`).
+
+#### `data/committee_matcher_v2/taxonomy/archiv/` (abgelöste Baselines)
+
+| Datei | Zweck |
+|---|---|
+| `approved_baseline_<approved_run_id>.json` | die Baseline, die eine Freigabe abgelöst hat; Inhalt unverändert übernommen |
+
+Geschrieben wird ausschließlich bei `snapshot approve`, nachdem jede Prüfung des
+neuen Snapshots bestanden ist — nicht vor dem Build. Bis zur Freigabe ist die
+bisherige Baseline die Vergleichsgrundlage des Driftvergleichs und der einzige
+gültige Stand, falls der Abruf scheitert. Trägt die abgelöste Datei keine
+lesbare `approved_run_id`, tritt `unbekannt-<Zeitstempel>` an ihre Stelle.
+Ein bereits vorhandener Archiveintrag wird nicht überschrieben.
+
+#### `data/committee_matcher_v2/runs/<run_id>/` (P4, je Runrevision)
+
+| Datei | Zweck |
+|---|---|
+| `taxonomy_snapshot.json` | eingefrorene Taxonomie des Runs; nur vollständig und kollisionsfrei geschrieben |
+| `taxonomy_catalog.md` | nach Sektoren gruppierter Markdown-Katalog desselben Inhalts |
+| `taxonomy_checkpoint.json` | volatiler Abruffortschritt für `snapshot resume`; an die eigene `run_id` gebunden, nie freigabefähig; enthält nur Beschreibungen, die Identität holt auch der Resume-Lauf frisch |
+
+`taxonomy_snapshot.json`:
+
+| Feld | Typ | Bedeutung |
+|---|---|---|
+| `content_version` | str | `taxonomy-content-v1` |
+| `snapshot_id` | str | Run-Revision, an die der Snapshot gebunden ist |
+| `yfinance_version` | str | Version der Abrufbibliothek (gepinnt `1.3.0`) |
+| `taxonomy_content_hash` | str | SHA-256 über die sortierten Industries, ohne Abrufzeiten |
+| `industries[].industry_id` / `.industry_name` | str | Identität der Industry |
+| `industries[].sector_id` / `.sector_name` | str | Sektorzuordnung |
+| `industries[].description` | str | Beschreibung als fachliche Mappinggrundlage |
+
+Börsengrößen (Market Cap, Market Weight, Firmen- und Mitarbeiterzahlen, Symbole)
+liefert yfinance mit, sie werden aber am Adapterrand verworfen und tauchen in
+keinem Artefakt auf — eine Zuordnung soll fachliche Nähe belegen, nicht
+Marktgröße.
+
+#### `data/committee_matcher_v2/runs/<run_id>/mapping/` (P7a, je Runrevision)
+
+| Datei | Zweck |
+|---|---|
+| `run_manifest.json` | eingefrorene Laufbedingungen; Grundlage der Resume-Prüfung |
+| `run_state.json` | Workflowstatus plus Stand je Unit; Grundlage von Cache und Resume |
+| `calls/<call_id>.json` | Provenienz und rohe Antwortnutzlast eines Providercalls |
+| `calls/<call_id>.intent.json` | Vormerkung vor dem Senden; bleibt liegen, solange der Call keine Auditdatei hat |
+| `calls/<call_id>.reconciled.json` | Klärung eines Calls ohne Auditdatei: was er tatsächlich gekostet hat |
+| `reports/<kommando>/errors.json` | Fehlerbericht des laufgebundenen Kommandos; je Revision eigener Ordner |
+
+`run_manifest.json` (`version: run-manifest-v1`):
+
+| Feld | Typ | Bedeutung |
+|---|---|---|
+| `run_id` / `snapshot_id` | str | Run- und Snapshotrevision |
+| `input_manifest_hash` / `taxonomy_content_hash` | str | fachliche Bindung an Input und Taxonomie |
+| `unit_count` | int | Sollmenge der Units dieses Laufs |
+| `model` | str | eingefrorenes Modell |
+| `routing` | obj | `require_parameters`, `allow_fallbacks`, `quantizations`, `data_collection`, `zdr`, `max_price_usd_per_mtok`, `sdk_retries`, `max_concurrent_calls` |
+| `context` | obj | `endpoint_context_tokens`, `max_output_tokens`, `reasoning_reserve_tokens`, `request_timeout_s` |
+| `batching` | obj | `batch_size`, `max_repair_attempts`, `chars_per_token`, `workflow_retries` |
+| `prompts[]` | obj | `prompt_id`, `prompt_version`, `schema_version`, `prompt_sha256`, `path` |
+| `schema` | obj | `schema_name`, `schema_sha256` |
+| `cache_key_version` | str | `cache-key-v1` |
+| `budget_usd` / `cost_guard` | float / bool | Kostendeckel des Laufs und Zustand der Wache |
+
+Kein Prompttext und kein Zugangsdatum: das Manifest wird versioniert abgelegt
+und ist damit so öffentlich wie das Repository; der Prompt ist über
+`prompt_sha256` eindeutig belegt.
+
+`run_state.json` (`version: run-state-v2`): `run_id`, `workflow_state` sowie je
+Unit `unit_id`, `status` (`not_decided | mapped | no_mapping | failed`),
+`cache_key`, das vollständig geprüfte `result`, die `violations`-Codes eines
+Fehlschlags und die Callprovenienz `call_id`, `provider`, `generation_id`,
+`from_repair`. Die Provenienz gehört zum Urteil, nicht zum Lauf: nur so trägt
+auch ein Cache-Treffer aus einer früheren Runde seine Herkunft in die Artefakte.
+Ein Zustand der Vorversion `run-state-v1` blockiert mit `RUN_STATE_MALFORMED`
+(Exit 4) und wird nicht überschrieben. Workflowstatus und Unitstatus bleiben getrennt — ein Lauf in
+`outcome_unknown` fällt nie in ein Mappingurteil zurück.
+
+`calls/<call_id>.json` (`version: call-audit-v1`): `call_id`, `model`,
+`provider`, `prompt_tokens`, `completion_tokens`, `cost_usd`, `finish_reason`,
+`generation_id`, `schema_name`, `max_output_tokens` und die rohe `payload`.
+Geschrieben **vor** der fachlichen Prüfung. Systemprompt und Nutzdaten stehen
+bewusst nicht darin.
+
+`calls/<call_id>.intent.json` (`version: call-intent-v1`) entsteht **vor** dem
+Netzaufruf mit `run_id`, `call_id`, `schema_name`, `worst_case_usd` und
+`created_at` (UTC). Sie wird
+gelöscht, sobald die Auditdatei steht oder feststeht, dass OpenRouter die
+Anfrage abgewiesen hat. Bleibt sie liegen, nimmt sie auf, was bekannt ist
+(`reason`, `generation_id`, `cost_usd`) — sie ist die einzige Spur, die einen
+bezahlten Call nach einem Prozessabsturz noch belegt. `workflow.open_intents`
+liefert genau die Call-IDs, die weder eine Auditdatei noch eine Klärung tragen;
+solange einer davon offen ist, blockiert `run execute` mit
+`RUN_OUTCOME_UNKNOWN` (Exit 8). Eine Call-ID, die bereits eine Auditdatei trägt, wird
+nie ein zweites Mal gesendet (`CALL_ID_REUSED`, Exit 4); je physischem Versuch
+gehört eine eigene ID.
+
+`calls/<call_id>.reconciled.json` (`version: call-reconciliation-v1`) entsteht
+aus `run reconcile` oder direkt aus einem Fehlercall mit bekannten Kosten:
+`outcome` (`charged | not_charged`), `cost_usd`, `reserved_usd`, `released_usd`,
+`generation_id` sowie bei `charged` zusätzlich `provider`, `model` und
+`finish_reason`. `not_charged` setzt voraus, dass der Versuch mindestens
+`COMMITTEE_MATCHER_RECONCILE_MIN_AGE_S` Sekunden alt ist: eine frische
+Generation ist beim Provider teils verzögert sichtbar, und ein vorschnelles
+„nicht abgerechnet" würde die Reservierung auflösen und einen zweiten
+kostenpflichtigen Call erlauben. Über `prior_costs` gehen Klärungen und Audits
+früherer Durchläufe als Vorbelastung in die Kostenwache des nächsten ein — das
+Budget gilt je Run, nicht je Durchlauf.
+
+Ergebnisartefakte desselben Ordners (P7b, geschrieben nach dem Lauf):
+
+| Datei | Zweck |
+|---|---|
+| `assignments_long.csv` | eine Zeile je Unit-Industry-Zuordnung |
+| `unit_coverage.csv` | jede erwartete Unit genau einmal mit ihrem fachlichen Stand |
+| `boundary_conflicts.csv` | gleiche Industry in Geschwister-Units; Reviewposten, kein Fehler |
+| `roster_coverage.csv` | Roster-Coverage des Laufs; Pflicht, je Rostervorkommen genau eine Zeile |
+| `cost_report.json` | Kostenstand und die Calls mit offenem Ausgang |
+| `artifacts_manifest.json` | Abschlussmarker; erst er belegt einen vollständigen Satz |
+
+`assignments_long.csv` (Spalten in dieser Reihenfolge, durch Golden Test
+gebunden): `run_id`, `revision_id`, `unit_id`, `chamber`, `committee_name`,
+`unit_name`, `unit_kind`, `input_basis`, `mapping_input_hash`, `decision`,
+`broad_scope_exception`, `industry_id`, `industry_name`, `sector_id`,
+`sector_name`, `confidence`, `evidence_excerpt`, `rationale_short`,
+`assignment_source`, `broad_scope_reason`, `call_id`, `provider`,
+`generation_id`, `from_repair`, `model`, `taxonomy_content_hash`, `snapshot_id`, `prompt_id`,
+`prompt_version`, `prompt_sha256`, `schema_name`, `schema_sha256`.
+
+Industry- und Sektornamen stammen aus dem Snapshot des Laufs, Modell- und
+Promptangaben aus dem Runmanifest; das Modell liefert nur die `industry_id`.
+`assignment_source` ist in P7b immer `model` — `manual` entsteht erst beim
+Reviewimport. `no_mapping`-Units erzeugen hier keine Zeile und stehen
+vollzählig in der Unit-Coverage.
+
+`evidence_excerpt` ist entweder ein wörtlicher, zusammenhängender Ausschnitt
+aus einer erlaubten Unitquelle oder exakt `Recherche` für eine rein
+webrecherchegestützte Zuordnung. Der Sentinel ändert weder Spaltentyp noch
+Schemafassung; seine Confidence ist auf 3 begrenzt.
+
+`unit_coverage.csv`: `run_id`, `revision_id`, `unit_id`, `chamber`,
+`committee_name`, `unit_name`, `unit_kind`, `status`
+(`not_decided | mapped | no_mapping | failed`), `assignment_count`,
+`no_mapping_reason`, `broad_scope_exception`, `broad_scope_reason`, `call_id`,
+`provider`, `generation_id`, `from_repair`, `violations`. Eine Unit ohne Zustandseintrag ist
+`not_decided`; mehrere Werte in einer Zelle trennt `|`. Enthält ein Wert selbst
+ein `|`, blockiert `ART_SEPARATOR_IN_VALUE` — maskieren hieße, den Wert still zu
+ändern.
+
+`boundary_conflicts.csv`: `run_id`, `family_id`, `industry_id`, `industry_name`,
+`unit_count`, `unit_ids`. `cost_report.json` (`version: cost-report-v1`):
+`run_id`, `audited_calls`, `budget_usd`, `spent_usd`, `reserved_usd`,
+`committed_usd`, `remaining_usd`, `calls`, `unknown_calls`, `guard_enabled`
+sowie `unknown_calls_detail` je offenem Call.
+
+Callprovenienz (`call_id`, `provider`, `generation_id`) ist bei jeder
+entschiedenen Unit Pflicht — auch bei `no_mapping` —, `mapping_input_hash` bei
+jeder Zuordnungszeile; sie stehen im Laufzustand je Unit und
+überleben damit auch einen Cache-Treffer. `assignment_source` ist in P7b immer
+`model`.
+
+Das Schreiben ist ein Alles-oder-nichts. Alle Prüfungen und alle Zeilen entstehen
+vor dem ersten Schreibvorgang; scheitert danach ein Schreibvorgang, werden die
+bereits geschriebenen Dateien entfernt. Ein Prozessabbruch dazwischen lässt den
+Abschlussmarker `artifacts_manifest.json` (`version: artifact-index-v1`) fehlen —
+`artifacts.is_complete(run_id)` ist die einzige zulässige Vollständigkeitsprobe.
+
+Blockierende Prüfungen, jeweils Exit 4: `ART_PROVENANCE_INCOMPLETE` (Manifest,
+Inputhash oder Callprovenienz unvollständig), `ART_RUN_MISMATCH` (Manifest oder
+Laufzustand gehört zu einem anderen Run), `ART_SNAPSHOT_MISMATCH` (fremde
+Snapshotrevision oder fremder Content-Hash), `ART_UNIT_COUNT_MISMATCH` (Unitmenge
+weicht vom Manifest ab), `ART_UNEXPECTED_UNIT`, `ART_DUPLICATE_UNIT`,
+`ART_STATE_INCONSISTENT` (Status und Ergebnis widersprechen sich in einer der
+beiden Richtungen), `ART_UNKNOWN_INDUSTRY`, `ART_SEPARATOR_IN_VALUE`,
+`ART_ROSTER_MISSING`, `ART_ROSTER_INCOMPLETE` (weniger Zeilen als
+Rostervorkommen), `ART_ROSTER_DUPLICATE`, `ART_COST_INCONSISTENT` (Bericht
+und Kostenwache zählen verschieden viele Calls; jeder gebuchte Call ist
+entweder auditiert oder vorgemerkt) und `ART_REVISION_EXISTS` (die
+Runrevision trägt bereits einen **vollständigen** Satz; nur der ist
+unveränderlich — Reste eines abgebrochenen Schreibvorgangs dürfen ersetzt
+werden, sonst könnte derselbe Lauf seinen bezahlten Zustand nie exportieren).
+
+#### `data/committee_matcher_v2/reviews/<review_id>/` (P7d, je Reviewrevision)
+
+Eine Reviewrevision liegt neben den Runrevisionen, nie in ihnen: ein Review darf
+die Artefakte des Laufs nicht berühren. Ohne `--review-id` lautet sie
+`review-<run_id>`.
+
+| Datei | Zweck |
+|---|---|
+| `review.xlsx` | Workbook für den manuellen Review; Blätter `assignments`, `boundary`, `taxonomy`, `info` |
+| `export_manifest.json` | Bindung des Exports und die exportierte Unitmenge |
+| `reviewed_assignments.csv` | Long-CSV des angenommenen Reviewstands |
+| `reviewed_unit_coverage.csv` | Stand je Unit nach dem Review |
+
+**Welche Revision gilt**, entscheidet `COMMITTEE_MAPPING_REVIEW_ID` in
+`config/settings.py`; der Pfad wird daraus abgeleitet.
+`config/committee_revision.py` löst die ID auf und prüft vier Dinge:
+`import_manifest.json` vorhanden (Abschlussmarker des Imports),
+`review_status == "reviewed"`, Zeilenzahl gegen `assignment_count` und jede
+`industry_id` gegen die **freigegebene Baseline** — nicht gegen den
+Taxonomiehash, der sich mit jedem Refresh ändert. Ein Probeartefakt
+(`scope: test-fullrun`) wird geladen, aber beim Laden als solches ausgewiesen.
+| `import_manifest.json` | Zusammenfassung des angenommenen Imports |
+
+`review.xlsx`, Blatt `assignments`: `unit_id`, `industry_id`, `confidence`,
+`evidence_excerpt`, `rationale_short`, `no_mapping_reason`. Eine
+Arbeitstabelle ohne Aktions-, Entscheidungs- oder Notizspalte: geändert wird
+der Wert selbst. Kammer, Committee- und Unitname fehlen bewusst — sie sind aus
+der `unit_id` ableitbar, und der Import nimmt sie aus dem Korpus, nie aus
+Excel. Eine
+`mapped`-Unit hat eine Zeile je Zuordnung, eine `no_mapping`-Unit genau eine
+Zeile ohne Industry; Units ohne Urteil (`failed`, `not_decided`) stehen nicht im
+Workbook und werden im Exportmanifest unter `incomplete_units` benannt.
+Recherche-Zeilen behalten denselben Spaltenvertrag und werden lediglich gelb
+markiert; die Farbe wird nicht zurückimportiert.
+
+Blatt `boundary`: `family_id`, `industry_id`, `industry_name`, `unit_count`,
+`unit_ids`. Reine Information ohne Eingabefeld; der Import liest das Blatt
+nicht. Blatt `taxonomy`: `industry_id`, `industry_name`, `sector_id`,
+`sector_name` — alle zulässigen Industries des Laufsnapshots; das Blatt speist
+zugleich die Auswahlliste der Spalte `industry_id`. Blatt `info` nennt die
+Bindung im Klartext.
+
+Jede Zelle ist eine Textzelle. Ohne den erzwungenen Zelltyp typisierte openpyxl
+einen Wert mit führendem `=` als Formel; Excel zeigte dann ein Rechenergebnis,
+und der Rückimport läse einen anderen Wert als den exportierten. Umgekehrt
+lehnt der Import jede Formelzelle ab (`REV_FORMULA_CELL`).
+
+`export_manifest.json` (`version: review-export-v2`): `review_id`, `run_id`,
+`revision_id`, `snapshot_id`, `taxonomy_content_hash`, `input_manifest_hash`,
+`model`, `unit_count`, `row_count`, `boundary_count`, `incomplete_units`,
+`columns` und `units` (die exportierte Unitmenge). Fehlt eine dieser Units
+später komplett im Workbook, wertet der Import das als Entfernung ihrer
+Zuordnungen — nicht als vergessene Unit. Die Menge selbst rechnet der Import aus
+`unit_coverage.csv` des Laufs nach und lehnt bei Abweichung ab
+(`REV_UNITS_MISMATCH`); `units` im Manifest ist die Gegenprobe, nicht die
+Quelle.
+
+`reviewed_assignments.csv`: die Spalten von `assignments_long.csv`, ergänzt um
+`review_id`. `assignment_source` ist `manual`, sobald `confidence`,
+`evidence_excerpt`, `rationale_short` oder die `industry_id` einer Zeile vom
+Stand des Laufs abweichen; eine manuelle Zeile erbt keine Callprovenienz und
+keine Promptangaben, da kein Modellaufruf hinter ihr steht. Industrie- und
+Sektornamen leitet der Import aus dem Snapshot ab, nie aus Excel.
+
+`reviewed_unit_coverage.csv`: `review_id`, `run_id`, `unit_id`, `chamber`,
+`committee_name`, `unit_name`, `unit_kind`, `decision`, `assignment_count`,
+`no_mapping_reason`, `broad_scope_exception`, `broad_scope_reason`,
+`manual_assignments`, `review_status`. `import_manifest.json`
+(`version: review-import-v2`) fasst `unit_count`, `assignment_count`,
+`manual_assignment_count`, die Änderungsbilanz (`changed_assignments`,
+`added_assignments`, `removed_assignments`, `changed_no_mapping_reasons`),
+`no_mapping_units` und die geschriebenen Dateien zusammen; seine Existenz macht die Reviewrevision
+unveränderlich (`REV_IMPORT_EXISTS`).
+
+#### `data/committee_matcher_v2/goldset/` (P9, Entwicklungs-Gold-Set)
+
+Erzeugt und geprüft von `committee_matcher/submapper.py`, nicht von
+der Matcher-CLI: das Gold-Set ist die Referenz, gegen die der Produktivpfad
+gemessen wird, und entsteht deshalb unabhängig von ihm.
+
+| Pfad | Inhalt |
+|---|---|
+| `sample_units.json` | die 22 Units der Stichprobe: `nr`, `unit_id`, `chamber`, `committee_name`, `unit_name`, `input_basis`, `focus`; Feld `expected_unit_count` |
+| `labeling/tasks/<unit_id>.json` | Aufgabenpaket je Unit: Systemprompt, Userprompt, Ausgabeschema, `binding` (Snapshot-, Prompt- und Eingabehashes); ohne `focus` |
+| `labeling/tasks/index.json` | Verzeichnis der Pakete |
+| `labeling/runs/<engine>/<unit_id>.json` | Rohantwort samt Provenienz: Engine, Modell, `requested_effort`, `effort_confirmation`, `prompt_delivery`, `web_access`, `binding`, Dauer, Turns |
+| `labeling/runs/<engine>/<unit_id>.log` | Rohausgabe der CLI, einzige Quelle bei unklarem Fehlschlag |
+| `labeling/collected/labels_<engine>.csv` | Long-Format je Zuordnung: `unit_id`, `industry_id`, `confidence`, `evidence_excerpt`, `rationale_short`, `no_mapping_reason` |
+| `labeling/collected/notes_<engine>.csv` | `unit_id`, `engine`, `model`, `label_uncertain`, `uncertainty_note`, `broad_scope`, `broad_scope_reason`, `sources`, `dissens` |
+| `labeling/collected/info_<engine>.csv` | Provenienz je Unit: `snapshot_id`, `taxonomy_content_hash`, `mapping_input_hash`, `prompt_sha256`, `prompt_version`, `engine`, `model`, `effort`, `prompt_delivery`, `web_access`, `created_at`; `info_merged.csv` trägt beide Läufe, also zwei Zeilen je Unit |
+| `labeling/disagreements.md` | Dissens zweier Engineläufe, je strittige Unit mit beiden Urteilen und Begründungen |
+| `goldset_review.xlsx` | die Datei, die Bene bearbeitet; Blätter `labels`, `jurisdiction`, `taxonomy`, `agent_notes`, `info` |
+| `<name>.<zeitstempel>.bak.xlsx` | Sicherung, die `to-xlsx --force` und `verify --fix-case` vor jedem Überschreiben neben die Zieldatei legen |
+
+Die CSV sind maschinelles Zwischenformat und werden nicht von Hand bearbeitet.
+Die XLSX trägt alle Zellen als Text (`data_type = "s"`), hängt an
+`industry_id` die Auswahlliste des Blatts `taxonomy` (200 Zeilen Reserve über
+den Datenbestand hinaus) und wird von `verify` zeichengenau zurückgelesen —
+drei Sperren gegen die Autokorrektur, die im P8-Lauf `packaged-foods` zu
+`Packaged-foods` gemacht hat. `verify` vergleicht dabei ungetrimmt, meldet
+Randleerraum eigens und stellt die Änderungen gegen `labels_<source>.csv`
+gegenüber.
+
+#### `data/committee_matcher_v2/fullrun/` (Fullrun über die CLI-Abos)
+
+Gleiches Werkzeug, gleiche Dateinamen, andere Wurzel: `submapper.py
+--fullrun` labelt statt der 22 Stichprobenunits alle 225 Korpus-Units. Die
+Trennung der Ablage ist zwingend — ein Fullrun in der Gold-Set-Wurzel
+überschriebe die Referenz, an der der Produktivpfad gemessen wird.
+
+| Pfad | Inhalt |
+|---|---|
+| `tasks/<unit_id>.json`, `tasks/index.json` | wie unter `goldset/labeling/tasks/`, aber über alle Korpus-Units |
+| `runs/<engine>/<unit_id>.json`, `.log` | wie unter `goldset/labeling/runs/` |
+| `collected/labels_<engine>.csv`, `notes_*`, `info_*` | wie unter `goldset/labeling/collected/` |
+| `disagreements.md` | wie unter `goldset/labeling/` |
+| `fullrun_review.xlsx` | die Datei, die Bene bearbeitet; Blätter wie `goldset_review.xlsx` |
+
+Die Unitmenge steht in keiner eigenen Datei: sie ist der sortierte Korpus. Eine
+zweite Liste wäre eine zweite Wahrheit, die stillschweigend veralten kann.
+
+Das abgenommene Ergebnis wandert über `committee_matcher/fullrun_import.py`
+nach `data/committee_matcher_v2/reviews/<review_id>/` und trägt dort dieselben
+Spalten wie ein regulärer Reviewimport (`reviewed_assignments.csv`,
+`reviewed_unit_coverage.csv`). Abweichungen, die aus dem Aufrufweg folgen:
+`run_id` trägt denselben Wert wie `review_id` (es gab keinen Matcherlauf),
+`provider` trägt `claude-cli` beziehungsweise `codex-cli`, und `call_id`,
+`generation_id`, `from_repair`, `schema_name`, `schema_sha256` bleiben leer —
+die CLIs melden sie nicht. Das Manifest trägt `version: fullrun-import-v1` und
+die Felder `origin: submapper.py --fullrun` und `scope: fullrun`; es enthält
+bewusst keine Änderungsbilanz gegen einen Modellauf, weil es keinen gibt.
+
+#### `data/committee_matcher_v2/fullrun_test/` (Probelauf des Fullruns)
+
+Dritte Wurzel, gleiche Dateinamen: `submapper.py --test-fullrun` labelt fünf
+zufällig gezogene Korpus-Units und geht dabei durch dieselbe Kette wie der
+Fullrun. Die Trennung ist aus demselben Grund zwingend — ein Probelauf in der
+Fullrun-Wurzel schnitte deren Stand auf fünf Units zurück.
+
+| Pfad | Inhalt |
+|---|---|
+| `test_units.json` | die Ziehung: `selection_format`, `unit_count`, `unit_ids`, `drawn_at` |
+| `tasks/`, `runs/`, `collected/`, `disagreements.md` | wie unter `fullrun/`, aber nur über die gezogenen Units |
+| `fullrun_test_review.xlsx` | die Reviewmappe des Probelaufs |
+
+Die Ziehung liegt als Datei, weil `prepare`, `run`, `collect`, `to-xlsx` und
+`verify` dieselben Units meinen müssen; ein zweites Ziehen ergäbe eine andere
+Menge. Sie wird einmal geschrieben und danach nur noch gelesen. `drawn_at`
+trägt die Haltbarkeit: ist die Ziehung älter als 24 h, verwirft `prepare` die
+ganze Wurzel und zieht neu — fehlt oder bricht das Feld, bleibt sie stehen. Nennt sie eine Unit, die der Korpus nicht mehr
+kennt, hält der Lauf mit `GS_TEST_SELECTION` an.
+
+Die Übernahme über `fullrun_import.py --test-fullrun` schreibt dasselbe
+Reviewformat, das Manifest trägt aber `scope: test-fullrun` (der Fullrun:
+`scope: fullrun`). Das Feld steht neben `origin`, weil ein Probelauf über fünf
+Units sonst dieselbe `review_status: reviewed`-Marke trüge wie ein
+abgenommener Fullrun.
+
+#### `data/config/committee_matcher_prompts/` (P5, versionierter Kontrollinput)
+
+Die beiden editierbaren Systemprompts `mapping_system.md` und
+`repair_system.md` (UTF-8-Markdown mit YAML-Frontmatter). Pflichtfelder:
+`prompt_id`, `prompt_version`, `schema_version`. Die `schema_version` bindet
+den Prompt an den Ausgabevertrag des Codestands (`mapping-output-v1`); weicht
+sie ab, blockiert der Lauf mit `PRM_SCHEMA_MISMATCH`. Der Inhaltshash (SHA-256)
+deckt nur den Text ohne Frontmatter ab und wird zusammen mit der Version im
+Runmanifest eingefroren.
+
+#### `data/committee_matcher_v2/taxonomy/approved_baseline.json` (P4)
+
+Die freigegebene Taxonomie-Baseline; erzeugt von `snapshot approve --run-id ...`.
+Felder wie im Snapshot, zusätzlich `approved_run_id`. Fehlt sie, stoppt jeder
+Snapshotlauf mit `no_baseline` in `awaiting_taxonomy_approval` (Exit 5). Jeder
+Lauf rechnet ihren `taxonomy_content_hash` aus den Einträgen nach und prüft
+deren Feldmenge; eine am Hash vorbei editierte Baseline blockiert mit
+`TAX_BASELINE_TAMPERED`, weil sie sonst genau die Drift verdecken könnte, die
+sie melden soll. `snapshot approve` prüft spiegelbildlich Inhaltsvertrag,
+Feldmenge, Hash und die Bindung `snapshot_id == run_id`.
+
+Bereits erzeugte Inhalte: `reports/<kommando>/errors.json` (strukturierter
+Fehlerbericht je CLI-Lauf, Plan 2.7 — darunter `reports/provider_check/errors.json`
+mit den Befunden des Routing-Preflights), `reports/input_validate/units.json` (alle
+225 Units mit `unit_id`, `kind`, `input_basis`, `parent_unit_id`,
+`mapping_input_hash`, `source_bytes_sha256`) und
+`reports/roster_validate/roster_coverage.json` (je Rostervorkommen `chamber`,
+`committee_name`, `unit_name`, `coverage_status`, `unit_id`, `match_basis`,
+`hint`, `fuzzy_suggestion`, dazu die Liste `units_without_roster_occurrence`).
+
+Versioniert ist von den Laufartefakten nur `taxonomy/approved_baseline.json` —
+sie ist der Bezugspunkt der Drifterkennung und muss in jedem Klon identisch
+vorliegen. `reports/` und `runs/` sind gitignoriert: beide entstehen bei jedem
+CLI-Lauf neu, und der freigegebene Snapshotinhalt steht vollständig in der
+Baseline, sodass eine zweite versionierte Kopie nur Duplikate erzeugen würde.
+
+Das Paket `committee_matcher/` selbst hält seit P2 den providerfreien Kern:
+Zustände und Exit-Codes (`status.py`), Befundsammlung und Terminalbericht
+(`errors.py`), Pfadwache (`paths.py`), typisierte Settingssicht mit
+Providergate (`settings_view.py`), Pydantic-Datenverträge (`models.py`) und das
+CLI-Skelett (`cli.py`). Seit P3 kommen der strikte Inputparser
+(`input_corpus.py`), die Unitbildung samt Kanonisierung (`units.py`) und die
+Roster-Coverage (`roster_coverage.py`) hinzu, seit P4 der yfinance-Adapter
+(`taxonomy_source.py`) und die Snapshotlogik mit Katalog, Content-Hash sowie
+Drift- und Freigabegate (`taxonomy_snapshot.py`). Mit dem Gate-B-Beschluss kommt
+der Routing-Preflight (`provider.py`) hinzu: er prüft den öffentlichen
+OpenRouter-Endpointkatalog auf einen zulässigen Endpoint, ohne Key, ohne Kosten
+und ohne Modellaufruf. Seit P5 hält dasselbe Modul zusätzlich das
+providerneutrale Structured-Output-Interface, den `FakeProvider` für
+netzwerkfreie Tests und den OpenRouter-Adapter als einzigen Ort mit SDK-Kontakt;
+`prompts.py` lädt und prüft die beiden Systemprompts. Seit P6 kommt der
+Mappingkern hinzu: `mapping.py` (Ausgabeschema, Batching mit Context-Split,
+Requestbau, Ausführung und gezielter Repair) und `validation.py` (formale
+Prüfung gegen Vertrag, Unit und Snapshot; Verstoßliste und Boundary-Erkennung).
+Die Ownership-Karte aller 18
+Zielmodule steht im Docstring von `committee_matcher/__init__.py`. Bedienung, Familien, Exit-Codes
+und die vollständige Settingstabelle: `CLI_Bedienungsanleitung.md` Abschnitt 15.
 
 ## 4. Yahoo Finance Sektoren
 
@@ -356,7 +813,7 @@ Credit Services,14.38%
 **Zeilen**: 145
 
 ### `data/mappings/yf_sectors_with_industries_enriched.json`
-**Quelle**: Einmalig generiert via `python -m scripts.committee_mapping_agent.run enrich-taxonomy` (Committee-Mapping-Agent, s. Abschnitt 3a)
+**Quelle**: historisches V1-Artefakt; der zugehörige Generator wurde entfernt
 **Format**: JSON (hierarchisch: Sector → Industries, wie die Quelle, zusaetzlich je Sektor/Industry eine deutsche Kurzbeschreibung)
 **Inhalt**: identische Mengen wie `yf_sectors_with_industries.json` (11 Sektoren, 145 Industries) + `description`-Feld je Sektor/Industry
 
@@ -370,7 +827,7 @@ Credit Services,14.38%
 ]}
 ```
 
-**Verwendung**: `scripts/committee_mapping_agent/taxonomy.py::load()` bevorzugt diese Datei (Fallback auf `yf_sectors_with_industries.json`) als Allow-Liste + Entscheidungshilfe fuer die Mapping-/Review-Prompts. Die Mengen (Sektoren/Industries) sind eingefroren und identisch zur Quelle — die Anreicherung fuegt nur Beschreibungen hinzu, kann die Allow-Liste also nicht korrumpieren.
+**Verwendung**: derzeit keine aktive Generator-Nutzung. Die Datei bleibt als geschütztes historisches Datenartefakt erhalten; V2 bezieht seine Taxonomie später aus einem frischen, run-lokal eingefrorenen yfinance-Snapshot.
 
 ### `data/mappings/ticker_industry_cache.json`
 **Quelle**: Automatisch von `scripts/import_trades.py` (yfinance API)
@@ -667,7 +1124,7 @@ Quellspalte `X` der complete-Datei und schreiben ihn unter dem
 **Format**: CSV
 **Sortierung**: Absteigend nach `transaction_date` (NaT ans Ende, Quell-Reihenfolge als Tiebreak
 innerhalb desselben Datums). Gilt fuer alle Master-Schreibvorgaenge (staged + monolithisch + Delta)
-via `_sort_master_by_date` in `scripts/import_trades.py`. Mechanik: `organisation/Pipelines.md`
+via `_sort_master_by_date` in `scripts/import_trades.py`.
 Abschnitt „Master-Sortierung".
 **Update**: Bei jedem Import (kumulativ; jeder Stage schreibt hier ein)
 
@@ -1448,6 +1905,15 @@ Scoring-Parameter, daher nicht in
 - `SCORE_CORR_SCATTER_MAX_POINTS` / `SCORE_CORR_SCATTER_OPACITY` — `20000` /
   `0.3`; Sample-Cap + Opazität des Scatters (nur Visualisierung; die Kennzahlen
   Spearman/Pearson/n rechnen immer über die volle Stichprobe).
+- `ANALYSIS_DEDUP` — `'trade_id'`; Deduplizierung der Analyse-Population (je `trade_id` die früheste Offenlegung; Alternativen `'full_row'`, `'none'`)
+  (`'full_row'` | `'trade_id'` | `'none'`), `app/score_correlation.py::analysis_population`.
+  Gilt für den Analyse-Tab und `scripts/analyse_event_study.py` (Neu 2026-10-16).
+- `ANALYSIS_EXCLUDE_EXCHANGE` — `True`; Exchange-Trades haben keine Richtung und
+  fallen aus der Analyse-Population.
+- `SCORE_CORR_BOOTSTRAP_ITERS` — `2000`; Iterationen des member-geclusterten
+  Bootstraps für CI und p in der Pro-Signal-Tabelle. Committee-Signale werden
+  dort nur gegen Trades verglichen, die sie auslösen könnten
+  (`committee_eligible_mask`).
 
 ### `config/settings.py::GLOBAL_WINDOW_OPTIONS` / `GLOBAL_WINDOW_DEFAULT`
 Waehlbare Groessen des globalen Sidebar-Zeitfensters als Dict `Label -> Tage`
@@ -2031,7 +2497,7 @@ unter dem `confidence`-Key.
 
 ### CSV aus xlsx erzeugen (Skript entfernt, Debug-Intervall 4):
 Das fruehere `scripts/convert_xlsx_to_csv.py` existiert nicht mehr; der
-Mapping-Master kommt vom Committee-Mapping-Agent (Abschnitt 3a).
+geschützte Mapping-Master bleibt bis zur freigegebenen V2-Integration unverändert (Abschnitt 3a).
 
 Erzeugte damals:
 - `yf_sectors_with_industries.csv`
