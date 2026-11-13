@@ -1,0 +1,231 @@
+congress,committee_id,chamber,parent_committee_id,name
+119,HLIG,house,,House Permanent Select Committee on Intelligence
+119,HLIG01,house,HLIG,Central Intelligence Agency
+119,HLIG02,house,HLIG,National Security Agency and Cyber
+119,HLIG04,house,HLIG,Defense Intelligence and Overhead Architecture
+119,HLIG06,house,HLIG,National Intelligence Enterprise
+119,HLIG09,house,HLIG,Oversight and Investigations
+119,HLIG11,house,HLIG,Open Source Intelligence
+119,HSAG,house,,House Committee on Agriculture
+119,HSAG03,house,HSAG,Nutrition and Foreign Agriculture
+119,HSAG14,house,HSAG,"Conservation, Research, and Biotechnology"
+119,HSAG15,house,HSAG,Forestry and Horticulture
+119,HSAG16,house,HSAG,"General Farm Commodities, Risk Management, and Credit"
+119,HSAG22,house,HSAG,"Commodity Markets, Digital Assets, and Rural Development"
+119,HSAG29,house,HSAG,"Livestock, Dairy, and Poultry"
+119,HSAP,house,,House Committee on Appropriations
+119,HSAP01,house,HSAP,"Agriculture, Rural Development, Food and Drug Administration, and Related Agencies"
+119,HSAP02,house,HSAP,Defense
+119,HSAP04,house,HSAP,"National Security, Department of State, and Related Programs"
+119,HSAP06,house,HSAP,"Interior, Environment, and Related Agencies"
+119,HSAP07,house,HSAP,"Labor, Health and Human Services, Education, and Related Agencies"
+119,HSAP10,house,HSAP,Energy and Water Development and Related Agencies
+119,HSAP15,house,HSAP,Homeland Security
+119,HSAP18,house,HSAP,"Military Construction, Veterans Affairs, and Related Agencies"
+119,HSAP19,house,HSAP,"Commerce, Justice, Science, and Related Agencies"
+119,HSAP20,house,HSAP,"Transportation, Housing and Urban Development, and Related Agencies"
+119,HSAP23,house,HSAP,Financial Services and General Government
+119,HSAP24,house,HSAP,Legislative Branch
+119,HSAS,house,,House Committee on Armed Services
+119,HSAS02,house,HSAS,Military Personnel
+119,HSAS03,house,HSAS,Readiness
+119,HSAS25,house,HSAS,Tactical Air and Land Forces
+119,HSAS26,house,HSAS,Intelligence and Special Operations
+119,HSAS28,house,HSAS,Seapower and Projection Forces
+119,HSAS29,house,HSAS,Strategic Forces
+119,HSAS35,house,HSAS,"Cyber, Information Technologies, and Innovation"
+119,HSBA,house,,House Committee on Financial Services
+119,HSBA04,house,HSBA,Housing and Insurance
+119,HSBA09,house,HSBA,Oversight and Investigations
+119,HSBA10,house,HSBA,"National Security, Illicit Finance, and International Financial Institutions"
+119,HSBA16,house,HSBA,Capital Markets
+119,HSBA20,house,HSBA,Financial Institutions
+119,HSBA21,house,HSBA,"Digital Assets, Financial Technology, and Artificial Intelligence"
+119,HSBU,house,,House Committee on the Budget
+119,HSED,house,,House Committee on Education and Workforce
+119,HSED02,house,HSED,"Health, Employment, Labor, and Pensions"
+119,HSED10,house,HSED,Workforce Protections
+119,HSED13,house,HSED,Higher Education and Workforce Development
+119,HSED14,house,HSED,"Early Childhood, Elementary, and Secondary Education"
+119,HSFA,house,,House Committee on Foreign Affairs
+119,HSFA05,house,HSFA,East Asia and Pacific
+119,HSFA07,house,HSFA,Western Hemisphere
+119,HSFA13,house,HSFA,Middle East and North Africa
+119,HSFA14,house,HSFA,Europe
+119,HSFA16,house,HSFA,Africa
+119,HSFA17,house,HSFA,Oversight and Intelligence
+119,HSFA19,house,HSFA,South and Central Asia
+119,HSGO,house,,House Committee on Oversight and Government Reform
+119,HSGO05,house,HSGO,"Economic Growth, Energy Policy, and Regulatory Affairs"
+119,HSGO06,house,HSGO,Military and Foreign Affairs
+119,HSGO12,house,HSGO,"Cybersecurity, Information Technology, and Government Innovation"
+119,HSGO16,house,HSGO,Delivering on Government Efficiency
+119,HSGO24,house,HSGO,Government Operations
+119,HSGO27,house,HSGO,Health Care and Financial Services
+119,HSGO33,house,HSGO,Federal Law Enforcement
+119,HSHA,house,,House Committee on House Administration
+119,HSHA08,house,HSHA,Elections
+119,HSHA27,house,HSHA,Modernization and Innovation
+119,HSHM,house,,House Committee on Homeland Security
+119,HSHM05,house,HSHM,Counterterrorism and Intelligence
+119,HSHM07,house,HSHM,Transportation and Maritime Security
+119,HSHM08,house,HSHM,Cybersecurity and Infrastructure Protection
+119,HSHM09,house,HSHM,"Oversight, Investigations, and Accountability"
+119,HSHM11,house,HSHM,Border Security and Enforcement
+119,HSHM12,house,HSHM,Emergency Management and Technology
+119,HSIF,house,,House Committee on Energy and Commerce
+119,HSIF02,house,HSIF,Oversight and Investigations
+119,HSIF03,house,HSIF,Energy
+119,HSIF14,house,HSIF,Health
+119,HSIF16,house,HSIF,Communications and Technology
+119,HSIF17,house,HSIF,"Commerce, Manufacturing, and Trade"
+119,HSIF18,house,HSIF,Environment
+119,HSII,house,,House Committee on Natural Resources
+119,HSII06,house,HSII,Energy and Mineral Resources
+119,HSII10,house,HSII,Federal Lands
+119,HSII13,house,HSII,"Water, Wildlife and Fisheries"
+119,HSII15,house,HSII,Oversight and Investigations
+119,HSII24,house,HSII,Indian and Insular Affairs
+119,HSJU,house,,House Committee on the Judiciary
+119,HSJU01,house,HSJU,"Immigration Integrity, Security, and Enforcement"
+119,HSJU03,house,HSJU,"Courts, Intellectual Property, Artificial Intelligence, and the Internet"
+119,HSJU05,house,HSJU,"The Administrative State, Regulatory Reform, and Antitrust"
+119,HSJU08,house,HSJU,Crime and Federal Government Surveillance
+119,HSJU10,house,HSJU,The Constitution and Limited Government
+119,HSJU13,house,HSJU,Oversight
+119,HSPW,house,,House Committee on Transportation and Infrastructure
+119,HSPW02,house,HSPW,Water Resources and Environment
+119,HSPW05,house,HSPW,Aviation
+119,HSPW07,house,HSPW,Coast Guard and Maritime Transportation
+119,HSPW12,house,HSPW,Highways and Transit
+119,HSPW13,house,HSPW,"Economic Development, Public Buildings, and Emergency Management"
+119,HSPW14,house,HSPW,"Railroads, Pipelines, and Hazardous Materials"
+119,HSQJ,house,,"House Select Subcommittee to Investigate the Remaining Questions Surrounding January 6, 2021"
+119,HSRU,house,,House Committee on Rules
+119,HSRU02,house,HSRU,Legislative and Budget Process
+119,HSRU04,house,HSRU,Rules and Organization of the House
+119,HSSM,house,,House Committee on Small Business
+119,HSSM21,house,HSSM,"Rural Development, Energy, and Supply Chains"
+119,HSSM22,house,HSSM,"Innovation, Entrepreneurship, and Workforce Development"
+119,HSSM23,house,HSSM,Contracting and Infrastructure
+119,HSSM24,house,HSSM,"Oversight, Investigations, and Regulations"
+119,HSSM27,house,HSSM,"Economic Growth, Tax, and Capital Access"
+119,HSSO,house,,House Committee on Ethics
+119,HSSY,house,,"House Committee on Science, Space, and Technology"
+119,HSSY15,house,HSSY,Research and Technology
+119,HSSY16,house,HSSY,Space and Aeronautics
+119,HSSY18,house,HSSY,Environment
+119,HSSY20,house,HSSY,Energy
+119,HSSY21,house,HSSY,Investigations and Oversight
+119,HSVR,house,,House Committee on Veterans' Affairs
+119,HSVR03,house,HSVR,Health
+119,HSVR08,house,HSVR,Oversight and Investigations
+119,HSVR09,house,HSVR,Disability Assistance and Memorial Affairs
+119,HSVR10,house,HSVR,Economic Opportunity
+119,HSVR11,house,HSVR,Technology Modernization
+119,HSWM,house,,House Committee on Ways and Means
+119,HSWM01,house,HSWM,Social Security
+119,HSWM02,house,HSWM,Health
+119,HSWM03,house,HSWM,Work and Welfare
+119,HSWM04,house,HSWM,Trade
+119,HSWM05,house,HSWM,Tax
+119,HSWM06,house,HSWM,Oversight
+119,HSZS,house,,House Select Committee on the Strategic Competition Between the United States and the Chinese Communist Party
+119,JCSE,joint,,Commission on Security and Cooperation in Europe
+119,JSEC,joint,,Joint Economic Committee
+119,JSLC,joint,,Joint Committee of Congress on the Library
+119,JSPR,joint,,Joint Committee on Printing
+119,JSTX,joint,,Joint Committee on Taxation
+119,SCNC,senate,,United States Senate Caucus on International Narcotics Control
+119,SLET,senate,,Senate Select Committee on Ethics
+119,SLIA,senate,,Senate Committee on Indian Affairs
+119,SLIN,senate,,Senate Select Committee on Intelligence
+119,SPAG,senate,,Senate Special Committee on Aging
+119,SSAF,senate,,"Senate Committee on Agriculture, Nutrition, and Forestry"
+119,SSAF13,senate,SSAF,"Commodities, Derivatives, Risk Management, and Trade"
+119,SSAF14,senate,SSAF,"Conservation, Forestry, Natural Resources, and Biotechnology"
+119,SSAF15,senate,SSAF,"Rural Development, Energy, and Credit"
+119,SSAF16,senate,SSAF,"Food and Nutrition, Specialty Crops, Organics, and Research"
+119,SSAF17,senate,SSAF,"Livestock, Dairy, Poultry, and Food Safety"
+119,SSAP,senate,,Senate Committee on Appropriations
+119,SSAP01,senate,SSAP,"Agriculture, Rural Development, Food and Drug Administration, and Related Agencies"
+119,SSAP02,senate,SSAP,Department of Defense
+119,SSAP08,senate,SSAP,Legislative Branch
+119,SSAP14,senate,SSAP,Department of Homeland Security
+119,SSAP16,senate,SSAP,"Commerce, Justice, Science, and Related Agencies"
+119,SSAP17,senate,SSAP,"Department of Interior, Environment, and Related Agencies"
+119,SSAP18,senate,SSAP,"Departments of Labor, Health and Human Services, and Education, and Related Agencies"
+119,SSAP19,senate,SSAP,"Military Construction, Veterans Affairs, and Related Agencies"
+119,SSAP20,senate,SSAP,"State, Foreign Operations, and Related Programs"
+119,SSAP22,senate,SSAP,Energy and Water Development
+119,SSAP23,senate,SSAP,Financial Services and General Government
+119,SSAP24,senate,SSAP,"Transportation, Housing and Urban Development, and Related Agencies"
+119,SSAS,senate,,Senate Committee on Armed Services
+119,SSAS13,senate,SSAS,Seapower
+119,SSAS14,senate,SSAS,Airland
+119,SSAS15,senate,SSAS,Readiness and Management Support
+119,SSAS16,senate,SSAS,Strategic Forces
+119,SSAS17,senate,SSAS,Personnel
+119,SSAS20,senate,SSAS,Emerging Threats and Capabilities
+119,SSAS21,senate,SSAS,Cybersecurity
+119,SSBK,senate,,"Senate Committee on Banking, Housing, and Urban Affairs"
+119,SSBK04,senate,SSBK,"Securities, Insurance, and Investment"
+119,SSBK05,senate,SSBK,National Security and International Trade and Finance
+119,SSBK08,senate,SSBK,Financial Institutions and Consumer Protection
+119,SSBK09,senate,SSBK,"Housing, Transportation, and Community Development"
+119,SSBK12,senate,SSBK,Economic Policy
+119,SSBK13,senate,SSBK,Digital Assets
+119,SSBU,senate,,Senate Committee on the Budget
+119,SSCM,senate,,"Senate Committee on Commerce, Science, and Transportation"
+119,SSCM33,senate,SSCM,"Aviation, Space, and Innovation"
+119,SSCM34,senate,SSCM,Telecommunications and Media
+119,SSCM35,senate,SSCM,"Consumer Protection, Technology, and Data Privacy"
+119,SSCM36,senate,SSCM,"Coast Guard, Maritime, and Fisheries"
+119,SSCM37,senate,SSCM,"Science, Manufacturing, and Competitiveness"
+119,SSCM38,senate,SSCM,"Surface Transportation, Freight, Pipelines, and Safety"
+119,SSCM39,senate,SSCM,"Tourism, Trade, and Export Promotion"
+119,SSEG,senate,,Senate Committee on Energy and Natural Resources
+119,SSEG01,senate,SSEG,Energy
+119,SSEG03,senate,SSEG,"Public Lands, Forests, and Mining"
+119,SSEG04,senate,SSEG,National Parks
+119,SSEG07,senate,SSEG,Water and Power
+119,SSEV,senate,,Senate Committee on Environment and Public Works
+119,SSEV08,senate,SSEV,Transportation and Infrastructure
+119,SSEV09,senate,SSEV,"Chemical Safety, Waste Management, Environmental Justice, and Regulatory Oversight"
+119,SSEV10,senate,SSEV,"Clean Air, Climate, and Nuclear Innovation and Safety"
+119,SSEV15,senate,SSEV,"Fisheries, Water, and Wildlife"
+119,SSFI,senate,,Senate Committee on Finance
+119,SSFI02,senate,SSFI,"Social Security, Pensions, and Family Policy"
+119,SSFI10,senate,SSFI,Health Care
+119,SSFI11,senate,SSFI,Taxation and IRS Oversight
+119,SSFI12,senate,SSFI,"Energy, Natural Resources, and Infrastructure"
+119,SSFI13,senate,SSFI,"International Trade, Customs, and Global Competitiveness"
+119,SSFI14,senate,SSFI,Fiscal Responsibility and Economic Growth
+119,SSFR,senate,,Senate Committee on Foreign Relations
+119,SSFR01,senate,SSFR,Europe and Regional Security Cooperation
+119,SSFR02,senate,SSFR,"East Asia, the Pacific, and International Cybersecurity Policy"
+119,SSFR06,senate,SSFR,"Western Hemisphere, Transnational Crime, Civilian Security, Democracy, Human Rights, and Global Women's Issues"
+119,SSFR07,senate,SSFR,"Near East, South Asia, Central Asia, and Counterterrorism"
+119,SSFR09,senate,SSFR,Africa and Global Health Policy
+119,SSFR14,senate,SSFR,"State Department and USAID Management, International Operations, and Bilateral International Development"
+119,SSFR15,senate,SSFR,"Multilateral International Development, Multilateral Institutions, and International Economic, Energy, and Environmental Policy"
+119,SSGA,senate,,Senate Committee on Homeland Security and Governmental Affairs
+119,SSGA01,senate,SSGA,Permanent Subcommittee on Investigations
+119,SSGA20,senate,SSGA,"Disaster Management, District of Columbia, and Census"
+119,SSGA22,senate,SSGA,"Border Management, Federal Workforce, and Regulatory Affairs"
+119,SSHR,senate,,"Senate Committee on Health, Education, Labor, and Pensions"
+119,SSHR09,senate,SSHR,Education and the American Family
+119,SSHR11,senate,SSHR,Employment and Workplace Safety
+119,SSHR12,senate,SSHR,Primary Health and Retirement Security
+119,SSJU,senate,,Senate Committee on the Judiciary
+119,SSJU01,senate,SSJU,"Antitrust, Competition Policy, and Consumer Rights"
+119,SSJU04,senate,SSJU,Border Security and Immigration
+119,SSJU21,senate,SSJU,the Constitution
+119,SSJU22,senate,SSJU,Crime and Counterterrorism
+119,SSJU25,senate,SSJU,"Federal Courts, Oversight, Agency Action, and Federal Rights"
+119,SSJU26,senate,SSJU,Intellectual Property
+119,SSJU27,senate,SSJU,Human Rights and the Law
+119,SSJU28,senate,SSJU,"Privacy, Technology, and the Law"
+119,SSRA,senate,,Senate Committee on Rules and Administration
+119,SSSB,senate,,Senate Committee on Small Business and Entrepreneurship
+119,SSVA,senate,,Senate Committee on Veterans' Affairs

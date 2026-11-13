@@ -441,6 +441,30 @@ COMMITTEE_MAPPING_FILE = 'subcommittee_sector_industry_mapping.csv'
 # abgenommen 2026-10-16. Vorher gebunden: Probeartefakt 'map-test-20260904'.
 COMMITTEE_MAPPING_REVIEW_ID = 'map-fullrun-20261016'
 
+# Referenzdaten je Kongress (scripts/build_reference_data.py): Abgeordnete,
+# Ausschüsse, Mitgliedschaften und Ausschuss -> Industries mit stabilen
+# Schlüsseln. Kongresswechsel = neuer Eintrag in REFERENCE_CONGRESSES.
+REFERENCE_DATA_PATH = 'data/reference'
+REFERENCE_CACHE_PATH = 'data/cache/reference'      # nicht eingecheckte Quellstände
+REFERENCE_SOURCE_REPO = 'unitedstates/congress-legislators'
+REFERENCE_REVISIONS_PATH = 'data/committee_matcher_v2/reviews'
+REFERENCE_CONGRESSES = {
+    119: {
+        # Gepinnter Quellstand; Mitgliedschaften werden über alle Commits der
+        # Mitgliedschaftsdatei vom Kongressbeginn bis zu diesem Commit vereinigt.
+        'source_commit': '97261713f5dcd1b846050130cea77eded642268b',
+        'mapping_revision': 'map-fullrun-20261016',
+        'jurisdiction_manifest': 'data/committee_matcher_inputs/corpus_manifest.yaml',
+    },
+}
+# Kongresse ohne eigene Erhebung: übernehmen die Daten des genannten Kongresses.
+REFERENCE_CONGRESS_DATA_FROM = {118: 119}
+# members enthält alle amtierenden sowie ausgeschiedene Abgeordnete, deren letzte
+# Amtszeit an oder nach diesem Datum endete (Trade-Daten beginnen 2012).
+REFERENCE_MEMBERS_SINCE = '2012-01-01'
+REFERENCE_TRADES_XLSX = 'data/raw/congress-trading-all.xlsx'
+REFERENCE_HOUSE_PDF_URL = 'https://clerk.house.gov/committee_info/scsoal.pdf'
+
 # Gilt die Zustaendigkeit des Ausschusses selbst auch fuer Mitglieder, die
 # zusaetzlich in einem seiner Unterausschuesse sitzen? Der Matcher bildet dazu
 # eine eigene Unit (committee_parent_core) aus dem Zustaendigkeitstext des

@@ -11,6 +11,10 @@ Historie abgeschlossener Module/Phasen. **Aktiver WIP-Modul-Stand** steht im „
 
 ---
 
+## 2026-11-13 — Referenzdaten je Kongress
+
+`scripts/build_reference_data.py` sichert den Stand des 119. Kongresses und baut `data/reference/` (Abgeordnete nach `BioGuideID`, Ausschüsse nach `(congress, committee_id)`, Mitgliedschaften über alle Stände des Kongresses vereinigt, Ausschuss → Industries aus `map-fullrun-20261016`); der 118. Kongress übernimmt die Daten des 119. Noch nicht an die Pipeline angebunden. Tests: `tests/test_build_reference_data.py` (13).
+
 ## 2026-10-17 — Gate C: neues Mapping übernommen
 
 Bene hat Gate C freigegeben: Revision `map-fullrun-20261016` (`COMMITTEE_MAPPING_REVIEW_ID`)

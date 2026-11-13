@@ -1,0 +1,215 @@
+{
+  "congress": 119,
+  "source": {
+    "repo": "unitedstates/congress-legislators",
+    "commit": "97261713f5dcd1b846050130cea77eded642268b",
+    "url": "https://raw.githubusercontent.com/unitedstates/congress-legislators/97261713f5dcd1b846050130cea77eded642268b/<datei>",
+    "fetched_at": "2026-11-13T15:08:37+00:00"
+  },
+  "raw_files": [
+    {
+      "path": "committee-membership-current.yaml",
+      "sha256": "713dd1782423f7a892406cceba8821728509e4348676416db2a7ceda865bd08f",
+      "bytes": 294147
+    },
+    {
+      "path": "committees-current.yaml",
+      "sha256": "3885591df90465f004695444aca47db88188471542cb35cf8a88f24c8649b4b4",
+      "bytes": 63366
+    },
+    {
+      "path": "legislators-current.yaml",
+      "sha256": "fcd8e7f3b8b8286d99056a2be95907c7f6bce4d2dce069a074aa2f6970ecc717",
+      "bytes": 1081187
+    },
+    {
+      "path": "official/house_scsoal.pdf",
+      "sha256": "ed8188538b56a2e730eef90dad3887e489e46fb7a722a4c6c405259d2bf55c36",
+      "bytes": 298201
+    }
+  ],
+  "not_stored": [
+    {
+      "file": "legislators-historical.yaml",
+      "commit": "97261713f5dcd1b846050130cea77eded642268b",
+      "sha256": "ea7a1e35e7854418033b155420b522d3cefffc9763b67d7044cde45b8e49a355",
+      "bytes": 8997407
+    }
+  ],
+  "membership_snapshots": [
+    {
+      "commit": "ce2c4664703a734bf5f25e3861a9c90f62bd4bb5",
+      "date": "2025-01-04",
+      "sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"
+    },
+    {
+      "commit": "9fb206b16703a2f244b4628ae40dffa4d77e800a",
+      "date": "2025-01-17",
+      "sha256": "a5f846d9722e8ebf5d754fbdb9e925237cd57a81c51a47594c8f46840b08ec24"
+    },
+    {
+      "commit": "c9550e52aef59e30730188ed6ea53fda9fcb6375",
+      "date": "2025-01-21",
+      "sha256": "f1617599bd2c827538273f70cebc65d7e17f098d1b9748548d68a0abd6c8433b"
+    },
+    {
+      "commit": "c9f7c34b4b84106f0c8de55f5c52e061e78db0a2",
+      "date": "2025-01-22",
+      "sha256": "7c7665b1bb14c949812bfe30bfe0fe723be33faa8f5226c587fda78927c75589"
+    },
+    {
+      "commit": "ef9c870599a6b397c89f9049e446f2879a95994c",
+      "date": "2025-01-28",
+      "sha256": "c985c0895e5f66577f86ec5e0dd17e1abb5a7cb753a982446b741e910bb2bfd1"
+    },
+    {
+      "commit": "fb3faba275437c913033ff98d96c192290f537c4",
+      "date": "2025-02-02",
+      "sha256": "8ce3607bfb12172356fcccf402331c9cdc47362ded944e7aaf880e0487e16a93"
+    },
+    {
+      "commit": "7a6f0655f89f64d9cd4208f9f8cdf16618ed20f3",
+      "date": "2025-03-04",
+      "sha256": "ba306b850548eedf00d2dbe99570fda811cb156d961a8ec7864bf0259f84f037"
+    },
+    {
+      "commit": "72526139577a828f365d8a273e3ca9957868517e",
+      "date": "2025-03-05",
+      "sha256": "f1db4fe3b56f51e932db388e9465bb495b208443f329496056403e7bbc42c1cd"
+    },
+    {
+      "commit": "7a88eb0e712704f6cefae88973711098d5926ae9",
+      "date": "2025-03-14",
+      "sha256": "954ef0e98dcee8c0b54ce9d6945ea35f27e3c0e7d1f72ec89b5a78aafe525d9a"
+    },
+    {
+      "commit": "c56f57eba40dfa5b8fd0c15d2f2b7b6f59326191",
+      "date": "2025-04-04",
+      "sha256": "1d1c2d46aaf71f49e4fd9a45fb610629af1d2e0b8faa86f282c64e42dc5bba0e"
+    },
+    {
+      "commit": "5bef5938d60ce6b62875d9a39926c3f46a36c29b",
+      "date": "2025-05-13",
+      "sha256": "e41f28c2ffb84f8c3aa5528c705db3fd1ec0df78583f3ea312c5473830e02bd9"
+    },
+    {
+      "commit": "6ac17cb694e372ea67df171e3257be1a46acc4da",
+      "date": "2025-05-21",
+      "sha256": "4b6816aa4d4716a8b6f91725a04eb12d9898f6e80c3be0613150c03d3f92059f"
+    },
+    {
+      "commit": "65259e46abc0b11f9e643f06a021b1d5dd5dbdc2",
+      "date": "2025-06-17",
+      "sha256": "80881c03eb6609a2989246ed6ab4f9d0bf4b2af847d2e50d9a18e9e0533c57ec"
+    },
+    {
+      "commit": "4089094e05f64da828cda3c570838e675537b8b5",
+      "date": "2025-08-30",
+      "sha256": "0e65c7104509cbcecce5d7349fd2d62593ae635e2b7df2033fffd3767c2c8f20"
+    },
+    {
+      "commit": "5de69ba81bafaabf91c91adeddee44777ea09817",
+      "date": "2025-09-11",
+      "sha256": "01cd8c8a3aed95050ccf38d0295a6314ae694fb1c0d2aca257db98d68726b903"
+    },
+    {
+      "commit": "c003379a48f8c7ac0b3370c87c0c1c4abaa4d572",
+      "date": "2025-11-14",
+      "sha256": "15e38367b4855140ce7f560e7a7bc77f0a24d0209024021748a9e2945cd9d41f"
+    },
+    {
+      "commit": "6530e8d4ef82fdd1e4178530a436ab8a236e1ef9",
+      "date": "2026-01-06",
+      "sha256": "4e0de374efa371ec3c4ee51966b19323472f84b15871fc1cc26c269e74e82e80"
+    },
+    {
+      "commit": "c8a3b6af6ab25fe2900143e27ac2e4e6ad7d3506",
+      "date": "2026-01-06",
+      "sha256": "51d8692d2be1793a9cfd852c452c438e66517ded8b7dc7d06065014c25801e62"
+    },
+    {
+      "commit": "dbcec1598457c1ad5d96127d6ed5919aa7d3082b",
+      "date": "2026-01-06",
+      "sha256": "9494009c5429aa7e0626980655fbecbe306b90f6e6eeb31abd68b84f857a25eb"
+    },
+    {
+      "commit": "4db6613cb3108303c0fd8ac36e4c217082f2080b",
+      "date": "2026-02-03",
+      "sha256": "56af285205a7749a6bd4b045479b652a60d7f3287904d92b8b3911e21cdf6195"
+    },
+    {
+      "commit": "d6278582c4a138caecb4c864253f293836f517e1",
+      "date": "2026-03-13",
+      "sha256": "70d0f1d48b08a1ff3bd39ade9e95b5504dd62621fb5a3beca76ae661e965d5ad"
+    },
+    {
+      "commit": "239e0c0266107ce3f85c18654b3f8357abd5170e",
+      "date": "2026-03-25",
+      "sha256": "f2c74b0b82a63df1c42fb25b3f642cad0a2d81bb7ff2ebe1759b0af0ee4ce43a"
+    },
+    {
+      "commit": "f1166e1120ec37987b27cf77923e7e113838571c",
+      "date": "2026-03-25",
+      "sha256": "de6064b64c660d2e6540814d9ac196e30e0534502f6a85f8d6c3e12031e5bd55"
+    },
+    {
+      "commit": "74739251bf75e0c996517373a5658cb6539a393f",
+      "date": "2026-04-14",
+      "sha256": "aba9865cfff3d1f9eeffa53ade82db41150eedabaf99e7d74a7a24da2765129d"
+    },
+    {
+      "commit": "5ff3dc292efb4a6655b4d7d02c3ce38d5d66f177",
+      "date": "2026-04-15",
+      "sha256": "5cc02908eb1eabc70db27fcce919fc25ce6bd07fd5eefa2b49ff0b5a7212a957"
+    },
+    {
+      "commit": "ddc9707356597c30fc3adf59d509873cbcc5bbe8",
+      "date": "2026-04-21",
+      "sha256": "69791a5e9e37735523f456342d1df423fbe80f6739495895bdaf0bcc56f90ed9"
+    },
+    {
+      "commit": "a9ee69e4d2e6a59547e019c78290d3ec07d9ddac",
+      "date": "2026-04-22",
+      "sha256": "b969798fdacc1ea00b95a5d760daebdb1b2ddbbfc6ffdc1bfed3dc05c8b99c93"
+    },
+    {
+      "commit": "d0fa668f9faca4af4ce071adb27cd43f9c4ffc4d",
+      "date": "2026-07-12",
+      "sha256": "46847fc77439794d5744e18a4593059b3349cfc57eeefb2ee5af0efb918cb9c9"
+    },
+    {
+      "commit": "f9e4eda519ccf1a57e3e502555f9b7bd473601d4",
+      "date": "2026-07-15",
+      "sha256": "f35c02ac3c6e5e9ba12c43aa9e17b4a4124fa23a29264542f669d64db41f24cc"
+    },
+    {
+      "commit": "46b3d1480d8987b31761df9968d67400191e99d7",
+      "date": "2026-09-02",
+      "sha256": "f07d5156772ec91bcd6b8c4d36580589aedbcf7eea3249019776ad46c81e9c98"
+    },
+    {
+      "commit": "97261713f5dcd1b846050130cea77eded642268b",
+      "date": "2026-11-04",
+      "sha256": "713dd1782423f7a892406cceba8821728509e4348676416db2a7ceda865bd08f"
+    }
+  ],
+  "belongs_to_congress": {
+    "jurisdiction_inputs": {
+      "manifest": "data/committee_matcher_inputs/corpus_manifest.yaml",
+      "sha256": "369ba76b084b9941e10d2bfec0d323aa88758aa8aa820a32ea6a7b2f9aab6e65",
+      "bytes": 14490
+    },
+    "mapping_revision": {
+      "revision_id": "map-fullrun-20261016",
+      "reviewed_assignments": "data/committee_matcher_v2/reviews/map-fullrun-20261016/reviewed_assignments.csv",
+      "sha256": "4c551de929e12fc37b4306090c541b164e5046c4a82618ce1f1d35260cb4fd5f",
+      "bytes": 616205
+    }
+  },
+  "official_snapshot": {
+    "fetched_at": "2026-11-13T15:08:37+00:00",
+    "senate_xml_source": "https://www.senate.gov/committees/membership_assignments.htm",
+    "senate_xml_error": "https://www.senate.gov/committees/membership_assignments.htm: HTTP 403",
+    "house_pdf_url": "https://clerk.house.gov/committee_info/scsoal.pdf"
+  }
+}

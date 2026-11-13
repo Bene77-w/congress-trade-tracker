@@ -571,6 +571,30 @@ python scrapers/generate_committee_structure.py
 
 ---
 
+## 7b2. Referenzdaten je Kongress
+
+**Datei:** `scripts/build_reference_data.py`
+**Zweck:** Baut `data/reference/*.csv` (Abgeordnete, Ausschüsse, Mitgliedschaften,
+Ausschuss → Industries) und sichert den Quellstand unter `data/reference/raw/<kongress>/`.
+Spalten: `DATA_STRUCTURE.md` Abschnitt 2a.
+**Wann:** Einmal je Kongresswechsel, dazu bei Bedarf zum Auffrischen (neuer Quell-Commit).
+**Netz:** Nur beim ersten Lauf je Commit; danach liest das Skript Rohdateien und Cache.
+
+```bash
+python scripts/build_reference_data.py                      # Kongress und Commit aus settings.REFERENCE_CONGRESSES
+python scripts/build_reference_data.py --congress 120 --source-commit <sha>
+python scripts/build_reference_data.py --official-snapshot  # zusätzlich Senate-XML + House-Clerk-PDF roh ablegen
+python scripts/build_reference_data.py --trades-xlsx <pfad> # Abdeckung der BioGuideIDs gegen eine andere XLSX prüfen
+```
+
+Das Skript druckt Kopfzahlen, offene Units und fehlende `BioGuideID`s und endet mit
+Exit 1, wenn ein Schlüssel doppelt ist oder ein Fremdschlüssel nicht auflöst.
+Neuer Kongress: Eintrag in `settings.REFERENCE_CONGRESSES` ergänzen (Commit,
+Mapping-Revision), Skript aufrufen, offene Units in `data/reference/unit_overrides.csv`
+klären. Die Zeilen anderer Kongresse bleiben erhalten.
+
+---
+
 ## 7c. Committee Matcher V2 – Inputbaseline (P0)
 
 **Dateien:** `scripts/committee_matcher_migrate_inputs.py`,

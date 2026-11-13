@@ -138,6 +138,45 @@ Senate: 70/70 Sub-Paare, Stand 2026-06-12).
 
 ---
 
+## 2a. Referenzdaten je Kongress (`data/reference/`)
+
+**Quelle**: `scripts/build_reference_data.py` aus dem gemeinfreien Repo
+`unitedstates/congress-legislators` an einem gepinnten Commit
+(`settings.REFERENCE_CONGRESSES`). Noch nicht an die Pipeline angebunden.
+**Schlüsselregel**: Ausschüsse immer über `(congress, committee_id)` verbinden, nie
+über die ID allein: Die IDs der Quelle bezeichnen Plätze und werden zwischen
+Kongressen umbenannt. Kongresse ohne eigene Erhebung werden zuerst über
+`congresses.data_from_congress` aufgelöst.
+
+| Datei | Schlüssel | Spalten |
+|---|---|---|
+| `congresses.csv` | `congress` | `start_date`, `end_date`, `data_from_congress` (118 → 119: Übernahme, keine eigene Erhebung) |
+| `members.csv` | `bioguide_id` | `full_name`, `first_name`, `last_name`, `chamber`, `state`, `district`, `party`, `last_term_start`, `last_term_end`, `in_office`; Kammer bis Partei aus der letzten Amtszeit. Enthält alle Amtierenden und Ausgeschiedene mit Amtsende ab `REFERENCE_MEMBERS_SINCE` |
+| `committees.csv` | `congress`, `committee_id` | `chamber` (`house`/`senate`/`joint`), `parent_committee_id` (leer bei Vollausschuss), `name` aus dem Stand dieses Kongresses |
+| `committee_memberships.csv` | `congress`, `committee_id`, `bioguide_id` | `side` (`majority`/`minority`), `rank`, `title` (wie die Quelle, z. B. `Chairman`, `Ranking Member`, `Ex Officio`), `member_chamber` (nur bei Joint-Ausschüssen), `first_seen`, `last_seen` |
+| `unit_committee_map.csv` | `congress`, `revision_id`, `unit_id` | `unit_kind`, `committee_id`, `match` (`name` = exakter normalisierter Namensvergleich, `override`), `unresolved_reason` |
+| `committee_industries.csv` | `congress`, `revision_id`, `unit_id`, `industry_id` | `committee_id`, `unit_kind`, `industry_name`, `sector_id`, `sector_name`, `confidence`; Inhalte unverändert aus `reviewed_assignments.csv` der Revision |
+| `unit_overrides.csv` | `revision_id`, `unit_id` | `committee_id`, `reason`; von Hand gepflegte Eingabe für Units, deren Name nicht exakt passt |
+
+`committee_memberships` vereinigt alle Stände der Mitgliedschaftsdatei innerhalb des
+Kongresses, weil ein einzelner Stand nur enthält, wer gerade im Amt ist. `first_seen`
+und `last_seen` sind die Daten des ersten und letzten Stands, in dem die Mitgliedschaft
+vorkam; sie sind Information, die Zuordnung gilt je Kongress. Rollen stammen aus dem
+letzten Vorkommen.
+
+### `data/reference/raw/<kongress>/`
+**Inhalt**: `committee-membership-current.yaml`, `committees-current.yaml`,
+`legislators-current.yaml` am gepinnten Commit, dazu `official/house_scsoal.pdf`
+(House-Clerk-PDF) und, wenn senate.gov erreichbar war, `official/senate_xml/`.
+**`manifest.json`**: Quelle, Commit-SHA, Abrufzeit, sha256 aller abgelegten Dateien,
+sha256 der nicht eingecheckten `legislators-historical.yaml`, alle für die
+Vereinigung verwendeten Commits (`membership_snapshots`) sowie die Zugehörigkeit von
+Jurisdiktions-Inputs und Mapping-Revision zu diesem Kongress.
+**Cache**: ältere Stände und `legislators-historical.yaml` liegen unter
+`data/cache/reference/<commit>/` (gitignored) und werden bei Bedarf neu geladen.
+
+---
+
 ## 3. Committee → Sektor Mapping
 
 ### `data/raw/subcommittee_sector_industry_mapping_v3.xlsx`

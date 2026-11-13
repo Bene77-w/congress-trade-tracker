@@ -1,0 +1,82 @@
+- type: house
+  name: House Committee on Ways and Means
+  url: https://waysandmeans.house.gov/
+  minority_url: https://gop-waysandmeans.house.gov/
+  thomas_id: HSWM
+  house_committee_id: WM
+  subcommittees:
+  - name: Health
+    thomas_id: '02'
+    address: 1139 LHOB; Washington, DC 20515
+    phone: (202) 225-3943
+  - name: Work and Welfare
+    thomas_id: '03'
+    address: 1139 LHOB; Washington, DC 20515
+    phone: (202) 225-9263
+  - name: Oversight
+    thomas_id: '06'
+    address: 1139 LHOB; Washington, DC 20515
+    phone: (202) 225-3625
+  - name: Tax
+    thomas_id: '05'
+    address: 1139 LHOB; Washington, DC 20515
+    phone: (202) 225-5522
+  - name: Social Security
+    thomas_id: '01'
+    address: 1139 LHOB; Washington, DC 20515
+    phone: (202) 225-9263
+  - name: Trade
+    thomas_id: '04'
+    address: 1139 LHOB; Washington, DC 20515
+    phone: (202) 225-6649
+  address: 1139 LHOB; Washington, DC 20515-6348
+  phone: (202) 225-3625
+  jurisdiction: The Committee on Ways and Means is the chief tax-writing committee
+    in the House of Representatives. The Committee derives a large share of its jurisdiction
+    from Article I, Section VII of the U.S. Constitution, which declares, “All Bills
+    for raising Revenue shall originate in the House of Representatives.” The committee
+    has jurisdiction over revenue and related issues such as tariffs, reciprocal trade
+    agreements, and the bonded debt of the United States. It also oversees revenue-related
+    aspects of the Social Security system, Medicare, and social services programs.
+  jurisdiction_source: https://waysandmeans.house.gov/history/
+  youtube_id: UCrz_XV52yquSiXvyjdh03Fw
+- type: joint
+  name: Joint Committee of Congress on the Library
+  url: https://cha.house.gov/jointcommittees/joint-committee-library
+  thomas_id: JSLC
+  house_committee_id: JL
+  senate_committee_id: JSLC
+  wikipedia: Joint Committee on the Library
+  address: 1309 LHOB; Washington, DC 20515-6157
+  phone: (202) 225-8281
+- type: senate
+  name: Senate Committee on Environment and Public Works
+  url: http://www.epw.senate.gov/
+  thomas_id: SSEV
+  senate_committee_id: SSEV
+  subcommittees:
+  - name: Clean Air, Climate, and Nuclear Innovation and Safety
+    thomas_id: '10'
+    wikipedia: United States Senate Environment and Public Works Subcommittee on Clean
+      Air and Nuclear Safety
+  - name: Chemical Safety, Waste Management, Environmental Justice, and Regulatory
+      Oversight
+    thomas_id: '09'
+    wikipedia: United States Senate Environment and Public Works Subcommittee on Superfund,
+      Toxics and Environmental Health
+  - thomas_id: '08'
+    name: Transportation and Infrastructure
+    wikipedia: United States Senate Environment and Public Works Subcommittee on Transportation
+      and Infrastructure
+  - thomas_id: '15'
+    name: Fisheries, Water, and Wildlife
+    wikipedia: United States Senate Environment and Public Works Subcommittee on Water
+      and Wildlife
+  rss_url: http://www.epw.senate.gov/public/index.cfm?FuseAction=RSS.Majority
+  minority_rss_url: http://www.epw.senate.gov/public/index.cfm?FuseAction=RSS.Minority
+  wikipedia: United States Senate Committee on Environment and Public Works
+  jurisdiction: The Senate Committee on Environment and Public Works has legislative
+    jurisdiction on matters related to environmental protection, resource utilization
+    and conservation, and public infrastructure.
+  jurisdiction_source: https://www.epw.senate.gov/public/index.cfm/committee-jurisdiction
+  youtube_id: UCqMG6uXhoBo_nHcJN9XrLKw

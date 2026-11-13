@@ -92,3 +92,6 @@ data/committee_matcher_v2/runs/
 # kopiert — nicht ins Repo, damit die Historie schlank bleibt und die
 # Trade-Daten nicht dauerhaft oeffentlich im Repo liegen)
 data/deploy/
+
+# Referenzdaten: nicht eingecheckte Quellstände (scripts/build_reference_data.py)
+data/cache/reference/
