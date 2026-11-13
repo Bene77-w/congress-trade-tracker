@@ -40,7 +40,6 @@ Flag-Matrix:
 import argparse
 import json
 import os
-import pickle
 import re
 import shutil
 import sys
@@ -56,7 +55,7 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BASE_DIR)
 
 from config import settings
-from utils.name_matcher import NameMatcher
+from utils.reference_data import ReferenceData, STATUS_MATCHED, STATUS_NO_MEMBERSHIP
 from utils.trade_id import compute_trade_ids, detect_new_trades
 from utils.amount_parser import midpoint_usd, max_usd
 from scoring.asset_volume import compute_asset_tradingvolume
@@ -105,7 +104,6 @@ UNMATCHED_PATH = os.path.join(PROCESSED_DIR, 'unmatched_names.csv')
 DELISTED_TRADES_PATH = os.path.join(PROCESSED_DIR, 'delisted_trades.csv')
 IGNORED_TICKERS_PATH = os.path.join(BASE_DIR, settings.DATA_MAPPINGS_PATH,
                                     settings.IGNORED_TICKERS_FILE)
-CHECKPOINT_PATH = os.path.join(PROCESSED_DIR, '.enrichment_checkpoint.pkl')
 
 def _sort_master_by_date(df: pd.DataFrame) -> pd.DataFrame:
     """Sortiert den Master stabil absteigend nach transaction_date.
@@ -133,7 +131,6 @@ def _sort_master_by_date(df: pd.DataFrame) -> pd.DataFrame:
     )
     return df.iloc[order]
 
-CHECKPOINT_INTERVAL = 5000  # Trades zwischen Checkpoint-Speicherungen
 
 # Stage-Pipeline Pfade
 STAGE_CSV_PATH = os.path.join(PROCESSED_DIR, 'trades_stage.csv')
@@ -243,8 +240,8 @@ STAGE_DEPS = {
         'output_cols': ['transaction_date', 'disclosure_date'],
     },
     'committees': {
-        'input_cols': ['name', 'chamber'],
-        'output_cols': ['Member_Party', 'Member_State',
+        'input_cols': ['name', 'chamber', 'bio_guide_id', 'transaction_date'],
+        'output_cols': ['Member_Congress', 'Member_Committee_Status',
                         'Member_ExOfficio', 'Member_Chamber', 'Member_Committees_Full'],
     },
     'tickerclassify': {
@@ -318,8 +315,8 @@ STAGE_DEPS = {
         'output_cols': ['asset_tradingvolume_usd'],
     },
     'gates_tags': {
-        'input_cols': ['name', 'chamber', 'Member_Committees_Full', 'ticker',
-                       'ticker_type', 'transaction_date'],
+        'input_cols': ['name', 'chamber', 'Member_Committees_Full', 'Member_Congress',
+                       'ticker', 'ticker_type', 'transaction_date'],
         'output_cols': ['MatchScore', 'MatchSource', 'Insider_Sectors', 'Relevant_Sectors',
                         'ex_officio_role_keys',
                         'asset_class_excluded',
@@ -420,7 +417,7 @@ class TradeImporter:
 
     def __init__(self):
         """Initialisiert den TradeImporter."""
-        self.matcher = None
+        self.reference = None
         self.stats = {
             'total_input': 0,
             'matched': 0,
@@ -437,10 +434,10 @@ class TradeImporter:
         """Stellt sicher, dass alle Verzeichnisse existieren."""
         os.makedirs(PROCESSED_DIR, exist_ok=True)
 
-    def _init_matcher(self):
-        """Initialisiert den NameMatcher."""
-        if self.matcher is None:
-            self.matcher = NameMatcher()
+    def _init_reference(self):
+        """Laedt die Referenztabellen (data/reference/) einmal."""
+        if self.reference is None:
+            self.reference = ReferenceData()
 
     def load_and_rename(self) -> pd.DataFrame:
         """
@@ -525,135 +522,33 @@ class TradeImporter:
         df = self.normalize_dates(df)
         return df
 
-    def _save_checkpoint(self, df: pd.DataFrame, processed_up_to: int,
-                         unmatched_counts: dict, matched_count: int = 0):
-        """Speichert Enrichment-Checkpoint als Pickle."""
-        checkpoint = {
-            'df': df,
-            'processed_up_to': processed_up_to,
-            'unmatched_counts': unmatched_counts,
-            'matched_count': matched_count,
-        }
-        self._ensure_directories()
-        with open(CHECKPOINT_PATH, 'wb') as f:
-            pickle.dump(checkpoint, f, protocol=pickle.HIGHEST_PROTOCOL)
-        logger.info(f"Checkpoint gespeichert: {processed_up_to} Trades")
-
-    def _load_checkpoint(self) -> dict | None:
-        """Laedt Checkpoint falls vorhanden."""
-        if not os.path.isfile(CHECKPOINT_PATH):
-            return None
-        try:
-            with open(CHECKPOINT_PATH, 'rb') as f:
-                checkpoint = pickle.load(f)
-            logger.info(f"Checkpoint geladen: {checkpoint['processed_up_to']} Trades bereits verarbeitet")
-            return checkpoint
-        except Exception as e:
-            logger.warning(f"Checkpoint beschaedigt, starte von vorne: {e}")
-            os.remove(CHECKPOINT_PATH)
-            return None
-
-    def _delete_checkpoint(self):
-        """Loescht Checkpoint nach erfolgreichem Abschluss."""
-        if os.path.isfile(CHECKPOINT_PATH):
-            os.remove(CHECKPOINT_PATH)
-            logger.info("Checkpoint geloescht")
-
     def enrich_member_data(self, df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
-        Reichert Trades mit Committee-Member-Daten an (kein Scoring).
-        Scoring-Spalten (MatchScore, Insider_Sectors, Relevant_Sectors etc.) werden in _stage_gates_tags gesetzt.
-        Unterstuetzt Checkpoint-basiertes Resuming bei Abbruch.
-
-        Args:
-            df: DataFrame mit Trades
+        Ordnet jedem Trade die Ausschuesse zu, die im Kongress des
+        Transaktionsdatums galten - ueber bio_guide_id und data/reference/
+        (utils/reference_data.py). Partei und Bundesstaat bleiben die der Quelle.
+        Scoring-Spalten (Insider_Sectors, Relevant_Sectors etc.) setzt _stage_gates_tags.
 
         Returns:
-            Tuple (angereicherte_df, unmatched_df)
+            Tuple (angereicherte_df, unmatched_df). unmatched_df listet Personen,
+            deren Trades in einem abgedeckten Kongress liegen, fuer die die
+            Referenzdaten aber keine Mitgliedschaft kennen.
         """
-        self._init_matcher()
+        self._init_reference()
+        df = self.reference.assign(df)
 
-        # Checkpoint pruefen
-        checkpoint = self._load_checkpoint()
-        if checkpoint is not None:
-            df = checkpoint['df']
-            start_pos = checkpoint['processed_up_to']
-            unmatched_counts = checkpoint['unmatched_counts']
-            matched_count = checkpoint.get('matched_count', 0)
-            print(f"      [Checkpoint] Setze fort ab Trade {start_pos:,}/{len(df):,}")
-        else:
-            start_pos = 0
-            unmatched_counts = {}
-            matched_count = 0
-            # Nur Member-Spalten initialisieren (keine Scoring-Spalten!)
-            df = df.copy()
-            df['Member_Party'] = ''
-            df['Member_State'] = ''
-            df['Member_ExOfficio'] = ''
-            df['Member_Chamber'] = ''
-            df['Member_Committees_Full'] = ''
+        status = df['Member_Committee_Status']
+        self.stats['matched'] = int((status == STATUS_MATCHED).sum())
+        self.stats['unmatched'] = len(df) - self.stats['matched']
+        logger.info("Ausschuss-Zuordnung: %s", status.value_counts().to_dict())
 
-        total = len(df)
-        logger.info(f"Reichere {total} Trades mit Committee-Member-Daten an (ab {start_pos})...")
-
-        indices = df.index.tolist()
-        for pos, idx in enumerate(indices):
-            # Bereits verarbeitete Trades ueberspringen
-            if pos < start_pos:
-                continue
-
-            row = df.loc[idx]
-            name = row.get('name', '')
-            chamber = str(row.get('chamber', '')).lower()
-
-            # Match durchfuehren
-            result = self.matcher.match(name, chamber)
-
-            df.at[idx, 'Member_Party'] = result['party']
-            df.at[idx, 'Member_State'] = result['state']
-            df.at[idx, 'Member_ExOfficio'] = result['ex_officio']
-            df.at[idx, 'Member_Chamber'] = result['chamber']
-
-            if result['matched'] and result['committees']:
-                df.at[idx, 'Member_Committees_Full'] = result['committees']
-                matched_count += 1
-
-            if not result['matched']:
-                if name not in unmatched_counts:
-                    unmatched_counts[name] = {'count': 0, 'chamber': chamber}
-                unmatched_counts[name]['count'] += 1
-
-            # Checkpoint speichern
-            processed = pos + 1
-            if processed % CHECKPOINT_INTERVAL == 0:
-                self._save_checkpoint(df, processed, unmatched_counts, matched_count)
-                print(f"      [Checkpoint] {processed:,}/{total:,} Trades gesichert")
-
-        # Statistiken aktualisieren
-        self.stats['matched'] = matched_count
-        self.stats['unmatched'] = total - matched_count
-
-        logger.info(f"Matching: {matched_count} erfolgreich, {total - matched_count} nicht gefunden")
-
-        # Unmatched DataFrame erstellen
-        unmatched_data = []
-        for name, info in unmatched_counts.items():
-            best = self.matcher.get_best_fuzzy_match(name, info['chamber'])
-            unmatched_data.append({
-                'trade_name': name,
-                'count': info['count'],
-                'chamber': info['chamber'],
-                'best_match': best['best_match'],
-                'best_match_score': best['score']
-            })
-
-        unmatched_df = pd.DataFrame(unmatched_data)
-        if not unmatched_df.empty:
-            unmatched_df = unmatched_df.sort_values('count', ascending=False)
-
-        # Checkpoint loeschen nach Erfolg
-        self._delete_checkpoint()
-
+        open_rows = df[status == STATUS_NO_MEMBERSHIP]
+        unmatched_df = (
+            open_rows.groupby(['bio_guide_id', 'Member_Congress'], as_index=False)
+            .agg(trade_name=('name', 'first'), chamber=('chamber', 'first'),
+                 count=('name', 'size'))
+            .rename(columns={'Member_Congress': 'congress'})
+            .sort_values('count', ascending=False))
         return df, unmatched_df
 
     # =========================================================================
@@ -786,6 +681,8 @@ class TradeImporter:
                 old_df = pd.DataFrame()
         else:
             old_df = pd.DataFrame()
+        if not set(key_columns) <= set(old_df.columns):
+            old_df = pd.DataFrame()   # Datei im frueheren Format ohne die Schluesselspalten
 
         if old_df.empty and (new_df is None or new_df.empty):
             if os.path.isfile(target_path):
@@ -822,21 +719,13 @@ class TradeImporter:
         final_df.to_csv(target_path, index=False, encoding='utf-8')
 
     def _revalidate_unmatched_names(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Drop Eintraege, fuer die NameMatcher.match jetzt einen Match liefert."""
+        """Drop Eintraege, fuer die die Referenzdaten jetzt eine Mitgliedschaft kennen."""
         if df is None or df.empty:
             return df
-        self._init_matcher()
-        keep_idx = []
-        for idx, row in df.iterrows():
-            result = self.matcher.match(
-                row.get('trade_name', ''),
-                row.get('chamber', ''),
-            )
-            if not result.get('matched', False):
-                keep_idx.append(idx)
-        if not keep_idx:
-            return df.iloc[0:0]
-        return df.loc[keep_idx].reset_index(drop=True)
+        self._init_reference()
+        keep = [not self.reference.member_committees(b, c)[0]
+                for b, c in zip(df['bio_guide_id'].astype(str), df['congress'].astype(str))]
+        return df[keep].reset_index(drop=True)
 
     def _revalidate_delisted(self, df: pd.DataFrame) -> pd.DataFrame:
         """Drop Ticker, die jetzt im positiven ticker_industry_cache.json stehen.
@@ -875,7 +764,7 @@ class TradeImporter:
         promotions = [
             # (stage_path, live_path, key_columns, revalidate_fn, sum_columns, label)
             (UNMATCHED_STAGE_PATH, UNMATCHED_PATH,
-             ['trade_name', 'chamber'], self._revalidate_unmatched_names,
+             ['bio_guide_id', 'congress'], self._revalidate_unmatched_names,
              ['count'], 'Unmatched-Names'),
             (DELISTED_STAGE_PATH, DELISTED_TRADES_PATH,
              ['ticker'], self._revalidate_delisted, None, 'Delisted'),
@@ -1042,7 +931,9 @@ class TradeImporter:
         ex_officio_role_keys (';'-getrennte Fuehrungsrollen-Keys der
         relevanten Treffer, prae-Dedup — Basis des Ex-Officio-Bonus v2)."""
         from tags.committee_tag import CommitteeTag
-        committee_tag = CommitteeTag()
+        # Ausschuss -> Industries je Kongress des Trades (committee_industries.csv)
+        self._init_reference()
+        tags: dict = {}
 
         df = df.copy()
         df['Insider_Sectors'] = ''
@@ -1053,6 +944,10 @@ class TradeImporter:
             committees_full = str(row.get('Member_Committees_Full', '') or '')
             if not committees_full or committees_full == 'nan':
                 continue
+            mapper = self.reference.mapper(row.get('Member_Congress'))
+            if mapper.congress not in tags:
+                tags[mapper.congress] = CommitteeTag(mapper=mapper)
+            committee_tag = tags[mapper.congress]
             chamber = str(row.get('Member_Chamber', '') or '')
             ticker = str(row.get('ticker', '') or '')
             ticker_sector = row.get('sector_yf', '') or ''

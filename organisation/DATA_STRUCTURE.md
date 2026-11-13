@@ -1187,10 +1187,13 @@ chamber,                # House/Senate (von import_trades.py gesetzt)
 subholding,             # Depot/Trust-Name (nur House, aus "S O:" Zeilen)
 
 # Anreicherung durch Name Matching
-Member_Party,           # D oder R
-Member_State,           # CA, TX, etc.
-Member_ExOfficio,       # True/False
-Member_Chamber,         # House/Senate
+Member_Party,           # wie die Quelle sie liefert (Democratic, Republican, ...); wird nicht mehr ueberschrieben
+Member_State,           # wie die Quelle ihn liefert (ausgeschriebener Name); wird nicht mehr ueberschrieben
+Member_Congress,        # Kongress des transaction_date laut data/reference/congresses.csv; leer = kein abgedeckter Kongress
+Member_Committee_Status,# matched | no_membership (Kongress abgedeckt, keine Mitgliedschaft in den Daten)
+                        #   | congress_not_covered (Datum in keinem Kongress aus congresses.csv)
+Member_ExOfficio,       # true/false: mind. eine Ex-Officio-Position im Kongress des Trades; leer ohne Ausschuesse
+Member_Chamber,         # House/Senate, aus der Quellspalte chamber
 
 # Anreicherung durch Committee Filter (Modul 4)
 Member_Committees_Full, # Vollstaendiger Committee-String, F2-Format (siehe Abschnitt 2 oben
@@ -1595,7 +1598,7 @@ Sie werden nach erfolgreicher Promotion automatisch entfernt (`_promote_problem_
 **Re-Validation-Quellen pro Datei**:
 | Datei | Re-Validation gegen |
 |-------|---------------------|
-| `unmatched_names.csv` | `NameMatcher.match()` mit aktuellen `name_aliases.csv` + Member-CSVs |
+| `unmatched_names.csv` | `data/reference/committee_memberships.csv` über `bio_guide_id` + Kongress |
 | `delisted_trades.csv` | Positiver `ticker_industry_cache.json` (kein API-Call) |
 | `manual_review_tickers.csv` | bestehende Filter (`ticker_type!='ignored'`, `manual_review_flag=True`, nicht in `ignored_tickers`) |
 
@@ -1637,23 +1640,21 @@ Sie werden nach erfolgreicher Promotion automatisch entfernt (`_promote_problem_
 **Quelle**: Output von `scripts/import_trades.py`
 **Format**: CSV
 **Update**: Full-Run = Overwrite. Delta-Run = Akkumuliert + Re-Validiert (siehe Übersicht oben).
-**Auto-Purge**: Sobald ein Name in `data/mappings/name_aliases.csv` (oder Member-CSV) auftaucht, wird er beim nächsten Run automatisch aus der Datei entfernt.
+**Auto-Purge**: Sobald `data/reference/committee_memberships.csv` für Person und Kongress eine Mitgliedschaft kennt, entfällt der Eintrag beim nächsten Run.
 
 **Spalten**:
 ```csv
-trade_name, count, chamber, best_match, best_match_score
+bio_guide_id, congress, trade_name, chamber, count
 ```
 - `count` wird beim Delta-Merge aufsummiert (alt + neu).
 
 **Beispiel**:
 ```csv
-Marjorie Taylor Greene,286,house,Al Green,72
-Nancy Pelosi,30,house,Nancy Mace,63
+P000197,119,Nancy Pelosi,House,27
 ```
 
 **Verwendung**:
-- Review von nicht-gematchten Namen
-- Kandidaten für `data/mappings/name_aliases.csv`
+- Personen mit Trades in einem abgedeckten Kongress, für die die Referenzdaten keine Mitgliedschaft kennen (Status `no_membership`)
 
 ---
 
