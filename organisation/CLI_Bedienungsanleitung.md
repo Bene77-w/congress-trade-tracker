@@ -592,7 +592,7 @@ Neuer Kongress: Eintrag in `settings.REFERENCE_CONGRESSES` ergänzen (Commit,
 Mapping-Revision), Skript aufrufen, offene Units in `data/reference/unit_overrides.csv`
 klären. Die Zeilen anderer Kongresse bleiben erhalten.
 
-**Offen:** Bis der Master ab `--stage_rename` neu aufgebaut ist, darf kein Delta-Lauf (`--delta`) laufen: sonst mischen alte Zeilen (`Member_Party` als `D`/`R`, leeres `Member_Congress`) und neue Zeilen (`Democratic`/`Republican`) im Master.
+**Offen:** Bis der Master ab `--stage_rename` neu aufgebaut ist, darf kein Delta-Lauf (`--delta`) laufen: sonst mischen alte Zeilen (`Member_Party` als `D`/`R`, leeres `Member_Congress`) und neue Zeilen (`Democratic`/`Republican`) im Master. Der Timer `quiver-import.timer` ist deshalb seit 2026-11-14 deaktiviert; nach dem Neuaufbau wieder einschalten mit `systemctl --user enable --now quiver-import.timer`.
 
 ---
 
