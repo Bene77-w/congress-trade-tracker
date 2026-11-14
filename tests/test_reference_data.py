@@ -2,10 +2,13 @@
 import pandas as pd
 import pytest
 
+from config import settings
 from tags.committee_tag import CommitteeTag
 from utils.committee_parser import parse_committees_full
 from utils.reference_data import (ReferenceData, STATUS_MATCHED, STATUS_NO_MEMBERSHIP,
                                   STATUS_NOT_COVERED)
+
+REF = settings.BASE_DIR / settings.REFERENCE_DATA_PATH
 
 
 @pytest.fixture(scope='module')
@@ -51,8 +54,8 @@ def test_committees_string_is_f2_with_level_roles(ref):
 
 def test_coverage_comes_from_congresses_table_only(ref, tmp_path):
     for name in ('members', 'committees', 'committee_memberships', 'committee_industries'):
-        pd.read_csv(f'data/reference/{name}.csv', dtype=str, keep_default_na=False).to_csv(tmp_path / f'{name}.csv', index=False)
-    congresses = pd.read_csv('data/reference/congresses.csv', dtype=str)
+        pd.read_csv(REF / f'{name}.csv', dtype=str, keep_default_na=False).to_csv(tmp_path / f'{name}.csv', index=False)
+    congresses = pd.read_csv(REF / 'congresses.csv', dtype=str)
     extra = pd.DataFrame([{'congress': '117', 'start_date': '2021-01-03', 'end_date': '2023-01-03', 'data_from_congress': '119'}])
     pd.concat([congresses, extra]).to_csv(tmp_path / 'congresses.csv', index=False)
     trade = _trades([('K000389', '2021-06-01', 'House')])
@@ -63,9 +66,9 @@ def test_coverage_comes_from_congresses_table_only(ref, tmp_path):
 def test_mapper_resolves_every_name_it_generates(ref):
     mapper = ref.mapper('118.0')            # Stage-CSV liefert die Kongressnummer als Float zurück
     assert mapper.congress == '119'
-    industries = pd.read_csv('data/reference/committee_industries.csv', dtype=str, keep_default_na=False)
+    industries = pd.read_csv(REF / 'committee_industries.csv', dtype=str, keep_default_na=False)
     expected = industries.groupby('committee_id')['industry_name'].apply(set).to_dict()
-    committees = pd.read_csv('data/reference/committees.csv', dtype=str, keep_default_na=False)
+    committees = pd.read_csv(REF / 'committees.csv', dtype=str, keep_default_na=False)
     names = {r.committee_id: r for r in committees.itertuples()}
     for row in committees.itertuples():
         chambers = ['House', 'Senate'] if row.chamber == 'joint' else [row.chamber.title()]
@@ -84,3 +87,23 @@ def test_committee_tag_reads_reference_mapper(ref):
     assert result['insider_sectors']
     assert all(isinstance(e['confidence'], int) for e in result['insider_sectors'])
     assert [e['match_type'] for e in result['relevant_sectors']] == ['full']
+
+
+def test_pipeline_stage_assigns_and_lists_open_members():
+    """Einbau in TradeImporter: Zuordnung, Triage-Liste und Sektoren je Kongress."""
+    from scripts.import_trades import TradeImporter
+    df = _trades([('K000389', '2025-06-01', 'House'), ('P000197', '2025-06-01', 'House'),
+                  ('P000197', '2025-07-01', 'House'), (None, '2025-06-01', 'House'),
+                  ('K000389', '2017-05-01', 'House')])
+    df['name'] = ['Ro Khanna', 'Nancy Pelosi', 'Nancy Pelosi', 'Unbekannt', 'Ro Khanna']
+    importer = TradeImporter()
+    out, unmatched = importer.enrich_member_data(df)
+    assert list(out['Member_Committee_Status']) == [
+        STATUS_MATCHED, STATUS_NO_MEMBERSHIP, STATUS_NO_MEMBERSHIP, STATUS_NO_MEMBERSHIP, STATUS_NOT_COVERED]
+    assert list(unmatched.columns) == ['bio_guide_id', 'congress', 'trade_name', 'chamber', 'count']
+    assert unmatched.set_index('trade_name')['count'].to_dict() == {'Nancy Pelosi': 2, 'Unbekannt': 1}
+
+    out['Member_Congress'] = pd.to_numeric(out['Member_Congress'])   # Stage-CSV liest 119.0 zurück
+    out['ticker'], out['sector_yf'], out['industry_yf'] = 'LMT', 'Industrials', 'Aerospace & Defense'
+    tagged = importer._apply_committee_relevance(out)
+    assert tagged['Insider_Sectors'][0] and not tagged['Insider_Sectors'][1:].any()

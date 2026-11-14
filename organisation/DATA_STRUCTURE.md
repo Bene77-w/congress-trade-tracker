@@ -82,7 +82,7 @@ Name,Party,State,Committees,ExOfficio
 Subs, China) + 4 Joint Committees (House-Hälfte; Senatoren kommen aus dem
 Senate-XML). 26 Committees insgesamt.
 
-**Verwendung**: Name-Matching in `utils/name_matcher.py` → Anreicherung in `scripts/import_trades.py`
+**Verwendung**: von der Pipeline nicht mehr gelesen (Member-Anreicherung nutzt `data/reference/`, Abschnitt 2a); Datei liegt noch im Repo
 
 ---
 
@@ -151,7 +151,7 @@ Kongressen umbenannt. Kongresse ohne eigene Erhebung werden zuerst über
 | Datei | Schlüssel | Spalten |
 |---|---|---|
 | `congresses.csv` | `congress` | `start_date`, `end_date`, `data_from_congress` (118 → 119: Übernahme, keine eigene Erhebung) |
-| `members.csv` | `bioguide_id` | `full_name`, `first_name`, `last_name`, `chamber`, `state`, `district`, `party`, `last_term_start`, `last_term_end`, `in_office`; Kammer bis Partei aus der letzten Amtszeit. Enthält alle Amtierenden und Ausgeschiedene mit Amtsende ab `REFERENCE_MEMBERS_SINCE` |
+| `members.csv` | `bioguide_id` | `full_name`, `first_name`, `last_name`, `chamber`, `state`, `district`, `party`, `last_term_start`, `last_term_end`, `in_office`; Kammer bis Partei aus der letzten Amtszeit. Enthält alle Amtierenden und Ausgeschiedene mit Amtsende ab `REFERENCE_MEMBERS_SINCE`; derzeit nur vom Build-Skript gelesen (Prüfung und Bericht), nicht von der Pipeline |
 | `committees.csv` | `congress`, `committee_id` | `chamber` (`house`/`senate`/`joint`), `parent_committee_id` (leer bei Vollausschuss), `name` aus dem Stand dieses Kongresses |
 | `committee_memberships.csv` | `congress`, `committee_id`, `bioguide_id` | `side` (`majority`/`minority`), `rank`, `title` (wie die Quelle, z. B. `Chairman`, `Ranking Member`, `Ex Officio`), `member_chamber` (nur bei Joint-Ausschüssen), `first_seen`, `last_seen` |
 | `unit_committee_map.csv` | `congress`, `revision_id`, `unit_id` | `unit_kind`, `committee_id`, `match` (`name` = exakter normalisierter Namensvergleich, `override`), `unresolved_reason` |
@@ -1586,7 +1586,7 @@ Die drei Diagnose-Dateien `unmatched_names.csv`, `delisted_trades.csv`, `manual_
 | Lauf-Typ | Verhalten | Wirkung |
 |----------|-----------|---------|
 | **Full-Run** (`python scripts/import_trades.py`) | **Overwrite**: Live-Datei wird mit aktuellem Stand überschrieben. Bei leerem Ergebnis → Datei wird gelöscht. | Auto-Purge: gelöste Probleme verschwinden automatisch. |
-| **Delta-Run** (`--delta`) | **Akkumuliert + Re-Validiert**: alte Live-Datei + neue Probleme werden gemerged via natürlichem Schlüssel. Anschließend werden Einträge entfernt, die jetzt gelöst sind (z.B. Name jetzt in `name_aliases.csv`, Ticker in `ignored_tickers.csv` oder im positiven Cache). | Akkumuliert offene Probleme über Runs hinweg. |
+| **Delta-Run** (`--delta`) | **Akkumuliert + Re-Validiert**: alte Live-Datei + neue Probleme werden gemerged via natürlichem Schlüssel. Anschließend werden Einträge entfernt, die jetzt gelöst sind (z.B. Mitgliedschaft jetzt in `committee_memberships.csv`, Ticker in `ignored_tickers.csv` oder im positiven Cache). | Akkumuliert offene Probleme über Runs hinweg. |
 | **Dry-Run** (`--dry_run`) | Schreibt nur `*_stage.csv` (Vorschau aktueller Run). Live-Dateien bleiben unangetastet. `manual_review_tickers.csv` zeigt die projizierte Endform (existing-master ∪ delta). | Sichere Vorschau ohne destruktive Änderung. |
 
 **Stage-Dateien** (Zwischen-Output während des Laufs):
@@ -1715,6 +1715,7 @@ ticker, ticker_type, company_name, classification_reason, transaction_date
 ## 6. Configuration
 
 ### `data/config/name_aliases.csv`
+**Status**: von der Pipeline nicht mehr gelesen (Verknüpfung über `bio_guide_id`); Datei liegt noch im Repo.
 **Quelle**: Manuell gepflegt
 **Format**: CSV
 
@@ -1731,8 +1732,7 @@ Thomas H Tuberville,"Tuberville, Tommy",senate
 
 **Hinweis**: `correct_name` muss exakt dem Namen in der jeweiligen Member-CSV entsprechen (House: "First Last", Senate: "Last, First M.")
 
-**Verwendung**: Name-Matching in `utils/name_matcher.py`
-Überschreibt Fuzzy-Matching für bekannte Varianten.
+**Verwendung**: früher Name-Matching in `utils/name_matcher.py` (ebenfalls nicht mehr gelesen).
 
 ---
 
@@ -2148,16 +2148,15 @@ Inhalt:
    senate_scraper.py → senate_trades.csv
    ↓
 
-2. IMPORT + NAME MATCHING (--stage_committees / enrich_member_data)
+2. IMPORT + MEMBER-ANREICHERUNG (--stage_committees / enrich_member_data)
    scripts/import_trades.py
-   + house_member&(sub)committees.csv
-   + senate_member&(sub)committees.csv
-   + name_aliases.csv
+   + data/reference/ (members, congresses, committee_memberships)
    ↓
-   utils/name_matcher.py (Senate-Normalisierung + Fuzzy 85%)
+   utils/reference_data.py (bio_guide_id + Kongress des Transaktionsdatums)
    ↓
-   [Member_Party, Member_State, Member_ExOfficio,
+   [Member_Congress, Member_Committee_Status, Member_ExOfficio,
     Member_Chamber, Member_Committees_Full]
+   (Member_Party/Member_State bleiben im Format der Quelle)
 
 3. TICKER-TYPE + TICKER-INDUSTRY
    + OpenFIGI API (Stage tickeropenfigi, Suffix _figi)
@@ -2167,7 +2166,7 @@ Inhalt:
     market_sector_figi, sector_yf, industry_yf, quote_type_yf]
 
 4. GATES + TAGS (--stage_gates_tags / _apply_gates_and_tags)
-   + subcommittee_sector_industry_mapping.csv (CommitteeTag)
+   + data/reference/committee_industries.csv (CommitteeTag, je Kongress)
    + bill_actions.json + bill_subjects.json (VoteTimingTag)
    ↓
    _apply_committee_relevance → [Insider_Sectors, Relevant_Sectors]
@@ -2178,7 +2177,7 @@ Inhalt:
    ↓
    trades_master.csv (Backup in archive/trades_master_backup/ vor jedem destruktiven Schreiben)
    trades_stage.csv (Zwischenpuffer bei --dry_run / --delta --stage_*)
-   unmatched_names.csv (nicht gematchte Namen)
+   unmatched_names.csv (Personen ohne Mitgliedschaft im abgedeckten Kongress)
 ```
 
 ---
@@ -2554,7 +2553,7 @@ Erzeugte damals:
 | house/senate committees.csv | Alle 2 Jahre | PDF-Extraktion (Wahlen) |
 | subcommittee_sector_mapping.xlsx | Bei Bedarf | Manuell (neue Committees) |
 | trades_master.csv | Bei jedem Import | Automatisch |
-| name_aliases.csv | Bei Bedarf | Manuell (neue Varianten) |
+| name_aliases.csv | – | von der Pipeline nicht mehr gelesen |
 
 ---
 

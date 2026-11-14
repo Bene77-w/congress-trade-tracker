@@ -318,6 +318,14 @@ def check(tables: dict[str, list[dict]]) -> list[str]:
     missing = sorted({r['bioguide_id'] for r in tables['committee_memberships']} - member_ids)
     if missing:
         errors.append(f'committee_memberships.bioguide_id: nicht in members: {missing}')
+    # Die Pipeline löst Ausschüsse über ihren Anzeigenamen auf (utils/reference_data.py):
+    # je Kongress und Elternausschuss bzw. Kammer muss er eindeutig sein.
+    names = [(str(c['congress']), c['parent_committee_id'] or c['chamber'],
+              c['name'] if c['parent_committee_id'] else re.sub(r'^(House|Senate) ', '', c['name']))
+             for c in tables['committees']]
+    duplicates = sorted({n for n in names if names.count(n) > 1})
+    if duplicates:
+        errors.append(f'committees: Name je Kongress und Elternausschuss nicht eindeutig: {duplicates}')
     return errors
 
 
@@ -391,6 +399,9 @@ def main() -> int:
     tables = build(args.congress, sources)
     report(args.congress, tables, args.trades_xlsx)
     errors = check(tables)
+    if not tables.get('committee_industries'):
+        errors.append(f'committee_industries: keine Zuordnung für Kongress {args.congress} (mapping_revision in '
+                      'settings.REFERENCE_CONGRESSES fehlt); seine Trades blieben ohne Sektoren')
     for error in errors:
         print(f'FEHLER: {error}')
     return 1 if errors else 0

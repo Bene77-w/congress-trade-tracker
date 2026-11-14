@@ -544,7 +544,7 @@ class TradeImporter:
 
         open_rows = df[status == STATUS_NO_MEMBERSHIP]
         unmatched_df = (
-            open_rows.groupby(['bio_guide_id', 'Member_Congress'], as_index=False)
+            open_rows.groupby(['bio_guide_id', 'Member_Congress'], as_index=False, dropna=False)
             .agg(trade_name=('name', 'first'), chamber=('chamber', 'first'),
                  count=('name', 'size'))
             .rename(columns={'Member_Congress': 'congress'})

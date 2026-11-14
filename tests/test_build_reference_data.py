@@ -161,6 +161,13 @@ def test_check_reports_duplicate_keys_and_dangling_references(committees, member
     assert 'committee_memberships.bioguide_id: nicht in members' in errors
 
 
+def test_check_reports_ambiguous_display_names(committees, memberships):
+    tables = _tables(committees, memberships)
+    sub = next(c for c in committees if c['parent_committee_id'])
+    tables['committees'] = committees + [{**sub, 'committee_id': sub['committee_id'] + 'X'}]
+    assert any('Name je Kongress und Elternausschuss nicht eindeutig' in e for e in ref.check(tables))
+
+
 def test_check_does_not_resolve_ids_across_congresses(committees, memberships):
     tables = _tables(committees, memberships)
     tables['committee_memberships'] = [{**m, 'congress': 120} for m in tables['committee_memberships']]
