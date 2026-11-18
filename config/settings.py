@@ -292,34 +292,8 @@ SUSPICIOUS_ASSETS_FILE  = 'suspicious_assets.csv'    # View, Y-Tage-Verfall
 SUSPICIOUS_MEMBERS_FILE = 'suspicious_members.csv'   # View, dauerhaft
 
 # =============================================================================
-# SCRAPER-EINSTELLUNGEN
-# =============================================================================
-# Rate Limiting und Retry-Logik
-SCRAPER_RATE_LIMIT_SECONDS = 1.0    # Pause zwischen API-Calls
-SCRAPER_RETRY_ATTEMPTS = 3          # Wiederholungsversuche bei Fehler
-SCRAPER_RETRY_DELAY_SECONDS = 5.0   # Wartezeit zwischen Retries
-
-# Multi-Run Strategie (optional, für maximale Abdeckung)
-SENATE_SCRAPE_RUNS = 1                # Runs pro Aufruf (1 reicht – API ist deterministisch)
-SENATE_SCRAPE_RUN_PAUSE_SECONDS = 5   # Pause zwischen Runs (Sekunden)
-
-# PDF Extractor (Anthropic Vision)
-PDF_EXTRACTOR_MODEL = "claude-haiku-4-5-20251001"  # Haiku für Kosteneffizienz
-PDF_EXTRACTOR_PAGE_PAUSE_SECONDS = 2.0              # Pause zwischen Seiten-API-Calls
-PDF_EXTRACTOR_DPI = 300                              # Bildaufloesung (v2: 300, v1: 200)
-PDF_EXTRACTOR_AMOUNT_PIXEL_THRESHOLD = 50            # Min. dunkle Pixel fuer "x"-Erkennung
-PDF_EXTRACTOR_USE_GRID_DETECTION = True              # img2table Grid-Erkennung aktivieren
-PDF_EXTRACTOR_ROW_BATCH_SIZE = 5                     # Zeilen pro Vision API Batch
-
-# User-Agent für HTTP-Requests
-SCRAPER_USER_AGENT = 'CongressTracker/1.0 (Python)'
-
-# =============================================================================
 # IMPORT-EINSTELLUNGEN
 # =============================================================================
-# Fuzzy-Matching Schwellenwert (0-100)
-FUZZY_MATCH_THRESHOLD = 85
-
 # Hinweis: Die Definition "wann sind zwei Trade-Zeilen derselbe Trade?" liegt
 # kanonisch in utils/trade_id.py (TRADE_ID_SOURCE_COLUMNS -> trade_id-Hash).
 # Das frueher hier gepflegte DUPLICATE_CHECK_COLUMNS war eine veraltete Kopie
@@ -430,7 +404,6 @@ LOGS_PATH = 'logs'
 # Mapping-Dateien (data/mappings/)
 HOUSE_COMMITTEES_FILE = 'house_member&(sub)committees.csv'
 SENATE_COMMITTEES_FILE = 'senate_member&(sub)committees.csv'
-NAME_ALIASES_FILE = 'name_aliases.csv'
 COMMITTEE_MAPPING_FILE = 'subcommittee_sector_industry_mapping.csv'
 
 # Aktive Mappingrevision des Committee Matchers V2 (Integrationsplan P2).

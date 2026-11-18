@@ -212,23 +212,6 @@ class TestTransientClassificationEdges:
             Exception('SSLError: handshake failed')) is True
 
 
-class TestNameMatcherMemoEquivalence:
-    def test_merged_lookup_memoized_and_equivalent(self):
-        from utils.name_matcher import NameMatcher
-        m = NameMatcher.__new__(NameMatcher)  # ohne teures _load_data
-        m.former_lookup = {'a': {'name': 'A'}}
-        m.house_lookup = {'b': {'name': 'B'}}
-        m.senate_lookup = {'c': {'name': 'C'}}
-        assert m._get_lookup_for_chamber('house') == {
-            'a': {'name': 'A'}, 'b': {'name': 'B'}}
-        assert m._get_lookup_for_chamber('senate') == {
-            'a': {'name': 'A'}, 'c': {'name': 'C'}}
-        assert m._get_lookup_for_chamber('') == {
-            'a': {'name': 'A'}, 'b': {'name': 'B'}, 'c': {'name': 'C'}}
-        # Memo: zweiter Aufruf liefert dasselbe Objekt (kein Re-Merge)
-        assert m._get_lookup_for_chamber('house') is m._get_lookup_for_chamber('house')
-
-
 class TestClassificationTypeColumn:
     def test_cache_write_stores_real_type(self, normalizer):
         import sqlite3
