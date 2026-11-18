@@ -151,7 +151,7 @@ class TestHttpErrorNotCached:
 
 
 # ---------------------------------------------------------------------------
-# Haeppchen C — misc utils + migrate_add_trade_ids
+# Haeppchen C — misc utils
 # ---------------------------------------------------------------------------
 
 class TestTradeIdCsvRoundtrip:

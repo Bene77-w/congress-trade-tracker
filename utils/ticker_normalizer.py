@@ -968,8 +968,8 @@ class TickerNormalizer:
             """, (
                 key,
                 # Echter Klassifikationstyp (z. B. 'stock', 'unit') — vorher
-                # wurde hier faelschlich die source dupliziert, wodurch
-                # report_ticker_types eine falsche Typ-Statistik zeigte.
+                # wurde hier faelschlich die source dupliziert, wodurch die
+                # Typ-Statistik falsch war.
                 classification_type or "unknown",
                 payload.get("figi"),
                 payload.get("ticker_figi"),

@@ -123,7 +123,6 @@ PROTECTED_FILES: frozenset[Path] = frozenset(
         DATA_MAPPINGS / "yf_sectors_with_industries.json",
         DATA_MAPPINGS / "yf_sectors_with_industries.xlsx",
         DATA_MAPPINGS / "legislative_subject_mapping_complete.csv",
-        LOGS / "house_pdf_extractor_done.csv",
         # Verzeichnis-Platzhalter: darf von der data/cache/*-Wildcard nicht
         # mitgeloescht werden (sonst verschwindet das versionierte Cache-Dir).
         DATA_CACHE / ".gitkeep",

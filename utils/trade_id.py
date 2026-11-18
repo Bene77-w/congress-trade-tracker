@@ -15,8 +15,7 @@ WICHTIG:
   NACH normalize_dates(), d.h. transaction_date ist dort ein Timestamp
   (str -> 'YYYY-MM-DD 00:00:00'). Wer den Master aus der CSV lädt (dort steht
   'YYYY-MM-DD') und hasht, MUSS die Datums-Spalten vorher via pd.to_datetime
-  konvertieren, sonst entstehen inkompatible IDs (s. migrate_add_trade_ids.py,
-  diagnose_master_quiver_delta.py).
+  konvertieren, sonst entstehen inkompatible IDs.
 """
 
 import hashlib

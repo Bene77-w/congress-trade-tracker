@@ -500,8 +500,6 @@ class TradeImporter:
             # disclosure_date ersetzt. Typischer Ausloeser ist ein versehentlich als
             # Handelsdatum erfasstes Anleihe-Faelligkeitsdatum; das Meldedatum ist
             # hier die verlaesslichere Naeherung an das tatsaechliche Handelsdatum.
-            # ACHTUNG: Logik-Kopie in scripts/diagnose_master_quiver_delta.py
-            # (_load_quiver_with_ids) — bei Aenderungen dort mitziehen.
             future_mask = (
                 df['transaction_date'].notna() &
                 df['disclosure_date'].notna() &
@@ -1859,9 +1857,7 @@ class TradeImporter:
             if not os.path.isfile(MASTER_COMPLETE_CSV_PATH):
                 raise FileNotFoundError(
                     f"trades_master_complete.csv nicht gefunden: {MASTER_COMPLETE_CSV_PATH}\n"
-                    f"Bitte zuerst Migration ausfuehren: "
-                    f"python scripts/migrate_add_trade_ids.py\n"
-                    f"oder Full Rebuild: python scripts/import_trades.py")
+                    f"Bitte Full Rebuild ausfuehren: python scripts/import_trades.py")
             df = pd.read_csv(MASTER_COMPLETE_CSV_PATH, low_memory=False)
 
         for col in ['transaction_date', 'disclosure_date']:
@@ -1930,7 +1926,7 @@ class TradeImporter:
             if not os.path.exists(MASTER_COMPLETE_CSV_PATH):
                 raise FileNotFoundError(
                     f"Delta-Modus: {MASTER_COMPLETE_CSV_PATH} nicht gefunden.\n"
-                    f"Bitte zuerst Migration: python scripts/migrate_add_trade_ids.py")
+                    f"Bitte Full Rebuild ausfuehren: python scripts/import_trades.py")
             master_df = pd.read_csv(MASTER_COMPLETE_CSV_PATH, low_memory=False)
             new_df = detect_new_trades(df, master_df)
             self.stats['new_trades'] = len(new_df)
@@ -2508,8 +2504,7 @@ class TradeImporter:
         print("\n[3/17] Lade Master + erkenne neue Trades...")
         if not os.path.exists(MASTER_COMPLETE_CSV_PATH):
             print(f"      [!] {MASTER_COMPLETE_CSV_PATH} nicht vorhanden.")
-            print("          Bitte zuerst Migration: python scripts/migrate_add_trade_ids.py")
-            print("          oder Full Rebuild: python scripts/import_trades.py")
+            print("          Bitte Full Rebuild ausfuehren: python scripts/import_trades.py")
             return self.stats
         master_df = pd.read_csv(MASTER_COMPLETE_CSV_PATH, low_memory=False)
         if 'transaction_date' in master_df.columns:
@@ -3056,7 +3051,7 @@ class TradeImporter:
         if not os.path.isfile(MASTER_COMPLETE_CSV_PATH):
             raise FileNotFoundError(
                 f"trades_master_complete.csv nicht vorhanden: {MASTER_COMPLETE_CSV_PATH}\n"
-                f"Bitte zuerst Migration: python scripts/migrate_add_trade_ids.py")
+                f"Bitte Full Rebuild ausfuehren: python scripts/import_trades.py")
         df = pd.read_csv(MASTER_COMPLETE_CSV_PATH, low_memory=False)
         self._write_manual_review_subset(df)
         print(f"\n[OK] Manual-Review aus {len(df):,} Trades regeneriert.")
@@ -3066,7 +3061,7 @@ class TradeImporter:
         if not os.path.isfile(MASTER_COMPLETE_CSV_PATH):
             raise FileNotFoundError(
                 f"trades_master_complete.csv nicht vorhanden: {MASTER_COMPLETE_CSV_PATH}\n"
-                f"Bitte zuerst Migration: python scripts/migrate_add_trade_ids.py")
+                f"Bitte Full Rebuild ausfuehren: python scripts/import_trades.py")
         df = pd.read_csv(MASTER_COMPLETE_CSV_PATH, low_memory=False)
         self._backup_master()
         curated = self._export_curated_master(df)

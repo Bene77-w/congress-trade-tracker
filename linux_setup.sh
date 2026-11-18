@@ -29,10 +29,6 @@ sudo apt install -y \
     python3 \
     python3-pip \
     python3-venv \
-    tesseract-ocr \
-    tesseract-ocr-eng \
-    libgl1 \
-    libglib2.0-0 \
     chromium-browser \
     chromium-chromedriver
 
@@ -58,9 +54,9 @@ echo ""
 # -------------------------------------------------------
 # 3. Python-Pakete installieren
 # -------------------------------------------------------
-echo -e "${YELLOW}[3/4] Python-Pakete aus requirements.txt installieren...${NC}"
+echo -e "${YELLOW}[3/4] Python-Pakete aus requirements-dev.txt installieren...${NC}"
 pip install --upgrade pip --quiet
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 echo -e "${GREEN}  ✓ Pakete installiert${NC}"
 echo ""
 
@@ -69,18 +65,10 @@ echo ""
 # -------------------------------------------------------
 echo -e "${YELLOW}[4/4] .env Konfiguration prüfen...${NC}"
 
-TESSERACT_PATH=$(which tesseract 2>/dev/null || echo "/usr/bin/tesseract")
-
 if [ ! -f ".env" ]; then
     cat > .env << EOF
 # Congress Trade Tracker — Umgebungsvariablen
 # Erstellt von linux_setup.sh am $(date '+%d.%m.%Y')
-
-# Tesseract OCR (Linux-Pfad — automatisch erkannt)
-TESSERACT_PATH=$TESSERACT_PATH
-
-# Anthropic API Key (für PDF Extractor Vision API)
-ANTHROPIC_API_KEY=
 
 # Congress.gov API Key (für Filter 4: Voting)
 CONGRESS_API_KEY=
@@ -92,22 +80,15 @@ EMAIL_USER=
 EMAIL_PASSWORD=
 EMAIL_RECIPIENT=
 EOF
-    echo -e "${GREEN}  ✓ .env erstellt mit Tesseract-Pfad: $TESSERACT_PATH${NC}"
-    echo -e "${YELLOW}  → ANTHROPIC_API_KEY in .env eintragen!${NC}"
+    echo -e "${GREEN}  ✓ .env erstellt${NC}"
 else
-    # Nur TESSERACT_PATH aktualisieren falls noch Windows-Pfad drin
-    if grep -q "Program Files" .env 2>/dev/null; then
-        sed -i "s|TESSERACT_PATH=.*|TESSERACT_PATH=$TESSERACT_PATH|" .env
-        echo -e "${GREEN}  ✓ TESSERACT_PATH auf Linux-Pfad aktualisiert: $TESSERACT_PATH${NC}"
-    else
-        echo -e "${GREEN}  ✓ .env bereits vorhanden${NC}"
-    fi
+    echo -e "${GREEN}  ✓ .env bereits vorhanden${NC}"
 fi
 
 echo ""
 
 # -------------------------------------------------------
-# Playwright (für Senate Scraper)
+# Playwright (für Quiver-Scraper)
 # -------------------------------------------------------
 echo -e "${YELLOW}[+] Playwright Browser installieren...${NC}"
 python -m playwright install chromium 2>/dev/null && \
@@ -126,9 +107,3 @@ echo ""
 echo "Aktivierung (ab jetzt immer zuerst ausführen):"
 echo -e "${YELLOW}  cd $SCRIPT_DIR${NC}"
 echo -e "${YELLOW}  source venv/bin/activate${NC}"
-echo ""
-echo "Test-Lauf:"
-echo -e "${YELLOW}  python scrapers/house_scraper.py --dry-run${NC}"
-echo ""
-echo "Tesseract-Version:"
-tesseract --version 2>&1 | head -1
