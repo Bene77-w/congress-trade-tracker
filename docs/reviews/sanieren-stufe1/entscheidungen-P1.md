@@ -17,3 +17,5 @@ Startcommit: 6c589768f1b4aa11824624db7006b6ea5a831723
 ## Reviewbefunde
 | Befund und Auswirkung | Schweregrad laut Prüfer | Prüfer, Review, Runde | Bezug (Spec/Ticket/`datei:zeile`) | Umgang | Begründung/Belege |
 |---|---|---|---|---|---|
+| Wissen zu handschriftlichen House-PTRs Typ D fehlte nach dem Löschen des Extractors (abweichende Betragszuordnung G/H/I). | MITTEL | gpt-6.2-sol high, Interim Review, Runde 1 | P1; `6c58976:scrapers/house_pdf_extractor.py:69` | behoben | Zuordnung in `organisation/tool_specific_md/Trade_scraper_status.md` ergänzt. |
+| Doku-Installationsbefehl nutzt `requirements.txt`, danach fehlt `pytest`. | NIEDRIG | gpt-6.2-sol high, Interim Review, Runde 1 | `organisation/DEPLOYMENT.md:115,120` | behoben | Auf `requirements-dev.txt` umgestellt; Tesseract aus der Dockerfile-Beschreibung (`:222`) entfernt. Übrige Doku folgt in P8. |

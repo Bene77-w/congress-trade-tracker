@@ -112,12 +112,12 @@ cd C:\Users\<user>\Projekte\congress_tracker
 # Linux/Mac:
 python3 -m venv venv
 source venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 
 # Windows:
 python -m venv venv
 venv\Scripts\activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 ```
 
 ---
@@ -219,7 +219,7 @@ und Chromium (Playwright) bereits mit. Code-Anpassungen sind **nicht** n√∂tig ‚Ä
 
 | Datei | Zweck |
 |---|---|
-| `Dockerfile` | Bau-Rezept: `python:3.12-slim` + Tesseract + `pip install -r requirements.txt` + `playwright install --with-deps chromium`. Startbefehl: Streamlit auf Port 8501. |
+| `Dockerfile` | Bau-Rezept: `python:3.12-slim` + `pip install -r requirements.txt` + `playwright install --with-deps chromium`. Startbefehl: Streamlit auf Port 8501. |
 | `docker-compose.yml` | Start-Konfiguration: Port-Mapping `8501:8501`, `.env` via `env_file`, Bind-Mounts `./data` und `./logs`, `restart: unless-stopped`. |
 | `.dockerignore` | Schliesst `venv/`, `archive/` (~20 GB), `data/`, `logs/`, `.env`, `__pycache__/` vom Build-Kontext aus. |
 
