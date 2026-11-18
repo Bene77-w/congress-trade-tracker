@@ -199,7 +199,7 @@ python scrapers/senate_pdf_extractor.py --headless False
 ## 3. Import Pipeline (18 Stages)
 
 **Datei:** `scripts/import_trades.py`
-**Zweck:** Liest Quiver-Snapshot (`congress-trading-all.xlsx`), matcht Member-Namen (Alias→Exakt→Former→Fuzzy), klassifiziert Tickers offline, normalisiert via OpenFIGI, reichert via yfinance an, wendet Filter an.
+**Zweck:** Liest Quiver-Snapshot (`congress-trading-all.xlsx`), verknüpft Abgeordnete über `bio_guide_id` und den Kongress des Transaktionsdatums mit `data/reference/` (Abschnitt 7b2), klassifiziert Tickers offline, normalisiert via OpenFIGI, reichert via yfinance an, wendet Filter an.
 
 **Spalten-Namenskonvention** (seit 2026-05-14): Externe-API-Outputs tragen
 Provider-Suffixe — `_figi` (OpenFIGI: `ticker_figi`, `asset_name_figi`,
@@ -348,9 +348,8 @@ Ab `--stage_gates_tags` neu, danach alle Signal-Stages + Scoring + Export + Save
 
 **Merksatz:** `STAGE_DEPS` in `scripts/import_trades.py` zeigt pro Stage, welche Spalten produziert oder konsumiert werden — daraus lässt sich der minimale Re-Run ableiten.
 
-> **Re-Run-Sequenz nach Roster-/Committee-Daten-Änderung** (Abschnitt 6/7
-> neu ausgeführt → `data/mappings/{house,senate}_member&(sub)committees.csv`
-> geändert): vollständig
+> **Re-Run-Sequenz nach Änderung der Referenzdaten** (Abschnitt 7b2
+> neu ausgeführt → `data/reference/*.csv` geändert): vollständig
 > ```
 > --stage_committees → --stage_gates_tags → --stage_branch1_signals →
 > --stage_sequence_signals → --stage_swarm_signals → --stage_scoring
@@ -568,6 +567,32 @@ Kammern — für Validierung/Vollständigkeitsprüfung.
 ```bash
 python scrapers/generate_committee_structure.py
 ```
+
+---
+
+## 7b2. Referenzdaten je Kongress
+
+**Datei:** `scripts/build_reference_data.py`
+**Zweck:** Baut `data/reference/*.csv` (Abgeordnete, Ausschüsse, Mitgliedschaften,
+Ausschuss → Industries) und sichert den Quellstand unter `data/reference/raw/<kongress>/`.
+Spalten: `DATA_STRUCTURE.md` Abschnitt 2a.
+**Wann:** Einmal je Kongresswechsel, dazu bei Bedarf zum Auffrischen (neuer Quell-Commit).
+**Netz:** Nur beim ersten Lauf je Commit; danach liest das Skript Rohdateien und Cache.
+
+```bash
+python scripts/build_reference_data.py                      # Kongress und Commit aus settings.REFERENCE_CONGRESSES
+python scripts/build_reference_data.py --congress 120 --source-commit <sha>
+python scripts/build_reference_data.py --official-snapshot  # zusätzlich Senate-XML + House-Clerk-PDF roh ablegen
+python scripts/build_reference_data.py --trades-xlsx <pfad> # Abdeckung der BioGuideIDs gegen eine andere XLSX prüfen
+```
+
+Das Skript druckt Kopfzahlen, offene Units und fehlende `BioGuideID`s und endet mit
+Exit 1, wenn ein Schlüssel doppelt ist oder ein Fremdschlüssel nicht auflöst.
+Neuer Kongress: Eintrag in `settings.REFERENCE_CONGRESSES` ergänzen (Commit,
+Mapping-Revision), Skript aufrufen, offene Units in `data/reference/unit_overrides.csv`
+klären. Die Zeilen anderer Kongresse bleiben erhalten.
+
+**Offen:** Bis der Master ab `--stage_rename` neu aufgebaut ist, darf kein Delta-Lauf (`--delta`) laufen: sonst mischen alte Zeilen (`Member_Party` als `D`/`R`, leeres `Member_Congress`) und neue Zeilen (`Democratic`/`Republican`) im Master. Der Timer `quiver-import.timer` ist deshalb seit 2026-11-14 deaktiviert; nach dem Neuaufbau wieder einschalten mit `systemctl --user enable --now quiver-import.timer`.
 
 ---
 
@@ -940,7 +965,7 @@ Defense-in-Depth. Default ist ein reversibler **Move** nach
 python scripts/reset_pipeline.py --logs
 
 # Stage-Files (*_stage.csv, pipeline_state.json, duplicate_inspection_sample.csv,
-#              .enrichment_checkpoint.pkl)
+#              .enrichment_checkpoint.pkl aus alten Läufen)
 python scripts/reset_pipeline.py --stage-files
 
 # Cache-Reset: gesamtes data/cache/* (ticker_type_cache.db / OpenFIGI,
@@ -987,8 +1012,8 @@ python scripts/reset_pipeline.py --processed --purge
 pro Gruppe, finale Zusammenfassung. Bei Default-Move zusätzlich `_manifest.txt`
 im Archiv-Ordner für Wiederherstellung.
 
-**Geschützte Mappings (nie betroffen):** `name_aliases.csv`,
-House/Senate Member-CSVs, Subcommittee-Mappings, `yf_sectors_with_industries.csv`,
+**Geschützte Mappings (nie betroffen):** `name_aliases.csv` (von der Pipeline nicht mehr gelesen),
+House/Senate Member-CSVs (ebenso), Subcommittee-Mappings, `yf_sectors_with_industries.csv`,
 `logs/house_pdf_extractor_done.csv` (State).
 
 ---

@@ -1,0 +1,81 @@
+- id:
+    bioguide: R000618
+    lis: S423
+    fec:
+    - S6NE00129
+    govtrack: 456952
+    opensecrets: N00027695
+    wikidata: Q6106781
+    wikipedia: Pete Ricketts
+    votesmart: 57777
+    cspan: 61233
+    ballotpedia: Pete Ricketts
+    pictorial: 13381
+  name:
+    first: Pete
+    last: Ricketts
+    official_full: Pete Ricketts
+  bio:
+    gender: M
+    birthday: '1964-08-19'
+  terms:
+  - type: sen
+    start: '2023-01-23'
+    end: '2024-11-05'
+    how: appointment
+    end-type: special-election
+    state: NE
+    class: 2
+    state_rank: junior
+    party: Republican
+    url: https://www.ricketts.senate.gov
+    address: 139 Russell Senate Office Building Washington DC 20510
+    office: 139 Russell Senate Office Building
+    phone: 202-224-4224
+    contact_form: https://www.ricketts.senate.gov/contact/
+  - type: sen
+    start: '2024-11-05'
+    end: '2027-01-03'
+    how: special-election
+    state: NE
+    class: 2
+    state_rank: junior
+    party: Republican
+    url: https://www.ricketts.senate.gov
+    address: 139 Russell Senate Office Building Washington DC 20510
+    office: 139 Russell Senate Office Building
+    phone: 202-224-4224
+    contact_form: https://www.ricketts.senate.gov/contact/
+- id:
+    bioguide: M001244
+    lis: S439
+    govtrack: 457033
+    fec:
+    - S6FL00640
+    wikipedia: Ashley Moody
+    wikidata: Q58333626
+    votesmart: 183198
+    ballotpedia: Ashley B. Moody
+    google_entity_id: kg:/g/11gzrp7jtr
+  name:
+    first: Ashley
+    middle: Brooke
+    last: Moody
+    official_full: Ashley Moody
+  bio:
+    gender: F
+    birthday: '1975-03-28'
+  terms:
+  - type: sen
+    start: '2025-01-21'
+    end: '2026-11-03'
+    how: appointment
+    end-type: special-election
+    state: FL
+    class: 3
+    party: Republican
+    state_rank: junior
+    url: https://www.moody.senate.gov
+    address: 387 Russell Senate Office Building Washington DC 20510
+    office: 387 Russell Senate Office Building
+    phone: 202-224-3041

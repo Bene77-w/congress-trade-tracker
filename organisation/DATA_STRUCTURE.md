@@ -82,7 +82,7 @@ Name,Party,State,Committees,ExOfficio
 Subs, China) + 4 Joint Committees (House-Hälfte; Senatoren kommen aus dem
 Senate-XML). 26 Committees insgesamt.
 
-**Verwendung**: Name-Matching in `utils/name_matcher.py` → Anreicherung in `scripts/import_trades.py`
+**Verwendung**: von der Pipeline nicht mehr gelesen (Member-Anreicherung nutzt `data/reference/`, Abschnitt 2a); Datei liegt noch im Repo
 
 ---
 
@@ -135,6 +135,45 @@ Committee/Subcommittee-Listen) für die Validierung der Parser-Outputs gegen
 **Verwendung**: Validierungslauf `scrapers/house_pdf_parsing_tool/validate_house.py`
 (House: 0 Abweichungen bei 26 Committees, Joint-Headcounts handverifiziert;
 Senate: 70/70 Sub-Paare, Stand 2026-06-12).
+
+---
+
+## 2a. Referenzdaten je Kongress (`data/reference/`)
+
+**Quelle**: `scripts/build_reference_data.py` aus dem gemeinfreien Repo
+`unitedstates/congress-legislators` an einem gepinnten Commit
+(`settings.REFERENCE_CONGRESSES`). Noch nicht an die Pipeline angebunden.
+**Schlüsselregel**: Ausschüsse immer über `(congress, committee_id)` verbinden, nie
+über die ID allein: Die IDs der Quelle bezeichnen Plätze und werden zwischen
+Kongressen umbenannt. Kongresse ohne eigene Erhebung werden zuerst über
+`congresses.data_from_congress` aufgelöst.
+
+| Datei | Schlüssel | Spalten |
+|---|---|---|
+| `congresses.csv` | `congress` | `start_date`, `end_date`, `data_from_congress` (118 → 119: Übernahme, keine eigene Erhebung) |
+| `members.csv` | `bioguide_id` | `full_name`, `first_name`, `last_name`, `chamber`, `state`, `district`, `party`, `last_term_start`, `last_term_end`, `in_office`; Kammer bis Partei aus der letzten Amtszeit. Enthält alle Amtierenden und Ausgeschiedene mit Amtsende ab `REFERENCE_MEMBERS_SINCE`; derzeit nur vom Build-Skript gelesen (Prüfung und Bericht), nicht von der Pipeline |
+| `committees.csv` | `congress`, `committee_id` | `chamber` (`house`/`senate`/`joint`), `parent_committee_id` (leer bei Vollausschuss), `name` aus dem Stand dieses Kongresses |
+| `committee_memberships.csv` | `congress`, `committee_id`, `bioguide_id` | `side` (`majority`/`minority`), `rank`, `title` (wie die Quelle, z. B. `Chairman`, `Ranking Member`, `Ex Officio`), `member_chamber` (nur bei Joint-Ausschüssen), `first_seen`, `last_seen` |
+| `unit_committee_map.csv` | `congress`, `revision_id`, `unit_id` | `unit_kind`, `committee_id`, `match` (`name` = exakter normalisierter Namensvergleich, `override`), `unresolved_reason` |
+| `committee_industries.csv` | `congress`, `revision_id`, `unit_id`, `industry_id` | `committee_id`, `unit_kind`, `industry_name`, `sector_id`, `sector_name`, `confidence`; Inhalte unverändert aus `reviewed_assignments.csv` der Revision |
+| `unit_overrides.csv` | `revision_id`, `unit_id` | `committee_id`, `reason`; von Hand gepflegte Eingabe für Units, deren Name nicht exakt passt |
+
+`committee_memberships` vereinigt alle Stände der Mitgliedschaftsdatei innerhalb des
+Kongresses, weil ein einzelner Stand nur enthält, wer gerade im Amt ist. `first_seen`
+und `last_seen` sind die Daten des ersten und letzten Stands, in dem die Mitgliedschaft
+vorkam; sie sind Information, die Zuordnung gilt je Kongress. Rollen stammen aus dem
+letzten Vorkommen.
+
+### `data/reference/raw/<kongress>/`
+**Inhalt**: `committee-membership-current.yaml`, `committees-current.yaml`,
+`legislators-current.yaml` am gepinnten Commit, dazu `official/house_scsoal.pdf`
+(House-Clerk-PDF) und, wenn senate.gov erreichbar war, `official/senate_xml/`.
+**`manifest.json`**: Quelle, Commit-SHA, Abrufzeit, sha256 aller abgelegten Dateien,
+sha256 der nicht eingecheckten `legislators-historical.yaml`, alle für die
+Vereinigung verwendeten Commits (`membership_snapshots`) sowie die Zugehörigkeit von
+Jurisdiktions-Inputs und Mapping-Revision zu diesem Kongress.
+**Cache**: ältere Stände und `legislators-historical.yaml` liegen unter
+`data/cache/reference/<commit>/` (gitignored) und werden bei Bedarf neu geladen.
 
 ---
 
@@ -1148,10 +1187,13 @@ chamber,                # House/Senate (von import_trades.py gesetzt)
 subholding,             # Depot/Trust-Name (nur House, aus "S O:" Zeilen)
 
 # Anreicherung durch Name Matching
-Member_Party,           # D oder R
-Member_State,           # CA, TX, etc.
-Member_ExOfficio,       # True/False
-Member_Chamber,         # House/Senate
+Member_Party,           # wie die Quelle sie liefert (Democratic, Republican, ...); wird nicht mehr ueberschrieben
+Member_State,           # wie die Quelle ihn liefert (ausgeschriebener Name); wird nicht mehr ueberschrieben
+Member_Congress,        # Kongress des transaction_date laut data/reference/congresses.csv; leer = kein abgedeckter Kongress
+Member_Committee_Status,# matched | no_membership (Kongress abgedeckt, keine Mitgliedschaft in den Daten)
+                        #   | congress_not_covered (Datum in keinem Kongress aus congresses.csv)
+Member_ExOfficio,       # true/false: mind. eine Ex-Officio-Position im Kongress des Trades; leer ohne Ausschuesse
+Member_Chamber,         # House/Senate, aus der Quellspalte chamber
 
 # Anreicherung durch Committee Filter (Modul 4)
 Member_Committees_Full, # Vollstaendiger Committee-String, F2-Format (siehe Abschnitt 2 oben
@@ -1544,7 +1586,7 @@ Die drei Diagnose-Dateien `unmatched_names.csv`, `delisted_trades.csv`, `manual_
 | Lauf-Typ | Verhalten | Wirkung |
 |----------|-----------|---------|
 | **Full-Run** (`python scripts/import_trades.py`) | **Overwrite**: Live-Datei wird mit aktuellem Stand überschrieben. Bei leerem Ergebnis → Datei wird gelöscht. | Auto-Purge: gelöste Probleme verschwinden automatisch. |
-| **Delta-Run** (`--delta`) | **Akkumuliert + Re-Validiert**: alte Live-Datei + neue Probleme werden gemerged via natürlichem Schlüssel. Anschließend werden Einträge entfernt, die jetzt gelöst sind (z.B. Name jetzt in `name_aliases.csv`, Ticker in `ignored_tickers.csv` oder im positiven Cache). | Akkumuliert offene Probleme über Runs hinweg. |
+| **Delta-Run** (`--delta`) | **Akkumuliert + Re-Validiert**: alte Live-Datei + neue Probleme werden gemerged via natürlichem Schlüssel. Anschließend werden Einträge entfernt, die jetzt gelöst sind (z.B. Mitgliedschaft jetzt in `committee_memberships.csv`, Ticker in `ignored_tickers.csv` oder im positiven Cache). | Akkumuliert offene Probleme über Runs hinweg. |
 | **Dry-Run** (`--dry_run`) | Schreibt nur `*_stage.csv` (Vorschau aktueller Run). Live-Dateien bleiben unangetastet. `manual_review_tickers.csv` zeigt die projizierte Endform (existing-master ∪ delta). | Sichere Vorschau ohne destruktive Änderung. |
 
 **Stage-Dateien** (Zwischen-Output während des Laufs):
@@ -1556,7 +1598,7 @@ Sie werden nach erfolgreicher Promotion automatisch entfernt (`_promote_problem_
 **Re-Validation-Quellen pro Datei**:
 | Datei | Re-Validation gegen |
 |-------|---------------------|
-| `unmatched_names.csv` | `NameMatcher.match()` mit aktuellen `name_aliases.csv` + Member-CSVs |
+| `unmatched_names.csv` | `data/reference/committee_memberships.csv` über `bio_guide_id` + Kongress |
 | `delisted_trades.csv` | Positiver `ticker_industry_cache.json` (kein API-Call) |
 | `manual_review_tickers.csv` | bestehende Filter (`ticker_type!='ignored'`, `manual_review_flag=True`, nicht in `ignored_tickers`) |
 
@@ -1598,23 +1640,21 @@ Sie werden nach erfolgreicher Promotion automatisch entfernt (`_promote_problem_
 **Quelle**: Output von `scripts/import_trades.py`
 **Format**: CSV
 **Update**: Full-Run = Overwrite. Delta-Run = Akkumuliert + Re-Validiert (siehe Übersicht oben).
-**Auto-Purge**: Sobald ein Name in `data/mappings/name_aliases.csv` (oder Member-CSV) auftaucht, wird er beim nächsten Run automatisch aus der Datei entfernt.
+**Auto-Purge**: Sobald `data/reference/committee_memberships.csv` für Person und Kongress eine Mitgliedschaft kennt, entfällt der Eintrag beim nächsten Run.
 
 **Spalten**:
 ```csv
-trade_name, count, chamber, best_match, best_match_score
+bio_guide_id, congress, trade_name, chamber, count
 ```
 - `count` wird beim Delta-Merge aufsummiert (alt + neu).
 
 **Beispiel**:
 ```csv
-Marjorie Taylor Greene,286,house,Al Green,72
-Nancy Pelosi,30,house,Nancy Mace,63
+P000197,119,Nancy Pelosi,House,27
 ```
 
 **Verwendung**:
-- Review von nicht-gematchten Namen
-- Kandidaten für `data/mappings/name_aliases.csv`
+- Personen mit Trades in einem abgedeckten Kongress, für die die Referenzdaten keine Mitgliedschaft kennen (Status `no_membership`)
 
 ---
 
@@ -1675,6 +1715,7 @@ ticker, ticker_type, company_name, classification_reason, transaction_date
 ## 6. Configuration
 
 ### `data/config/name_aliases.csv`
+**Status**: von der Pipeline nicht mehr gelesen (Verknüpfung über `bio_guide_id`); Datei liegt noch im Repo.
 **Quelle**: Manuell gepflegt
 **Format**: CSV
 
@@ -1691,8 +1732,7 @@ Thomas H Tuberville,"Tuberville, Tommy",senate
 
 **Hinweis**: `correct_name` muss exakt dem Namen in der jeweiligen Member-CSV entsprechen (House: "First Last", Senate: "Last, First M.")
 
-**Verwendung**: Name-Matching in `utils/name_matcher.py`
-Überschreibt Fuzzy-Matching für bekannte Varianten.
+**Verwendung**: früher Name-Matching in `utils/name_matcher.py` (ebenfalls nicht mehr gelesen).
 
 ---
 
@@ -2108,16 +2148,15 @@ Inhalt:
    senate_scraper.py → senate_trades.csv
    ↓
 
-2. IMPORT + NAME MATCHING (--stage_committees / enrich_member_data)
+2. IMPORT + MEMBER-ANREICHERUNG (--stage_committees / enrich_member_data)
    scripts/import_trades.py
-   + house_member&(sub)committees.csv
-   + senate_member&(sub)committees.csv
-   + name_aliases.csv
+   + data/reference/ (members, congresses, committee_memberships)
    ↓
-   utils/name_matcher.py (Senate-Normalisierung + Fuzzy 85%)
+   utils/reference_data.py (bio_guide_id + Kongress des Transaktionsdatums)
    ↓
-   [Member_Party, Member_State, Member_ExOfficio,
+   [Member_Congress, Member_Committee_Status, Member_ExOfficio,
     Member_Chamber, Member_Committees_Full]
+   (Member_Party/Member_State bleiben im Format der Quelle)
 
 3. TICKER-TYPE + TICKER-INDUSTRY
    + OpenFIGI API (Stage tickeropenfigi, Suffix _figi)
@@ -2127,7 +2166,7 @@ Inhalt:
     market_sector_figi, sector_yf, industry_yf, quote_type_yf]
 
 4. GATES + TAGS (--stage_gates_tags / _apply_gates_and_tags)
-   + subcommittee_sector_industry_mapping.csv (CommitteeTag)
+   + data/reference/committee_industries.csv (CommitteeTag, je Kongress)
    + bill_actions.json + bill_subjects.json (VoteTimingTag)
    ↓
    _apply_committee_relevance → [Insider_Sectors, Relevant_Sectors]
@@ -2138,7 +2177,7 @@ Inhalt:
    ↓
    trades_master.csv (Backup in archive/trades_master_backup/ vor jedem destruktiven Schreiben)
    trades_stage.csv (Zwischenpuffer bei --dry_run / --delta --stage_*)
-   unmatched_names.csv (nicht gematchte Namen)
+   unmatched_names.csv (Personen ohne Mitgliedschaft im abgedeckten Kongress)
 ```
 
 ---
@@ -2514,7 +2553,7 @@ Erzeugte damals:
 | house/senate committees.csv | Alle 2 Jahre | PDF-Extraktion (Wahlen) |
 | subcommittee_sector_mapping.xlsx | Bei Bedarf | Manuell (neue Committees) |
 | trades_master.csv | Bei jedem Import | Automatisch |
-| name_aliases.csv | Bei Bedarf | Manuell (neue Varianten) |
+| name_aliases.csv | – | von der Pipeline nicht mehr gelesen |
 
 ---
 

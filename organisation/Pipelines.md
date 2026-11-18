@@ -234,8 +234,8 @@ PDF_EXTRACTOR_ROW_BATCH_SIZE = 5
 ## Pipeline 3c: Committee-Roster-Producer (F2-Format)
 
 **Erzeugen die `data/mappings/{house,senate}_member&(sub)committees.csv`-
-Roster, die Stage `--stage_committees` (Pipeline 5) konsumiert. Position:
-VOR `import_trades.py`, nur bei Wahlen/Umstrukturierungen.**
+Roster; die Stage `--stage_committees` (Pipeline 5) liest sie nicht mehr
+(sie nutzt `data/reference/`, gebaut mit `build_reference_data.py`).**
 
 **Senate** (`scrapers/senate_committee_xml/`):
 ```bash
@@ -267,8 +267,8 @@ untracked) validierbar via `scrapers/house_pdf_parsing_tool/validate_house.py`.
 **Format-Spec:** F2-Format (`;`/`:`/`~`/`|`), Single-Source:
 `scrapers/senate_pdf_parsing_tool/csv_zielstruktur.md`.
 
-> **WICHTIG — Re-Run-Sequenz nach Roster-Änderung:** Nach Neuerzeugung der
-> Roster-CSVs muss die folgende Single-Stage-Sequenz vollständig durchlaufen
+> **WICHTIG — Re-Run-Sequenz nach Änderung der Referenzdaten (`data/reference/`):** Nach Neuaufbau der
+> Referenzdaten muss die folgende Single-Stage-Sequenz vollständig durchlaufen
 > werden (s. Pipeline 5):
 > ```
 > --stage_committees → --stage_gates_tags → --stage_branch1_signals →
@@ -376,9 +376,8 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
     → trade_id = sha256(content_columns)[:16] (utils/trade_id.compute_trade_ids)
          ↓
 [3] Committee-Member-Enrichment (enrich_member_data)
-    → Checkpoint-Support: alle 5.000 Trades als Pickle
-    → 3-Stufen Matching: Alias → Exakt → Fuzzy (85%)
-    → Neue Spalten: Member_*
+    → Verknüpfung über bio_guide_id + Kongress des Transaktionsdatums (utils/reference_data.py, data/reference/)
+    → Neue Spalten: Member_*, Member_Congress, Member_Committee_Status
          ↓
 [4] Ticker-Klassifikation (offline, Rebuild T3)
     → utils/ticker_classifier.classify(ticker, asset_name)
@@ -671,7 +670,7 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
 | **Dry-Run** | Schreibt nur `*_stage.csv`. Live-Dateien bleiben unangetastet. |
 
 **Re-Validation-Quellen** (Delta-Modus):
-- `unmatched_names.csv` ↔ `NameMatcher.match()` (lädt aktuelle `name_aliases.csv` + Member-CSVs)
+- `unmatched_names.csv` ↔ `data/reference/committee_memberships.csv` (über `bio_guide_id` + Kongress)
 - `delisted_trades.csv` ↔ positiver `ticker_industry_cache.json` (cache-only, kein API-Call)
 
 **`manual_review_tickers.csv`** wird im Live-Pfad immer aus dem vollen gemergten Master aggregiert (Re-Validation läuft implizit über Filter `ticker_type!='ignored'` + `manual_review_flag=True`). Im Delta-Dry-Run zeigt die Datei eine Vorschau des Endzustands (`existing-master ∪ delta_enriched`).
@@ -739,23 +738,23 @@ python scripts/import_trades.py --regenerate_curated      # curated aus complete
 ```
 
 **Abhaengigkeiten:**
-- `utils/name_matcher.py` — 3-Tier Matching (Alias/Exakt/Fuzzy)
+- `utils/reference_data.py` — Member-Anreicherung über `bio_guide_id` + Kongress, `ReferenceMapper` (Ausschuss → Industries je Kongress); Quelle `data/reference/`
 - `tags/committee_tag.py` — CommitteeTag (User-Sicht „Filter 3"): Committee-Relevanz-Scoring
 - `gates/asset_class_gate.py` — AssetClassGate (User-Sicht „Filter 0"): Nicht-Aktien flaggen (asset_class_excluded)
 - `tags/vote_timing_tag.py` — VoteTimingTag (User-Sicht „Filter 4"): Vote-Timing (respektiert asset_class_excluded)
-- `config/committee_mapping.py` — O(1) Subcommittee→Sektor Lookup
+- `config/committee_mapping.py` — O(1) Subcommittee→Sektor Lookup (nur noch von der App genutzt, nicht von der Pipeline)
 - `config/settings.py` — Alle Schwellenwerte und Pfade
 - `data/mappings/ticker_industry_cache.json` — yfinance-Cache (Ticker→Sector/Industry)
 - `yfinance` (Python-Paket) — Sector/Industry Lookup via Yahoo Finance API
 
-**NameMatcher-Details:**
-| Stufe | Methode | Datenquelle |
-|-------|---------|-------------|
-| 1. Alias | Exakter Lookup | `data/mappings/name_aliases.csv` |
-| 2. Exakt | Case-insensitive Key | House/Senate Member-CSVs + Former Members |
-| 3. Fuzzy | rapidfuzz WRatio ≥85% | Alle Member-Namen (inkl. Former) |
+**Member-Anreicherung (`Member_Committee_Status`):**
+| Status | Bedeutung |
+|--------|-----------|
+| `matched` | Mitgliedschaft im Kongress des Transaktionsdatums gefunden |
+| `no_membership` | Kongress abgedeckt, aber keine Mitgliedschaft (→ `unmatched_names.csv`) |
+| `congress_not_covered` | Trade vor dem 118. Kongress (vor 2023-01-03), keine Ausschüsse |
 
-Senate-Besonderheit: Zwei Lookup-Keys pro Senator ("Last, First" + "First Last")
+Von der Pipeline nicht mehr gelesen: `utils/name_matcher.py`, `name_aliases.csv`, Roster-CSVs `house_/senate_member&(sub)committees.csv`.
 
 ---
 
@@ -1035,7 +1034,7 @@ Default-Verhalten: reversibler **Move** nach `archive/reset_pipeline/reset_<ts>/
 ```
 --logs              logs/*.log + logs/debug_tesseract/
 --stage-files       *_stage.csv, pipeline_state.json, duplicate_inspection_sample.csv,
-                    .enrichment_checkpoint.pkl
+                    .enrichment_checkpoint.pkl (nur Altbestand)
 --cache_reset       gesamtes data/cache/* (OpenFIGI-DB, EDGAR-CIK-Map,
                     Post-Trade-Preishistorie + jeder kuenftige Cache) +
                     ticker_industry_cache.json, ticker_0_cache.json (data/mappings/)
@@ -1125,8 +1124,8 @@ wählt `COMMITTEE_MAPPING_REVIEW_ID` in `config/settings.py`; `import_trades` li
          │        Import-Pipeline              │
          │        (Pipeline 5)                 │
          │                                     │
-         │  NameMatcher ← Member-CSVs + Aliases│
-         │  CommitteeTag    ← Mapping-CSV      │
+         │  Member-Anreicherung ← data/reference│
+         │  CommitteeTag ← committee_industries│
          └──────────────┬──────────────────────┘
                         │
                         ↓
@@ -1157,12 +1156,12 @@ Diese Dateien werden nicht durch Pipelines erzeugt, sondern manuell gepflegt:
 
 | Datei | Aktualisierung | Zweck |
 |-------|----------------|-------|
-| `data/mappings/house_member&(sub)committees.csv` | Alle 2 Jahre (Wahlen), via `parse_house_committee_pdf.py` (Pipeline 3c) | 437 Zeilen, 436 House-Mitglieder + Committees, F2-Format |
-| `data/mappings/senate_member&(sub)committees.csv` | Alle 2 Jahre (Wahlen), via `fetch_senate_xml.py` + `parse_senate_xml.py` (Pipeline 3c) | 101 Zeilen, 100 Senatoren + Committees, F2-Format |
+| `data/mappings/house_member&(sub)committees.csv` | Alle 2 Jahre (Wahlen), via `parse_house_committee_pdf.py` (Pipeline 3c) | 437 Zeilen, 436 House-Mitglieder + Committees, F2-Format; von der Pipeline nicht mehr gelesen |
+| `data/mappings/senate_member&(sub)committees.csv` | Alle 2 Jahre (Wahlen), via `fetch_senate_xml.py` + `parse_senate_xml.py` (Pipeline 3c) | 101 Zeilen, 100 Senatoren + Committees, F2-Format; von der Pipeline nicht mehr gelesen |
 | `scrapers/senate_committee_xml/raw/*.xml` + `_manifest.json` | Bei jedem `fetch_senate_xml.py`-Lauf | 26 Senate-Committee-XML-Snapshots (committet, Determinismus) |
 | `data/processed/committees_structure.csv` | Nach jeder Roster-Neuerzeugung, via `generate_committee_structure.py` | Chamber/Committee/Subcommittee-Strukturliste (gitignored) |
 | `data/mappings/us_{house,senate}_all_committees.csv` | Bei Bedarf (manuell/extern) | Struktur-Orakel für Validierung (untracked) |
-| `data/mappings/name_aliases.csv` | Bei Bedarf (neue Varianten) | Manuelle Namenskorrekturen (11 Eintraege) |
+| `data/mappings/name_aliases.csv` | – (von der Pipeline nicht mehr gelesen) | Frühere Namenskorrekturen (11 Einträge) |
 | `data/mappings/ignored_tickers.csv` | Bei Bedarf | Manuelle Ignore-Liste fuer raw_ticker (z.B. private Funds ohne oeffentlichen Ticker). Wird in Stage `tickerclassify` ausgewertet → setzt `ticker_type=ignored`, kein Manual-Review-Eintrag |
 | `data/mappings/subcommittee_sector_industry_mapping.csv` | Bei Bedarf | Subcommittee→Sektor/Industry (861 Zeilen) |
 | `data/raw/former_members.csv` | Bei Bedarf (Congresswechsel) | Ehemalige Politiker mit Trades (6 Eintraege) |

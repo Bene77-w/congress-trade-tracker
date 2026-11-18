@@ -1,0 +1,102 @@
+SSEV09:
+- name: John R. Curtis
+  party: majority
+  rank: 1
+  title: Chairman
+  bioguide: C001114
+- name: Lindsey Graham
+  party: majority
+  rank: 2
+  bioguide: G000359
+- name: Dan Sullivan
+  party: majority
+  rank: 3
+  bioguide: S001198
+- name: Roger F. Wicker
+  party: majority
+  rank: 4
+  bioguide: W000437
+- name: Jon Husted
+  party: majority
+  rank: 5
+  bioguide: H001104
+- name: Shelley Moore Capito
+  party: majority
+  rank: 6
+  title: Ex Officio
+  bioguide: C001047
+- name: Jeff Merkley
+  party: minority
+  rank: 1
+  title: Ranking Member
+  bioguide: M001176
+- name: Bernard Sanders
+  party: minority
+  rank: 2
+  bioguide: S000033
+- name: Edward J. Markey
+  party: minority
+  rank: 3
+  bioguide: M000133
+- name: Lisa Blunt Rochester
+  party: minority
+  rank: 4
+  bioguide: B001303
+- name: Sheldon Whitehouse
+  party: minority
+  rank: 5
+  title: Ex Officio
+  bioguide: W000802
+JSLC:
+- name: Mitch McConnell
+  party: majority
+  rank: 1
+  title: Vice Chairman
+  bioguide: M000355
+  chamber: senate
+- name: Bryan Steil
+  party: majority
+  rank: 1
+  title: Chair
+  bioguide: S001213
+  chamber: house
+- name: Deb Fischer
+  party: majority
+  rank: 2
+  bioguide: F000463
+  chamber: senate
+- name: David G. Valadao
+  party: majority
+  rank: 2
+  bioguide: V000129
+  chamber: house
+- name: Cindy Hyde-Smith
+  party: majority
+  rank: 3
+  bioguide: H001079
+  chamber: senate
+- name: Mike Carey
+  party: majority
+  rank: 3
+  bioguide: C001126
+  chamber: house
+- name: Alex Padilla
+  party: minority
+  rank: 1
+  bioguide: P000145
+  chamber: senate
+- name: Amy Klobuchar
+  party: minority
+  rank: 2
+  bioguide: K000367
+  chamber: senate
+- name: Joseph D. Morelle
+  party: minority
+  rank: 4
+  bioguide: M001206
+  chamber: house
+- name: Julie Johnson
+  party: minority
+  rank: 5
+  bioguide: J000310
+  chamber: house

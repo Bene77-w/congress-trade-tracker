@@ -1,0 +1,3 @@
+revision_id,unit_id,committee_id,reason
+map-fullrun-20261016,house--ways-and-means--tax-policy,HSWM05,"Quelle führt HSWM05 als ""Tax""; einziger Steuer-Unterausschuss von Ways and Means, die Geschäftsordnung des Ausschusses nennt ihn ""Subcommittee on Tax Policy"""
+map-fullrun-20261016,senate--environment-and-public-works--fisheries-wildlife-and-water,SSEV15,"Quelle führt SSEV15 als ""Fisheries, Water, and Wildlife""; das amtliche Senate-XML nennt denselben Code ""Subcommittee on Fisheries, Wildlife, and Water"""

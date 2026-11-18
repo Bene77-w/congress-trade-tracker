@@ -1,0 +1,1147 @@
+bioguide_id,full_name,first_name,last_name,chamber,state,district,party,last_term_start,last_term_end,in_office
+A000022,Gary L. Ackerman,Gary,Ackerman,house,NY,5,Democrat,2011-01-05,2013-01-03,0
+A000055,Robert B. Aderholt,Robert,Aderholt,house,AL,4,Republican,2025-01-03,2027-01-03,1
+A000069,Daniel K. Akaka,Daniel,Akaka,senate,HI,,Democrat,2007-01-04,2013-01-03,0
+A000148,Jake Auchincloss,Jake,Auchincloss,house,MA,4,Democrat,2025-01-03,2027-01-03,1
+A000210,Robert E. Andrews,Robert,Andrews,house,NJ,1,Democrat,2013-01-03,2014-02-18,0
+A000358,W. Todd Akin,W.,Akin,house,MO,2,Republican,2011-01-05,2013-01-03,0
+A000360,Lamar Alexander,Lamar,Alexander,senate,TN,,Republican,2015-01-06,2021-01-03,0
+A000361,Rodney Alexander,Rodney,Alexander,house,LA,5,Republican,2013-01-03,2013-09-27,0
+A000362,Jason Altmire,Jason,Altmire,house,PA,4,Democrat,2011-01-05,2013-01-03,0
+A000365,Steve Austria,Steve,Austria,house,OH,7,Republican,2011-01-05,2013-01-03,0
+A000366,Sandy Adams,Sandy,Adams,house,FL,24,Republican,2011-01-05,2013-01-03,0
+A000367,Justin Amash,Justin,Amash,house,MI,3,Libertarian,2019-01-03,2021-01-03,0
+A000368,Kelly Ayotte,Kelly,Ayotte,senate,NH,,Republican,2011-01-05,2017-01-03,0
+A000369,Mark E. Amodei,Mark,Amodei,house,NV,2,Republican,2025-01-03,2027-01-03,1
+A000370,Alma S. Adams,Alma,Adams,house,NC,12,Democrat,2025-01-03,2027-01-03,1
+A000371,Pete Aguilar,Pete,Aguilar,house,CA,33,Democrat,2025-01-03,2027-01-03,1
+A000372,Rick W. Allen,Rick,Allen,house,GA,12,Republican,2025-01-03,2027-01-03,1
+A000373,Brad Ashford,Brad,Ashford,house,NE,2,Democrat,2015-01-06,2017-01-03,0
+A000374,Ralph Lee Abraham,Ralph,Abraham,house,LA,5,Republican,2019-01-03,2021-01-03,0
+A000375,Jodey C. Arrington,Jodey,Arrington,house,TX,19,Republican,2025-01-03,2027-01-03,1
+A000376,Colin Z. Allred,Colin,Allred,house,TX,32,Democrat,2023-01-03,2025-01-03,0
+A000377,Kelly Armstrong,Kelly,Armstrong,house,ND,0,Republican,2023-01-03,2024-12-14,0
+A000378,Cynthia Axne,Cynthia,Axne,house,IA,3,Democrat,2021-01-03,2023-01-03,0
+A000379,Mark Alford,Mark,Alford,house,MO,4,Republican,2025-01-03,2027-01-03,1
+A000380,Gabe Amo,Gabe,Amo,house,RI,1,Democrat,2025-01-03,2027-01-03,1
+A000381,Yassamin Ansari,Yassamin,Ansari,house,AZ,3,Democrat,2025-01-03,2027-01-03,1
+A000382,Angela D. Alsobrooks,Angela,Alsobrooks,senate,MD,,Democrat,2025-01-03,2031-01-03,1
+A000383,Alan Armstrong,Alan,Armstrong,senate,OK,,Republican,2026-03-24,2027-01-03,1
+B000013,Spencer Bachus,Spencer,Bachus,house,AL,6,Republican,2013-01-03,2015-01-03,0
+B000208,Roscoe G. Bartlett,Roscoe,Bartlett,house,MD,6,Republican,2011-01-05,2013-01-03,0
+B000213,Joe Barton,Joe,Barton,house,TX,6,Republican,2017-01-03,2019-01-03,0
+B000220,Charles F. Bass,Charles,Bass,house,NH,2,Republican,2011-01-05,2013-01-03,0
+B000243,Max Baucus,Max,Baucus,senate,MT,,Democrat,2009-01-06,2014-02-06,0
+B000287,Xavier Becerra,Xavier,Becerra,house,CA,34,Democrat,2017-01-03,2017-01-24,0
+B000410,Howard L. Berman,Howard,Berman,house,CA,28,Democrat,2011-01-05,2013-01-03,0
+B000461,Brian P. Bilbray,Brian,Bilbray,house,CA,50,Republican,2011-01-05,2013-01-03,0
+B000468,Jeff Bingaman,Jeff,Bingaman,senate,NM,,Democrat,2007-01-04,2013-01-03,0
+B000490,"Sanford D. Bishop, Jr.",Sanford,Bishop,house,GA,2,Democrat,2025-01-03,2027-01-03,1
+B000574,Earl Blumenauer,Earl,Blumenauer,house,OR,3,Democrat,2023-01-03,2025-01-03,0
+B000575,Roy Blunt,Roy,Blunt,senate,MO,,Republican,2017-01-03,2023-01-03,0
+B000589,John A. Boehner,John,Boehner,house,OH,8,Republican,2015-01-06,2015-10-31,0
+B000652,Leonard L. Boswell,Leonard,Boswell,house,IA,3,Democrat,2011-01-05,2013-01-03,0
+B000668,Cliff Bentz,Cliff,Bentz,house,OR,2,Republican,2025-01-03,2027-01-03,1
+B000711,Barbara Boxer,Barbara,Boxer,senate,CA,,Democrat,2011-01-05,2017-01-03,0
+B000740,Stephanie I. Bice,Stephanie,Bice,house,OK,5,Republican,2025-01-03,2027-01-03,1
+B000755,Kevin Brady,Kevin,Brady,house,TX,8,Republican,2021-01-03,2023-01-03,0
+B000825,Lauren Boebert,Lauren,Boebert,house,CO,4,Republican,2025-01-03,2027-01-03,1
+B000911,Corrine Brown,Corrine,Brown,house,FL,5,Democrat,2015-01-06,2017-01-03,0
+B000944,Sherrod Brown,Sherrod,Brown,senate,OH,,Democrat,2019-01-03,2025-01-03,0
+B001135,Richard Burr,Richard,Burr,senate,NC,,Republican,2017-01-03,2023-01-03,0
+B001149,Dan Burton,Dan,Burton,house,IN,5,Republican,2011-01-05,2013-01-03,0
+B001223,Jamaal Bowman,Jamaal,Bowman,house,NY,16,Democrat,2023-01-03,2025-01-03,0
+B001224,Cori Bush,Cori,Bush,house,MO,1,Democrat,2023-01-03,2025-01-03,0
+B001227,Robert A. Brady,Robert,Brady,house,PA,1,Democrat,2017-01-03,2019-01-03,0
+B001228,Mary Bono Mack,Mary,Bono Mack,house,CA,45,Republican,2011-01-05,2013-01-03,0
+B001230,Tammy Baldwin,Tammy,Baldwin,senate,WI,,Democrat,2025-01-03,2031-01-03,1
+B001231,Shelley Berkley,Shelley,Berkley,house,NV,1,Democrat,2011-01-05,2013-01-03,0
+B001232,Judy Biggert,Judy,Biggert,house,IL,13,Republican,2011-01-05,2013-01-03,0
+B001234,Joe Baca,Joe,Baca,house,CA,43,Democrat,2011-01-05,2013-01-03,0
+B001236,John Boozman,John,Boozman,senate,AR,,Republican,2023-01-03,2029-01-03,1
+B001242,Timothy H. Bishop,Timothy,Bishop,house,NY,1,Democrat,2013-01-03,2015-01-03,0
+B001243,Marsha Blackburn,Marsha,Blackburn,senate,TN,,Republican,2025-01-03,2031-01-03,1
+B001244,Jo Bonner,Jo,Bonner,house,AL,1,Republican,2013-01-03,2013-08-02,0
+B001245,Madeleine Z. Bordallo,Madeleine,Bordallo,house,GU,0,Democrat,2017-01-03,2019-01-03,0
+B001248,Michael C. Burgess,Michael,Burgess,house,TX,26,Republican,2023-01-03,2025-01-03,0
+B001250,Rob Bishop,Rob,Bishop,house,UT,1,Republican,2019-01-03,2021-01-03,0
+B001251,G. K. Butterfield,George,Butterfield,house,NC,1,Democrat,2021-01-03,2022-12-30,0
+B001252,John Barrow,John,Barrow,house,GA,12,Democrat,2013-01-03,2015-01-03,0
+B001254,Dan Boren,Dan,Boren,house,OK,2,Democrat,2011-01-05,2013-01-03,0
+B001255,Charles W. Boustany Jr.,Charles,Boustany,house,LA,3,Republican,2015-01-06,2017-01-03,0
+B001256,Michele Bachmann,Michele,Bachmann,house,MN,6,Republican,2013-01-03,2015-01-03,0
+B001257,Gus M. Bilirakis,Gus,Bilirakis,house,FL,12,Republican,2025-01-03,2027-01-03,1
+B001259,Bruce L. Braley,Bruce,Braley,house,IA,1,Democrat,2013-01-03,2015-01-03,0
+B001260,Vern Buchanan,Vern,Buchanan,house,FL,16,Republican,2025-01-03,2027-01-03,1
+B001261,John Barrasso,John,Barrasso,senate,WY,,Republican,2025-01-03,2031-01-03,1
+B001262,Paul C. Broun,Paul,Broun,house,GA,10,Republican,2013-01-03,2015-01-03,0
+B001265,Mark Begich,Mark,Begich,senate,AK,,Democrat,2009-01-06,2015-01-03,0
+B001267,Michael F. Bennet,Michael,Bennet,senate,CO,,Democrat,2023-01-03,2029-01-03,1
+B001268,Scott P. Brown,Scott,Brown,senate,MA,,Republican,2010-02-04,2013-01-03,0
+B001269,Lou Barletta,Lou,Barletta,house,PA,11,Republican,2017-01-03,2019-01-03,0
+B001270,Karen Bass,Karen,Bass,house,CA,37,Democrat,2021-01-03,2023-01-03,0
+B001271,Dan Benishek,Dan,Benishek,house,MI,1,Republican,2015-01-06,2017-01-03,0
+B001272,Rick Berg,Rick,Berg,house,ND,0,Republican,2011-01-05,2013-01-03,0
+B001273,Diane Black,Diane,Black,house,TN,6,Republican,2017-01-03,2019-01-03,0
+B001274,Mo Brooks,Mo,Brooks,house,AL,5,Republican,2021-01-03,2023-01-03,0
+B001275,Larry Bucshon,Larry,Bucshon,house,IN,8,Republican,2023-01-03,2025-01-03,0
+B001276,Ann Marie Buerkle,Ann Marie,Buerkle,house,NY,25,Republican,2011-01-05,2013-01-03,0
+B001277,Richard Blumenthal,Richard,Blumenthal,senate,CT,,Democrat,2023-01-03,2029-01-03,1
+B001278,Suzanne Bonamici,Suzanne,Bonamici,house,OR,1,Democrat,2025-01-03,2027-01-03,1
+B001279,Ron Barber,Ron,Barber,house,AZ,2,Democrat,2013-01-03,2015-01-03,0
+B001280,Kerry L. Bentivolio,Kerry,Bentivolio,house,MI,11,Republican,2013-01-03,2015-01-03,0
+B001281,Joyce Beatty,Joyce,Beatty,house,OH,3,Democrat,2025-01-03,2027-01-03,1
+B001282,Andy Barr,Garland,Barr,house,KY,6,Republican,2025-01-03,2027-01-03,1
+B001283,Jim Bridenstine,Jim,Bridenstine,house,OK,1,Republican,2017-01-03,2018-04-23,0
+B001284,Susan W. Brooks,Susan,Brooks,house,IN,5,Republican,2019-01-03,2021-01-03,0
+B001285,Julia Brownley,Julia,Brownley,house,CA,26,Democrat,2025-01-03,2027-01-03,1
+B001286,Cheri Bustos,Cheri,Bustos,house,IL,17,Democrat,2021-01-03,2023-01-03,0
+B001287,Ami Bera,Ami,Bera,house,CA,6,Democrat,2025-01-03,2027-01-03,1
+B001288,Cory A. Booker,Cory,Booker,senate,NJ,,Democrat,2021-01-03,2027-01-03,1
+B001289,Bradley Byrne,Bradley,Byrne,house,AL,1,Republican,2019-01-03,2021-01-03,0
+B001290,Dave Brat,David,Brat,house,VA,7,Republican,2017-01-03,2019-01-03,0
+B001291,Brian Babin,Brian,Babin,house,TX,36,Republican,2025-01-03,2027-01-03,1
+B001292,"Donald S. Beyer, Jr.",Donald,Beyer,house,VA,8,Democrat,2025-01-03,2027-01-03,1
+B001293,Mike Bishop,Mike,Bishop,house,MI,8,Republican,2017-01-03,2019-01-03,0
+B001294,Rod Blum,Rod,Blum,house,IA,1,Republican,2017-01-03,2019-01-03,0
+B001295,Mike Bost,Mike,Bost,house,IL,12,Republican,2025-01-03,2027-01-03,1
+B001296,Brendan F. Boyle,Brendan,Boyle,house,PA,2,Democrat,2025-01-03,2027-01-03,1
+B001297,Ken Buck,Ken,Buck,house,CO,4,Republican,2023-01-03,2024-03-22,0
+B001298,Don Bacon,Don,Bacon,house,NE,2,Republican,2025-01-03,2027-01-03,1
+B001299,Jim Banks,Jim,Banks,senate,IN,,Republican,2025-01-03,2031-01-03,1
+B001300,Nanette Diaz Barragán,Nanette,Barragán,house,CA,44,Democrat,2025-01-03,2027-01-03,1
+B001301,Jack Bergman,Jack,Bergman,house,MI,1,Republican,2025-01-03,2027-01-03,1
+B001302,Andy Biggs,Andy,Biggs,house,AZ,5,Republican,2025-01-03,2027-01-03,1
+B001303,Lisa Blunt Rochester,Lisa,Blunt Rochester,senate,DE,,Democrat,2025-01-03,2031-01-03,1
+B001304,Anthony G. Brown,Anthony,Brown,house,MD,4,Democrat,2021-01-03,2023-01-03,0
+B001305,Ted Budd,Ted,Budd,senate,NC,,Republican,2023-01-03,2029-01-03,1
+B001306,Troy Balderson,Troy,Balderson,house,OH,12,Republican,2025-01-03,2027-01-03,1
+B001307,James R. Baird,James,Baird,house,IN,4,Republican,2025-01-03,2027-01-03,1
+B001308,Anthony Brindisi,Anthony,Brindisi,house,NY,22,Democrat,2019-01-03,2021-01-03,0
+B001309,Tim Burchett,Tim,Burchett,house,TN,2,Republican,2025-01-03,2027-01-03,1
+B001310,Mike Braun,Mike,Braun,senate,IN,,Republican,2019-01-03,2025-01-03,0
+B001311,Dan Bishop,Dan,Bishop,house,NC,8,Republican,2023-01-03,2025-01-03,0
+B001312,Carolyn Bourdeaux,Carolyn,Bourdeaux,house,GA,7,Democrat,2021-01-03,2023-01-03,0
+B001313,Shontel M. Brown,Shontel,Brown,house,OH,11,Democrat,2025-01-03,2027-01-03,1
+B001314,Aaron Bean,Aaron,Bean,house,FL,4,Republican,2025-01-03,2027-01-03,1
+B001315,Nikki Budzinski,Nicole (Nikki),Budzinski,house,IL,13,Democrat,2025-01-03,2027-01-03,1
+B001316,Eric Burlison,Eric,Burlison,house,MO,7,Republican,2025-01-03,2027-01-03,1
+B001317,Josh Brecheen,Josh,Brecheen,house,OK,2,Republican,2025-01-03,2027-01-03,1
+B001318,Becca Balint,Becca,Balint,house,VT,0,Democrat,2025-01-03,2027-01-03,1
+B001319,Katie Boyd Britt,Katie,Britt,senate,AL,,Republican,2023-01-03,2029-01-03,1
+B001320,Laphonza R. Butler,Laphonza,Butler,senate,CA,,Democrat,2023-10-03,2024-12-08,0
+B001321,Tom Barrett,Tom,Barrett,house,MI,7,Republican,2025-01-03,2027-01-03,1
+B001322,Michael Baumgartner,Michael,Baumgartner,house,WA,5,Republican,2025-01-03,2027-01-03,1
+B001323,Nicholas J. Begich III,Nicholas,Begich,house,AK,0,Republican,2025-01-03,2027-01-03,1
+B001324,Wesley Bell,Wesley,Bell,house,MO,1,Democrat,2025-01-03,2027-01-03,1
+B001325,Sheri Biggs,Sheri,Biggs,house,SC,3,Republican,2025-01-03,2027-01-03,1
+B001326,Janelle S. Bynum,Janelle,Bynum,house,OR,5,Democrat,2025-01-03,2027-01-03,1
+B001327,"Robert P. Bresnahan, Jr.",Robert,Bresnahan,house,PA,8,Republican,2025-01-03,2027-01-03,1
+B001328,Everton Blair Jr.,Everton,Blair,house,GA,13,Democrat,2026-09-01,2027-01-03,1
+C000059,Ken Calvert,Ken,Calvert,house,CA,41,Republican,2025-01-03,2027-01-03,1
+C000071,Dave Camp,Dave,Camp,house,MI,4,Republican,2013-01-03,2015-01-03,0
+C000127,Maria Cantwell,Maria,Cantwell,senate,WA,,Democrat,2025-01-03,2031-01-03,1
+C000141,Benjamin L. Cardin,Benjamin,Cardin,senate,MD,,Democrat,2019-01-03,2025-01-03,0
+C000174,Thomas R. Carper,Thomas,Carper,senate,DE,,Democrat,2019-01-03,2025-01-03,0
+C000266,Steve Chabot,Steve,Chabot,house,OH,1,Republican,2021-01-03,2023-01-03,0
+C000286,Saxby Chambliss,Saxby,Chambliss,senate,GA,,Republican,2009-01-06,2015-01-03,0
+C000380,Donna M. Christensen,Donna,Christensen,house,VI,0,Democrat,2013-01-03,2015-01-03,0
+C000537,James E. Clyburn,James,Clyburn,house,SC,6,Democrat,2025-01-03,2027-01-03,1
+C000542,Daniel Coats,Daniel,Coats,senate,IN,,Republican,2011-01-05,2017-01-03,0
+C000556,Howard Coble,Howard,Coble,house,NC,6,Republican,2013-01-03,2015-01-03,0
+C000560,Tom Coburn,Thomas,Coburn,senate,OK,,Republican,2011-01-05,2015-01-03,0
+C000567,Thad Cochran,Thad,Cochran,senate,MS,,Republican,2015-01-06,2018-04-01,0
+C000705,Kent Conrad,Kent,Conrad,senate,ND,,Democrat,2007-01-04,2013-01-03,0
+C000714,"John Conyers, Jr.",John,Conyers,house,MI,13,Democrat,2017-01-03,2017-12-05,0
+C000754,Jim Cooper,Jim,Cooper,house,TN,5,Democrat,2021-01-03,2023-01-03,0
+C000794,Jerry F. Costello,Jerry,Costello,house,IL,12,Democrat,2011-01-05,2013-01-03,0
+C000880,Mike Crapo,Michael,Crapo,senate,ID,,Republican,2023-01-03,2029-01-03,1
+C000984,Elijah E. Cummings,Elijah,Cummings,house,MD,7,Democrat,2019-01-03,2019-10-17,0
+C001035,Susan M. Collins,Susan,Collins,senate,ME,,Republican,2021-01-03,2027-01-03,1
+C001036,Lois Capps,Lois,Capps,house,CA,24,Democrat,2015-01-06,2017-01-03,0
+C001037,Michael E. Capuano,Michael,Capuano,house,MA,7,Democrat,2017-01-03,2019-01-03,0
+C001038,Joseph Crowley,Joseph,Crowley,house,NY,14,Democrat,2017-01-03,2019-01-03,0
+C001039,Kat Cammack,Katherine,Cammack,house,FL,3,Republican,2025-01-03,2027-01-03,1
+C001045,Ander Crenshaw,Ander,Crenshaw,house,FL,4,Republican,2015-01-06,2017-01-03,0
+C001046,Eric Cantor,Eric,Cantor,house,VA,7,Republican,2013-01-03,2014-08-18,0
+C001047,Shelley Moore Capito,Shelley,Capito,senate,WV,,Republican,2021-01-03,2027-01-03,1
+C001048,John Abney Culberson,John,Culberson,house,TX,7,Republican,2017-01-03,2019-01-03,0
+C001049,Wm. Lacy Clay,Wm.,Clay,house,MO,1,Democrat,2019-01-03,2021-01-03,0
+C001050,Dennis Cardoza,Dennis,Cardoza,house,CA,18,Democrat,2011-01-05,2012-08-15,0
+C001051,John R. Carter,John,Carter,house,TX,31,Republican,2025-01-03,2027-01-03,1
+C001053,Tom Cole,Tom,Cole,house,OK,4,Republican,2025-01-03,2027-01-03,1
+C001054,Jerry L. Carl,Jerry,Carl,house,AL,1,Republican,2023-01-03,2025-01-03,0
+C001055,Ed Case,Ed,Case,house,HI,1,Democrat,2025-01-03,2027-01-03,1
+C001056,John Cornyn,John,Cornyn,senate,TX,,Republican,2021-01-03,2027-01-03,1
+C001058,Ben Chandler,Ben,Chandler,house,KY,6,Democrat,2011-01-05,2013-01-03,0
+C001059,Jim Costa,Jim,Costa,house,CA,21,Democrat,2025-01-03,2027-01-03,1
+C001060,Russ Carnahan,Russ,Carnahan,house,MO,3,Democrat,2011-01-05,2013-01-03,0
+C001061,Emanuel Cleaver,Emanuel,Cleaver,house,MO,5,Democrat,2025-01-03,2027-01-03,1
+C001062,K. Michael Conaway,K.,Conaway,house,TX,11,Republican,2019-01-03,2021-01-03,0
+C001063,Henry Cuellar,Henry,Cuellar,house,TX,28,Democrat,2025-01-03,2027-01-03,1
+C001064,John Campbell,John,Campbell,house,CA,45,Republican,2013-01-03,2015-01-03,0
+C001066,Kathy Castor,Kathy,Castor,house,FL,14,Democrat,2025-01-03,2027-01-03,1
+C001067,Yvette D. Clarke,Yvette,Clarke,house,NY,9,Democrat,2025-01-03,2027-01-03,1
+C001068,Steve Cohen,Steve,Cohen,house,TN,9,Democrat,2025-01-03,2027-01-03,1
+C001069,Joe Courtney,Joe,Courtney,house,CT,2,Democrat,2025-01-03,2027-01-03,1
+C001070,"Robert P. Casey, Jr.",Robert,Casey,senate,PA,,Democrat,2019-01-03,2025-01-03,0
+C001071,Bob Corker,Bob,Corker,senate,TN,,Republican,2013-01-03,2019-01-03,0
+C001072,André Carson,André,Carson,house,IN,7,Democrat,2025-01-03,2027-01-03,1
+C001075,Bill Cassidy,Bill,Cassidy,senate,LA,,Republican,2021-01-03,2027-01-03,1
+C001076,Jason Chaffetz,Jason,Chaffetz,house,UT,3,Republican,2017-01-03,2017-06-30,0
+C001077,Mike Coffman,Mike,Coffman,house,CO,6,Republican,2017-01-03,2019-01-03,0
+C001078,Gerald E. Connolly,Gerald,Connolly,house,VA,11,Democrat,2025-01-03,2025-05-21,0
+C001080,Judy Chu,Judy,Chu,house,CA,28,Democrat,2025-01-03,2027-01-03,1
+C001081,Mark S. Critz,Mark,Critz,house,PA,12,Democrat,2011-01-05,2013-01-03,0
+C001082,"Francisco ""Quico"" Canseco",Francisco,Canseco,house,TX,23,Republican,2011-01-05,2013-01-03,0
+C001083,John C. Carney Jr.,John,Carney,house,DE,0,Democrat,2015-01-06,2017-01-03,0
+C001084,David N. Cicilline,David,Cicilline,house,RI,1,Democrat,2023-01-03,2023-05-31,0
+C001085,Hansen Clarke,Hansen,Clarke,house,MI,13,Democrat,2011-01-05,2013-01-03,0
+C001086,Chip Cravaack,Chip,Cravaack,house,MN,8,Republican,2011-01-05,2013-01-03,0
+C001087,"Eric A. ""Rick"" Crawford",Eric,Crawford,house,AR,1,Republican,2025-01-03,2027-01-03,1
+C001088,Christopher A. Coons,Christopher,Coons,senate,DE,,Democrat,2021-01-03,2027-01-03,1
+C001089,David Alan Curson,David,Curson,house,MI,11,Democrat,2012-11-13,2013-01-03,0
+C001090,Matt Cartwright,Matthew,Cartwright,house,PA,8,Democrat,2023-01-03,2025-01-03,0
+C001091,Joaquin Castro,Joaquin,Castro,house,TX,20,Democrat,2025-01-03,2027-01-03,1
+C001092,Chris Collins,Chris,Collins,house,NY,27,Republican,2019-01-03,2019-10-01,0
+C001093,Doug Collins,Doug,Collins,house,GA,9,Republican,2019-01-03,2021-01-03,0
+C001094,Paul Cook,Paul,Cook,house,CA,8,Republican,2019-01-03,2020-12-07,0
+C001095,Tom Cotton,Tom,Cotton,senate,AR,,Republican,2021-01-03,2027-01-03,1
+C001096,Kevin Cramer,Kevin,Cramer,senate,ND,,Republican,2025-01-03,2031-01-03,1
+C001097,Tony Cárdenas,Tony,Cárdenas,house,CA,29,Democrat,2023-01-03,2025-01-03,0
+C001098,Ted Cruz,Ted,Cruz,senate,TX,,Republican,2025-01-03,2031-01-03,1
+C001099,William M. Cowan,William,Cowan,senate,MA,,Democrat,2013-02-06,2013-07-16,0
+C001100,Jeff Chiesa,Jeffrey,Chiesa,senate,NJ,,Republican,2013-06-10,2013-10-31,0
+C001101,Katherine M. Clark,Katherine,Clark,house,MA,5,Democrat,2025-01-03,2027-01-03,1
+C001102,Curt Clawson,Curtis,Clawson,house,FL,19,Republican,2015-01-06,2017-01-03,0
+C001103,"Earl L. ""Buddy"" Carter",Earl,Carter,house,GA,1,Republican,2025-01-03,2027-01-03,1
+C001104,Madison Cawthorn,Madison,Cawthorn,house,NC,11,Republican,2021-01-03,2023-01-03,0
+C001105,Barbara Comstock,Barbara,Comstock,house,VA,10,Republican,2017-01-03,2019-01-03,0
+C001106,Ryan A. Costello,Ryan,Costello,house,PA,6,Republican,2017-01-03,2019-01-03,0
+C001107,Carlos Curbelo,Carlos,Curbelo,house,FL,26,Republican,2017-01-03,2019-01-03,0
+C001108,James Comer,James,Comer,house,KY,1,Republican,2025-01-03,2027-01-03,1
+C001109,Liz Cheney,Liz,Cheney,house,WY,0,Republican,2021-01-03,2023-01-03,0
+C001110,J. Luis Correa,J.,Correa,house,CA,46,Democrat,2025-01-03,2027-01-03,1
+C001111,Charlie Crist,Charlie,Crist,house,FL,13,Democrat,2021-01-03,2022-08-31,0
+C001112,Salud O. Carbajal,Salud,Carbajal,house,CA,24,Democrat,2025-01-03,2027-01-03,1
+C001113,Catherine Cortez Masto,Catherine,Cortez Masto,senate,NV,,Democrat,2023-01-03,2029-01-03,1
+C001114,John R. Curtis,John,Curtis,senate,UT,,Republican,2025-01-03,2031-01-03,1
+C001115,Michael Cloud,Michael,Cloud,house,TX,27,Republican,2025-01-03,2027-01-03,1
+C001116,Andrew S. Clyde,Andrew,Clyde,house,GA,9,Republican,2025-01-03,2027-01-03,1
+C001117,Sean Casten,Sean,Casten,house,IL,6,Democrat,2025-01-03,2027-01-03,1
+C001118,Ben Cline,Ben,Cline,house,VA,6,Republican,2025-01-03,2027-01-03,1
+C001119,Angie Craig,Angie,Craig,house,MN,2,Democrat,2025-01-03,2027-01-03,1
+C001120,Dan Crenshaw,Dan,Crenshaw,house,TX,2,Republican,2025-01-03,2027-01-03,1
+C001121,Jason Crow,Jason,Crow,house,CO,6,Democrat,2025-01-03,2027-01-03,1
+C001122,Joe Cunningham,Joe,Cunningham,house,SC,1,Democrat,2019-01-03,2021-01-03,0
+C001123,"Gilbert Ray Cisneros, Jr.",Gilbert,Cisneros,house,CA,31,Democrat,2025-01-03,2027-01-03,1
+C001124,TJ Cox,TJ,Cox,house,CA,21,Democrat,2019-01-03,2021-01-03,0
+C001125,Troy A. Carter,Troy,Carter,house,LA,2,Democrat,2025-01-03,2027-01-03,1
+C001126,Mike Carey,Mike,Carey,house,OH,15,Republican,2025-01-03,2027-01-03,1
+C001127,Sheila Cherfilus-McCormick,Sheila,Cherfilus-McCormick,house,FL,20,Democrat,2025-01-03,2026-04-21,0
+C001128,Connie Conway,Connie,Conway,house,CA,22,Republican,2022-06-07,2023-01-03,0
+C001129,Mike Collins,Mike,Collins,house,GA,10,Republican,2025-01-03,2027-01-03,1
+C001130,Jasmine Crockett,Jasmine,Crockett,house,TX,30,Democrat,2025-01-03,2027-01-03,1
+C001131,Greg Casar,Gregorio,Casar,house,TX,35,Democrat,2025-01-03,2027-01-03,1
+C001132,Elijah Crane,Eli,Crane,house,AZ,2,Republican,2025-01-03,2027-01-03,1
+C001133,Juan Ciscomani,Juan,Ciscomani,house,AZ,6,Republican,2025-01-03,2027-01-03,1
+C001134,Yadira Caraveo,Yadira,Caraveo,house,CO,8,Democrat,2023-01-03,2025-01-03,0
+C001135,Lori Chavez-DeRemer,Lori,Chavez-DeRemer,house,OR,5,Republican,2023-01-03,2025-01-03,0
+C001136,"Herbert C. Conaway, Jr.",Herbert,Conaway,house,NJ,3,Democrat,2025-01-03,2027-01-03,1
+C001137,Jeff Crank,Jeff,Crank,house,CO,5,Republican,2025-01-03,2027-01-03,1
+D000032,Byron Donalds,Byron,Donalds,house,FL,19,Republican,2025-01-03,2027-01-03,1
+D000096,Danny K. Davis,Danny,Davis,house,IL,7,Democrat,2025-01-03,2027-01-03,1
+D000191,Peter A. DeFazio,Peter,DeFazio,house,OR,4,Democrat,2021-01-03,2023-01-03,0
+D000197,Diana DeGette,Diana,DeGette,house,CO,1,Democrat,2025-01-03,2027-01-03,1
+D000216,Rosa L. DeLauro,Rosa,DeLauro,house,CT,3,Democrat,2025-01-03,2027-01-03,1
+D000230,Donald G. Davis,Donald,Davis,house,NC,1,Democrat,2025-01-03,2027-01-03,1
+D000327,Norman D. Dicks,Norman,Dicks,house,WA,6,Democrat,2011-01-05,2013-01-03,0
+D000355,John D. Dingell,John,Dingell,house,MI,12,Democrat,2013-01-03,2015-01-03,0
+D000399,Lloyd Doggett,Lloyd,Doggett,house,TX,37,Democrat,2025-01-03,2027-01-03,1
+D000482,Michael F. Doyle,Michael,Doyle,house,PA,18,Democrat,2021-01-03,2022-12-31,0
+D000492,David Dreier,David,Dreier,house,CA,26,Republican,2011-01-05,2013-01-03,0
+D000530,Christopher R. Deluzio,Chris,Deluzio,house,PA,17,Democrat,2025-01-03,2027-01-03,1
+D000533,"John J. Duncan, Jr.",John,Duncan,house,TN,2,Republican,2017-01-03,2019-01-03,0
+D000563,Richard J. Durbin,Richard,Durbin,senate,IL,,Democrat,2021-01-03,2027-01-03,1
+D000594,Monica De La Cruz,Mónica,De La Cruz,house,TX,15,Republican,2025-01-03,2027-01-03,1
+D000595,Jim DeMint,Jim,DeMint,senate,SC,,Republican,2011-01-05,2013-01-01,0
+D000598,Susan A. Davis,Susan,Davis,house,CA,53,Democrat,2019-01-03,2021-01-03,0
+D000600,Mario Diaz-Balart,Mario,Diaz-Balart,house,FL,26,Republican,2025-01-03,2027-01-03,1
+D000603,Geoff Davis,Geoff,Davis,house,KY,4,Republican,2011-01-05,2012-07-31,0
+D000604,Charles W. Dent,Charles,Dent,house,PA,15,Republican,2017-01-03,2018-05-12,0
+D000607,Joe Donnelly,Joe,Donnelly,senate,IN,,Democrat,2013-01-03,2019-01-03,0
+D000610,Theodore E. Deutch,Theodore,Deutch,house,FL,22,Democrat,2021-01-03,2022-09-30,0
+D000612,Jeff Denham,Jeff,Denham,house,CA,10,Republican,2017-01-03,2019-01-03,0
+D000613,Robert J. Dold,Bob,Dold,house,IL,10,Republican,2015-01-06,2017-01-03,0
+D000614,Sean P. Duffy,Sean,Duffy,house,WI,7,Republican,2019-01-03,2019-09-23,0
+D000615,Jeff Duncan,Jeff,Duncan,house,SC,3,Republican,2023-01-03,2025-01-03,0
+D000616,Scott DesJarlais,Scott,DesJarlais,house,TN,4,Republican,2025-01-03,2027-01-03,1
+D000617,Suzan K. DelBene,Suzan,DelBene,house,WA,1,Democrat,2025-01-03,2027-01-03,1
+D000618,Steve Daines,Steve,Daines,senate,MT,,Republican,2021-01-03,2027-01-03,1
+D000619,Rodney Davis,Rodney,Davis,house,IL,13,Republican,2021-01-03,2023-01-03,0
+D000620,John K. Delaney,John,Delaney,house,MD,6,Democrat,2017-01-03,2019-01-03,0
+D000621,Ron DeSantis,Ron,DeSantis,house,FL,6,Republican,2017-01-03,2018-09-10,0
+D000622,Tammy Duckworth,Tammy,Duckworth,senate,IL,,Democrat,2023-01-03,2029-01-03,1
+D000623,Mark DeSaulnier,Mark,DeSaulnier,house,CA,10,Democrat,2025-01-03,2027-01-03,1
+D000624,Debbie Dingell,Debbie,Dingell,house,MI,6,Democrat,2025-01-03,2027-01-03,1
+D000625,"Daniel M. Donovan, Jr.",Daniel,Donovan,house,NY,11,Republican,2017-01-03,2019-01-03,0
+D000626,Warren Davidson,Warren,Davidson,house,OH,8,Republican,2025-01-03,2027-01-03,1
+D000627,Val Butler Demings,Val,Demings,house,FL,10,Democrat,2021-01-03,2023-01-03,0
+D000628,Neal P. Dunn,Neal,Dunn,house,FL,2,Republican,2025-01-03,2027-01-03,1
+D000629,Sharice Davids,Sharice,Davids,house,KS,3,Democrat,2025-01-03,2027-01-03,1
+D000630,Antonio Delgado,Antonio,Delgado,house,NY,19,Democrat,2021-01-03,2022-05-25,0
+D000631,Madeleine Dean,Madeleine,Dean,house,PA,4,Democrat,2025-01-03,2027-01-03,1
+D000632,Anthony D’Esposito,Anthony,D'Esposito,house,NY,4,Republican,2023-01-03,2025-01-03,0
+D000633,John S. Duarte,John,Duarte,house,CA,13,Republican,2023-01-03,2025-01-03,0
+D000634,Troy Downing,Troy,Downing,house,MT,2,Republican,2025-01-03,2027-01-03,1
+D000635,Maxine Dexter,Maxine,Dexter,house,OR,3,Democrat,2025-01-03,2027-01-03,1
+E000071,Jake Ellzey,Jake,Ellzey,house,TX,6,Republican,2025-01-03,2027-01-03,1
+E000172,Jo Ann Emerson,Jo Ann,Emerson,house,MO,8,Republican,2013-01-03,2013-01-22,0
+E000179,Eliot L. Engel,Eliot,Engel,house,NY,16,Democrat,2019-01-03,2021-01-03,0
+E000215,Anna G. Eshoo,Anna,Eshoo,house,CA,16,Democrat,2023-01-03,2025-01-03,0
+E000235,Mike Ezell,Mike,Ezell,house,MS,4,Republican,2025-01-03,2027-01-03,1
+E000246,Chuck Edwards,Charles (Chuck),Edwards,house,NC,11,Republican,2025-01-03,2027-01-03,1
+E000285,Michael B. Enzi,Michael,Enzi,senate,WY,,Republican,2015-01-06,2021-01-03,0
+E000288,Keith Ellison,Keith,Ellison,house,MN,5,Democrat,2017-01-03,2019-01-03,0
+E000290,Donna F. Edwards,Donna,Edwards,house,MD,4,Democrat,2015-01-06,2017-01-03,0
+E000291,Renee L. Ellmers,Renee,Ellmers,house,NC,2,Republican,2015-01-06,2017-01-03,0
+E000292,William L. Enyart,William,Enyart,house,IL,12,Democrat,2013-01-03,2015-01-03,0
+E000293,Elizabeth H. Esty,Elizabeth,Esty,house,CT,5,Democrat,2017-01-03,2019-01-03,0
+E000294,Tom Emmer,Tom,Emmer,house,MN,6,Republican,2025-01-03,2027-01-03,1
+E000295,Joni Ernst,Joni,Ernst,senate,IA,,Republican,2021-01-03,2027-01-03,1
+E000296,Dwight Evans,Dwight,Evans,house,PA,3,Democrat,2025-01-03,2027-01-03,1
+E000297,Adriano Espaillat,Adriano,Espaillat,house,NY,13,Democrat,2025-01-03,2027-01-03,1
+E000298,Ron Estes,Ron,Estes,house,KS,4,Republican,2025-01-03,2027-01-03,1
+E000299,Veronica Escobar,Veronica,Escobar,house,TX,16,Democrat,2025-01-03,2027-01-03,1
+E000300,Gabe Evans,Gabe,Evans,house,CO,8,Republican,2025-01-03,2027-01-03,1
+E000301,Sarah Elfreth,Sarah,Elfreth,house,MD,3,Democrat,2025-01-03,2027-01-03,1
+F000010,Eni F. H. Faleomavaega,Eni,Faleomavaega,house,AS,0,Democrat,2013-01-03,2015-01-03,0
+F000030,Sam Farr,Sam,Farr,house,CA,20,Democrat,2015-01-06,2017-01-03,0
+F000043,Chaka Fattah,Chaka,Fattah,house,PA,2,Democrat,2015-01-06,2016-06-23,0
+F000062,Dianne Feinstein,Dianne,Feinstein,senate,CA,,Democrat,2019-01-03,2023-09-28,0
+F000110,Cleo Fields,Cleo,Fields,house,LA,6,Democrat,2025-01-03,2027-01-03,1
+F000116,Bob Filner,Bob,Filner,house,CA,51,Democrat,2011-01-05,2012-12-03,0
+F000246,Pat Fallon,Patrick,Fallon,house,TX,4,Republican,2025-01-03,2027-01-03,1
+F000339,Barney Frank,Barney,Frank,house,MA,4,Democrat,2011-01-05,2013-01-03,0
+F000372,Rodney P. Frelinghuysen,Rodney,Frelinghuysen,house,NJ,11,Republican,2017-01-03,2019-01-03,0
+F000444,Jeff Flake,Jeff,Flake,senate,AZ,,Republican,2013-01-03,2019-01-03,0
+F000445,J. Randy Forbes,J.,Forbes,house,VA,4,Republican,2015-01-06,2017-01-03,0
+F000446,Randy Feenstra,Randy,Feenstra,house,IA,4,Republican,2025-01-03,2027-01-03,1
+F000448,Trent Franks,Trent,Franks,house,AZ,8,Republican,2017-01-03,2017-12-08,0
+F000449,Jeff Fortenberry,Jeff,Fortenberry,house,NE,1,Republican,2021-01-03,2022-03-31,0
+F000450,Virginia Foxx,Virginia,Foxx,house,NC,5,Republican,2025-01-03,2027-01-03,1
+F000451,Michael G. Fitzpatrick,Michael,Fitzpatrick,house,PA,8,Republican,2015-01-06,2017-01-03,0
+F000454,Bill Foster,Bill,Foster,house,IL,11,Democrat,2025-01-03,2027-01-03,1
+F000455,Marcia L. Fudge,Marcia,Fudge,house,OH,11,Democrat,2021-01-03,2021-03-10,0
+F000456,John Fleming,John,Fleming,house,LA,4,Republican,2015-01-06,2017-01-03,0
+F000457,Al Franken,Alan,Franken,senate,MN,,Democrat,2015-01-06,2018-01-02,0
+F000458,Stephen Lee Fincher,Stephen,Fincher,house,TN,8,Republican,2015-01-06,2017-01-03,0
+F000459,"Charles J. ""Chuck"" Fleischmann",Charles,Fleischmann,house,TN,3,Republican,2025-01-03,2027-01-03,1
+F000460,Blake Farenthold,Blake,Farenthold,house,TX,27,Republican,2017-01-03,2018-04-06,0
+F000461,Bill Flores,Bill,Flores,house,TX,17,Republican,2019-01-03,2021-01-03,0
+F000462,Lois Frankel,Lois,Frankel,house,FL,22,Democrat,2025-01-03,2027-01-03,1
+F000463,Deb Fischer,Deb,Fischer,senate,NE,,Republican,2025-01-03,2031-01-03,1
+F000464,John J. Faso,John,Faso,house,NY,19,Republican,2017-01-03,2019-01-03,0
+F000465,A. Drew Ferguson IV,A.,Ferguson,house,GA,3,Republican,2023-01-03,2025-01-03,0
+F000466,Brian K. Fitzpatrick,Brian,Fitzpatrick,house,PA,1,Republican,2025-01-03,2027-01-03,1
+F000467,Abby Finkenauer,Abby,Finkenauer,house,IA,1,Democrat,2019-01-03,2021-01-03,0
+F000468,Lizzie Fletcher,Lizzie,Fletcher,house,TX,7,Democrat,2025-01-03,2027-01-03,1
+F000469,Russ Fulcher,Russ,Fulcher,house,ID,1,Republican,2025-01-03,2027-01-03,1
+F000470,Michelle Fischbach,Michelle,Fischbach,house,MN,7,Republican,2025-01-03,2027-01-03,1
+F000471,Scott Fitzgerald,Scott,Fitzgerald,house,WI,5,Republican,2025-01-03,2027-01-03,1
+F000472,Scott Franklin,C.,Franklin,house,FL,18,Republican,2025-01-03,2027-01-03,1
+F000473,Mayra Flores,Mayra,Flores,house,TX,34,Republican,2022-06-21,2023-01-03,0
+F000474,Mike Flood,Mike,Flood,house,NE,1,Republican,2025-01-03,2027-01-03,1
+F000475,Brad Finstad,Brad,Finstad,house,MN,1,Republican,2025-01-03,2027-01-03,1
+F000476,Maxwell Frost,Maxwell,Frost,house,FL,10,Democrat,2025-01-03,2027-01-03,1
+F000477,Valerie P. Foushee,Valerie,Foushee,house,NC,4,Democrat,2025-01-03,2027-01-03,1
+F000478,Russell Fry,Russell,Fry,house,SC,7,Republican,2025-01-03,2027-01-03,1
+F000479,John Fetterman,John,Fetterman,senate,PA,,Democrat,2023-01-03,2029-01-03,1
+F000480,Vince Fong,Vince,Fong,house,CA,20,Republican,2025-01-03,2027-01-03,1
+F000481,Shomari Figures,Shomari,Figures,house,AL,2,Democrat,2025-01-03,2027-01-03,1
+F000482,Julie Fedorchak,Julie,Fedorchak,house,ND,0,Republican,2025-01-03,2027-01-03,1
+F000483,Laura Friedman,Laura,Friedman,house,CA,30,Democrat,2025-01-03,2027-01-03,1
+F000484,Randy Fine,Randall,Fine,house,FL,6,Republican,2025-04-02,2027-01-03,1
+F000485,Clay Fuller,Clay,Fuller,house,GA,14,Republican,2026-04-14,2027-01-03,1
+G000021,Elton Gallegly,Elton,Gallegly,house,CA,24,Republican,2011-01-05,2013-01-03,0
+G000061,Mike Garcia,Mike,Garcia,house,CA,27,Republican,2023-01-03,2025-01-03,0
+G000289,Bob Goodlatte,Bob,Goodlatte,house,VA,6,Republican,2017-01-03,2019-01-03,0
+G000359,Lindsey Graham,Lindsey,Graham,senate,SC,,Republican,2021-01-03,2026-07-11,0
+G000377,Kay Granger,Kay,Granger,house,TX,12,Republican,2023-01-03,2025-01-03,0
+G000386,Chuck Grassley,Charles,Grassley,senate,IA,,Republican,2023-01-03,2029-01-03,1
+G000410,Gene Green,Gene,Green,house,TX,29,Democrat,2017-01-03,2019-01-03,0
+G000535,Luis V. Gutiérrez,Luis,Gutiérrez,house,IL,4,Democrat,2017-01-03,2019-01-03,0
+G000544,Charles A. Gonzalez,Charles,Gonzalez,house,TX,20,Democrat,2011-01-05,2013-01-03,0
+G000546,Sam Graves,Sam,Graves,house,MO,6,Republican,2025-01-03,2027-01-03,1
+G000548,Scott Garrett,Scott,Garrett,house,NJ,5,Republican,2015-01-06,2017-01-03,0
+G000549,Jim Gerlach,Jim,Gerlach,house,PA,6,Republican,2013-01-03,2015-01-03,0
+G000550,Phil Gingrey,Phil,Gingrey,house,GA,11,Republican,2013-01-03,2015-01-03,0
+G000551,Raúl M. Grijalva,Raúl,Grijalva,house,AZ,7,Democrat,2025-01-03,2025-03-13,0
+G000552,Louie Gohmert,Louie,Gohmert,house,TX,1,Republican,2021-01-03,2023-01-03,0
+G000553,Al Green,Al,Green,house,TX,9,Democrat,2025-01-03,2027-01-03,1
+G000554,Gabrielle Giffords,Gabrielle,Giffords,house,AZ,8,Democrat,2011-01-05,2012-01-25,0
+G000555,Kirsten E. Gillibrand,Kirsten,Gillibrand,senate,NY,,Democrat,2025-01-03,2031-01-03,1
+G000556,Alan Grayson,Alan,Grayson,house,FL,9,Democrat,2015-01-06,2017-01-03,0
+G000558,Brett Guthrie,Brett,Guthrie,house,KY,2,Republican,2025-01-03,2027-01-03,1
+G000559,John Garamendi,John,Garamendi,house,CA,8,Democrat,2025-01-03,2027-01-03,1
+G000560,Tom Graves,Tom,Graves,house,GA,14,Republican,2019-01-03,2020-10-04,0
+G000562,Cory Gardner,Cory,Gardner,senate,CO,,Republican,2015-01-06,2021-01-03,0
+G000563,Bob Gibbs,Bob,Gibbs,house,OH,7,Republican,2021-01-03,2023-01-03,0
+G000564,Christopher P. Gibson,Christopher,Gibson,house,NY,19,Republican,2015-01-06,2017-01-03,0
+G000565,Paul A. Gosar,Paul,Gosar,house,AZ,9,Republican,2025-01-03,2027-01-03,1
+G000566,Trey Gowdy,Trey,Gowdy,house,SC,4,Republican,2017-01-03,2019-01-03,0
+G000567,Tim Griffin,Tim,Griffin,house,AR,2,Republican,2013-01-03,2015-01-03,0
+G000568,H. Morgan Griffith,H.,Griffith,house,VA,9,Republican,2025-01-03,2027-01-03,1
+G000569,Michael G. Grimm,Michael,Grimm,house,NY,11,Republican,2013-01-03,2015-01-03,0
+G000570,Frank C. Guinta,Frank,Guinta,house,NH,1,Republican,2015-01-06,2017-01-03,0
+G000571,Tulsi Gabbard,Tulsi,Gabbard,house,HI,2,Democrat,2019-01-03,2021-01-03,0
+G000572,Pete P. Gallego,Pete,Gallego,house,TX,23,Democrat,2013-01-03,2015-01-03,0
+G000573,Joe Garcia,Joe,Garcia,house,FL,26,Democrat,2013-01-03,2015-01-03,0
+G000574,Ruben Gallego,Ruben,Gallego,senate,AZ,,Democrat,2025-01-03,2031-01-03,1
+G000575,Gwen Graham,Gwen,Graham,house,FL,2,Democrat,2015-01-06,2017-01-03,0
+G000576,Glenn Grothman,Glenn,Grothman,house,WI,6,Republican,2025-01-03,2027-01-03,1
+G000577,Garret Graves,Garret,Graves,house,LA,6,Republican,2023-01-03,2025-01-03,0
+G000578,Matt Gaetz,Matt,Gaetz,house,FL,1,Republican,2023-01-03,2024-11-13,0
+G000579,Mike Gallagher,Mike,Gallagher,house,WI,8,Republican,2023-01-03,2024-04-24,0
+G000580,"Thomas A. Garrett, Jr.",Thomas,Garrett,house,VA,5,Republican,2017-01-03,2019-01-03,0
+G000581,Vicente Gonzalez,Vicente,Gonzalez,house,TX,34,Democrat,2025-01-03,2027-01-03,1
+G000582,Jenniffer González-Colón,Jenniffer,González-Colón,house,PR,0,Republican,2023-01-03,2025-01-03,0
+G000583,Josh Gottheimer,Josh,Gottheimer,house,NJ,5,Democrat,2025-01-03,2027-01-03,1
+G000584,Greg Gianforte,Greg,Gianforte,house,MT,0,Republican,2019-01-03,2021-01-03,0
+G000585,Jimmy Gomez,Jimmy,Gomez,house,CA,34,Democrat,2025-01-03,2027-01-03,1
+G000586,"Jesús G. ""Chuy"" García",Jesús,García,house,IL,4,Democrat,2025-01-03,2027-01-03,1
+G000587,Sylvia R. Garcia,Sylvia,Garcia,house,TX,29,Democrat,2025-01-03,2027-01-03,1
+G000588,Anthony Gonzalez,Anthony,Gonzalez,house,OH,16,Republican,2021-01-03,2023-01-03,0
+G000589,Lance Gooden,Lance,Gooden,house,TX,5,Republican,2025-01-03,2027-01-03,1
+G000590,Mark E. Green,Mark,Green,house,TN,7,Republican,2025-01-03,2025-07-21,0
+G000591,Michael Guest,Michael,Guest,house,MS,3,Republican,2025-01-03,2027-01-03,1
+G000592,Jared F. Golden,Jared,Golden,house,ME,2,Democrat,2025-01-03,2027-01-03,1
+G000593,Carlos A. Gimenez,Carlos,Gimenez,house,FL,28,Republican,2025-01-03,2027-01-03,1
+G000594,Tony Gonzales,Ernest,Gonzales,house,TX,23,Republican,2025-01-03,2026-04-14,0
+G000595,Bob Good,Robert,Good,house,VA,5,Republican,2023-01-03,2025-01-03,0
+G000596,Marjorie Taylor Greene,Marjorie,Greene,house,GA,14,Republican,2025-01-03,2026-01-05,0
+G000597,Andrew R. Garbarino,Andrew,Garbarino,house,NY,2,Republican,2025-01-03,2027-01-03,1
+G000598,Robert Garcia,Robert,Garcia,house,CA,42,Democrat,2025-01-03,2027-01-03,1
+G000599,Daniel S. Goldman,Dan,Goldman,house,NY,10,Democrat,2025-01-03,2027-01-03,1
+G000600,Marie Gluesenkamp Perez,Marie,Gluesenkamp Perez,house,WA,3,Democrat,2025-01-03,2027-01-03,1
+G000601,Craig A. Goldman,Craig,Goldman,house,TX,12,Republican,2025-01-03,2027-01-03,1
+G000602,Laura Gillen,Laura,Gillen,house,NY,4,Democrat,2025-01-03,2027-01-03,1
+G000603,Brandon Gill,Brandon,Gill,house,TX,26,Republican,2025-01-03,2027-01-03,1
+G000604,Maggie Goodlander,Maggie,Goodlander,house,NH,2,Democrat,2025-01-03,2027-01-03,1
+G000605,Adam Gray,Adam,Gray,house,CA,13,Democrat,2025-01-03,2027-01-03,1
+G000606,Adelita S. Grijalva,Adelita,Grijalva,house,AZ,7,Democrat,2025-11-12,2027-01-03,1
+G000607,James Gallagher,James,Gallagher,house,CA,1,Republican,2026-06-10,2027-01-03,1
+G000608,Darline Graham,Darline,Graham Nordone,senate,SC,,Republican,2026-07-14,2027-01-03,1
+H000067,Ralph M. Hall,Ralph,Hall,house,TX,4,Republican,2013-01-03,2015-01-03,0
+H000206,Tom Harkin,Thomas,Harkin,senate,IA,,Democrat,2009-01-06,2015-01-03,0
+H000273,John W. Hickenlooper,John,Hickenlooper,senate,CO,,Democrat,2021-01-03,2027-01-03,1
+H000324,Alcee L. Hastings,Alcee,Hastings,house,FL,20,Democrat,2021-01-03,2021-04-06,0
+H000329,Doc Hastings,Doc,Hastings,house,WA,4,Republican,2013-01-03,2015-01-03,0
+H000338,Orrin G. Hatch,Orrin,Hatch,senate,UT,,Republican,2013-01-03,2019-01-03,0
+H000528,Wally Herger,Walter,Herger,house,CA,2,Republican,2011-01-05,2013-01-03,0
+H000601,Bill Hagerty,Bill,Hagerty,senate,TN,,Republican,2021-01-03,2027-01-03,1
+H000627,Maurice D. Hinchey,Maurice,Hinchey,house,NY,22,Democrat,2011-01-05,2013-01-03,0
+H000636,Rubén Hinojosa,Rubén,Hinojosa,house,TX,15,Democrat,2015-01-06,2017-01-03,0
+H000712,Tim Holden,Tim,Holden,house,PA,17,Democrat,2011-01-05,2013-01-03,0
+H000874,Steny H. Hoyer,Steny,Hoyer,house,MD,5,Democrat,2025-01-03,2027-01-03,1
+H001016,Kay Bailey Hutchison,Kay,Hutchison,senate,TX,,Republican,2007-01-04,2013-01-03,0
+H001032,Rush Holt,Rush,Holt,house,NJ,12,Democrat,2013-01-03,2015-01-03,0
+H001034,Michael M. Honda,Michael,Honda,house,CA,17,Democrat,2015-01-06,2017-01-03,0
+H001036,Jeb Hensarling,Jeb,Hensarling,house,TX,5,Republican,2017-01-03,2019-01-03,0
+H001038,Brian Higgins,Brian,Higgins,house,NY,26,Democrat,2023-01-03,2024-02-02,0
+H001041,Dean Heller,Dean,Heller,senate,NV,,Republican,2013-01-03,2019-01-03,0
+H001042,Mazie K. Hirono,Mazie,Hirono,senate,HI,,Democrat,2025-01-03,2031-01-03,1
+H001045,Gregg Harper,Gregg,Harper,house,MS,3,Republican,2017-01-03,2019-01-03,0
+H001046,Martin Heinrich,Martin,Heinrich,senate,NM,,Democrat,2025-01-03,2031-01-03,1
+H001047,James A. Himes,James,Himes,house,CT,4,Democrat,2025-01-03,2027-01-03,1
+H001048,Duncan Hunter,Duncan,Hunter,house,CA,50,Republican,2019-01-03,2020-01-13,0
+H001049,Kay R. Hagan,Kay,Hagan,senate,NC,,Democrat,2009-01-06,2015-01-03,0
+H001050,Colleen Hanabusa,Colleen,Hanabusa,house,HI,1,Democrat,2017-01-03,2019-01-03,0
+H001051,Richard L. Hanna,Richard,Hanna,house,NY,22,Republican,2015-01-06,2017-01-03,0
+H001052,Andy Harris,Andy,Harris,house,MD,1,Republican,2025-01-03,2027-01-03,1
+H001053,Vicky Hartzler,Vicky,Hartzler,house,MO,4,Republican,2021-01-03,2023-01-03,0
+H001054,Nan A. S. Hayworth,Nan,Hayworth,house,NY,19,Republican,2011-01-05,2013-01-03,0
+H001055,Joseph J. Heck,Joseph,Heck,house,NV,3,Republican,2015-01-06,2017-01-03,0
+H001056,Jaime Herrera Beutler,Jaime,Herrera Beutler,house,WA,3,Republican,2021-01-03,2023-01-03,0
+H001057,Tim Huelskamp,Tim,Huelskamp,house,KS,1,Republican,2015-01-06,2017-01-03,0
+H001058,Bill Huizenga,Bill,Huizenga,house,MI,4,Republican,2025-01-03,2027-01-03,1
+H001059,Randy Hultgren,Randy,Hultgren,house,IL,14,Republican,2017-01-03,2019-01-03,0
+H001060,Robert Hurt,Robert,Hurt,house,VA,5,Republican,2015-01-06,2017-01-03,0
+H001061,John Hoeven,John,Hoeven,senate,ND,,Republican,2023-01-03,2029-01-03,1
+H001062,Kathleen C. Hochul,Kathleen,Hochul,house,NY,26,Democrat,2011-06-01,2013-01-03,0
+H001063,Janice Hahn,Janice,Hahn,house,CA,44,Democrat,2015-01-06,2016-12-04,0
+H001064,Denny Heck,Denny,Heck,house,WA,10,Democrat,2019-01-03,2021-01-03,0
+H001065,George Holding,George,Holding,house,NC,2,Republican,2019-01-03,2021-01-03,0
+H001066,Steven Horsford,Steven,Horsford,house,NV,4,Democrat,2025-01-03,2027-01-03,1
+H001067,Richard Hudson,Richard,Hudson,house,NC,9,Republican,2025-01-03,2027-01-03,1
+H001068,Jared Huffman,Jared,Huffman,house,CA,2,Democrat,2025-01-03,2027-01-03,1
+H001069,Heidi Heitkamp,Heidi,Heitkamp,senate,ND,,Democrat,2013-01-03,2019-01-03,0
+H001070,Cresent Hardy,Cresent,Hardy,house,NV,4,Republican,2015-01-06,2017-01-03,0
+H001071,Jody B. Hice,Jody,Hice,house,GA,10,Republican,2021-01-03,2023-01-03,0
+H001072,J. French Hill,J.,Hill,house,AR,2,Republican,2025-01-03,2027-01-03,1
+H001073,Will Hurd,Will,Hurd,house,TX,23,Republican,2019-01-03,2021-01-03,0
+H001074,Trey Hollingsworth,Trey,Hollingsworth,house,IN,9,Republican,2021-01-03,2023-01-03,0
+H001075,Kamala D. Harris,Kamala,Harris,senate,CA,,Democrat,2017-01-03,2021-01-18,0
+H001076,Margaret Wood Hassan,Margaret,Hassan,senate,NH,,Democrat,2023-01-03,2029-01-03,1
+H001077,Clay Higgins,Clay,Higgins,house,LA,3,Republican,2025-01-03,2027-01-03,1
+H001078,Karen C. Handel,Karen,Handel,house,GA,6,Republican,2017-06-26,2019-01-03,0
+H001079,Cindy Hyde-Smith,Cindy,Hyde-Smith,senate,MS,,Republican,2021-01-03,2027-01-03,1
+H001080,Debra A. Haaland,Debra,Haaland,house,NM,1,Democrat,2021-01-03,2021-03-16,0
+H001081,Jahana Hayes,Jahana,Hayes,house,CT,5,Democrat,2025-01-03,2027-01-03,1
+H001082,Kevin Hern,Kevin,Hern,house,OK,1,Republican,2025-01-03,2027-01-03,1
+H001083,Kendra S. Horn,Kendra,Horn,house,OK,5,Democrat,2019-01-03,2021-01-03,0
+H001084,Yvette Herrell,Yvette,Herrell,house,NM,2,Republican,2021-01-03,2023-01-03,0
+H001085,Chrissy Houlahan,Chrissy,Houlahan,house,PA,6,Democrat,2025-01-03,2027-01-03,1
+H001086,Diana Harshbarger,Diana,Harshbarger,house,TN,1,Republican,2025-01-03,2027-01-03,1
+H001087,Katie Hill,Katie,Hill,house,CA,25,Democrat,2019-01-03,2019-11-03,0
+H001088,Jim Hagedorn,Jim,Hagedorn,house,MN,1,Republican,2021-01-03,2022-02-17,0
+H001089,Josh Hawley,Joshua,Hawley,senate,MO,,Republican,2025-01-03,2031-01-03,1
+H001090,Josh Harder,Josh,Harder,house,CA,9,Democrat,2025-01-03,2027-01-03,1
+H001091,Ashley Hinson,Ashley,Hinson,house,IA,2,Republican,2025-01-03,2027-01-03,1
+H001092,Kwanza Hall,Kwanza,Hall,house,GA,5,Democrat,2020-12-03,2021-01-03,0
+H001093,Erin Houchin,Erin,Houchin,house,IN,9,Republican,2025-01-03,2027-01-03,1
+H001094,Val T. Hoyle,Valerie,Hoyle,house,OR,4,Democrat,2025-01-03,2027-01-03,1
+H001095,Wesley Hunt,Wesley,Hunt,house,TX,38,Republican,2025-01-03,2027-01-03,1
+H001096,Harriet M. Hageman,Harriet,Hageman,house,WY,0,Republican,2025-01-03,2027-01-03,1
+H001097,George S. Helmy,George,Helmy,senate,NJ,,Democrat,2024-09-09,2024-12-08,0
+H001098,Abraham J. Hamadeh,Abraham,Hamadeh,house,AZ,8,Republican,2025-01-03,2027-01-03,1
+H001099,Mike Haridopolos,Mike,Haridopolos,house,FL,8,Republican,2025-01-03,2027-01-03,1
+H001100,Jeff Hurd,Jeff,Hurd,house,CO,3,Republican,2025-01-03,2027-01-03,1
+H001101,Pat Harrigan,Pat,Harrigan,house,NC,10,Republican,2025-01-03,2027-01-03,1
+H001102,Mark Harris,Mark,Harris,house,NC,8,Republican,2025-01-03,2027-01-03,1
+H001103,Pablo José Hernández,Pablo José,Hernández Rivera,house,PR,0,Democrat,2025-01-03,2027-01-03,1
+H001104,Jon Husted,Jon,Husted,senate,OH,,Republican,2025-01-21,2026-11-03,1
+I000024,James M. Inhofe,James,Inhofe,senate,OK,,Republican,2021-01-03,2023-01-03,0
+I000025,Daniel K. Inouye,Daniel,Inouye,senate,HI,,Democrat,2011-01-05,2012-12-17,0
+I000026,Jay Inslee,Jay,Inslee,house,WA,1,Democrat,2011-01-05,2012-03-20,0
+I000055,Johnny Isakson,John,Isakson,senate,GA,,Republican,2017-01-03,2019-12-31,0
+I000056,Darrell Issa,Darrell,Issa,house,CA,48,Republican,2025-01-03,2027-01-03,1
+I000057,Steve Israel,Steve,Israel,house,NY,3,Democrat,2015-01-06,2017-01-03,0
+I000058,Glenn Ivey,Glenn,Ivey,house,MD,4,Democrat,2025-01-03,2027-01-03,1
+J000020,Chris Jacobs,Chris,Jacobs,house,NY,27,Republican,2021-01-03,2023-01-03,0
+J000032,Sheila Jackson Lee,Sheila,Jackson Lee,house,TX,18,Democrat,2023-01-03,2024-07-19,0
+J000126,Eddie Bernice Johnson,Eddie,Johnson,house,TX,30,Democrat,2021-01-03,2023-01-03,0
+J000174,Sam Johnson,Sam,Johnson,house,TX,3,Republican,2017-01-03,2019-01-03,0
+J000177,Tim Johnson,Tim,Johnson,senate,SD,,Democrat,2009-01-06,2015-01-03,0
+J000255,Walter B. Jones,Walter,Jones,house,NC,3,Republican,2019-01-04,2019-02-10,0
+J000283,Jesse L. Jackson Jr.,Jesse,Jackson,house,IL,2,Democrat,2011-01-05,2012-11-21,0
+J000285,Timothy V. Johnson,Timothy,Johnson,house,IL,15,Republican,2011-01-05,2013-01-03,0
+J000288,"Henry C. ""Hank"" Johnson, Jr.",Henry,Johnson,house,GA,4,Democrat,2025-01-03,2027-01-03,1
+J000289,Jim Jordan,Jim,Jordan,house,OH,4,Republican,2025-01-03,2027-01-03,1
+J000290,Lynn Jenkins,Lynn,Jenkins,house,KS,2,Republican,2017-01-03,2019-01-03,0
+J000291,Mike Johanns,Mike,Johanns,senate,NE,,Republican,2009-01-06,2015-01-03,0
+J000292,Bill Johnson,Bill,Johnson,house,OH,6,Republican,2023-01-03,2024-01-21,0
+J000293,Ron Johnson,Ron,Johnson,senate,WI,,Republican,2023-01-03,2029-01-03,1
+J000294,Hakeem S. Jeffries,Hakeem,Jeffries,house,NY,8,Democrat,2025-01-03,2027-01-03,1
+J000295,David P. Joyce,David,Joyce,house,OH,14,Republican,2025-01-03,2027-01-03,1
+J000296,David W. Jolly,David,Jolly,house,FL,13,Republican,2015-01-06,2017-01-03,0
+J000297,Evan H. Jenkins,Evan,Jenkins,house,WV,3,Republican,2017-01-03,2018-09-30,0
+J000298,Pramila Jayapal,Pramila,Jayapal,house,WA,7,Democrat,2025-01-03,2027-01-03,1
+J000299,Mike Johnson,Mike,Johnson,house,LA,4,Republican,2025-01-03,2027-01-03,1
+J000300,Doug Jones,Doug,Jones,senate,AL,,Democrat,2018-01-03,2021-01-03,0
+J000301,Dusty Johnson,Dusty,Johnson,house,SD,0,Republican,2025-01-03,2027-01-03,1
+J000302,John Joyce,John,Joyce,house,PA,13,Republican,2025-01-03,2027-01-03,1
+J000303,Brenda Jones,Brenda,Jones,house,MI,13,Democrat,2018-11-29,2019-01-03,0
+J000304,Ronny Jackson,Ronny,Jackson,house,TX,13,Republican,2025-01-03,2027-01-03,1
+J000305,Sara Jacobs,Sara,Jacobs,house,CA,51,Democrat,2025-01-03,2027-01-03,1
+J000306,Mondaire Jones,Mondaire,Jones,house,NY,17,Democrat,2021-01-03,2023-01-03,0
+J000307,John James,John,James,house,MI,10,Republican,2025-01-03,2027-01-03,1
+J000308,Jeff Jackson,Jeffrey,Jackson,house,NC,14,Democrat,2023-01-03,2024-12-31,0
+J000309,Jonathan L. Jackson,Jonathan,Jackson,house,IL,1,Democrat,2025-01-03,2027-01-03,1
+J000310,Julie Johnson,Julie,Johnson,house,TX,32,Democrat,2025-01-03,2027-01-03,1
+J000311,Brian Jack,Brian,Jack,house,GA,3,Republican,2025-01-03,2027-01-03,1
+J000312,James C. Justice,Jim,Justice,senate,WV,,Republican,2025-01-14,2031-01-03,1
+K000009,Marcy Kaptur,Marcy,Kaptur,house,OH,9,Democrat,2025-01-03,2027-01-03,1
+K000148,John F. Kerry,John,Kerry,senate,MA,,Democrat,2009-01-06,2013-02-01,0
+K000172,Dale E. Kildee,Dale,Kildee,house,MI,5,Democrat,2011-01-05,2013-01-03,0
+K000188,Ron Kind,Ron,Kind,house,WI,3,Democrat,2021-01-03,2023-01-03,0
+K000210,Peter T. King,Peter,King,house,NY,2,Republican,2019-01-03,2021-01-03,0
+K000220,Jack Kingston,Jack,Kingston,house,GA,1,Republican,2013-01-03,2015-01-03,0
+K000305,Herb Kohl,Herbert,Kohl,senate,WI,,Democrat,2007-01-04,2013-01-03,0
+K000336,Dennis J. Kucinich,Dennis,Kucinich,house,OH,10,Democrat,2011-01-05,2013-01-03,0
+K000352,Jon Kyl,Jon,Kyl,senate,AZ,,Republican,2018-09-05,2018-12-31,0
+K000360,Mark Kirk,Mark,Kirk,senate,IL,,Republican,2011-01-05,2017-01-03,0
+K000362,Steve King,Steve,King,house,IA,4,Republican,2019-01-03,2021-01-03,0
+K000363,John Kline,John,Kline,house,MN,2,Republican,2015-01-06,2017-01-03,0
+K000367,Amy Klobuchar,Amy,Klobuchar,senate,MN,,Democrat,2025-01-03,2031-01-03,1
+K000368,Ann Kirkpatrick,Ann,Kirkpatrick,house,AZ,2,Democrat,2021-01-03,2023-01-03,0
+K000369,Larry Kissell,Larry,Kissell,house,NC,8,Democrat,2011-01-05,2013-01-03,0
+K000375,William R. Keating,William,Keating,house,MA,9,Democrat,2025-01-03,2027-01-03,1
+K000376,Mike Kelly,Mike,Kelly,house,PA,16,Republican,2025-01-03,2027-01-03,1
+K000377,Mark Kelly,Mark,Kelly,senate,AZ,,Democrat,2023-01-03,2029-01-03,1
+K000378,Adam Kinzinger,Adam,Kinzinger,house,IL,16,Republican,2021-01-03,2023-01-03,0
+K000379,Joseph P. Kennedy III,Joseph,Kennedy,house,MA,4,Democrat,2019-01-03,2021-01-03,0
+K000380,Daniel T. Kildee,Daniel,Kildee,house,MI,8,Democrat,2023-01-03,2025-01-03,0
+K000381,Derek Kilmer,Derek,Kilmer,house,WA,6,Democrat,2023-01-03,2025-01-03,0
+K000382,Ann M. Kuster,Ann,Kuster,house,NH,2,Democrat,2023-01-03,2025-01-03,0
+K000383,"Angus S. King, Jr.",Angus,King,senate,ME,,Independent,2025-01-03,2031-01-03,1
+K000384,Tim Kaine,Timothy,Kaine,senate,VA,,Democrat,2025-01-03,2031-01-03,1
+K000385,Robin L. Kelly,Robin,Kelly,house,IL,2,Democrat,2025-01-03,2027-01-03,1
+K000386,John Katko,John,Katko,house,NY,24,Republican,2021-01-03,2023-01-03,0
+K000387,Stephen Knight,Steve,Knight,house,CA,25,Republican,2017-01-03,2019-01-03,0
+K000388,Trent Kelly,Trent,Kelly,house,MS,1,Republican,2025-01-03,2027-01-03,1
+K000389,Ro Khanna,Ro,Khanna,house,CA,17,Democrat,2025-01-03,2027-01-03,1
+K000390,Ruben J. Kihuen,Ruben,Kihuen,house,NV,4,Democrat,2017-01-03,2019-01-03,0
+K000391,Raja Krishnamoorthi,Raja,Krishnamoorthi,house,IL,8,Democrat,2025-01-03,2027-01-03,1
+K000392,David Kustoff,David,Kustoff,house,TN,8,Republican,2025-01-03,2027-01-03,1
+K000393,John Kennedy,John,Kennedy,senate,LA,,Republican,2023-01-03,2029-01-03,1
+K000394,Andy Kim,Andy,Kim,senate,NJ,,Democrat,2025-01-03,2031-01-03,1
+K000395,Fred Keller,Fred,Keller,house,PA,12,Republican,2021-01-03,2023-01-03,0
+K000396,Kaiali’i Kahele,Kaialiʻi,Kahele,house,HI,2,Democrat,2021-01-03,2023-01-03,0
+K000397,Young Kim,Young,Kim,house,CA,40,Republican,2025-01-03,2027-01-03,1
+K000398,"Thomas H. Kean, Jr.",Thomas,Kean,house,NJ,7,Republican,2025-01-03,2027-01-03,1
+K000399,Jennifer A. Kiggans,Jennifer,Kiggans,house,VA,2,Republican,2025-01-03,2027-01-03,1
+K000400,Sydney Kamlager-Dove,Sydney,Kamlager-Dove,house,CA,37,Democrat,2025-01-03,2027-01-03,1
+K000401,Kevin Kiley,Kevin,Kiley,house,CA,3,Independent,2025-01-03,2027-01-03,1
+K000402,Timothy M. Kennedy,Timothy,Kennedy,house,NY,26,Democrat,2025-01-03,2027-01-03,1
+K000403,Mike Kennedy,Mike,Kennedy,house,UT,3,Republican,2025-01-03,2027-01-03,1
+K000404,Kimberlyn King-Hinds,Kimberlyn,King-Hinds,house,MP,0,Republican,2025-01-03,2027-01-03,1
+K000405,Brad Knott,Brad,Knott,house,NC,13,Republican,2025-01-03,2027-01-03,1
+L000111,Tom Latham,Tom,Latham,house,IA,3,Republican,2013-01-03,2015-01-03,0
+L000123,Frank R. Lautenberg,Frank,Lautenberg,senate,NJ,,Democrat,2009-01-06,2013-06-03,0
+L000174,Patrick J. Leahy,Patrick,Leahy,senate,VT,,Democrat,2017-01-03,2023-01-03,0
+L000261,Carl Levin,Carl,Levin,senate,MI,,Democrat,2009-01-06,2015-01-03,0
+L000263,Sander M. Levin,Sander,Levin,house,MI,9,Democrat,2017-01-03,2019-01-03,0
+L000266,Jake LaTurner,Jacob,LaTurner,house,KS,2,Republican,2023-01-03,2025-01-03,0
+L000273,Teresa Leger Fernandez,Teresa,Leger Fernandez,house,NM,3,Democrat,2025-01-03,2027-01-03,1
+L000274,Jerry Lewis,Jerry,Lewis,house,CA,41,Republican,2011-01-05,2013-01-03,0
+L000287,John Lewis,John,Lewis,house,GA,5,Democrat,2019-01-03,2020-07-17,0
+L000304,Joseph I. Lieberman,Joseph,Lieberman,senate,CT,,Independent,2007-01-04,2013-01-03,0
+L000397,Zoe Lofgren,Zoe,Lofgren,house,CA,18,Democrat,2025-01-03,2027-01-03,1
+L000480,Nita M. Lowey,Nita,Lowey,house,NY,17,Democrat,2019-01-03,2021-01-03,0
+L000491,Frank D. Lucas,Frank,Lucas,house,OK,3,Republican,2025-01-03,2027-01-03,1
+L000504,Richard G. Lugar,Richard,Lugar,senate,IN,,Republican,2007-01-04,2013-01-03,0
+L000517,Daniel E. Lungren,Daniel,Lungren,house,CA,3,Republican,2011-01-05,2013-01-03,0
+L000550,Mary L. Landrieu,Mary,Landrieu,senate,LA,,Democrat,2009-01-06,2015-01-03,0
+L000551,Barbara Lee,Barbara,Lee,house,CA,12,Democrat,2023-01-03,2025-01-03,0
+L000553,Steven C. LaTourette,Steven,LaTourette,house,OH,14,Republican,2011-01-05,2013-01-03,0
+L000554,Frank A. LoBiondo,Frank,LoBiondo,house,NJ,2,Republican,2017-01-03,2019-01-03,0
+L000557,John B. Larson,John,Larson,house,CT,1,Democrat,2025-01-03,2027-01-03,1
+L000559,James R. Langevin,James,Langevin,house,RI,2,Democrat,2021-01-03,2023-01-03,0
+L000560,Rick Larsen,Rick,Larsen,house,WA,2,Democrat,2025-01-03,2027-01-03,1
+L000562,Stephen F. Lynch,Stephen,Lynch,house,MA,8,Democrat,2025-01-03,2027-01-03,1
+L000563,Daniel Lipinski,Daniel,Lipinski,house,IL,3,Democrat,2019-01-03,2021-01-03,0
+L000564,Doug Lamborn,Doug,Lamborn,house,CO,5,Republican,2023-01-03,2025-01-03,0
+L000565,David Loebsack,David,Loebsack,house,IA,2,Democrat,2019-01-03,2021-01-03,0
+L000566,Robert E. Latta,Robert,Latta,house,OH,5,Republican,2025-01-03,2027-01-03,1
+L000567,Leonard Lance,Leonard,Lance,house,NJ,7,Republican,2017-01-03,2019-01-03,0
+L000569,Blaine Luetkemeyer,Blaine,Luetkemeyer,house,MO,3,Republican,2023-01-03,2025-01-03,0
+L000570,Ben Ray Luján,Ben,Luján,senate,NM,,Democrat,2021-01-03,2027-01-03,1
+L000571,Cynthia M. Lummis,Cynthia,Lummis,senate,WY,,Republican,2021-01-03,2027-01-03,1
+L000573,Raúl R. Labrador,Raúl,Labrador,house,ID,1,Republican,2017-01-03,2019-01-03,0
+L000574,Jeffrey M. Landry,Jeff,Landry,house,LA,3,Republican,2011-01-05,2013-01-03,0
+L000575,James Lankford,James,Lankford,senate,OK,,Republican,2023-01-03,2029-01-03,1
+L000576,Billy Long,Billy,Long,house,MO,7,Republican,2021-01-03,2023-01-03,0
+L000577,Mike Lee,Mike,Lee,senate,UT,,Republican,2023-01-03,2029-01-03,1
+L000578,Doug LaMalfa,Doug,LaMalfa,house,CA,1,Republican,2025-01-03,2026-01-05,0
+L000579,Alan S. Lowenthal,Alan,Lowenthal,house,CA,47,Democrat,2021-01-03,2023-01-03,0
+L000580,Michelle Lujan Grisham,Michelle,Lujan Grisham,house,NM,1,Democrat,2017-01-03,2018-12-31,0
+L000581,Brenda L. Lawrence,Brenda,Lawrence,house,MI,14,Democrat,2021-01-03,2023-01-03,0
+L000582,Ted Lieu,Ted,Lieu,house,CA,36,Democrat,2025-01-03,2027-01-03,1
+L000583,Barry Loudermilk,Barry,Loudermilk,house,GA,11,Republican,2025-01-03,2027-01-03,1
+L000584,Mia B. Love,Mia,Love,house,UT,4,Republican,2017-01-03,2019-01-03,0
+L000585,Darin LaHood,Darin,LaHood,house,IL,16,Republican,2025-01-03,2027-01-03,1
+L000586,"Al Lawson, Jr.",Al,Lawson,house,FL,5,Democrat,2021-01-03,2023-01-03,0
+L000587,Jason Lewis,Jason,Lewis,house,MN,2,Republican,2017-01-03,2019-01-03,0
+L000588,Conor Lamb,Conor,Lamb,house,PA,17,Democrat,2021-01-03,2023-01-03,0
+L000589,Debbie Lesko,Debbie,Lesko,house,AZ,8,Republican,2023-01-03,2025-01-03,0
+L000590,Susie Lee,Susie,Lee,house,NV,3,Democrat,2025-01-03,2027-01-03,1
+L000591,Elaine G. Luria,Elaine,Luria,house,VA,2,Democrat,2021-01-03,2023-01-03,0
+L000592,Andy Levin,Andy,Levin,house,MI,9,Democrat,2021-01-03,2023-01-03,0
+L000593,Mike Levin,Mike,Levin,house,CA,49,Democrat,2025-01-03,2027-01-03,1
+L000594,Kelly Loeffler,Kelly,Loeffler,senate,GA,,Republican,2020-01-06,2021-01-20,0
+L000595,Julia Letlow,Julia,Letlow,house,LA,5,Republican,2025-01-03,2027-01-03,1
+L000596,Anna Paulina Luna,Anna,Luna,house,FL,13,Republican,2025-01-03,2027-01-03,1
+L000597,Laurel M. Lee,Laurel,Lee,house,FL,15,Republican,2025-01-03,2027-01-03,1
+L000598,Nick LaLota,Nicolas,LaLota,house,NY,1,Republican,2025-01-03,2027-01-03,1
+L000599,Michael Lawler,Michael,Lawler,house,NY,17,Republican,2025-01-03,2027-01-03,1
+L000600,Nicholas A. Langworthy,Nicholas,Langworthy,house,NY,23,Republican,2025-01-03,2027-01-03,1
+L000601,Greg Landsman,Greg,Landsman,house,OH,1,Democrat,2025-01-03,2027-01-03,1
+L000602,Summer L. Lee,Summer,Lee,house,PA,12,Democrat,2025-01-03,2027-01-03,1
+L000603,Morgan Luttrell,Morgan,Luttrell,house,TX,8,Republican,2025-01-03,2027-01-03,1
+L000604,Greg Lopez,Greg,Lopez,house,CO,4,Republican,2024-07-08,2025-01-03,0
+L000605,Erica Lee Carter,Erica,Lee Carter,house,TX,18,Democrat,2024-11-05,2025-01-03,0
+L000606,George Latimer,George,Latimer,house,NY,16,Democrat,2025-01-03,2027-01-03,1
+L000607,Sam T. Liccardo,Sam,Liccardo,house,CA,16,Democrat,2025-01-03,2027-01-03,1
+M000087,Carolyn B. Maloney,Carolyn,Maloney,house,NY,12,Democrat,2021-01-03,2023-01-03,0
+M000133,Edward J. Markey,Edward,Markey,senate,MA,,Democrat,2021-01-03,2027-01-03,1
+M000194,Nancy Mace,Nancy,Mace,house,SC,1,Republican,2025-01-03,2027-01-03,1
+M000303,John McCain,John,McCain,senate,AZ,,Republican,2017-01-03,2018-08-25,0
+M000309,Carolyn McCarthy,Carolyn,McCarthy,house,NY,4,Democrat,2013-01-03,2015-01-03,0
+M000312,James P. McGovern,James,McGovern,house,MA,2,Democrat,2025-01-03,2027-01-03,1
+M000317,Nicole Malliotakis,Nicole,Malliotakis,house,NY,11,Republican,2025-01-03,2027-01-03,1
+M000355,Mitch McConnell,Mitch,McConnell,senate,KY,,Republican,2021-01-03,2027-01-03,1
+M000404,Jim McDermott,Jim,McDermott,house,WA,7,Democrat,2015-01-06,2017-01-03,0
+M000485,Mike McIntyre,Mike,McIntyre,house,NC,7,Democrat,2013-01-03,2015-01-03,0
+M000508,"Howard P. ""Buck"" McKeon",Howard,McKeon,house,CA,25,Republican,2013-01-03,2015-01-03,0
+M000639,Robert Menendez,Robert,Menendez,senate,NJ,,Democrat,2019-01-03,2024-08-20,0
+M000687,Kweisi Mfume,Kweisi,Mfume,house,MD,7,Democrat,2025-01-03,2027-01-03,1
+M000689,John L. Mica,John,Mica,house,FL,7,Republican,2015-01-06,2017-01-03,0
+M000702,Barbara A. Mikulski,Barbara,Mikulski,senate,MD,,Democrat,2011-01-05,2017-01-03,0
+M000725,George Miller,George,Miller,house,CA,11,Democrat,2013-01-03,2015-01-03,0
+M000871,Tracey Mann,Tracey,Mann,house,KS,1,Republican,2025-01-03,2027-01-03,1
+M000933,James P. Moran,James,Moran,house,VA,8,Democrat,2013-01-03,2015-01-03,0
+M000934,Jerry Moran,Jerry,Moran,senate,KS,,Republican,2023-01-03,2029-01-03,1
+M001111,Patty Murray,Patty,Murray,senate,WA,,Democrat,2023-01-03,2029-01-03,1
+M001134,Sue Wilkins Myrick,Sue,Myrick,house,NC,9,Republican,2011-01-05,2013-01-03,0
+M001135,Kathy E. Manning,Kathy,Manning,house,NC,6,Democrat,2023-01-03,2025-01-03,0
+M001136,Lisa C. McClain,Lisa,McClain,house,MI,9,Republican,2025-01-03,2027-01-03,1
+M001137,Gregory W. Meeks,Gregory,Meeks,house,NY,5,Democrat,2025-01-03,2027-01-03,1
+M001138,Donald A. Manzullo,Donald,Manzullo,house,IL,16,Republican,2011-01-05,2013-01-03,0
+M001139,Gary G. Miller,Gary,Miller,house,CA,31,Republican,2013-01-03,2015-01-03,0
+M001142,Jim Matheson,Jim,Matheson,house,UT,4,Democrat,2013-01-03,2015-01-03,0
+M001143,Betty McCollum,Betty,McCollum,house,MN,4,Democrat,2025-01-03,2027-01-03,1
+M001144,Jeff Miller,Jeff,Miller,house,FL,1,Republican,2015-01-06,2017-01-03,0
+M001147,Thaddeus McCotter,Thaddeus,McCotter,house,MI,11,Republican,2011-01-05,2012-07-06,0
+M001149,Michael H. Michaud,Michael,Michaud,house,ME,2,Democrat,2013-01-03,2015-01-03,0
+M001150,Candice S. Miller,Candice,Miller,house,MI,10,Republican,2015-01-06,2016-12-31,0
+M001151,Tim Murphy,Tim,Murphy,house,PA,18,Republican,2017-01-03,2017-10-21,0
+M001153,Lisa Murkowski,Lisa,Murkowski,senate,AK,,Republican,2023-01-03,2029-01-03,1
+M001154,Brad Miller,R.,Miller,house,NC,13,Democrat,2011-01-05,2013-01-03,0
+M001155,Connie Mack,Connie,Mack,house,FL,14,Republican,2011-01-05,2013-01-03,0
+M001156,Patrick T. McHenry,Patrick,McHenry,house,NC,10,Republican,2023-01-03,2025-01-03,0
+M001157,Michael T. McCaul,Michael,McCaul,house,TX,10,Republican,2025-01-03,2027-01-03,1
+M001158,Kenny Marchant,Kenny,Marchant,house,TX,24,Republican,2019-01-03,2021-01-03,0
+M001159,Cathy McMorris Rodgers,Cathy,McMorris Rodgers,house,WA,5,Republican,2023-01-03,2025-01-03,0
+M001160,Gwen Moore,Gwen,Moore,house,WI,4,Democrat,2025-01-03,2027-01-03,1
+M001163,Doris O. Matsui,Doris,Matsui,house,CA,7,Democrat,2025-01-03,2027-01-03,1
+M001165,Kevin McCarthy,Kevin,McCarthy,house,CA,20,Republican,2023-01-03,2023-12-31,0
+M001166,Jerry McNerney,Jerry,McNerney,house,CA,9,Democrat,2021-01-03,2023-01-03,0
+M001169,Christopher Murphy,Christopher,Murphy,senate,CT,,Democrat,2025-01-03,2031-01-03,1
+M001170,Claire McCaskill,Claire,McCaskill,senate,MO,,Democrat,2013-01-03,2019-01-03,0
+M001171,Daniel B. Maffei,Daniel,Maffei,house,NY,24,Democrat,2013-01-03,2015-01-03,0
+M001176,Jeff Merkley,Jeff,Merkley,senate,OR,,Democrat,2021-01-03,2027-01-03,1
+M001177,Tom McClintock,Tom,McClintock,house,CA,5,Republican,2025-01-03,2027-01-03,1
+M001179,Tom Marino,Tom,Marino,house,PA,12,Republican,2019-01-03,2019-01-23,0
+M001180,David B. McKinley,David,McKinley,house,WV,1,Republican,2021-01-03,2023-01-03,0
+M001181,Patrick Meehan,Patrick,Meehan,house,PA,7,Republican,2017-01-03,2018-04-27,0
+M001182,Mick Mulvaney,Mick,Mulvaney,house,SC,5,Republican,2017-01-03,2017-02-16,0
+M001183,"Joe Manchin, III",Joe,Manchin,senate,WV,,Independent,2019-01-03,2025-01-03,0
+M001184,Thomas Massie,Thomas,Massie,house,KY,4,Republican,2025-01-03,2027-01-03,1
+M001185,Sean Patrick Maloney,Sean,Maloney,house,NY,18,Democrat,2021-01-03,2023-01-03,0
+M001186,Peter Meijer,Peter,Meijer,house,MI,3,Republican,2021-01-03,2023-01-03,0
+M001187,Mark Meadows,Mark,Meadows,house,NC,11,Republican,2019-01-03,2020-03-30,0
+M001188,Grace Meng,Grace,Meng,house,NY,6,Democrat,2025-01-03,2027-01-03,1
+M001189,Luke Messer,Luke,Messer,house,IN,6,Republican,2017-01-03,2019-01-03,0
+M001190,Markwayne Mullin,Markwayne,Mullin,senate,OK,,Republican,2023-01-03,2026-03-23,0
+M001191,Patrick Murphy,Patrick,Murphy,house,FL,18,Democrat,2015-01-06,2017-01-03,0
+M001192,Vance M. McAllister,Vance,McAllister,house,LA,5,Republican,2013-11-16,2015-01-03,0
+M001193,Thomas MacArthur,Tom,MacArthur,house,NJ,3,Republican,2017-01-03,2019-01-03,0
+M001194,John R. Moolenaar,John,Moolenaar,house,MI,2,Republican,2025-01-03,2027-01-03,1
+M001195,Alexander X. Mooney,Alexander,Mooney,house,WV,2,Republican,2023-01-03,2025-01-03,0
+M001196,Seth Moulton,Seth,Moulton,house,MA,6,Democrat,2025-01-03,2027-01-03,1
+M001197,Martha McSally,Martha,McSally,senate,AZ,,Republican,2019-01-03,2020-12-02,0
+M001198,Roger Marshall,Roger,Marshall,senate,KS,,Republican,2021-01-03,2027-01-03,1
+M001199,Brian J. Mast,Brian,Mast,house,FL,21,Republican,2025-01-03,2027-01-03,1
+M001200,A. Donald McEachin,A.,McEachin,house,VA,4,Democrat,2021-01-03,2022-11-28,0
+M001201,Paul Mitchell,Paul,Mitchell,house,MI,10,Independent,2019-01-03,2021-01-03,0
+M001202,Stephanie N. Murphy,Stephanie,Murphy,house,FL,7,Democrat,2021-01-03,2023-01-03,0
+M001203,Tom Malinowski,Tom,Malinowski,house,NJ,7,Democrat,2021-01-03,2023-01-03,0
+M001204,Daniel Meuser,Daniel,Meuser,house,PA,9,Republican,2025-01-03,2027-01-03,1
+M001205,Carol D. Miller,Carol,Miller,house,WV,1,Republican,2025-01-03,2027-01-03,1
+M001206,Joseph D. Morelle,Joseph,Morelle,house,NY,25,Democrat,2025-01-03,2027-01-03,1
+M001207,Debbie Mucarsel-Powell,Debbie,Mucarsel-Powell,house,FL,26,Democrat,2019-01-03,2021-01-03,0
+M001208,Lucy McBath,Lucy,McBath,house,GA,6,Democrat,2025-01-03,2027-01-03,1
+M001209,Ben McAdams,Ben,McAdams,house,UT,4,Democrat,2019-01-03,2021-01-03,0
+M001210,Gregory F. Murphy,Gregory,Murphy,house,NC,3,Republican,2025-01-03,2027-01-03,1
+M001211,Mary E. Miller,Mary,Miller,house,IL,15,Republican,2025-01-03,2027-01-03,1
+M001212,Barry Moore,Barry,Moore,house,AL,1,Republican,2025-01-03,2027-01-03,1
+M001213,Blake D. Moore,Blake,Moore,house,UT,1,Republican,2025-01-03,2027-01-03,1
+M001214,Frank J. Mrvan,Frank,Mrvan,house,IN,1,Democrat,2025-01-03,2027-01-03,1
+M001215,Mariannette Miller-Meeks,Mariannette,Miller-Meeks,house,IA,1,Republican,2025-01-03,2027-01-03,1
+M001216,Cory Mills,Cory,Mills,house,FL,7,Republican,2025-01-03,2027-01-03,1
+M001217,Jared Moskowitz,Jared,Moskowitz,house,FL,23,Democrat,2025-01-03,2027-01-03,1
+M001218,Richard McCormick,Rich,McCormick,house,GA,7,Republican,2025-01-03,2027-01-03,1
+M001219,James C. Moylan,James (Jim),Moylan,house,GU,0,Republican,2025-01-03,2027-01-03,1
+M001220,Morgan McGarvey,Morgan,McGarvey,house,KY,3,Democrat,2025-01-03,2027-01-03,1
+M001221,Marcus J. Molinaro,Marcus,Molinaro,house,NY,19,Republican,2023-01-03,2025-01-03,0
+M001222,Max L. Miller,Max,Miller,house,OH,7,Republican,2025-01-03,2027-01-03,1
+M001223,Seth Magaziner,Seth,Magaziner,house,RI,2,Democrat,2025-01-03,2027-01-03,1
+M001224,Nathaniel Moran,Nathaniel,Moran,house,TX,1,Republican,2025-01-03,2027-01-03,1
+M001225,Kevin Mullin,Kevin,Mullin,house,CA,15,Democrat,2025-01-03,2027-01-03,1
+M001226,Robert Menendez,Robert,Menendez,house,NJ,8,Democrat,2025-01-03,2027-01-03,1
+M001227,Jennifer L. McClellan,Jennifer,McClellan,house,VA,4,Democrat,2025-01-03,2027-01-03,1
+M001228,Celeste Maloy,Celeste,Maloy,house,UT,2,Republican,2025-01-03,2027-01-03,1
+M001229,LaMonica McIver,LaMonica,McIver,house,NJ,10,Democrat,2025-01-03,2027-01-03,1
+M001230,Ryan Mackenzie,Ryan,Mackenzie,house,PA,7,Republican,2025-01-03,2027-01-03,1
+M001231,John W. Mannion,John,Mannion,house,NY,22,Democrat,2025-01-03,2027-01-03,1
+M001232,April McClain Delaney,April,McClain Delaney,house,MD,6,Democrat,2025-01-03,2027-01-03,1
+M001233,Mark B. Messmer,Mark,Messmer,house,IN,8,Republican,2025-01-03,2027-01-03,1
+M001234,Kelly Morrison,Kelly,Morrison,house,MN,3,Democrat,2025-01-03,2027-01-03,1
+M001235,Riley M. Moore,Riley,Moore,house,WV,2,Republican,2025-01-03,2027-01-03,1
+M001236,Tim Moore,Tim,Moore,house,NC,14,Republican,2025-01-03,2027-01-03,1
+M001237,Kristen McDonald Rivet,Kristen,McDonald Rivet,house,MI,8,Democrat,2025-01-03,2027-01-03,1
+M001238,Sarah McBride,Sarah,McBride,house,DE,0,Democrat,2025-01-03,2027-01-03,1
+M001239,John J. McGuire III,John,McGuire,house,VA,5,Republican,2025-01-03,2027-01-03,1
+M001240,Addison P. McDowell,Addison,McDowell,house,NC,6,Republican,2025-01-03,2027-01-03,1
+M001241,Dave Min,Dave,Min,house,CA,47,Democrat,2025-01-03,2027-01-03,1
+M001242,Bernie Moreno,Bernie,Moreno,senate,OH,,Republican,2025-01-03,2031-01-03,1
+M001243,David McCormick,Dave,McCormick,senate,PA,,Republican,2025-01-03,2031-01-03,1
+M001244,Ashley Moody,Ashley,Moody,senate,FL,,Republican,2025-01-21,2026-11-03,1
+M001245,Christian D. Menefee,Christian,Menefee,house,TX,18,Democrat,2026-02-02,2027-01-03,1
+M001246,Analilia Mejia,Analilia,Mejia,house,NJ,11,Democrat,2026-04-20,2027-01-03,1
+N000002,Jerrold Nadler,Jerrold,Nadler,house,NY,12,Democrat,2025-01-03,2027-01-03,1
+N000015,Richard E. Neal,Richard,Neal,house,MA,1,Democrat,2025-01-03,2027-01-03,1
+N000026,Troy E. Nehls,Troy,Nehls,house,TX,22,Republican,2025-01-03,2027-01-03,1
+N000032,Bill Nelson,Bill,Nelson,senate,FL,,Democrat,2013-01-03,2019-01-03,0
+N000127,Richard M. Nolan,Richard,Nolan,house,MN,8,Democrat,2017-01-03,2019-01-03,0
+N000147,Eleanor Holmes Norton,Eleanor,Norton,house,DC,0,Democrat,2025-01-03,2027-01-03,1
+N000179,Grace F. Napolitano,Grace,Napolitano,house,CA,31,Democrat,2023-01-03,2025-01-03,0
+N000180,Ben Nelson,Ben,Nelson,senate,NE,,Democrat,2007-01-04,2013-01-03,0
+N000181,Devin Nunes,Devin,Nunes,house,CA,22,Republican,2021-01-03,2022-01-03,0
+N000182,Randy Neugebauer,Randy,Neugebauer,house,TX,19,Republican,2015-01-06,2017-01-03,0
+N000184,Kristi L. Noem,Kristi,Noem,house,SD,0,Republican,2017-01-03,2019-01-03,0
+N000185,Richard B. Nugent,Richard,Nugent,house,FL,11,Republican,2015-01-06,2017-01-03,0
+N000186,Alan Nunnelee,Alan,Nunnelee,house,MS,1,Republican,2015-01-06,2015-02-06,0
+N000187,Gloria Negrete McLeod,Gloria,Negrete McLeod,house,CA,35,Democrat,2013-01-03,2015-01-03,0
+N000188,Donald Norcross,Donald,Norcross,house,NJ,1,Democrat,2025-01-03,2027-01-03,1
+N000189,Dan Newhouse,Dan,Newhouse,house,WA,4,Republican,2025-01-03,2027-01-03,1
+N000190,Ralph Norman,Ralph,Norman,house,SC,5,Republican,2025-01-03,2027-01-03,1
+N000191,Joe Neguse,Joe,Neguse,house,CO,2,Democrat,2025-01-03,2027-01-03,1
+N000192,Marie Newman,Marie,Newman,house,IL,3,Democrat,2021-01-03,2023-01-03,0
+N000193,Zachary Nunn,Zachary (Zach),Nunn,house,IA,3,Republican,2025-01-03,2027-01-03,1
+N000194,Wiley Nickel,Wiley,Nickel,house,NC,13,Democrat,2023-01-03,2025-01-03,0
+O000019,Jay Obernolte,Jay,Obernolte,house,CA,23,Republican,2025-01-03,2027-01-03,1
+O000085,John W. Olver,John,Olver,house,MA,1,Democrat,2011-01-05,2013-01-03,0
+O000086,Burgess Owens,Clarence,Owens,house,UT,4,Republican,2025-01-03,2027-01-03,1
+O000168,Pete Olson,Pete,Olson,house,TX,22,Republican,2019-01-03,2021-01-03,0
+O000169,William L. Owens,William,Owens,house,NY,21,Democrat,2013-01-03,2015-01-03,0
+O000170,Beto O’Rourke,Beto,O’Rourke,house,TX,16,Democrat,2017-01-03,2019-01-03,0
+O000171,Tom O’Halleran,Tom,O’Halleran,house,AZ,1,Democrat,2021-01-03,2023-01-03,0
+O000172,Alexandria Ocasio-Cortez,Alexandria,Ocasio-Cortez,house,NY,14,Democrat,2025-01-03,2027-01-03,1
+O000173,Ilhan Omar,Ilhan,Omar,house,MN,5,Democrat,2025-01-03,2027-01-03,1
+O000174,Jon Ossoff,Jon,Ossoff,senate,GA,,Democrat,2021-01-20,2027-01-03,1
+O000175,Andrew Ogles,Andrew,Ogles,house,TN,5,Republican,2025-01-03,2027-01-03,1
+O000176,"Johnny Olszewski, Jr.",Johnny,Olszewski,house,MD,2,Democrat,2025-01-03,2027-01-03,1
+O000177,"Robert F. Onder, Jr.",Robert,Onder,house,MO,3,Republican,2025-01-03,2027-01-03,1
+P000034,"Frank Pallone, Jr.",Frank,Pallone,house,NJ,6,Democrat,2025-01-03,2027-01-03,1
+P000048,August Pfluger,August,Pfluger,house,TX,11,Republican,2025-01-03,2027-01-03,1
+P000096,"Bill Pascrell, Jr.",Bill,Pascrell,house,NJ,9,Democrat,2023-01-03,2024-08-21,0
+P000099,Ed Pastor,Ed,Pastor,house,AZ,7,Democrat,2013-01-03,2015-01-03,0
+P000145,Alex Padilla,Alejandro,Padilla,senate,CA,,Democrat,2023-01-03,2029-01-03,1
+P000149,Donald Payne,Donald,Payne,house,NJ,10,Democrat,2011-01-05,2012-03-06,0
+P000197,Nancy Pelosi,Nancy,Pelosi,house,CA,11,Democrat,2025-01-03,2027-01-03,1
+P000258,Collin C. Peterson,Collin,Peterson,house,MN,7,Democrat,2019-01-03,2021-01-03,0
+P000265,Thomas E. Petri,Thomas,Petri,house,WI,6,Republican,2013-01-03,2015-01-03,0
+P000373,Joseph R. Pitts,Joseph,Pitts,house,PA,16,Republican,2015-01-06,2017-01-03,0
+P000449,Rob Portman,Robert,Portman,senate,OH,,Republican,2017-01-03,2023-01-03,0
+P000523,David E. Price,David,Price,house,NC,4,Democrat,2021-01-03,2023-01-03,0
+P000583,Ron Paul,Ronald,Paul,house,TX,14,Republican,2011-01-05,2013-01-03,0
+P000585,Todd Russell Platts,Todd,Platts,house,PA,19,Republican,2011-01-05,2013-01-03,0
+P000587,Mike Pence,Mike,Pence,house,IN,6,Republican,2011-01-05,2013-01-03,0
+P000588,Stevan Pearce,Stevan,Pearce,house,NM,2,Republican,2017-01-03,2019-01-03,0
+P000590,Mark L. Pryor,Mark,Pryor,senate,AR,,Democrat,2009-01-06,2015-01-03,0
+P000591,Tom Price,Tom,Price,house,GA,6,Republican,2017-01-03,2017-02-10,0
+P000592,Ted Poe,Ted,Poe,house,TX,2,Republican,2017-01-03,2019-01-03,0
+P000593,Ed Perlmutter,Ed,Perlmutter,house,CO,7,Democrat,2021-01-03,2023-01-03,0
+P000594,Erik Paulsen,Erik,Paulsen,house,MN,3,Republican,2017-01-03,2019-01-03,0
+P000595,Gary C. Peters,Gary,Peters,senate,MI,,Democrat,2021-01-03,2027-01-03,1
+P000596,Pedro R. Pierluisi,Pedro,Pierluisi,house,PR,0,Democrat,2013-01-03,2017-01-03,0
+P000597,Chellie Pingree,Chellie,Pingree,house,ME,1,Democrat,2025-01-03,2027-01-03,1
+P000598,Jared Polis,Jared,Polis,house,CO,2,Democrat,2017-01-03,2019-01-03,0
+P000599,Bill Posey,Bill,Posey,house,FL,8,Republican,2023-01-03,2025-01-03,0
+P000601,Steven M. Palazzo,Steven,Palazzo,house,MS,4,Republican,2021-01-03,2023-01-03,0
+P000602,Mike Pompeo,Mike,Pompeo,house,KS,4,Republican,2017-01-03,2017-01-23,0
+P000603,Rand Paul,Rand,Paul,senate,KY,,Republican,2023-01-03,2029-01-03,1
+P000604,"Donald M. Payne, Jr.",Donald,Payne,house,NJ,10,Democrat,2023-01-03,2024-04-24,0
+P000605,Scott Perry,Scott,Perry,house,PA,10,Republican,2025-01-03,2027-01-03,1
+P000606,Robert Pittenger,Robert,Pittenger,house,NC,9,Republican,2017-01-03,2019-01-03,0
+P000607,Mark Pocan,Mark,Pocan,house,WI,2,Democrat,2025-01-03,2027-01-03,1
+P000608,Scott H. Peters,Scott,Peters,house,CA,50,Democrat,2025-01-03,2027-01-03,1
+P000609,Gary J. Palmer,Gary,Palmer,house,AL,6,Republican,2025-01-03,2027-01-03,1
+P000610,Stacey E. Plaskett,Stacey,Plaskett,house,VI,0,Democrat,2025-01-03,2027-01-03,1
+P000611,Bruce Poliquin,Bruce,Poliquin,house,ME,2,Republican,2017-01-03,2019-01-03,0
+P000612,David Perdue,David,Perdue,senate,GA,,Republican,2015-01-06,2021-01-03,0
+P000613,Jimmy Panetta,Jimmy,Panetta,house,CA,19,Democrat,2025-01-03,2027-01-03,1
+P000614,Chris Pappas,Chris,Pappas,house,NH,1,Democrat,2025-01-03,2027-01-03,1
+P000615,Greg Pence,Greg,Pence,house,IN,6,Republican,2023-01-03,2025-01-03,0
+P000616,Dean Phillips,Dean,Phillips,house,MN,3,Democrat,2023-01-03,2025-01-03,0
+P000617,Ayanna Pressley,Ayanna,Pressley,house,MA,7,Democrat,2025-01-03,2027-01-03,1
+P000618,Katie Porter,Katie,Porter,house,CA,47,Democrat,2023-01-03,2025-01-03,0
+P000619,Mary Sattler Peltola,Mary,Peltola,house,AK,0,Democrat,2023-01-03,2025-01-03,0
+P000620,Brittany Pettersen,Brittany,Pettersen,house,CO,7,Democrat,2025-01-03,2027-01-03,1
+P000621,Nellie Pou,Nellie,Pou,house,NJ,9,Democrat,2025-01-03,2027-01-03,1
+P000622,Jimmy Patronis,Jimmy,Patronis,house,FL,1,Republican,2025-04-02,2027-01-03,1
+Q000023,Mike Quigley,Mike,Quigley,house,IL,5,Democrat,2025-01-03,2027-01-03,1
+Q000024,Benjamin Quayle,Ben,Quayle,house,AZ,3,Republican,2011-01-05,2013-01-03,0
+R000011,Nick J. Rahall II,Nick,Rahall,house,WV,3,Democrat,2013-01-03,2015-01-03,0
+R000053,Charles B. Rangel,Charles,Rangel,house,NY,13,Democrat,2015-01-06,2017-01-03,0
+R000103,"Matthew M. Rosendale, Sr.",Matthew,Rosendale,house,MT,2,Republican,2023-01-03,2025-01-03,0
+R000122,Jack Reed,John,Reed,senate,RI,,Democrat,2021-01-03,2027-01-03,1
+R000146,Harry Reid,Harry,Reid,senate,NV,,Democrat,2011-01-05,2017-01-03,0
+R000170,Silvestre Reyes,Silvestre,Reyes,house,TX,16,Democrat,2011-01-05,2013-01-03,0
+R000305,Deborah K. Ross,Deborah,Ross,house,NC,2,Democrat,2025-01-03,2027-01-03,1
+R000307,Pat Roberts,Pat,Roberts,senate,KS,,Republican,2015-01-06,2021-01-03,0
+R000361,"John D. Rockefeller, IV",John,Rockefeller,senate,WV,,Democrat,2009-01-06,2015-01-03,0
+R000395,Harold Rogers,Harold,Rogers,house,KY,5,Republican,2025-01-03,2027-01-03,1
+R000409,Dana Rohrabacher,Dana,Rohrabacher,house,CA,48,Republican,2017-01-03,2019-01-03,0
+R000435,Ileana Ros-Lehtinen,Ileana,Ros-Lehtinen,house,FL,27,Republican,2017-01-03,2019-01-03,0
+R000462,Steven R. Rothman,Steven,Rothman,house,NJ,9,Democrat,2011-01-05,2013-01-03,0
+R000486,Lucille Roybal-Allard,Lucille,Roybal-Allard,house,CA,40,Democrat,2021-01-03,2023-01-03,0
+R000487,Edward R. Royce,Edward,Royce,house,CA,39,Republican,2017-01-03,2019-01-03,0
+R000515,Bobby L. Rush,Bobby,Rush,house,IL,1,Democrat,2021-01-03,2023-01-03,0
+R000570,Paul D. Ryan,Paul,Ryan,house,WI,1,Republican,2017-01-03,2019-01-03,0
+R000571,Denny Rehberg,Dennis,Rehberg,house,MT,0,Republican,2011-01-05,2013-01-03,0
+R000572,Mike Rogers,Mike,Rogers,house,MI,8,Republican,2013-01-03,2015-01-03,0
+R000573,Mike Ross,Mike,Ross,house,AR,4,Democrat,2011-01-05,2013-01-03,0
+R000575,Mike Rogers,Mike,Rogers,house,AL,3,Republican,2025-01-03,2027-01-03,1
+R000576,C. A. Dutch Ruppersberger,C.,Ruppersberger,house,MD,2,Democrat,2023-01-03,2025-01-03,0
+R000577,Tim Ryan,Tim,Ryan,house,OH,13,Democrat,2021-01-03,2023-01-03,0
+R000578,David G. Reichert,David,Reichert,house,WA,8,Republican,2017-01-03,2019-01-03,0
+R000579,Patrick Ryan,Patrick,Ryan,house,NY,18,Democrat,2025-01-03,2027-01-03,1
+R000580,Peter J. Roskam,Peter,Roskam,house,IL,6,Republican,2017-01-03,2019-01-03,0
+R000581,Laura Richardson,Laura,Richardson,house,CA,37,Democrat,2011-01-05,2013-01-03,0
+R000582,David P. Roe,David,Roe,house,TN,1,Republican,2019-01-03,2021-01-03,0
+R000583,Thomas J. Rooney,Thomas,Rooney,house,FL,17,Republican,2017-01-03,2019-01-03,0
+R000584,James E. Risch,James,Risch,senate,ID,,Republican,2021-01-03,2027-01-03,1
+R000585,Tom Reed,Tom,Reed,house,NY,23,Republican,2021-01-03,2022-05-10,0
+R000586,James B. Renacci,James,Renacci,house,OH,16,Republican,2017-01-03,2019-01-03,0
+R000587,Reid J. Ribble,Reid,Ribble,house,WI,8,Republican,2015-01-06,2017-01-03,0
+R000588,Cedric L. Richmond,Cedric,Richmond,house,LA,2,Democrat,2021-01-03,2021-01-15,0
+R000589,E. Scott Rigell,Edward,Rigell,house,VA,2,Republican,2015-01-06,2017-01-03,0
+R000590,David Rivera,David,Rivera,house,FL,25,Republican,2011-01-05,2013-01-03,0
+R000591,Martha Roby,Martha,Roby,house,AL,2,Republican,2019-01-03,2021-01-03,0
+R000592,Todd Rokita,Todd,Rokita,house,IN,4,Republican,2017-01-03,2019-01-03,0
+R000593,Dennis A. Ross,Dennis,Ross,house,FL,15,Republican,2017-01-03,2019-01-03,0
+R000594,Jon Runyan,Jon,Runyan,house,NJ,3,Republican,2013-01-03,2015-01-03,0
+R000595,Marco Rubio,Marco,Rubio,senate,FL,,Republican,2023-01-03,2025-01-20,0
+R000596,Trey Radel,Trey,Radel,house,FL,19,Republican,2013-01-03,2014-01-27,0
+R000597,Tom Rice,Tom,Rice,house,SC,7,Republican,2021-01-03,2023-01-03,0
+R000598,Keith J. Rothfus,Keith,Rothfus,house,PA,12,Republican,2017-01-03,2019-01-03,0
+R000599,Raul Ruiz,Raul,Ruiz,house,CA,25,Democrat,2025-01-03,2027-01-03,1
+R000600,Aumua Amata Coleman Radewagen,Aumua Amata,Radewagen,house,AS,0,Republican,2025-01-03,2027-01-03,1
+R000601,John Ratcliffe,John,Ratcliffe,house,TX,4,Republican,2019-01-03,2020-05-22,0
+R000602,Kathleen M. Rice,Kathleen,Rice,house,NY,4,Democrat,2021-01-03,2023-01-03,0
+R000603,David Rouzer,David,Rouzer,house,NC,7,Republican,2025-01-03,2027-01-03,1
+R000604,Steve Russell,Steve,Russell,house,OK,5,Republican,2017-01-03,2019-01-03,0
+R000605,Mike Rounds,Mike,Rounds,senate,SD,,Republican,2021-01-03,2027-01-03,1
+R000606,Jamie Raskin,Jamie,Raskin,house,MD,8,Democrat,2025-01-03,2027-01-03,1
+R000607,Francis Rooney,Francis,Rooney,house,FL,19,Republican,2019-01-03,2021-01-03,0
+R000608,Jacky Rosen,Jacky,Rosen,senate,NV,,Democrat,2025-01-03,2031-01-03,1
+R000609,John H. Rutherford,John,Rutherford,house,FL,5,Republican,2025-01-03,2027-01-03,1
+R000610,Guy Reschenthaler,Guy,Reschenthaler,house,PA,14,Republican,2025-01-03,2027-01-03,1
+R000611,Denver Riggleman,Denver,Riggleman,house,VA,5,Republican,2019-01-03,2021-01-03,0
+R000612,John W. Rose,John,Rose,house,TN,6,Republican,2025-01-03,2027-01-03,1
+R000613,Max Rose,Max,Rose,house,NY,11,Democrat,2019-01-03,2021-01-03,0
+R000614,Chip Roy,Chip,Roy,house,TX,21,Republican,2025-01-03,2027-01-03,1
+R000615,Mitt Romney,Mitt,Romney,senate,UT,,Republican,2019-01-03,2025-01-03,0
+R000616,Harley Rouda,Harley,Rouda,house,CA,48,Democrat,2019-01-03,2021-01-03,0
+R000617,Delia C. Ramirez,Delia,Ramirez,house,IL,3,Democrat,2025-01-03,2027-01-03,1
+R000618,Pete Ricketts,Pete,Ricketts,senate,NE,,Republican,2024-11-05,2027-01-03,1
+R000619,Michael A. Rulli,Michael,Rulli,house,OH,6,Republican,2025-01-03,2027-01-03,1
+R000620,Luz M. Rivas,Luz,Rivas,house,CA,29,Democrat,2025-01-03,2027-01-03,1
+R000621,Emily Randall,Emily,Randall,house,WA,6,Democrat,2025-01-03,2027-01-03,1
+R000622,Josh Riley,Josh,Riley,house,NY,19,Democrat,2025-01-03,2027-01-03,1
+S000018,Matt Salmon,Matt,Salmon,house,AZ,5,Republican,2015-01-06,2017-01-03,0
+S000030,Loretta Sanchez,Loretta,Sanchez,house,CA,46,Democrat,2015-01-06,2017-01-03,0
+S000033,Bernard Sanders,Bernard,Sanders,senate,VT,,Independent,2025-01-03,2031-01-03,1
+S000051,Mark Sanford,Marshall,Sanford,house,SC,1,Republican,2017-01-03,2019-01-03,0
+S000148,Charles E. Schumer,Charles,Schumer,senate,NY,,Democrat,2023-01-03,2029-01-03,1
+S000168,Maria Elvira Salazar,Maria,Salazar,house,FL,27,Republican,2025-01-03,2027-01-03,1
+S000185,"Robert C. ""Bobby"" Scott",Robert,Scott,house,VA,3,Democrat,2025-01-03,2027-01-03,1
+S000244,"F. James Sensenbrenner, Jr.",F.,Sensenbrenner,house,WI,5,Republican,2019-01-03,2021-01-03,0
+S000248,José E. Serrano,José,Serrano,house,NY,15,Democrat,2019-01-03,2021-01-03,0
+S000250,Pete Sessions,Pete,Sessions,house,TX,17,Republican,2025-01-03,2027-01-03,1
+S000320,Richard C. Shelby,Richard,Shelby,senate,AL,,Republican,2017-01-03,2023-01-03,0
+S000344,Brad Sherman,Brad,Sherman,house,CA,32,Democrat,2025-01-03,2027-01-03,1
+S000364,John Shimkus,John,Shimkus,house,IL,15,Republican,2019-01-03,2021-01-03,0
+S000480,Louise McIntosh Slaughter,Louise,Slaughter,house,NY,25,Democrat,2017-01-03,2018-03-16,0
+S000510,Adam Smith,Adam,Smith,house,WA,9,Democrat,2025-01-03,2027-01-03,1
+S000522,Christopher H. Smith,Christopher,Smith,house,NJ,4,Republican,2025-01-03,2027-01-03,1
+S000583,Lamar Smith,Lamar,Smith,house,TX,21,Republican,2017-01-03,2019-01-03,0
+S000663,Olympia J. Snowe,Olympia,Snowe,senate,ME,,Republican,2007-01-04,2013-01-03,0
+S000770,Debbie Stabenow,Debbie,Stabenow,senate,MI,,Democrat,2019-01-03,2025-01-03,0
+S000810,Fortney Pete Stark,Fortney,Stark,house,CA,13,Democrat,2011-01-05,2013-01-03,0
+S000822,Cliff Stearns,Clifford,Stearns,house,FL,6,Republican,2011-01-05,2013-01-03,0
+S000929,Victoria Spartz,Victoria,Spartz,house,IN,5,Republican,2025-01-03,2027-01-03,1
+S000937,Steve Stockman,Steve,Stockman,house,TX,36,Republican,2013-01-03,2015-01-03,0
+S001135,Michelle Steel,Michelle,Steel,house,CA,45,Republican,2023-01-03,2025-01-03,0
+S001141,Jeff Sessions,Jefferson,Sessions,senate,AL,,Republican,2015-01-06,2017-02-08,0
+S001145,Janice D. Schakowsky,Janice,Schakowsky,house,IL,9,Democrat,2025-01-03,2027-01-03,1
+S001148,Michael K. Simpson,Michael,Simpson,house,ID,2,Republican,2025-01-03,2027-01-03,1
+S001150,Adam B. Schiff,Adam,Schiff,senate,CA,,Democrat,2025-01-03,2031-01-03,1
+S001154,Bill Shuster,Bill,Shuster,house,PA,9,Republican,2017-01-03,2019-01-03,0
+S001155,John Sullivan,John,Sullivan,house,OK,1,Republican,2011-01-05,2013-01-03,0
+S001156,Linda T. Sánchez,Linda,Sánchez,house,CA,38,Democrat,2025-01-03,2027-01-03,1
+S001157,David Scott,David,Scott,house,GA,13,Democrat,2025-01-03,2026-04-21,0
+S001159,Marilyn Strickland,Marilyn,Strickland,house,WA,10,Democrat,2025-01-03,2027-01-03,1
+S001162,Allyson Y. Schwartz,Allyson,Schwartz,house,PA,13,Democrat,2013-01-03,2015-01-03,0
+S001164,Jean Schmidt,Jean,Schmidt,house,OH,2,Republican,2011-01-05,2013-01-03,0
+S001165,Albio Sires,Albio,Sires,house,NJ,8,Democrat,2021-01-03,2023-01-03,0
+S001168,John P. Sarbanes,John,Sarbanes,house,MD,3,Democrat,2023-01-03,2025-01-03,0
+S001170,Carol Shea-Porter,Carol,Shea-Porter,house,NH,1,Democrat,2017-01-03,2019-01-03,0
+S001171,Heath Shuler,Heath,Shuler,house,NC,11,Democrat,2011-01-05,2013-01-03,0
+S001172,Adrian Smith,Adrian,Smith,house,NE,3,Republican,2025-01-03,2027-01-03,1
+S001174,Betty Sutton,Betty,Sutton,house,OH,13,Democrat,2011-01-05,2013-01-03,0
+S001175,Jackie Speier,Jackie,Speier,house,CA,14,Democrat,2021-01-03,2023-01-03,0
+S001176,Steve Scalise,Steve,Scalise,house,LA,1,Republican,2025-01-03,2027-01-03,1
+S001177,Gregorio Kilili Camacho Sablan,Gregorio,Sablan,house,MP,0,Democrat,2023-01-03,2025-01-03,0
+S001179,Aaron Schock,Aaron,Schock,house,IL,18,Republican,2015-01-06,2015-03-31,0
+S001180,Kurt Schrader,Kurt,Schrader,house,OR,5,Democrat,2021-01-03,2023-01-03,0
+S001181,Jeanne Shaheen,Jeanne,Shaheen,senate,NH,,Democrat,2021-01-03,2027-01-03,1
+S001182,Robert T. Schilling,Robert,Schilling,house,IL,17,Republican,2011-01-05,2013-01-03,0
+S001183,David Schweikert,David,Schweikert,house,AZ,1,Republican,2025-01-03,2027-01-03,1
+S001184,Tim Scott,Tim,Scott,senate,SC,,Republican,2023-01-03,2029-01-03,1
+S001185,Terri A. Sewell,Terri,Sewell,house,AL,7,Democrat,2025-01-03,2027-01-03,1
+S001186,Steve Southerland II,Steve,Southerland,house,FL,2,Republican,2013-01-03,2015-01-03,0
+S001187,Steve Stivers,Steve,Stivers,house,OH,15,Republican,2021-01-03,2021-05-16,0
+S001188,Marlin A. Stutzman,Marlin,Stutzman,house,IN,3,Republican,2025-01-03,2027-01-03,1
+S001189,Austin Scott,Austin,Scott,house,GA,8,Republican,2025-01-03,2027-01-03,1
+S001190,Bradley Scott Schneider,Bradley,Schneider,house,IL,10,Democrat,2025-01-03,2027-01-03,1
+S001191,Kyrsten Sinema,Kyrsten,Sinema,senate,AZ,,Independent,2019-01-03,2025-01-03,0
+S001192,Chris Stewart,Chris,Stewart,house,UT,2,Republican,2023-01-03,2023-09-15,0
+S001193,Eric Swalwell,Eric,Swalwell,house,CA,14,Democrat,2025-01-03,2026-04-14,0
+S001194,Brian Schatz,Brian,Schatz,senate,HI,,Democrat,2023-01-03,2029-01-03,1
+S001195,Jason Smith,Jason,Smith,house,MO,8,Republican,2025-01-03,2027-01-03,1
+S001196,Elise M. Stefanik,Elise,Stefanik,house,NY,21,Republican,2025-01-03,2027-01-03,1
+S001197,Ben Sasse,Benjamin,Sasse,senate,NE,,Republican,2021-01-03,2023-01-08,0
+S001198,Dan Sullivan,Dan,Sullivan,senate,AK,,Republican,2021-01-03,2027-01-03,1
+S001199,Lloyd Smucker,Lloyd,Smucker,house,PA,11,Republican,2025-01-03,2027-01-03,1
+S001200,Darren Soto,Darren,Soto,house,FL,9,Democrat,2025-01-03,2027-01-03,1
+S001201,Thomas R. Suozzi,Thomas,Suozzi,house,NY,3,Democrat,2025-01-03,2027-01-03,1
+S001202,Luther Strange,Luther,Strange,senate,AL,,Republican,2017-02-09,2018-01-03,0
+S001203,Tina Smith,Tina,Smith,senate,MN,,Democrat,2021-01-03,2027-01-03,1
+S001204,Michael F. Q. San Nicolas,Michael,San Nicolas,house,GU,0,Democrat,2021-01-03,2023-01-03,0
+S001205,Mary Gay Scanlon,Mary,Scanlon,house,PA,5,Democrat,2025-01-03,2027-01-03,1
+S001206,Donna E. Shalala,Donna,Shalala,house,FL,27,Democrat,2019-01-03,2021-01-03,0
+S001207,Mikie Sherrill,Mikie,Sherrill,house,NJ,11,Democrat,2025-01-03,2025-11-20,0
+S001208,Elissa Slotkin,Elissa,Slotkin,senate,MI,,Democrat,2025-01-03,2031-01-03,1
+S001209,Abigail Davis Spanberger,Abigail,Spanberger,house,VA,7,Democrat,2023-01-03,2025-01-03,0
+S001210,Ross Spano,Ross,Spano,house,FL,15,Republican,2019-01-03,2021-01-03,0
+S001211,Greg Stanton,Greg,Stanton,house,AZ,4,Democrat,2025-01-03,2027-01-03,1
+S001212,Pete Stauber,Pete,Stauber,house,MN,8,Republican,2025-01-03,2027-01-03,1
+S001213,Bryan Steil,Bryan,Steil,house,WI,1,Republican,2025-01-03,2027-01-03,1
+S001214,W. Gregory Steube,W.,Steube,house,FL,17,Republican,2025-01-03,2027-01-03,1
+S001215,Haley M. Stevens,Haley,Stevens,house,MI,11,Democrat,2025-01-03,2027-01-03,1
+S001216,Kim Schrier,Kim,Schrier,house,WA,8,Democrat,2025-01-03,2027-01-03,1
+S001217,Rick Scott,Rick,Scott,senate,FL,,Republican,2025-01-03,2031-01-03,1
+S001218,Melanie A. Stansbury,Melanie,Stansbury,house,NM,1,Democrat,2025-01-03,2027-01-03,1
+S001219,Joseph Sempolinski,Joseph,Sempolinski,house,NY,23,Republican,2022-09-13,2023-01-03,0
+S001220,Dale W. Strong,Dale,Strong,house,AL,5,Republican,2025-01-03,2027-01-03,1
+S001221,Hillary J. Scholten,Hillary,Scholten,house,MI,3,Democrat,2025-01-03,2027-01-03,1
+S001222,George Santos,George,Santos,house,NY,3,Republican,2023-01-03,2023-12-01,0
+S001223,Emilia Strong Sykes,Emilia,Sykes,house,OH,13,Democrat,2025-01-03,2027-01-03,1
+S001224,Keith Self,Keith,Self,house,TX,3,Republican,2025-01-03,2027-01-03,1
+S001225,Eric Sorensen,Eric,Sorensen,house,IL,17,Democrat,2025-01-03,2027-01-03,1
+S001226,Andrea Salinas,Andrea,Salinas,house,OR,6,Democrat,2025-01-03,2027-01-03,1
+S001227,Eric Schmitt,Eric,Schmitt,senate,MO,,Republican,2023-01-03,2029-01-03,1
+S001228,Derek Schmidt,Derek,Schmidt,house,KS,2,Republican,2025-01-03,2027-01-03,1
+S001229,Jefferson Shreve,Jefferson,Shreve,house,IN,6,Republican,2025-01-03,2027-01-03,1
+S001230,Suhas Subramanyam,Suhas,Subramanyam,house,VA,10,Democrat,2025-01-03,2027-01-03,1
+S001231,Lateefah Simon,Lateefah,Simon,house,CA,12,Democrat,2025-01-03,2027-01-03,1
+S001232,Tim Sheehy,Tim,Sheehy,senate,MT,,Republican,2025-01-03,2031-01-03,1
+T000165,Thomas P. Tiffany,Thomas,Tiffany,house,WI,7,Republican,2025-01-03,2027-01-03,1
+T000193,Bennie G. Thompson,Bennie,Thompson,house,MS,2,Democrat,2025-01-03,2027-01-03,1
+T000238,Mac Thornberry,Mac,Thornberry,house,TX,13,Republican,2019-01-03,2021-01-03,0
+T000250,John Thune,John,Thune,senate,SD,,Republican,2023-01-03,2029-01-03,1
+T000266,John F. Tierney,John,Tierney,house,MA,6,Democrat,2013-01-03,2015-01-03,0
+T000278,Tommy Tuberville,Tommy,Tuberville,senate,AL,,Republican,2021-01-03,2027-01-03,1
+T000326,Edolphus Towns,Edolphus,Towns,house,NY,10,Democrat,2011-01-05,2013-01-03,0
+T000459,Lee Terry,Lee,Terry,house,NE,2,Republican,2013-01-03,2015-01-03,0
+T000460,Mike Thompson,Mike,Thompson,house,CA,4,Democrat,2025-01-03,2027-01-03,1
+T000461,Patrick J. Toomey,Patrick,Toomey,senate,PA,,Republican,2017-01-03,2023-01-03,0
+T000462,Patrick J. Tiberi,Patrick,Tiberi,house,OH,12,Republican,2017-01-03,2018-01-15,0
+T000463,Michael R. Turner,Michael,Turner,house,OH,10,Republican,2025-01-03,2027-01-03,1
+T000464,Jon Tester,Jon,Tester,senate,MT,,Democrat,2019-01-03,2025-01-03,0
+T000465,Niki Tsongas,Niki,Tsongas,house,MA,3,Democrat,2017-01-03,2019-01-03,0
+T000467,Glenn Thompson,Glenn,Thompson,house,PA,15,Republican,2025-01-03,2027-01-03,1
+T000468,Dina Titus,Dina,Titus,house,NV,1,Democrat,2025-01-03,2027-01-03,1
+T000469,Paul Tonko,Paul,Tonko,house,NY,20,Democrat,2025-01-03,2027-01-03,1
+T000470,Scott R. Tipton,Scott,Tipton,house,CO,3,Republican,2019-01-03,2021-01-03,0
+T000471,Robert L. Turner,Robert,Turner,house,NY,9,Republican,2011-09-13,2013-01-03,0
+T000472,Mark Takano,Mark,Takano,house,CA,39,Democrat,2025-01-03,2027-01-03,1
+T000473,Mark Takai,Mark,Takai,house,HI,1,Democrat,2015-01-06,2016-07-20,0
+T000474,Norma J. Torres,Norma,Torres,house,CA,35,Democrat,2025-01-03,2027-01-03,1
+T000475,David A. Trott,Dave,Trott,house,MI,11,Republican,2017-01-03,2019-01-03,0
+T000476,Thom Tillis,Thom,Tillis,senate,NC,,Republican,2021-01-03,2027-01-03,1
+T000477,Scott Taylor,Scott,Taylor,house,VA,2,Republican,2017-01-03,2019-01-03,0
+T000478,Claudia Tenney,Claudia,Tenney,house,NY,24,Republican,2025-01-03,2027-01-03,1
+T000479,Van Taylor,Van,Taylor,house,TX,3,Republican,2021-01-03,2023-01-03,0
+T000480,William R. Timmons IV,William,Timmons,house,SC,4,Republican,2025-01-03,2027-01-03,1
+T000481,Rashida Tlaib,Rashida,Tlaib,house,MI,12,Democrat,2025-01-03,2027-01-03,1
+T000482,Lori Trahan,Lori,Trahan,house,MA,3,Democrat,2025-01-03,2027-01-03,1
+T000483,David J. Trone,David,Trone,house,MD,6,Democrat,2023-01-03,2025-01-03,0
+T000484,Xochitl Torres Small,Xochitl,Torres Small,house,NM,2,Democrat,2019-01-03,2021-01-03,0
+T000486,Ritchie Torres,Ritchie,Torres,house,NY,15,Democrat,2025-01-03,2027-01-03,1
+T000487,Jill N. Tokuda,Jill,Tokuda,house,HI,2,Democrat,2025-01-03,2027-01-03,1
+T000488,Shri Thanedar,Shri,Thanedar,house,MI,13,Democrat,2025-01-03,2027-01-03,1
+T000489,Sylvester Turner,Sylvester,Turner,house,TX,18,Democrat,2025-01-03,2025-03-04,0
+T000490,David J. Taylor,David,Taylor,house,OH,2,Republican,2025-01-03,2027-01-03,1
+T000491,Derek Tran,Derek,Tran,house,CA,45,Democrat,2025-01-03,2027-01-03,1
+U000031,Fred Upton,Fred,Upton,house,MI,6,Republican,2021-01-03,2023-01-03,0
+U000038,Mark Udall,Mark,Udall,senate,CO,,Democrat,2009-01-06,2015-01-03,0
+U000039,Tom Udall,Tom,Udall,senate,NM,,Democrat,2015-01-06,2021-01-03,0
+U000040,Lauren Underwood,Lauren,Underwood,house,IL,14,Democrat,2025-01-03,2027-01-03,1
+V000081,Nydia M. Velázquez,Nydia,Velázquez,house,NY,7,Democrat,2025-01-03,2027-01-03,1
+V000108,Peter J. Visclosky,Peter,Visclosky,house,IN,1,Democrat,2019-01-03,2021-01-03,0
+V000127,David Vitter,David,Vitter,senate,LA,,Republican,2011-01-05,2017-01-03,0
+V000128,Chris Van Hollen,Chris,Van Hollen,senate,MD,,Democrat,2023-01-03,2029-01-03,1
+V000129,David G. Valadao,David,Valadao,house,CA,22,Republican,2025-01-03,2027-01-03,1
+V000130,Juan Vargas,Juan,Vargas,house,CA,52,Democrat,2025-01-03,2027-01-03,1
+V000131,Marc A. Veasey,Marc,Veasey,house,TX,33,Democrat,2025-01-03,2027-01-03,1
+V000132,Filemon Vela,Filemon,Vela,house,TX,34,Democrat,2021-01-03,2022-03-31,0
+V000133,Jefferson Van Drew,Jefferson,Van Drew,house,NJ,2,Republican,2025-01-03,2027-01-03,1
+V000134,Beth Van Duyne,Beth,Van Duyne,house,TX,24,Republican,2025-01-03,2027-01-03,1
+V000135,Derrick Van Orden,Derrick,Van Orden,house,WI,3,Republican,2025-01-03,2027-01-03,1
+V000136,Gabe Vasquez,Gabriel (Gabe),Vasquez,house,NM,2,Democrat,2025-01-03,2027-01-03,1
+V000137,J.D. Vance,James David,Vance,senate,OH,,Republican,2023-01-03,2025-01-09,0
+V000138,Eugene Simon Vindman,Eugene,Vindman,house,VA,7,Democrat,2025-01-03,2027-01-03,1
+V000139,Matt Van Epps,Matt,Van Epps,house,TN,7,Republican,2025-12-04,2027-01-03,1
+W000187,Maxine Waters,Maxine,Waters,house,CA,43,Democrat,2025-01-03,2027-01-03,1
+W000207,Melvin L. Watt,Melvin,Watt,house,NC,12,Democrat,2013-01-03,2014-01-06,0
+W000215,Henry A. Waxman,Henry,Waxman,house,CA,33,Democrat,2013-01-03,2015-01-03,0
+W000413,Ed Whitfield,Ed,Whitfield,house,KY,1,Republican,2015-01-06,2016-09-07,0
+W000437,Roger F. Wicker,Roger,Wicker,senate,MS,,Republican,2025-01-03,2031-01-03,1
+W000672,Frank R. Wolf,Frank,Wolf,house,VA,10,Republican,2013-01-03,2015-01-03,0
+W000738,Lynn C. Woolsey,Lynn,Woolsey,house,CA,6,Democrat,2011-01-05,2013-01-03,0
+W000779,Ron Wyden,Ron,Wyden,senate,OR,,Democrat,2023-01-03,2029-01-03,1
+W000788,Nikema Williams,Nikema,Williams,house,GA,5,Democrat,2025-01-03,2027-01-03,1
+W000790,Raphael G. Warnock,Raphael,Warnock,senate,GA,,Democrat,2023-01-03,2029-01-03,1
+W000791,Greg Walden,Greg,Walden,house,OR,2,Republican,2019-01-03,2021-01-03,0
+W000795,Joe Wilson,Joe,Wilson,house,SC,2,Republican,2025-01-03,2027-01-03,1
+W000796,Lynn A. Westmoreland,Lynn,Westmoreland,house,GA,3,Republican,2015-01-06,2017-01-03,0
+W000797,Debbie Wasserman Schultz,Debbie,Wasserman Schultz,house,FL,25,Democrat,2025-01-03,2027-01-03,1
+W000798,Tim Walberg,Tim,Walberg,house,MI,5,Republican,2025-01-03,2027-01-03,1
+W000799,Timothy J. Walz,Timothy,Walz,house,MN,1,Democrat,2017-01-03,2019-01-03,0
+W000800,Peter Welch,Peter,Welch,senate,VT,,Democrat,2023-01-03,2029-01-03,1
+W000802,Sheldon Whitehouse,Sheldon,Whitehouse,senate,RI,,Democrat,2025-01-03,2031-01-03,1
+W000803,Jim Webb,Jim,Webb,senate,VA,,Democrat,2007-01-04,2013-01-03,0
+W000804,Robert J. Wittman,Robert,Wittman,house,VA,1,Republican,2025-01-03,2027-01-03,1
+W000805,Mark R. Warner,Mark,Warner,senate,VA,,Democrat,2021-01-03,2027-01-03,1
+W000806,Daniel Webster,Daniel,Webster,house,FL,11,Republican,2025-01-03,2027-01-03,1
+W000807,Allen B. West,Allen,West,house,FL,22,Republican,2011-01-05,2013-01-03,0
+W000808,Frederica S. Wilson,Frederica,Wilson,house,FL,24,Democrat,2025-01-03,2027-01-03,1
+W000809,Steve Womack,Steve,Womack,house,AR,3,Republican,2025-01-03,2027-01-03,1
+W000810,Rob Woodall,Rob,Woodall,house,GA,7,Republican,2019-01-03,2021-01-03,0
+W000811,Joe Walsh,Joe,Walsh,house,IL,8,Republican,2011-01-05,2013-01-03,0
+W000812,Ann Wagner,Ann,Wagner,house,MO,2,Republican,2025-01-03,2027-01-03,1
+W000813,Jackie Walorski,Jackie,Walorski,house,IN,2,Republican,2021-01-03,2022-08-03,0
+W000814,"Randy K. Weber, Sr.",Randy,Weber,house,TX,14,Republican,2025-01-03,2027-01-03,1
+W000815,Brad R. Wenstrup,Brad,Wenstrup,house,OH,2,Republican,2023-01-03,2025-01-03,0
+W000816,Roger Williams,Roger,Williams,house,TX,25,Republican,2025-01-03,2027-01-03,1
+W000817,Elizabeth Warren,Elizabeth,Warren,senate,MA,,Democrat,2025-01-03,2031-01-03,1
+W000818,John E. Walsh,John,Walsh,senate,MT,,Democrat,2014-02-11,2015-01-03,0
+W000819,Mark Walker,Mark,Walker,house,NC,6,Republican,2019-01-03,2021-01-03,0
+W000820,Mimi Walters,Mimi,Walters,house,CA,45,Republican,2017-01-03,2019-01-03,0
+W000821,Bruce Westerman,Bruce,Westerman,house,AR,4,Republican,2025-01-03,2027-01-03,1
+W000822,Bonnie Watson Coleman,Bonnie,Watson Coleman,house,NJ,12,Democrat,2025-01-03,2027-01-03,1
+W000823,Michael Waltz,Michael,Waltz,house,FL,6,Republican,2025-01-03,2025-01-20,0
+W000824,Steve Watkins,Steven,Watkins,house,KS,2,Republican,2019-01-03,2021-01-03,0
+W000825,Jennifer Wexton,Jennifer,Wexton,house,VA,10,Democrat,2023-01-03,2025-01-03,0
+W000826,Susan Wild,Susan,Wild,house,PA,7,Democrat,2023-01-03,2025-01-03,0
+W000827,Ron Wright,Ron,Wright,house,TX,6,Republican,2021-01-03,2021-02-07,0
+W000828,Brandon Williams,Brandon,Williams,house,NY,22,Republican,2023-01-03,2025-01-03,0
+W000829,Tony Wied,Tony,Wied,house,WI,8,Republican,2025-01-03,2027-01-03,1
+W000830,George Whitesides,George,Whitesides,house,CA,27,Democrat,2025-01-03,2027-01-03,1
+W000831,James R. Walkinshaw,James,Walkinshaw,house,VA,11,Democrat,2025-09-10,2027-01-03,1
+W000832,Aisha Wahab,Aisha,Wahab,house,CA,14,Democrat,2026-09-02,2027-01-03,1
+Y000031,C. W. Bill Young,C.,Young,house,FL,13,Republican,2013-01-03,2013-10-18,0
+Y000033,Don Young,Don,Young,house,AK,0,Republican,2021-01-03,2022-03-18,0
+Y000062,John A. Yarmuth,John,Yarmuth,house,KY,3,Democrat,2021-01-03,2023-01-03,0
+Y000063,Kevin Yoder,Kevin,Yoder,house,KS,3,Republican,2017-01-03,2019-01-03,0
+Y000064,Todd Young,Todd,Young,senate,IN,,Republican,2023-01-03,2029-01-03,1
+Y000065,Ted S. Yoho,Ted,Yoho,house,FL,3,Republican,2019-01-03,2021-01-03,0
+Y000066,David Young,David,Young,house,IA,3,Republican,2017-01-03,2019-01-03,0
+Y000067,Rudy Yakym III,Rudy,Yakym,house,IN,2,Republican,2025-01-03,2027-01-03,1
+Z000017,Lee M. Zeldin,Lee,Zeldin,house,NY,1,Republican,2021-01-03,2023-01-03,0
+Z000018,Ryan K. Zinke,Ryan,Zinke,house,MT,1,Republican,2025-01-03,2027-01-03,1

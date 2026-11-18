@@ -1,0 +1,523 @@
+congress,revision_id,unit_id,industry_id,committee_id,unit_kind,industry_name,sector_id,sector_name,confidence
+119,map-fullrun-20261016,house--agriculture,farm-products,HSAG,committee_parent_core,Farm Products,consumer-defensive,Consumer Defensive,4
+119,map-fullrun-20261016,house--agriculture,financial-data-stock-exchanges,HSAG,committee_parent_core,Financial Data & Stock Exchanges,financial-services,Financial Services,4
+119,map-fullrun-20261016,house--agriculture--commodity-markets-digital-assets-and-rural-development,capital-markets,HSAG22,subcommittee,Capital Markets,financial-services,Financial Services,3
+119,map-fullrun-20261016,house--agriculture--commodity-markets-digital-assets-and-rural-development,financial-data-stock-exchanges,HSAG22,subcommittee,Financial Data & Stock Exchanges,financial-services,Financial Services,3
+119,map-fullrun-20261016,house--agriculture--commodity-markets-digital-assets-and-rural-development,utilities-regulated-electric,HSAG22,subcommittee,Utilities - Regulated Electric,utilities,Utilities,3
+119,map-fullrun-20261016,house--agriculture--conservation-research-and-biotechnology,agricultural-inputs,HSAG14,subcommittee,Agricultural Inputs,basic-materials,Basic Materials,2
+119,map-fullrun-20261016,house--agriculture--conservation-research-and-biotechnology,farm-products,HSAG14,subcommittee,Farm Products,consumer-defensive,Consumer Defensive,3
+119,map-fullrun-20261016,house--agriculture--forestry-and-horticulture,farm-products,HSAG15,subcommittee,Farm Products,consumer-defensive,Consumer Defensive,3
+119,map-fullrun-20261016,house--agriculture--forestry-and-horticulture,lumber-wood-production,HSAG15,subcommittee,Lumber & Wood Production,basic-materials,Basic Materials,4
+119,map-fullrun-20261016,house--agriculture--general-farm-commodities-risk-management-and-credit,banks-regional,HSAG16,subcommittee,Banks - Regional,financial-services,Financial Services,3
+119,map-fullrun-20261016,house--agriculture--general-farm-commodities-risk-management-and-credit,credit-services,HSAG16,subcommittee,Credit Services,financial-services,Financial Services,3
+119,map-fullrun-20261016,house--agriculture--general-farm-commodities-risk-management-and-credit,farm-products,HSAG16,subcommittee,Farm Products,consumer-defensive,Consumer Defensive,4
+119,map-fullrun-20261016,house--agriculture--general-farm-commodities-risk-management-and-credit,insurance-property-casualty,HSAG16,subcommittee,Insurance - Property & Casualty,financial-services,Financial Services,3
+119,map-fullrun-20261016,house--agriculture--livestock-dairy-and-poultry,farm-products,HSAG29,subcommittee,Farm Products,consumer-defensive,Consumer Defensive,4
+119,map-fullrun-20261016,house--agriculture--livestock-dairy-and-poultry,packaged-foods,HSAG29,subcommittee,Packaged Foods,consumer-defensive,Consumer Defensive,3
+119,map-fullrun-20261016,house--agriculture--nutrition-and-foreign-agriculture,farm-products,HSAG03,subcommittee,Farm Products,consumer-defensive,Consumer Defensive,3
+119,map-fullrun-20261016,house--agriculture--nutrition-and-foreign-agriculture,grocery-stores,HSAG03,subcommittee,Grocery Stores,consumer-defensive,Consumer Defensive,2
+119,map-fullrun-20261016,house--appropriations--agriculture-rural-development-food-and-drug-administration-and-related-agencies,drug-manufacturers-general,HSAP01,subcommittee,Drug Manufacturers - General,healthcare,Healthcare,3
+119,map-fullrun-20261016,house--appropriations--agriculture-rural-development-food-and-drug-administration-and-related-agencies,farm-products,HSAP01,subcommittee,Farm Products,consumer-defensive,Consumer Defensive,3
+119,map-fullrun-20261016,house--appropriations--agriculture-rural-development-food-and-drug-administration-and-related-agencies,financial-data-stock-exchanges,HSAP01,subcommittee,Financial Data & Stock Exchanges,financial-services,Financial Services,3
+119,map-fullrun-20261016,house--appropriations--agriculture-rural-development-food-and-drug-administration-and-related-agencies,medical-devices,HSAP01,subcommittee,Medical Devices,healthcare,Healthcare,3
+119,map-fullrun-20261016,house--appropriations--agriculture-rural-development-food-and-drug-administration-and-related-agencies,packaged-foods,HSAP01,subcommittee,Packaged Foods,consumer-defensive,Consumer Defensive,3
+119,map-fullrun-20261016,house--appropriations--commerce-justice-science-and-related-agencies,aerospace-defense,HSAP19,subcommittee,Aerospace & Defense,industrials,Industrials,3
+119,map-fullrun-20261016,house--appropriations--commerce-justice-science-and-related-agencies,semiconductors,HSAP19,subcommittee,Semiconductors,technology,Technology,3
+119,map-fullrun-20261016,house--appropriations--defense,aerospace-defense,HSAP02,subcommittee,Aerospace & Defense,industrials,Industrials,4
+119,map-fullrun-20261016,house--appropriations--energy-and-water-development-and-related-agencies,engineering-construction,HSAP10,subcommittee,Engineering & Construction,industrials,Industrials,3
+119,map-fullrun-20261016,house--appropriations--energy-and-water-development-and-related-agencies,uranium,HSAP10,subcommittee,Uranium,energy,Energy,3
+119,map-fullrun-20261016,house--appropriations--energy-and-water-development-and-related-agencies,utilities-regulated-electric,HSAP10,subcommittee,Utilities - Regulated Electric,utilities,Utilities,3
+119,map-fullrun-20261016,house--appropriations--energy-and-water-development-and-related-agencies,utilities-renewable,HSAP10,subcommittee,Utilities - Renewable,utilities,Utilities,3
+119,map-fullrun-20261016,house--appropriations--energy-and-water-development-and-related-agencies,waste-management,HSAP10,subcommittee,Waste Management,industrials,Industrials,3
+119,map-fullrun-20261016,house--appropriations--financial-services-and-general-government,asset-management,HSAP23,subcommittee,Asset Management,financial-services,Financial Services,3
+119,map-fullrun-20261016,house--appropriations--financial-services-and-general-government,broadcasting,HSAP23,subcommittee,Broadcasting,communication-services,Communication Services,3
+119,map-fullrun-20261016,house--appropriations--financial-services-and-general-government,capital-markets,HSAP23,subcommittee,Capital Markets,financial-services,Financial Services,3
+119,map-fullrun-20261016,house--appropriations--financial-services-and-general-government,financial-data-stock-exchanges,HSAP23,subcommittee,Financial Data & Stock Exchanges,financial-services,Financial Services,3
+119,map-fullrun-20261016,house--appropriations--financial-services-and-general-government,telecom-services,HSAP23,subcommittee,Telecom Services,communication-services,Communication Services,3
+119,map-fullrun-20261016,house--appropriations--homeland-security,aerospace-defense,HSAP15,subcommittee,Aerospace & Defense,industrials,Industrials,3
+119,map-fullrun-20261016,house--appropriations--homeland-security,security-protection-services,HSAP15,subcommittee,Security & Protection Services,industrials,Industrials,3
+119,map-fullrun-20261016,house--appropriations--interior-environment-and-related-agencies,lumber-wood-production,HSAP06,subcommittee,Lumber & Wood Production,basic-materials,Basic Materials,3
+119,map-fullrun-20261016,house--appropriations--interior-environment-and-related-agencies,oil-gas-e-p,HSAP06,subcommittee,Oil & Gas E&P,energy,Energy,3
+119,map-fullrun-20261016,house--appropriations--interior-environment-and-related-agencies,other-industrial-metals-mining,HSAP06,subcommittee,Other Industrial Metals & Mining,basic-materials,Basic Materials,3
+119,map-fullrun-20261016,house--appropriations--interior-environment-and-related-agencies,utilities-regulated-water,HSAP06,subcommittee,Utilities - Regulated Water,utilities,Utilities,3
+119,map-fullrun-20261016,house--appropriations--interior-environment-and-related-agencies,waste-management,HSAP06,subcommittee,Waste Management,industrials,Industrials,3
+119,map-fullrun-20261016,house--appropriations--labor-health-and-human-services-education-and-related-agencies,broadcasting,HSAP07,subcommittee,Broadcasting,communication-services,Communication Services,3
+119,map-fullrun-20261016,house--appropriations--labor-health-and-human-services-education-and-related-agencies,education-training-services,HSAP07,subcommittee,Education & Training Services,consumer-defensive,Consumer Defensive,3
+119,map-fullrun-20261016,house--appropriations--labor-health-and-human-services-education-and-related-agencies,healthcare-plans,HSAP07,subcommittee,Healthcare Plans,healthcare,Healthcare,3
+119,map-fullrun-20261016,house--appropriations--labor-health-and-human-services-education-and-related-agencies,medical-care-facilities,HSAP07,subcommittee,Medical Care Facilities,healthcare,Healthcare,3
+119,map-fullrun-20261016,house--appropriations--legislative-branch,publishing,HSAP24,subcommittee,Publishing,communication-services,Communication Services,3
+119,map-fullrun-20261016,house--appropriations--legislative-branch,specialty-business-services,HSAP24,subcommittee,Specialty Business Services,industrials,Industrials,2
+119,map-fullrun-20261016,house--appropriations--military-construction-veterans-affairs-and-related-agencies,engineering-construction,HSAP18,subcommittee,Engineering & Construction,industrials,Industrials,4
+119,map-fullrun-20261016,house--appropriations--military-construction-veterans-affairs-and-related-agencies,medical-care-facilities,HSAP18,subcommittee,Medical Care Facilities,healthcare,Healthcare,3
+119,map-fullrun-20261016,house--appropriations--military-construction-veterans-affairs-and-related-agencies,residential-construction,HSAP18,subcommittee,Residential Construction,consumer-cyclical,Consumer Cyclical,4
+119,map-fullrun-20261016,house--appropriations--national-security-department-of-state-and-related-programs,aerospace-defense,HSAP04,subcommittee,Aerospace & Defense,industrials,Industrials,3
+119,map-fullrun-20261016,house--appropriations--transportation-housing-and-urban-development-and-related-agencies,airlines,HSAP20,subcommittee,Airlines,industrials,Industrials,3
+119,map-fullrun-20261016,house--appropriations--transportation-housing-and-urban-development-and-related-agencies,engineering-construction,HSAP20,subcommittee,Engineering & Construction,industrials,Industrials,3
+119,map-fullrun-20261016,house--appropriations--transportation-housing-and-urban-development-and-related-agencies,marine-shipping,HSAP20,subcommittee,Marine Shipping,industrials,Industrials,3
+119,map-fullrun-20261016,house--appropriations--transportation-housing-and-urban-development-and-related-agencies,mortgage-finance,HSAP20,subcommittee,Mortgage Finance,financial-services,Financial Services,3
+119,map-fullrun-20261016,house--appropriations--transportation-housing-and-urban-development-and-related-agencies,railroads,HSAP20,subcommittee,Railroads,industrials,Industrials,3
+119,map-fullrun-20261016,house--armed-services,aerospace-defense,HSAS,committee_parent_core,Aerospace & Defense,industrials,Industrials,3
+119,map-fullrun-20261016,house--armed-services,other-industrial-metals-mining,HSAS,committee_parent_core,Other Industrial Metals & Mining,basic-materials,Basic Materials,3
+119,map-fullrun-20261016,house--armed-services--cyber-information-technologies-and-innovation,aerospace-defense,HSAS35,subcommittee,Aerospace & Defense,industrials,Industrials,3
+119,map-fullrun-20261016,house--armed-services--cyber-information-technologies-and-innovation,information-technology-services,HSAS35,subcommittee,Information Technology Services,technology,Technology,3
+119,map-fullrun-20261016,house--armed-services--cyber-information-technologies-and-innovation,software-application,HSAS35,subcommittee,Software - Application,technology,Technology,4
+119,map-fullrun-20261016,house--armed-services--cyber-information-technologies-and-innovation,software-infrastructure,HSAS35,subcommittee,Software - Infrastructure,technology,Technology,4
+119,map-fullrun-20261016,house--armed-services--cyber-information-technologies-and-innovation,telecom-services,HSAS35,subcommittee,Telecom Services,communication-services,Communication Services,3
+119,map-fullrun-20261016,house--armed-services--intelligence-and-special-operations,aerospace-defense,HSAS26,subcommittee,Aerospace & Defense,industrials,Industrials,3
+119,map-fullrun-20261016,house--armed-services--military-personnel,education-training-services,HSAS02,subcommittee,Education & Training Services,consumer-defensive,Consumer Defensive,3
+119,map-fullrun-20261016,house--armed-services--military-personnel,healthcare-plans,HSAS02,subcommittee,Healthcare Plans,healthcare,Healthcare,3
+119,map-fullrun-20261016,house--armed-services--military-personnel,medical-care-facilities,HSAS02,subcommittee,Medical Care Facilities,healthcare,Healthcare,3
+119,map-fullrun-20261016,house--armed-services--readiness,aerospace-defense,HSAS03,subcommittee,Aerospace & Defense,industrials,Industrials,3
+119,map-fullrun-20261016,house--armed-services--readiness,engineering-construction,HSAS03,subcommittee,Engineering & Construction,industrials,Industrials,3
+119,map-fullrun-20261016,house--armed-services--readiness,real-estate-services,HSAS03,subcommittee,Real Estate Services,real-estate,Real Estate,3
+119,map-fullrun-20261016,house--armed-services--readiness,residential-construction,HSAS03,subcommittee,Residential Construction,consumer-cyclical,Consumer Cyclical,3
+119,map-fullrun-20261016,house--armed-services--seapower-and-projection-forces,aerospace-defense,HSAS28,subcommittee,Aerospace & Defense,industrials,Industrials,4
+119,map-fullrun-20261016,house--armed-services--seapower-and-projection-forces,marine-shipping,HSAS28,subcommittee,Marine Shipping,industrials,Industrials,4
+119,map-fullrun-20261016,house--armed-services--strategic-forces,aerospace-defense,HSAS29,subcommittee,Aerospace & Defense,industrials,Industrials,4
+119,map-fullrun-20261016,house--armed-services--strategic-forces,uranium,HSAS29,subcommittee,Uranium,energy,Energy,3
+119,map-fullrun-20261016,house--armed-services--tactical-air-and-land-forces,aerospace-defense,HSAS25,subcommittee,Aerospace & Defense,industrials,Industrials,4
+119,map-fullrun-20261016,house--armed-services--tactical-air-and-land-forces,waste-management,HSAS25,subcommittee,Waste Management,industrials,Industrials,3
+119,map-fullrun-20261016,house--budget,healthcare-plans,HSBU,committee_direct,Healthcare Plans,healthcare,Healthcare,3
+119,map-fullrun-20261016,house--budget,medical-care-facilities,HSBU,committee_direct,Medical Care Facilities,healthcare,Healthcare,3
+119,map-fullrun-20261016,house--education-and-workforce,education-training-services,HSED,committee_parent_core,Education & Training Services,consumer-defensive,Consumer Defensive,3
+119,map-fullrun-20261016,house--education-and-workforce--early-childhood-elementary-and-secondary-education,education-training-services,HSED14,subcommittee,Education & Training Services,consumer-defensive,Consumer Defensive,4
+119,map-fullrun-20261016,house--education-and-workforce--early-childhood-elementary-and-secondary-education,personal-services,HSED14,subcommittee,Personal Services,consumer-cyclical,Consumer Cyclical,4
+119,map-fullrun-20261016,house--education-and-workforce--health-employment-labor-and-pensions,asset-management,HSED02,subcommittee,Asset Management,financial-services,Financial Services,3
+119,map-fullrun-20261016,house--education-and-workforce--health-employment-labor-and-pensions,healthcare-plans,HSED02,subcommittee,Healthcare Plans,healthcare,Healthcare,4
+119,map-fullrun-20261016,house--education-and-workforce--higher-education-and-workforce-development,credit-services,HSED13,subcommittee,Credit Services,financial-services,Financial Services,3
+119,map-fullrun-20261016,house--education-and-workforce--higher-education-and-workforce-development,education-training-services,HSED13,subcommittee,Education & Training Services,consumer-defensive,Consumer Defensive,4
+119,map-fullrun-20261016,house--education-and-workforce--higher-education-and-workforce-development,staffing-employment-services,HSED13,subcommittee,Staffing & Employment Services,industrials,Industrials,3
+119,map-fullrun-20261016,house--education-and-workforce--workforce-protections,coking-coal,HSED10,subcommittee,Coking Coal,basic-materials,Basic Materials,3
+119,map-fullrun-20261016,house--education-and-workforce--workforce-protections,insurance-property-casualty,HSED10,subcommittee,Insurance - Property & Casualty,financial-services,Financial Services,3
+119,map-fullrun-20261016,house--education-and-workforce--workforce-protections,thermal-coal,HSED10,subcommittee,Thermal Coal,energy,Energy,3
+119,map-fullrun-20261016,house--energy-and-commerce--commerce-manufacturing-and-trade,auto-manufacturers,HSIF17,subcommittee,Auto Manufacturers,consumer-cyclical,Consumer Cyclical,4
+119,map-fullrun-20261016,house--energy-and-commerce--commerce-manufacturing-and-trade,auto-parts,HSIF17,subcommittee,Auto Parts,consumer-cyclical,Consumer Cyclical,3
+119,map-fullrun-20261016,house--energy-and-commerce--commerce-manufacturing-and-trade,internet-content-information,HSIF17,subcommittee,Internet Content & Information,communication-services,Communication Services,3
+119,map-fullrun-20261016,house--energy-and-commerce--commerce-manufacturing-and-trade,lodging,HSIF17,subcommittee,Lodging,consumer-cyclical,Consumer Cyclical,3
+119,map-fullrun-20261016,house--energy-and-commerce--commerce-manufacturing-and-trade,travel-services,HSIF17,subcommittee,Travel Services,consumer-cyclical,Consumer Cyclical,3
+119,map-fullrun-20261016,house--energy-and-commerce--communications-and-technology,broadcasting,HSIF16,subcommittee,Broadcasting,communication-services,Communication Services,3
+119,map-fullrun-20261016,house--energy-and-commerce--communications-and-technology,communication-equipment,HSIF16,subcommittee,Communication Equipment,technology,Technology,4
+119,map-fullrun-20261016,house--energy-and-commerce--communications-and-technology,entertainment,HSIF16,subcommittee,Entertainment,communication-services,Communication Services,3
+119,map-fullrun-20261016,house--energy-and-commerce--communications-and-technology,software-infrastructure,HSIF16,subcommittee,Software - Infrastructure,technology,Technology,3
+119,map-fullrun-20261016,house--energy-and-commerce--communications-and-technology,telecom-services,HSIF16,subcommittee,Telecom Services,communication-services,Communication Services,4
+119,map-fullrun-20261016,house--energy-and-commerce--energy,oil-gas-e-p,HSIF03,subcommittee,Oil & Gas E&P,energy,Energy,3
+119,map-fullrun-20261016,house--energy-and-commerce--energy,oil-gas-midstream,HSIF03,subcommittee,Oil & Gas Midstream,energy,Energy,3
+119,map-fullrun-20261016,house--energy-and-commerce--energy,utilities-regulated-electric,HSIF03,subcommittee,Utilities - Regulated Electric,utilities,Utilities,4
+119,map-fullrun-20261016,house--energy-and-commerce--energy,utilities-regulated-gas,HSIF03,subcommittee,Utilities - Regulated Gas,utilities,Utilities,3
+119,map-fullrun-20261016,house--energy-and-commerce--energy,utilities-renewable,HSIF03,subcommittee,Utilities - Renewable,utilities,Utilities,3
+119,map-fullrun-20261016,house--energy-and-commerce--environment,auto-manufacturers,HSIF18,subcommittee,Auto Manufacturers,consumer-cyclical,Consumer Cyclical,3
+119,map-fullrun-20261016,house--energy-and-commerce--environment,chemicals,HSIF18,subcommittee,Chemicals,basic-materials,Basic Materials,3
+119,map-fullrun-20261016,house--energy-and-commerce--environment,oil-gas-refining-marketing,HSIF18,subcommittee,Oil & Gas Refining & Marketing,energy,Energy,3
+119,map-fullrun-20261016,house--energy-and-commerce--environment,utilities-regulated-water,HSIF18,subcommittee,Utilities - Regulated Water,utilities,Utilities,3
+119,map-fullrun-20261016,house--energy-and-commerce--environment,waste-management,HSIF18,subcommittee,Waste Management,industrials,Industrials,3
+119,map-fullrun-20261016,house--energy-and-commerce--health,biotechnology,HSIF14,subcommittee,Biotechnology,healthcare,Healthcare,3
+119,map-fullrun-20261016,house--energy-and-commerce--health,drug-manufacturers-general,HSIF14,subcommittee,Drug Manufacturers - General,healthcare,Healthcare,3
+119,map-fullrun-20261016,house--energy-and-commerce--health,drug-manufacturers-specialty-generic,HSIF14,subcommittee,Drug Manufacturers - Specialty & Generic,healthcare,Healthcare,3
+119,map-fullrun-20261016,house--energy-and-commerce--health,health-information-services,HSIF14,subcommittee,Health Information Services,healthcare,Healthcare,3
+119,map-fullrun-20261016,house--energy-and-commerce--health,healthcare-plans,HSIF14,subcommittee,Healthcare Plans,healthcare,Healthcare,3
+119,map-fullrun-20261016,house--energy-and-commerce--oversight-and-investigations,drug-manufacturers-specialty-generic,HSIF02,subcommittee,Drug Manufacturers - Specialty & Generic,healthcare,Healthcare,3
+119,map-fullrun-20261016,house--energy-and-commerce--oversight-and-investigations,medical-care-facilities,HSIF02,subcommittee,Medical Care Facilities,healthcare,Healthcare,3
+119,map-fullrun-20261016,house--financial-services--capital-markets,asset-management,HSBA16,subcommittee,Asset Management,financial-services,Financial Services,3
+119,map-fullrun-20261016,house--financial-services--capital-markets,capital-markets,HSBA16,subcommittee,Capital Markets,financial-services,Financial Services,4
+119,map-fullrun-20261016,house--financial-services--capital-markets,financial-data-stock-exchanges,HSBA16,subcommittee,Financial Data & Stock Exchanges,financial-services,Financial Services,3
+119,map-fullrun-20261016,house--financial-services--capital-markets,specialty-business-services,HSBA16,subcommittee,Specialty Business Services,industrials,Industrials,4
+119,map-fullrun-20261016,house--financial-services--digital-assets-financial-technology-and-artificial-intelligence,capital-markets,HSBA21,subcommittee,Capital Markets,financial-services,Financial Services,4
+119,map-fullrun-20261016,house--financial-services--digital-assets-financial-technology-and-artificial-intelligence,credit-services,HSBA21,subcommittee,Credit Services,financial-services,Financial Services,3
+119,map-fullrun-20261016,house--financial-services--digital-assets-financial-technology-and-artificial-intelligence,financial-data-stock-exchanges,HSBA21,subcommittee,Financial Data & Stock Exchanges,financial-services,Financial Services,4
+119,map-fullrun-20261016,house--financial-services--digital-assets-financial-technology-and-artificial-intelligence,semiconductors,HSBA21,subcommittee,Semiconductors,technology,Technology,3
+119,map-fullrun-20261016,house--financial-services--digital-assets-financial-technology-and-artificial-intelligence,software-application,HSBA21,subcommittee,Software - Application,technology,Technology,4
+119,map-fullrun-20261016,house--financial-services--financial-institutions,banks-diversified,HSBA20,subcommittee,Banks - Diversified,financial-services,Financial Services,4
+119,map-fullrun-20261016,house--financial-services--financial-institutions,banks-regional,HSBA20,subcommittee,Banks - Regional,financial-services,Financial Services,4
+119,map-fullrun-20261016,house--financial-services--financial-institutions,credit-services,HSBA20,subcommittee,Credit Services,financial-services,Financial Services,4
+119,map-fullrun-20261016,house--financial-services--financial-institutions,mortgage-finance,HSBA20,subcommittee,Mortgage Finance,financial-services,Financial Services,3
+119,map-fullrun-20261016,house--financial-services--housing-and-insurance,insurance-property-casualty,HSBA04,subcommittee,Insurance - Property & Casualty,financial-services,Financial Services,3
+119,map-fullrun-20261016,house--financial-services--housing-and-insurance,insurance-reinsurance,HSBA04,subcommittee,Insurance - Reinsurance,financial-services,Financial Services,4
+119,map-fullrun-20261016,house--financial-services--housing-and-insurance,insurance-specialty,HSBA04,subcommittee,Insurance - Specialty,financial-services,Financial Services,3
+119,map-fullrun-20261016,house--financial-services--housing-and-insurance,mortgage-finance,HSBA04,subcommittee,Mortgage Finance,financial-services,Financial Services,3
+119,map-fullrun-20261016,house--financial-services--housing-and-insurance,residential-construction,HSBA04,subcommittee,Residential Construction,consumer-cyclical,Consumer Cyclical,3
+119,map-fullrun-20261016,house--financial-services--national-security-illicit-finance-and-international-financial-institutions,aerospace-defense,HSBA10,subcommittee,Aerospace & Defense,industrials,Industrials,4
+119,map-fullrun-20261016,house--financial-services--national-security-illicit-finance-and-international-financial-institutions,banks-diversified,HSBA10,subcommittee,Banks - Diversified,financial-services,Financial Services,3
+119,map-fullrun-20261016,house--financial-services--national-security-illicit-finance-and-international-financial-institutions,banks-regional,HSBA10,subcommittee,Banks - Regional,financial-services,Financial Services,3
+119,map-fullrun-20261016,house--financial-services--oversight-and-investigations,asset-management,HSBA09,subcommittee,Asset Management,financial-services,Financial Services,3
+119,map-fullrun-20261016,house--financial-services--oversight-and-investigations,banks-regional,HSBA09,subcommittee,Banks - Regional,financial-services,Financial Services,3
+119,map-fullrun-20261016,house--foreign-affairs,aerospace-defense,HSFA,committee_parent_core,Aerospace & Defense,industrials,Industrials,3
+119,map-fullrun-20261016,house--foreign-affairs,semiconductors,HSFA,committee_parent_core,Semiconductors,technology,Technology,3
+119,map-fullrun-20261016,house--foreign-affairs--africa,gold,HSFA16,subcommittee,Gold,basic-materials,Basic Materials,3
+119,map-fullrun-20261016,house--foreign-affairs--africa,other-industrial-metals-mining,HSFA16,subcommittee,Other Industrial Metals & Mining,basic-materials,Basic Materials,3
+119,map-fullrun-20261016,house--foreign-affairs--east-asia-and-pacific,aerospace-defense,HSFA05,subcommittee,Aerospace & Defense,industrials,Industrials,3
+119,map-fullrun-20261016,house--foreign-affairs--east-asia-and-pacific,other-industrial-metals-mining,HSFA05,subcommittee,Other Industrial Metals & Mining,basic-materials,Basic Materials,3
+119,map-fullrun-20261016,house--foreign-affairs--europe,aerospace-defense,HSFA14,subcommittee,Aerospace & Defense,industrials,Industrials,3
+119,map-fullrun-20261016,house--foreign-affairs--europe,communication-equipment,HSFA14,subcommittee,Communication Equipment,technology,Technology,3
+119,map-fullrun-20261016,house--foreign-affairs--middle-east-and-north-africa,aerospace-defense,HSFA13,subcommittee,Aerospace & Defense,industrials,Industrials,3
+119,map-fullrun-20261016,house--foreign-affairs--middle-east-and-north-africa,oil-gas-refining-marketing,HSFA13,subcommittee,Oil & Gas Refining & Marketing,energy,Energy,3
+119,map-fullrun-20261016,house--foreign-affairs--oversight-and-intelligence,copper,HSFA17,subcommittee,Copper,basic-materials,Basic Materials,2
+119,map-fullrun-20261016,house--foreign-affairs--oversight-and-intelligence,other-industrial-metals-mining,HSFA17,subcommittee,Other Industrial Metals & Mining,basic-materials,Basic Materials,2
+119,map-fullrun-20261016,house--foreign-affairs--south-and-central-asia,semiconductor-equipment-materials,HSFA19,subcommittee,Semiconductor Equipment & Materials,technology,Technology,3
+119,map-fullrun-20261016,house--foreign-affairs--south-and-central-asia,semiconductors,HSFA19,subcommittee,Semiconductors,technology,Technology,3
+119,map-fullrun-20261016,house--foreign-affairs--western-hemisphere,oil-gas-e-p,HSFA07,subcommittee,Oil & Gas E&P,energy,Energy,3
+119,map-fullrun-20261016,house--foreign-affairs--western-hemisphere,oil-gas-integrated,HSFA07,subcommittee,Oil & Gas Integrated,energy,Energy,2
+119,map-fullrun-20261016,house--homeland-security,security-protection-services,HSHM,committee_parent_core,Security & Protection Services,industrials,Industrials,3
+119,map-fullrun-20261016,house--homeland-security,software-infrastructure,HSHM,committee_parent_core,Software - Infrastructure,technology,Technology,3
+119,map-fullrun-20261016,house--homeland-security--border-security-and-enforcement,integrated-freight-logistics,HSHM11,subcommittee,Integrated Freight & Logistics,industrials,Industrials,3
+119,map-fullrun-20261016,house--homeland-security--border-security-and-enforcement,security-protection-services,HSHM11,subcommittee,Security & Protection Services,industrials,Industrials,4
+119,map-fullrun-20261016,house--homeland-security--counterterrorism-and-intelligence,internet-content-information,HSHM05,subcommittee,Internet Content & Information,communication-services,Communication Services,2
+119,map-fullrun-20261016,house--homeland-security--counterterrorism-and-intelligence,security-protection-services,HSHM05,subcommittee,Security & Protection Services,industrials,Industrials,3
+119,map-fullrun-20261016,house--homeland-security--cybersecurity-and-infrastructure-protection,information-technology-services,HSHM08,subcommittee,Information Technology Services,technology,Technology,3
+119,map-fullrun-20261016,house--homeland-security--cybersecurity-and-infrastructure-protection,software-infrastructure,HSHM08,subcommittee,Software - Infrastructure,technology,Technology,4
+119,map-fullrun-20261016,house--homeland-security--emergency-management-and-technology,scientific-technical-instruments,HSHM12,subcommittee,Scientific & Technical Instruments,technology,Technology,3
+119,map-fullrun-20261016,house--homeland-security--emergency-management-and-technology,security-protection-services,HSHM12,subcommittee,Security & Protection Services,industrials,Industrials,3
+119,map-fullrun-20261016,house--homeland-security--oversight-investigations-and-accountability,internet-content-information,HSHM09,subcommittee,Internet Content & Information,communication-services,Communication Services,3
+119,map-fullrun-20261016,house--homeland-security--oversight-investigations-and-accountability,textile-manufacturing,HSHM09,subcommittee,Textile Manufacturing,consumer-cyclical,Consumer Cyclical,3
+119,map-fullrun-20261016,house--homeland-security--transportation-and-maritime-security,airlines,HSHM07,subcommittee,Airlines,industrials,Industrials,3
+119,map-fullrun-20261016,house--homeland-security--transportation-and-maritime-security,infrastructure-operations,HSHM07,subcommittee,Infrastructure Operations,industrials,Industrials,3
+119,map-fullrun-20261016,house--homeland-security--transportation-and-maritime-security,marine-shipping,HSHM07,subcommittee,Marine Shipping,industrials,Industrials,3
+119,map-fullrun-20261016,house--homeland-security--transportation-and-maritime-security,oil-gas-midstream,HSHM07,subcommittee,Oil & Gas Midstream,energy,Energy,3
+119,map-fullrun-20261016,house--homeland-security--transportation-and-maritime-security,railroads,HSHM07,subcommittee,Railroads,industrials,Industrials,3
+119,map-fullrun-20261016,house--intelligence--defense-intelligence-and-overhead-architecture,aerospace-defense,HLIG04,subcommittee,Aerospace & Defense,industrials,Industrials,3
+119,map-fullrun-20261016,house--intelligence--national-security-agency-and-cyber,information-technology-services,HLIG02,subcommittee,Information Technology Services,technology,Technology,2
+119,map-fullrun-20261016,house--intelligence--national-security-agency-and-cyber,software-infrastructure,HLIG02,subcommittee,Software - Infrastructure,technology,Technology,2
+119,map-fullrun-20261016,house--intelligence--open-source-intelligence,software-application,HLIG11,subcommittee,Software - Application,technology,Technology,3
+119,map-fullrun-20261016,house--intelligence--open-source-intelligence,specialty-business-services,HLIG11,subcommittee,Specialty Business Services,industrials,Industrials,3
+119,map-fullrun-20261016,house--judiciary--administrative-state-regulatory-reform-and-antitrust,airlines,HSJU05,subcommittee,Airlines,industrials,Industrials,3
+119,map-fullrun-20261016,house--judiciary--administrative-state-regulatory-reform-and-antitrust,broadcasting,HSJU05,subcommittee,Broadcasting,communication-services,Communication Services,3
+119,map-fullrun-20261016,house--judiciary--constitution-and-limited-government,broadcasting,HSJU10,subcommittee,Broadcasting,communication-services,Communication Services,2
+119,map-fullrun-20261016,house--judiciary--constitution-and-limited-government,medical-care-facilities,HSJU10,subcommittee,Medical Care Facilities,healthcare,Healthcare,3
+119,map-fullrun-20261016,house--judiciary--courts-intellectual-property-artificial-intelligence-and-the-internet,entertainment,HSJU03,subcommittee,Entertainment,communication-services,Communication Services,3
+119,map-fullrun-20261016,house--judiciary--courts-intellectual-property-artificial-intelligence-and-the-internet,internet-content-information,HSJU03,subcommittee,Internet Content & Information,communication-services,Communication Services,3
+119,map-fullrun-20261016,house--judiciary--courts-intellectual-property-artificial-intelligence-and-the-internet,publishing,HSJU03,subcommittee,Publishing,communication-services,Communication Services,3
+119,map-fullrun-20261016,house--judiciary--courts-intellectual-property-artificial-intelligence-and-the-internet,software-application,HSJU03,subcommittee,Software - Application,technology,Technology,3
+119,map-fullrun-20261016,house--judiciary--courts-intellectual-property-artificial-intelligence-and-the-internet,software-infrastructure,HSJU03,subcommittee,Software - Infrastructure,technology,Technology,3
+119,map-fullrun-20261016,house--judiciary--crime-and-federal-government-surveillance,drug-manufacturers-specialty-generic,HSJU08,subcommittee,Drug Manufacturers - Specialty & Generic,healthcare,Healthcare,2
+119,map-fullrun-20261016,house--judiciary--crime-and-federal-government-surveillance,security-protection-services,HSJU08,subcommittee,Security & Protection Services,industrials,Industrials,3
+119,map-fullrun-20261016,house--judiciary--immigration-integrity-security-and-enforcement,security-protection-services,HSJU01,subcommittee,Security & Protection Services,industrials,Industrials,3
+119,map-fullrun-20261016,house--judiciary--immigration-integrity-security-and-enforcement,staffing-employment-services,HSJU01,subcommittee,Staffing & Employment Services,industrials,Industrials,2
+119,map-fullrun-20261016,house--judiciary--oversight,healthcare-plans,HSJU13,subcommittee,Healthcare Plans,healthcare,Healthcare,3
+119,map-fullrun-20261016,house--judiciary--oversight,security-protection-services,HSJU13,subcommittee,Security & Protection Services,industrials,Industrials,3
+119,map-fullrun-20261016,house--natural-resources,engineering-construction,HSII,committee_parent_core,Engineering & Construction,industrials,Industrials,3
+119,map-fullrun-20261016,house--natural-resources,other-industrial-metals-mining,HSII,committee_parent_core,Other Industrial Metals & Mining,basic-materials,Basic Materials,3
+119,map-fullrun-20261016,house--natural-resources--energy-and-mineral-resources,oil-gas-e-p,HSII06,subcommittee,Oil & Gas E&P,energy,Energy,3
+119,map-fullrun-20261016,house--natural-resources--energy-and-mineral-resources,oil-gas-midstream,HSII06,subcommittee,Oil & Gas Midstream,energy,Energy,3
+119,map-fullrun-20261016,house--natural-resources--energy-and-mineral-resources,other-industrial-metals-mining,HSII06,subcommittee,Other Industrial Metals & Mining,basic-materials,Basic Materials,3
+119,map-fullrun-20261016,house--natural-resources--energy-and-mineral-resources,uranium,HSII06,subcommittee,Uranium,energy,Energy,3
+119,map-fullrun-20261016,house--natural-resources--energy-and-mineral-resources,utilities-renewable,HSII06,subcommittee,Utilities - Renewable,utilities,Utilities,3
+119,map-fullrun-20261016,house--natural-resources--federal-lands,farm-products,HSII10,subcommittee,Farm Products,consumer-defensive,Consumer Defensive,3
+119,map-fullrun-20261016,house--natural-resources--federal-lands,leisure,HSII10,subcommittee,Leisure,consumer-cyclical,Consumer Cyclical,4
+119,map-fullrun-20261016,house--natural-resources--federal-lands,lumber-wood-production,HSII10,subcommittee,Lumber & Wood Production,basic-materials,Basic Materials,4
+119,map-fullrun-20261016,house--natural-resources--indian-and-insular-affairs,oil-gas-e-p,HSII24,subcommittee,Oil & Gas E&P,energy,Energy,3
+119,map-fullrun-20261016,house--natural-resources--indian-and-insular-affairs,resorts-casinos,HSII24,subcommittee,Resorts & Casinos,consumer-cyclical,Consumer Cyclical,3
+119,map-fullrun-20261016,house--natural-resources--oversight-and-investigations,oil-gas-e-p,HSII15,subcommittee,Oil & Gas E&P,energy,Energy,3
+119,map-fullrun-20261016,house--natural-resources--oversight-and-investigations,other-industrial-metals-mining,HSII15,subcommittee,Other Industrial Metals & Mining,basic-materials,Basic Materials,3
+119,map-fullrun-20261016,house--natural-resources--water-wildlife-and-fisheries,engineering-construction,HSII13,subcommittee,Engineering & Construction,industrials,Industrials,3
+119,map-fullrun-20261016,house--natural-resources--water-wildlife-and-fisheries,farm-products,HSII13,subcommittee,Farm Products,consumer-defensive,Consumer Defensive,4
+119,map-fullrun-20261016,house--natural-resources--water-wildlife-and-fisheries,utilities-regulated-water,HSII13,subcommittee,Utilities - Regulated Water,utilities,Utilities,3
+119,map-fullrun-20261016,house--natural-resources--water-wildlife-and-fisheries,utilities-renewable,HSII13,subcommittee,Utilities - Renewable,utilities,Utilities,4
+119,map-fullrun-20261016,house--oversight-and-government-reform,healthcare-plans,HSGO,committee_parent_core,Healthcare Plans,healthcare,Healthcare,3
+119,map-fullrun-20261016,house--oversight-and-government-reform,pharmaceutical-retailers,HSGO,committee_parent_core,Pharmaceutical Retailers,healthcare,Healthcare,3
+119,map-fullrun-20261016,house--oversight-and-government-reform--cybersecurity-information-technology-and-government-innovation,information-technology-services,HSGO12,subcommittee,Information Technology Services,technology,Technology,4
+119,map-fullrun-20261016,house--oversight-and-government-reform--cybersecurity-information-technology-and-government-innovation,software-infrastructure,HSGO12,subcommittee,Software - Infrastructure,technology,Technology,4
+119,map-fullrun-20261016,house--oversight-and-government-reform--delivering-on-government-efficiency,aerospace-defense,HSGO16,subcommittee,Aerospace & Defense,industrials,Industrials,2
+119,map-fullrun-20261016,house--oversight-and-government-reform--delivering-on-government-efficiency,broadcasting,HSGO16,subcommittee,Broadcasting,communication-services,Communication Services,3
+119,map-fullrun-20261016,house--oversight-and-government-reform--economic-growth-energy-policy-and-regulatory-affairs,oil-gas-e-p,HSGO05,subcommittee,Oil & Gas E&P,energy,Energy,3
+119,map-fullrun-20261016,house--oversight-and-government-reform--economic-growth-energy-policy-and-regulatory-affairs,utilities-regulated-electric,HSGO05,subcommittee,Utilities - Regulated Electric,utilities,Utilities,3
+119,map-fullrun-20261016,house--oversight-and-government-reform--federal-law-enforcement,aerospace-defense,HSGO33,subcommittee,Aerospace & Defense,industrials,Industrials,3
+119,map-fullrun-20261016,house--oversight-and-government-reform--federal-law-enforcement,security-protection-services,HSGO33,subcommittee,Security & Protection Services,industrials,Industrials,3
+119,map-fullrun-20261016,house--oversight-and-government-reform--government-operations,information-technology-services,HSGO24,subcommittee,Information Technology Services,technology,Technology,3
+119,map-fullrun-20261016,house--oversight-and-government-reform--government-operations,integrated-freight-logistics,HSGO24,subcommittee,Integrated Freight & Logistics,industrials,Industrials,3
+119,map-fullrun-20261016,house--oversight-and-government-reform--health-care-and-financial-services,banks-diversified,HSGO27,subcommittee,Banks - Diversified,financial-services,Financial Services,3
+119,map-fullrun-20261016,house--oversight-and-government-reform--health-care-and-financial-services,banks-regional,HSGO27,subcommittee,Banks - Regional,financial-services,Financial Services,3
+119,map-fullrun-20261016,house--oversight-and-government-reform--health-care-and-financial-services,drug-manufacturers-general,HSGO27,subcommittee,Drug Manufacturers - General,healthcare,Healthcare,3
+119,map-fullrun-20261016,house--oversight-and-government-reform--health-care-and-financial-services,healthcare-plans,HSGO27,subcommittee,Healthcare Plans,healthcare,Healthcare,3
+119,map-fullrun-20261016,house--oversight-and-government-reform--health-care-and-financial-services,packaged-foods,HSGO27,subcommittee,Packaged Foods,consumer-defensive,Consumer Defensive,3
+119,map-fullrun-20261016,house--oversight-and-government-reform--military-and-foreign-affairs,aerospace-defense,HSGO06,subcommittee,Aerospace & Defense,industrials,Industrials,3
+119,map-fullrun-20261016,house--oversight-and-government-reform--military-and-foreign-affairs,semiconductors,HSGO06,subcommittee,Semiconductors,technology,Technology,1
+119,map-fullrun-20261016,house--science-space-and-technology,aerospace-defense,HSSY,committee_parent_core,Aerospace & Defense,industrials,Industrials,4
+119,map-fullrun-20261016,house--science-space-and-technology,semiconductors,HSSY,committee_parent_core,Semiconductors,technology,Technology,3
+119,map-fullrun-20261016,house--science-space-and-technology--energy,solar,HSSY20,subcommittee,Solar,technology,Technology,3
+119,map-fullrun-20261016,house--science-space-and-technology--energy,uranium,HSSY20,subcommittee,Uranium,energy,Energy,4
+119,map-fullrun-20261016,house--science-space-and-technology--energy,utilities-independent-power-producers,HSSY20,subcommittee,Utilities - Independent Power Producers,utilities,Utilities,3
+119,map-fullrun-20261016,house--science-space-and-technology--energy,utilities-renewable,HSSY20,subcommittee,Utilities - Renewable,utilities,Utilities,4
+119,map-fullrun-20261016,house--science-space-and-technology--energy,waste-management,HSSY20,subcommittee,Waste Management,industrials,Industrials,3
+119,map-fullrun-20261016,house--science-space-and-technology--environment,farm-products,HSSY18,subcommittee,Farm Products,consumer-defensive,Consumer Defensive,2
+119,map-fullrun-20261016,house--science-space-and-technology--environment,scientific-technical-instruments,HSSY18,subcommittee,Scientific & Technical Instruments,technology,Technology,3
+119,map-fullrun-20261016,house--science-space-and-technology--investigations-and-oversight,publishing,HSSY21,subcommittee,Publishing,communication-services,Communication Services,3
+119,map-fullrun-20261016,house--science-space-and-technology--investigations-and-oversight,railroads,HSSY21,subcommittee,Railroads,industrials,Industrials,2
+119,map-fullrun-20261016,house--science-space-and-technology--research-and-technology,semiconductors,HSSY15,subcommittee,Semiconductors,technology,Technology,3
+119,map-fullrun-20261016,house--science-space-and-technology--research-and-technology,software-infrastructure,HSSY15,subcommittee,Software - Infrastructure,technology,Technology,3
+119,map-fullrun-20261016,house--science-space-and-technology--space-and-aeronautics,aerospace-defense,HSSY16,subcommittee,Aerospace & Defense,industrials,Industrials,4
+119,map-fullrun-20261016,house--science-space-and-technology--space-and-aeronautics,communication-equipment,HSSY16,subcommittee,Communication Equipment,technology,Technology,3
+119,map-fullrun-20261016,house--science-space-and-technology--space-and-aeronautics,telecom-services,HSSY16,subcommittee,Telecom Services,communication-services,Communication Services,3
+119,map-fullrun-20261016,house--small-business,asset-management,HSSM,committee_parent_core,Asset Management,financial-services,Financial Services,3
+119,map-fullrun-20261016,house--small-business,credit-services,HSSM,committee_parent_core,Credit Services,financial-services,Financial Services,3
+119,map-fullrun-20261016,house--small-business--contracting-and-infrastructure,aerospace-defense,HSSM23,subcommittee,Aerospace & Defense,industrials,Industrials,2
+119,map-fullrun-20261016,house--small-business--contracting-and-infrastructure,engineering-construction,HSSM23,subcommittee,Engineering & Construction,industrials,Industrials,4
+119,map-fullrun-20261016,house--small-business--economic-growth-tax-and-capital-access,asset-management,HSSM27,subcommittee,Asset Management,financial-services,Financial Services,3
+119,map-fullrun-20261016,house--small-business--economic-growth-tax-and-capital-access,banks-regional,HSSM27,subcommittee,Banks - Regional,financial-services,Financial Services,4
+119,map-fullrun-20261016,house--small-business--innovation-entrepreneurship-and-workforce-development,education-training-services,HSSM22,subcommittee,Education & Training Services,consumer-defensive,Consumer Defensive,3
+119,map-fullrun-20261016,house--small-business--oversight-investigations-and-regulations,banks-regional,HSSM24,subcommittee,Banks - Regional,financial-services,Financial Services,2
+119,map-fullrun-20261016,house--small-business--oversight-investigations-and-regulations,credit-services,HSSM24,subcommittee,Credit Services,financial-services,Financial Services,3
+119,map-fullrun-20261016,house--small-business--rural-development-energy-and-supply-chains,oil-gas-e-p,HSSM21,subcommittee,Oil & Gas E&P,energy,Energy,3
+119,map-fullrun-20261016,house--small-business--rural-development-energy-and-supply-chains,utilities-regulated-electric,HSSM21,subcommittee,Utilities - Regulated Electric,utilities,Utilities,3
+119,map-fullrun-20261016,house--strategic-competition-between-the-united-states-and-the-chinese-communist-party,semiconductor-equipment-materials,HSZS,committee_direct,Semiconductor Equipment & Materials,technology,Technology,3
+119,map-fullrun-20261016,house--strategic-competition-between-the-united-states-and-the-chinese-communist-party,semiconductors,HSZS,committee_direct,Semiconductors,technology,Technology,3
+119,map-fullrun-20261016,house--transportation-and-infrastructure--aviation,aerospace-defense,HSPW05,subcommittee,Aerospace & Defense,industrials,Industrials,3
+119,map-fullrun-20261016,house--transportation-and-infrastructure--aviation,airlines,HSPW05,subcommittee,Airlines,industrials,Industrials,3
+119,map-fullrun-20261016,house--transportation-and-infrastructure--aviation,airports-air-services,HSPW05,subcommittee,Airports & Air Services,industrials,Industrials,3
+119,map-fullrun-20261016,house--transportation-and-infrastructure--aviation,infrastructure-operations,HSPW05,subcommittee,Infrastructure Operations,industrials,Industrials,3
+119,map-fullrun-20261016,house--transportation-and-infrastructure--aviation,integrated-freight-logistics,HSPW05,subcommittee,Integrated Freight & Logistics,industrials,Industrials,3
+119,map-fullrun-20261016,house--transportation-and-infrastructure--coast-guard-and-maritime-transportation,aerospace-defense,HSPW07,subcommittee,Aerospace & Defense,industrials,Industrials,3
+119,map-fullrun-20261016,house--transportation-and-infrastructure--coast-guard-and-maritime-transportation,marine-shipping,HSPW07,subcommittee,Marine Shipping,industrials,Industrials,4
+119,map-fullrun-20261016,house--transportation-and-infrastructure--economic-development-public-buildings-and-emergency-management,engineering-construction,HSPW13,subcommittee,Engineering & Construction,industrials,Industrials,4
+119,map-fullrun-20261016,house--transportation-and-infrastructure--economic-development-public-buildings-and-emergency-management,real-estate-services,HSPW13,subcommittee,Real Estate Services,real-estate,Real Estate,4
+119,map-fullrun-20261016,house--transportation-and-infrastructure--economic-development-public-buildings-and-emergency-management,security-protection-services,HSPW13,subcommittee,Security & Protection Services,industrials,Industrials,3
+119,map-fullrun-20261016,house--transportation-and-infrastructure--highways-and-transit,building-materials,HSPW12,subcommittee,Building Materials,basic-materials,Basic Materials,3
+119,map-fullrun-20261016,house--transportation-and-infrastructure--highways-and-transit,engineering-construction,HSPW12,subcommittee,Engineering & Construction,industrials,Industrials,4
+119,map-fullrun-20261016,house--transportation-and-infrastructure--highways-and-transit,infrastructure-operations,HSPW12,subcommittee,Infrastructure Operations,industrials,Industrials,3
+119,map-fullrun-20261016,house--transportation-and-infrastructure--highways-and-transit,trucking,HSPW12,subcommittee,Trucking,industrials,Industrials,4
+119,map-fullrun-20261016,house--transportation-and-infrastructure--railroads-pipelines-and-hazardous-materials,oil-gas-midstream,HSPW14,subcommittee,Oil & Gas Midstream,energy,Energy,4
+119,map-fullrun-20261016,house--transportation-and-infrastructure--railroads-pipelines-and-hazardous-materials,railroads,HSPW14,subcommittee,Railroads,industrials,Industrials,4
+119,map-fullrun-20261016,house--transportation-and-infrastructure--railroads-pipelines-and-hazardous-materials,utilities-regulated-gas,HSPW14,subcommittee,Utilities - Regulated Gas,utilities,Utilities,3
+119,map-fullrun-20261016,house--transportation-and-infrastructure--water-resources-and-environment,engineering-construction,HSPW02,subcommittee,Engineering & Construction,industrials,Industrials,4
+119,map-fullrun-20261016,house--transportation-and-infrastructure--water-resources-and-environment,infrastructure-operations,HSPW02,subcommittee,Infrastructure Operations,industrials,Industrials,3
+119,map-fullrun-20261016,house--transportation-and-infrastructure--water-resources-and-environment,pollution-treatment-controls,HSPW02,subcommittee,Pollution & Treatment Controls,industrials,Industrials,3
+119,map-fullrun-20261016,house--transportation-and-infrastructure--water-resources-and-environment,utilities-regulated-water,HSPW02,subcommittee,Utilities - Regulated Water,utilities,Utilities,3
+119,map-fullrun-20261016,house--transportation-and-infrastructure--water-resources-and-environment,waste-management,HSPW02,subcommittee,Waste Management,industrials,Industrials,3
+119,map-fullrun-20261016,house--veterans-affairs,healthcare-plans,HSVR,committee_parent_core,Healthcare Plans,healthcare,Healthcare,2
+119,map-fullrun-20261016,house--veterans-affairs,medical-care-facilities,HSVR,committee_parent_core,Medical Care Facilities,healthcare,Healthcare,4
+119,map-fullrun-20261016,house--veterans-affairs--disability-assistance-and-memorial-affairs,insurance-life,HSVR09,subcommittee,Insurance - Life,financial-services,Financial Services,3
+119,map-fullrun-20261016,house--veterans-affairs--disability-assistance-and-memorial-affairs,personal-services,HSVR09,subcommittee,Personal Services,consumer-cyclical,Consumer Cyclical,4
+119,map-fullrun-20261016,house--veterans-affairs--economic-opportunity,education-training-services,HSVR10,subcommittee,Education & Training Services,consumer-defensive,Consumer Defensive,4
+119,map-fullrun-20261016,house--veterans-affairs--economic-opportunity,mortgage-finance,HSVR10,subcommittee,Mortgage Finance,financial-services,Financial Services,4
+119,map-fullrun-20261016,house--veterans-affairs--health,engineering-construction,HSVR03,subcommittee,Engineering & Construction,industrials,Industrials,3
+119,map-fullrun-20261016,house--veterans-affairs--health,medical-care-facilities,HSVR03,subcommittee,Medical Care Facilities,healthcare,Healthcare,3
+119,map-fullrun-20261016,house--veterans-affairs--health,medical-devices,HSVR03,subcommittee,Medical Devices,healthcare,Healthcare,3
+119,map-fullrun-20261016,house--veterans-affairs--oversight-and-investigations,health-information-services,HSVR08,subcommittee,Health Information Services,healthcare,Healthcare,3
+119,map-fullrun-20261016,house--veterans-affairs--oversight-and-investigations,information-technology-services,HSVR08,subcommittee,Information Technology Services,technology,Technology,3
+119,map-fullrun-20261016,house--veterans-affairs--technology-modernization,health-information-services,HSVR11,subcommittee,Health Information Services,healthcare,Healthcare,3
+119,map-fullrun-20261016,house--veterans-affairs--technology-modernization,information-technology-services,HSVR11,subcommittee,Information Technology Services,technology,Technology,4
+119,map-fullrun-20261016,house--veterans-affairs--technology-modernization,software-infrastructure,HSVR11,subcommittee,Software - Infrastructure,technology,Technology,3
+119,map-fullrun-20261016,house--ways-and-means,personal-services,HSWM,committee_parent_core,Personal Services,consumer-cyclical,Consumer Cyclical,2
+119,map-fullrun-20261016,house--ways-and-means,software-application,HSWM,committee_parent_core,Software - Application,technology,Technology,2
+119,map-fullrun-20261016,house--ways-and-means--health,healthcare-plans,HSWM02,subcommittee,Healthcare Plans,healthcare,Healthcare,3
+119,map-fullrun-20261016,house--ways-and-means--health,medical-care-facilities,HSWM02,subcommittee,Medical Care Facilities,healthcare,Healthcare,4
+119,map-fullrun-20261016,house--ways-and-means--oversight,healthcare-plans,HSWM06,subcommittee,Healthcare Plans,healthcare,Healthcare,2
+119,map-fullrun-20261016,house--ways-and-means--oversight,medical-care-facilities,HSWM06,subcommittee,Medical Care Facilities,healthcare,Healthcare,3
+119,map-fullrun-20261016,house--ways-and-means--social-security,personal-services,HSWM01,subcommittee,Personal Services,consumer-cyclical,Consumer Cyclical,2
+119,map-fullrun-20261016,house--ways-and-means--social-security,staffing-employment-services,HSWM01,subcommittee,Staffing & Employment Services,industrials,Industrials,3
+119,map-fullrun-20261016,house--ways-and-means--tax-policy,asset-management,HSWM05,subcommittee,Asset Management,financial-services,Financial Services,2
+119,map-fullrun-20261016,house--ways-and-means--tax-policy,internet-content-information,HSWM05,subcommittee,Internet Content & Information,communication-services,Communication Services,2
+119,map-fullrun-20261016,house--ways-and-means--trade,apparel-manufacturing,HSWM04,subcommittee,Apparel Manufacturing,consumer-cyclical,Consumer Cyclical,3
+119,map-fullrun-20261016,house--ways-and-means--trade,integrated-freight-logistics,HSWM04,subcommittee,Integrated Freight & Logistics,industrials,Industrials,3
+119,map-fullrun-20261016,house--ways-and-means--work-and-welfare,personal-services,HSWM03,subcommittee,Personal Services,consumer-cyclical,Consumer Cyclical,2
+119,map-fullrun-20261016,joint--joint-economic-committee,healthcare-plans,JSEC,committee_direct,Healthcare Plans,healthcare,Healthcare,3
+119,map-fullrun-20261016,joint--joint-economic-committee,internet-content-information,JSEC,committee_direct,Internet Content & Information,communication-services,Communication Services,3
+119,map-fullrun-20261016,joint--printing,paper-paper-products,JSPR,committee_direct,Paper & Paper Products,basic-materials,Basic Materials,2
+119,map-fullrun-20261016,joint--printing,specialty-business-services,JSPR,committee_direct,Specialty Business Services,industrials,Industrials,4
+119,map-fullrun-20261016,joint--taxation,personal-services,JSTX,committee_direct,Personal Services,consumer-cyclical,Consumer Cyclical,3
+119,map-fullrun-20261016,joint--taxation,software-application,JSTX,committee_direct,Software - Application,technology,Technology,2
+119,map-fullrun-20261016,senate--agriculture-nutrition-and-forestry,farm-products,SSAF,committee_parent_core,Farm Products,consumer-defensive,Consumer Defensive,3
+119,map-fullrun-20261016,senate--agriculture-nutrition-and-forestry,lumber-wood-production,SSAF,committee_parent_core,Lumber & Wood Production,basic-materials,Basic Materials,3
+119,map-fullrun-20261016,senate--agriculture-nutrition-and-forestry--commodities-derivatives-risk-management-and-trade,capital-markets,SSAF13,subcommittee,Capital Markets,financial-services,Financial Services,3
+119,map-fullrun-20261016,senate--agriculture-nutrition-and-forestry--commodities-derivatives-risk-management-and-trade,farm-products,SSAF13,subcommittee,Farm Products,consumer-defensive,Consumer Defensive,4
+119,map-fullrun-20261016,senate--agriculture-nutrition-and-forestry--commodities-derivatives-risk-management-and-trade,financial-data-stock-exchanges,SSAF13,subcommittee,Financial Data & Stock Exchanges,financial-services,Financial Services,3
+119,map-fullrun-20261016,senate--agriculture-nutrition-and-forestry--commodities-derivatives-risk-management-and-trade,insurance-brokers,SSAF13,subcommittee,Insurance Brokers,financial-services,Financial Services,3
+119,map-fullrun-20261016,senate--agriculture-nutrition-and-forestry--commodities-derivatives-risk-management-and-trade,insurance-property-casualty,SSAF13,subcommittee,Insurance - Property & Casualty,financial-services,Financial Services,3
+119,map-fullrun-20261016,senate--agriculture-nutrition-and-forestry--conservation-forestry-natural-resources-and-biotechnology,agricultural-inputs,SSAF14,subcommittee,Agricultural Inputs,basic-materials,Basic Materials,3
+119,map-fullrun-20261016,senate--agriculture-nutrition-and-forestry--conservation-forestry-natural-resources-and-biotechnology,farm-products,SSAF14,subcommittee,Farm Products,consumer-defensive,Consumer Defensive,3
+119,map-fullrun-20261016,senate--agriculture-nutrition-and-forestry--conservation-forestry-natural-resources-and-biotechnology,lumber-wood-production,SSAF14,subcommittee,Lumber & Wood Production,basic-materials,Basic Materials,4
+119,map-fullrun-20261016,senate--agriculture-nutrition-and-forestry--food-and-nutrition-specialty-crops-organics-and-research,farm-products,SSAF16,subcommittee,Farm Products,consumer-defensive,Consumer Defensive,3
+119,map-fullrun-20261016,senate--agriculture-nutrition-and-forestry--food-and-nutrition-specialty-crops-organics-and-research,grocery-stores,SSAF16,subcommittee,Grocery Stores,consumer-defensive,Consumer Defensive,3
+119,map-fullrun-20261016,senate--agriculture-nutrition-and-forestry--food-and-nutrition-specialty-crops-organics-and-research,packaged-foods,SSAF16,subcommittee,Packaged Foods,consumer-defensive,Consumer Defensive,3
+119,map-fullrun-20261016,senate--agriculture-nutrition-and-forestry--livestock-dairy-poultry-and-food-safety,farm-products,SSAF17,subcommittee,Farm Products,consumer-defensive,Consumer Defensive,4
+119,map-fullrun-20261016,senate--agriculture-nutrition-and-forestry--livestock-dairy-poultry-and-food-safety,packaged-foods,SSAF17,subcommittee,Packaged Foods,consumer-defensive,Consumer Defensive,3
+119,map-fullrun-20261016,senate--agriculture-nutrition-and-forestry--rural-development-energy-and-credit,credit-services,SSAF15,subcommittee,Credit Services,financial-services,Financial Services,3
+119,map-fullrun-20261016,senate--agriculture-nutrition-and-forestry--rural-development-energy-and-credit,telecom-services,SSAF15,subcommittee,Telecom Services,communication-services,Communication Services,3
+119,map-fullrun-20261016,senate--agriculture-nutrition-and-forestry--rural-development-energy-and-credit,utilities-renewable,SSAF15,subcommittee,Utilities - Renewable,utilities,Utilities,3
+119,map-fullrun-20261016,senate--appropriations,aerospace-defense,SSAP,committee_parent_core,Aerospace & Defense,industrials,Industrials,3
+119,map-fullrun-20261016,senate--appropriations,biotechnology,SSAP,committee_parent_core,Biotechnology,healthcare,Healthcare,3
+119,map-fullrun-20261016,senate--appropriations--agriculture-rural-development-food-and-drug-administration-and-related-agencies,biotechnology,SSAP01,subcommittee,Biotechnology,healthcare,Healthcare,3
+119,map-fullrun-20261016,senate--appropriations--agriculture-rural-development-food-and-drug-administration-and-related-agencies,drug-manufacturers-general,SSAP01,subcommittee,Drug Manufacturers - General,healthcare,Healthcare,3
+119,map-fullrun-20261016,senate--appropriations--agriculture-rural-development-food-and-drug-administration-and-related-agencies,farm-products,SSAP01,subcommittee,Farm Products,consumer-defensive,Consumer Defensive,3
+119,map-fullrun-20261016,senate--appropriations--agriculture-rural-development-food-and-drug-administration-and-related-agencies,medical-devices,SSAP01,subcommittee,Medical Devices,healthcare,Healthcare,3
+119,map-fullrun-20261016,senate--appropriations--agriculture-rural-development-food-and-drug-administration-and-related-agencies,packaged-foods,SSAP01,subcommittee,Packaged Foods,consumer-defensive,Consumer Defensive,3
+119,map-fullrun-20261016,senate--appropriations--commerce-justice-science-and-related-agencies,aerospace-defense,SSAP16,subcommittee,Aerospace & Defense,industrials,Industrials,3
+119,map-fullrun-20261016,senate--appropriations--commerce-justice-science-and-related-agencies,semiconductors,SSAP16,subcommittee,Semiconductors,technology,Technology,3
+119,map-fullrun-20261016,senate--appropriations--department-of-defense,aerospace-defense,SSAP02,subcommittee,Aerospace & Defense,industrials,Industrials,2
+119,map-fullrun-20261016,senate--appropriations--department-of-homeland-security,aerospace-defense,SSAP14,subcommittee,Aerospace & Defense,industrials,Industrials,3
+119,map-fullrun-20261016,senate--appropriations--department-of-homeland-security,security-protection-services,SSAP14,subcommittee,Security & Protection Services,industrials,Industrials,3
+119,map-fullrun-20261016,senate--appropriations--department-of-interior-environment-and-related-agencies,lumber-wood-production,SSAP17,subcommittee,Lumber & Wood Production,basic-materials,Basic Materials,3
+119,map-fullrun-20261016,senate--appropriations--department-of-interior-environment-and-related-agencies,oil-gas-e-p,SSAP17,subcommittee,Oil & Gas E&P,energy,Energy,3
+119,map-fullrun-20261016,senate--appropriations--department-of-interior-environment-and-related-agencies,utilities-regulated-water,SSAP17,subcommittee,Utilities - Regulated Water,utilities,Utilities,3
+119,map-fullrun-20261016,senate--appropriations--department-of-interior-environment-and-related-agencies,waste-management,SSAP17,subcommittee,Waste Management,industrials,Industrials,3
+119,map-fullrun-20261016,senate--appropriations--departments-of-labor-health-and-human-services-and-education-and-related-agencies,education-training-services,SSAP18,subcommittee,Education & Training Services,consumer-defensive,Consumer Defensive,3
+119,map-fullrun-20261016,senate--appropriations--departments-of-labor-health-and-human-services-and-education-and-related-agencies,medical-care-facilities,SSAP18,subcommittee,Medical Care Facilities,healthcare,Healthcare,3
+119,map-fullrun-20261016,senate--appropriations--energy-and-water-development,engineering-construction,SSAP22,subcommittee,Engineering & Construction,industrials,Industrials,3
+119,map-fullrun-20261016,senate--appropriations--energy-and-water-development,uranium,SSAP22,subcommittee,Uranium,energy,Energy,3
+119,map-fullrun-20261016,senate--appropriations--energy-and-water-development,utilities-regulated-electric,SSAP22,subcommittee,Utilities - Regulated Electric,utilities,Utilities,3
+119,map-fullrun-20261016,senate--appropriations--financial-services-and-general-government,asset-management,SSAP23,subcommittee,Asset Management,financial-services,Financial Services,3
+119,map-fullrun-20261016,senate--appropriations--financial-services-and-general-government,capital-markets,SSAP23,subcommittee,Capital Markets,financial-services,Financial Services,3
+119,map-fullrun-20261016,senate--appropriations--financial-services-and-general-government,financial-data-stock-exchanges,SSAP23,subcommittee,Financial Data & Stock Exchanges,financial-services,Financial Services,3
+119,map-fullrun-20261016,senate--appropriations--financial-services-and-general-government,telecom-services,SSAP23,subcommittee,Telecom Services,communication-services,Communication Services,3
+119,map-fullrun-20261016,senate--appropriations--legislative-branch,entertainment,SSAP08,subcommittee,Entertainment,communication-services,Communication Services,3
+119,map-fullrun-20261016,senate--appropriations--legislative-branch,publishing,SSAP08,subcommittee,Publishing,communication-services,Communication Services,3
+119,map-fullrun-20261016,senate--appropriations--military-construction-veterans-affairs-and-related-agencies,engineering-construction,SSAP19,subcommittee,Engineering & Construction,industrials,Industrials,4
+119,map-fullrun-20261016,senate--appropriations--military-construction-veterans-affairs-and-related-agencies,medical-care-facilities,SSAP19,subcommittee,Medical Care Facilities,healthcare,Healthcare,3
+119,map-fullrun-20261016,senate--appropriations--military-construction-veterans-affairs-and-related-agencies,residential-construction,SSAP19,subcommittee,Residential Construction,consumer-cyclical,Consumer Cyclical,4
+119,map-fullrun-20261016,senate--appropriations--state-foreign-operations-and-related-programs,aerospace-defense,SSAP20,subcommittee,Aerospace & Defense,industrials,Industrials,3
+119,map-fullrun-20261016,senate--appropriations--state-foreign-operations-and-related-programs,broadcasting,SSAP20,subcommittee,Broadcasting,communication-services,Communication Services,3
+119,map-fullrun-20261016,senate--appropriations--transportation-housing-and-urban-development-and-related-agencies,airlines,SSAP24,subcommittee,Airlines,industrials,Industrials,3
+119,map-fullrun-20261016,senate--appropriations--transportation-housing-and-urban-development-and-related-agencies,marine-shipping,SSAP24,subcommittee,Marine Shipping,industrials,Industrials,3
+119,map-fullrun-20261016,senate--appropriations--transportation-housing-and-urban-development-and-related-agencies,mortgage-finance,SSAP24,subcommittee,Mortgage Finance,financial-services,Financial Services,3
+119,map-fullrun-20261016,senate--appropriations--transportation-housing-and-urban-development-and-related-agencies,railroads,SSAP24,subcommittee,Railroads,industrials,Industrials,3
+119,map-fullrun-20261016,senate--appropriations--transportation-housing-and-urban-development-and-related-agencies,residential-construction,SSAP24,subcommittee,Residential Construction,consumer-cyclical,Consumer Cyclical,3
+119,map-fullrun-20261016,senate--armed-services,aerospace-defense,SSAS,committee_parent_core,Aerospace & Defense,industrials,Industrials,4
+119,map-fullrun-20261016,senate--armed-services,other-industrial-metals-mining,SSAS,committee_parent_core,Other Industrial Metals & Mining,basic-materials,Basic Materials,3
+119,map-fullrun-20261016,senate--armed-services--airland,aerospace-defense,SSAS14,subcommittee,Aerospace & Defense,industrials,Industrials,4
+119,map-fullrun-20261016,senate--armed-services--cybersecurity,information-technology-services,SSAS21,subcommittee,Information Technology Services,technology,Technology,3
+119,map-fullrun-20261016,senate--armed-services--cybersecurity,software-infrastructure,SSAS21,subcommittee,Software - Infrastructure,technology,Technology,3
+119,map-fullrun-20261016,senate--armed-services--emerging-threats-and-capabilities,aerospace-defense,SSAS20,subcommittee,Aerospace & Defense,industrials,Industrials,4
+119,map-fullrun-20261016,senate--armed-services--emerging-threats-and-capabilities,semiconductors,SSAS20,subcommittee,Semiconductors,technology,Technology,2
+119,map-fullrun-20261016,senate--armed-services--personnel,credit-services,SSAS17,subcommittee,Credit Services,financial-services,Financial Services,2
+119,map-fullrun-20261016,senate--armed-services--personnel,healthcare-plans,SSAS17,subcommittee,Healthcare Plans,healthcare,Healthcare,3
+119,map-fullrun-20261016,senate--armed-services--readiness-and-management-support,aerospace-defense,SSAS15,subcommittee,Aerospace & Defense,industrials,Industrials,3
+119,map-fullrun-20261016,senate--armed-services--readiness-and-management-support,engineering-construction,SSAS15,subcommittee,Engineering & Construction,industrials,Industrials,3
+119,map-fullrun-20261016,senate--armed-services--readiness-and-management-support,real-estate-services,SSAS15,subcommittee,Real Estate Services,real-estate,Real Estate,3
+119,map-fullrun-20261016,senate--armed-services--readiness-and-management-support,residential-construction,SSAS15,subcommittee,Residential Construction,consumer-cyclical,Consumer Cyclical,3
+119,map-fullrun-20261016,senate--armed-services--seapower,aerospace-defense,SSAS13,subcommittee,Aerospace & Defense,industrials,Industrials,4
+119,map-fullrun-20261016,senate--armed-services--seapower,marine-shipping,SSAS13,subcommittee,Marine Shipping,industrials,Industrials,2
+119,map-fullrun-20261016,senate--armed-services--strategic-forces,aerospace-defense,SSAS16,subcommittee,Aerospace & Defense,industrials,Industrials,4
+119,map-fullrun-20261016,senate--armed-services--strategic-forces,uranium,SSAS16,subcommittee,Uranium,energy,Energy,3
+119,map-fullrun-20261016,senate--armed-services--strategic-forces,waste-management,SSAS16,subcommittee,Waste Management,industrials,Industrials,4
+119,map-fullrun-20261016,senate--banking-housing-and-urban-affairs,banks-diversified,SSBK,committee_parent_core,Banks - Diversified,financial-services,Financial Services,3
+119,map-fullrun-20261016,senate--banking-housing-and-urban-affairs,banks-regional,SSBK,committee_parent_core,Banks - Regional,financial-services,Financial Services,3
+119,map-fullrun-20261016,senate--banking-housing-and-urban-affairs--digital-assets,credit-services,SSBK13,subcommittee,Credit Services,financial-services,Financial Services,3
+119,map-fullrun-20261016,senate--banking-housing-and-urban-affairs--digital-assets,financial-data-stock-exchanges,SSBK13,subcommittee,Financial Data & Stock Exchanges,financial-services,Financial Services,4
+119,map-fullrun-20261016,senate--banking-housing-and-urban-affairs--economic-policy,credit-services,SSBK12,subcommittee,Credit Services,financial-services,Financial Services,3
+119,map-fullrun-20261016,senate--banking-housing-and-urban-affairs--economic-policy,insurance-property-casualty,SSBK12,subcommittee,Insurance - Property & Casualty,financial-services,Financial Services,3
+119,map-fullrun-20261016,senate--banking-housing-and-urban-affairs--financial-institutions-and-consumer-protection,banks-diversified,SSBK08,subcommittee,Banks - Diversified,financial-services,Financial Services,4
+119,map-fullrun-20261016,senate--banking-housing-and-urban-affairs--financial-institutions-and-consumer-protection,banks-regional,SSBK08,subcommittee,Banks - Regional,financial-services,Financial Services,4
+119,map-fullrun-20261016,senate--banking-housing-and-urban-affairs--financial-institutions-and-consumer-protection,credit-services,SSBK08,subcommittee,Credit Services,financial-services,Financial Services,3
+119,map-fullrun-20261016,senate--banking-housing-and-urban-affairs--housing-transportation-and-community-development,mortgage-finance,SSBK09,subcommittee,Mortgage Finance,financial-services,Financial Services,3
+119,map-fullrun-20261016,senate--banking-housing-and-urban-affairs--housing-transportation-and-community-development,residential-construction,SSBK09,subcommittee,Residential Construction,consumer-cyclical,Consumer Cyclical,3
+119,map-fullrun-20261016,senate--banking-housing-and-urban-affairs--national-security-and-international-trade-and-finance,semiconductor-equipment-materials,SSBK05,subcommittee,Semiconductor Equipment & Materials,technology,Technology,2
+119,map-fullrun-20261016,senate--banking-housing-and-urban-affairs--national-security-and-international-trade-and-finance,semiconductors,SSBK05,subcommittee,Semiconductors,technology,Technology,3
+119,map-fullrun-20261016,senate--banking-housing-and-urban-affairs--securities-insurance-and-investment,asset-management,SSBK04,subcommittee,Asset Management,financial-services,Financial Services,3
+119,map-fullrun-20261016,senate--banking-housing-and-urban-affairs--securities-insurance-and-investment,capital-markets,SSBK04,subcommittee,Capital Markets,financial-services,Financial Services,3
+119,map-fullrun-20261016,senate--banking-housing-and-urban-affairs--securities-insurance-and-investment,financial-data-stock-exchanges,SSBK04,subcommittee,Financial Data & Stock Exchanges,financial-services,Financial Services,3
+119,map-fullrun-20261016,senate--banking-housing-and-urban-affairs--securities-insurance-and-investment,insurance-diversified,SSBK04,subcommittee,Insurance - Diversified,financial-services,Financial Services,3
+119,map-fullrun-20261016,senate--banking-housing-and-urban-affairs--securities-insurance-and-investment,insurance-life,SSBK04,subcommittee,Insurance - Life,financial-services,Financial Services,3
+119,map-fullrun-20261016,senate--budget,insurance-property-casualty,SSBU,committee_direct,Insurance - Property & Casualty,financial-services,Financial Services,3
+119,map-fullrun-20261016,senate--budget,oil-gas-integrated,SSBU,committee_direct,Oil & Gas Integrated,energy,Energy,3
+119,map-fullrun-20261016,senate--commerce-science-and-transportation--aviation-space-and-innovation,aerospace-defense,SSCM33,subcommittee,Aerospace & Defense,industrials,Industrials,3
+119,map-fullrun-20261016,senate--commerce-science-and-transportation--aviation-space-and-innovation,airlines,SSCM33,subcommittee,Airlines,industrials,Industrials,3
+119,map-fullrun-20261016,senate--commerce-science-and-transportation--aviation-space-and-innovation,airports-air-services,SSCM33,subcommittee,Airports & Air Services,industrials,Industrials,3
+119,map-fullrun-20261016,senate--commerce-science-and-transportation--aviation-space-and-innovation,infrastructure-operations,SSCM33,subcommittee,Infrastructure Operations,industrials,Industrials,3
+119,map-fullrun-20261016,senate--commerce-science-and-transportation--coast-guard-maritime-and-fisheries,aerospace-defense,SSCM36,subcommittee,Aerospace & Defense,industrials,Industrials,3
+119,map-fullrun-20261016,senate--commerce-science-and-transportation--coast-guard-maritime-and-fisheries,farm-products,SSCM36,subcommittee,Farm Products,consumer-defensive,Consumer Defensive,3
+119,map-fullrun-20261016,senate--commerce-science-and-transportation--coast-guard-maritime-and-fisheries,marine-shipping,SSCM36,subcommittee,Marine Shipping,industrials,Industrials,3
+119,map-fullrun-20261016,senate--commerce-science-and-transportation--consumer-protection-technology-and-data-privacy,insurance-property-casualty,SSCM35,subcommittee,Insurance - Property & Casualty,financial-services,Financial Services,3
+119,map-fullrun-20261016,senate--commerce-science-and-transportation--consumer-protection-technology-and-data-privacy,internet-content-information,SSCM35,subcommittee,Internet Content & Information,communication-services,Communication Services,3
+119,map-fullrun-20261016,senate--commerce-science-and-transportation--consumer-protection-technology-and-data-privacy,software-infrastructure,SSCM35,subcommittee,Software - Infrastructure,technology,Technology,3
+119,map-fullrun-20261016,senate--commerce-science-and-transportation--science-manufacturing-and-competitiveness,semiconductors,SSCM37,subcommittee,Semiconductors,technology,Technology,2
+119,map-fullrun-20261016,senate--commerce-science-and-transportation--science-manufacturing-and-competitiveness,travel-services,SSCM37,subcommittee,Travel Services,consumer-cyclical,Consumer Cyclical,2
+119,map-fullrun-20261016,senate--commerce-science-and-transportation--surface-transportation-freight-pipelines-and-safety,auto-manufacturers,SSCM38,subcommittee,Auto Manufacturers,consumer-cyclical,Consumer Cyclical,3
+119,map-fullrun-20261016,senate--commerce-science-and-transportation--surface-transportation-freight-pipelines-and-safety,oil-gas-midstream,SSCM38,subcommittee,Oil & Gas Midstream,energy,Energy,3
+119,map-fullrun-20261016,senate--commerce-science-and-transportation--surface-transportation-freight-pipelines-and-safety,railroads,SSCM38,subcommittee,Railroads,industrials,Industrials,3
+119,map-fullrun-20261016,senate--commerce-science-and-transportation--surface-transportation-freight-pipelines-and-safety,trucking,SSCM38,subcommittee,Trucking,industrials,Industrials,3
+119,map-fullrun-20261016,senate--commerce-science-and-transportation--surface-transportation-freight-pipelines-and-safety,utilities-regulated-gas,SSCM38,subcommittee,Utilities - Regulated Gas,utilities,Utilities,3
+119,map-fullrun-20261016,senate--commerce-science-and-transportation--telecommunications-and-media,broadcasting,SSCM34,subcommittee,Broadcasting,communication-services,Communication Services,2
+119,map-fullrun-20261016,senate--commerce-science-and-transportation--telecommunications-and-media,telecom-services,SSCM34,subcommittee,Telecom Services,communication-services,Communication Services,3
+119,map-fullrun-20261016,senate--energy-and-natural-resources,oil-gas-e-p,SSEG,committee_parent_core,Oil & Gas E&P,energy,Energy,3
+119,map-fullrun-20261016,senate--energy-and-natural-resources,utilities-regulated-electric,SSEG,committee_parent_core,Utilities - Regulated Electric,utilities,Utilities,3
+119,map-fullrun-20261016,senate--energy-and-natural-resources--energy,oil-gas-e-p,SSEG01,subcommittee,Oil & Gas E&P,energy,Energy,3
+119,map-fullrun-20261016,senate--energy-and-natural-resources--energy,oil-gas-midstream,SSEG01,subcommittee,Oil & Gas Midstream,energy,Energy,3
+119,map-fullrun-20261016,senate--energy-and-natural-resources--energy,oil-gas-refining-marketing,SSEG01,subcommittee,Oil & Gas Refining & Marketing,energy,Energy,3
+119,map-fullrun-20261016,senate--energy-and-natural-resources--energy,thermal-coal,SSEG01,subcommittee,Thermal Coal,energy,Energy,3
+119,map-fullrun-20261016,senate--energy-and-natural-resources--energy,uranium,SSEG01,subcommittee,Uranium,energy,Energy,3
+119,map-fullrun-20261016,senate--energy-and-natural-resources--national-parks,recreational-vehicles,SSEG04,subcommittee,Recreational Vehicles,consumer-cyclical,Consumer Cyclical,3
+119,map-fullrun-20261016,senate--energy-and-natural-resources--public-lands-forests-and-mining,gold,SSEG03,subcommittee,Gold,basic-materials,Basic Materials,3
+119,map-fullrun-20261016,senate--energy-and-natural-resources--public-lands-forests-and-mining,lumber-wood-production,SSEG03,subcommittee,Lumber & Wood Production,basic-materials,Basic Materials,3
+119,map-fullrun-20261016,senate--energy-and-natural-resources--public-lands-forests-and-mining,oil-gas-e-p,SSEG03,subcommittee,Oil & Gas E&P,energy,Energy,3
+119,map-fullrun-20261016,senate--energy-and-natural-resources--public-lands-forests-and-mining,other-industrial-metals-mining,SSEG03,subcommittee,Other Industrial Metals & Mining,basic-materials,Basic Materials,3
+119,map-fullrun-20261016,senate--energy-and-natural-resources--public-lands-forests-and-mining,thermal-coal,SSEG03,subcommittee,Thermal Coal,energy,Energy,3
+119,map-fullrun-20261016,senate--energy-and-natural-resources--water-and-power,engineering-construction,SSEG07,subcommittee,Engineering & Construction,industrials,Industrials,3
+119,map-fullrun-20261016,senate--energy-and-natural-resources--water-and-power,utilities-regulated-electric,SSEG07,subcommittee,Utilities - Regulated Electric,utilities,Utilities,3
+119,map-fullrun-20261016,senate--energy-and-natural-resources--water-and-power,utilities-regulated-water,SSEG07,subcommittee,Utilities - Regulated Water,utilities,Utilities,3
+119,map-fullrun-20261016,senate--energy-and-natural-resources--water-and-power,utilities-renewable,SSEG07,subcommittee,Utilities - Renewable,utilities,Utilities,4
+119,map-fullrun-20261016,senate--environment-and-public-works--chemical-safety-waste-management-environmental-justice-and-regulatory-oversight,chemicals,SSEV09,subcommittee,Chemicals,basic-materials,Basic Materials,3
+119,map-fullrun-20261016,senate--environment-and-public-works--chemical-safety-waste-management-environmental-justice-and-regulatory-oversight,specialty-chemicals,SSEV09,subcommittee,Specialty Chemicals,basic-materials,Basic Materials,4
+119,map-fullrun-20261016,senate--environment-and-public-works--chemical-safety-waste-management-environmental-justice-and-regulatory-oversight,waste-management,SSEV09,subcommittee,Waste Management,industrials,Industrials,3
+119,map-fullrun-20261016,senate--environment-and-public-works--clean-air-climate-and-nuclear-innovation-and-safety,utilities-independent-power-producers,SSEV10,subcommittee,Utilities - Independent Power Producers,utilities,Utilities,3
+119,map-fullrun-20261016,senate--environment-and-public-works--clean-air-climate-and-nuclear-innovation-and-safety,utilities-regulated-electric,SSEV10,subcommittee,Utilities - Regulated Electric,utilities,Utilities,3
+119,map-fullrun-20261016,senate--environment-and-public-works--fisheries-wildlife-and-water,leisure,SSEV15,subcommittee,Leisure,consumer-cyclical,Consumer Cyclical,2
+119,map-fullrun-20261016,senate--environment-and-public-works--fisheries-wildlife-and-water,utilities-regulated-water,SSEV15,subcommittee,Utilities - Regulated Water,utilities,Utilities,3
+119,map-fullrun-20261016,senate--environment-and-public-works--transportation-and-infrastructure,engineering-construction,SSEV08,subcommittee,Engineering & Construction,industrials,Industrials,4
+119,map-fullrun-20261016,senate--environment-and-public-works--transportation-and-infrastructure,infrastructure-operations,SSEV08,subcommittee,Infrastructure Operations,industrials,Industrials,3
+119,map-fullrun-20261016,senate--finance,healthcare-plans,SSFI,committee_parent_core,Healthcare Plans,healthcare,Healthcare,4
+119,map-fullrun-20261016,senate--finance,medical-care-facilities,SSFI,committee_parent_core,Medical Care Facilities,healthcare,Healthcare,4
+119,map-fullrun-20261016,senate--finance--energy-natural-resources-and-infrastructure,engineering-construction,SSFI12,subcommittee,Engineering & Construction,industrials,Industrials,3
+119,map-fullrun-20261016,senate--finance--energy-natural-resources-and-infrastructure,infrastructure-operations,SSFI12,subcommittee,Infrastructure Operations,industrials,Industrials,3
+119,map-fullrun-20261016,senate--finance--fiscal-responsibility-and-economic-growth,internet-retail,SSFI14,subcommittee,Internet Retail,consumer-cyclical,Consumer Cyclical,2
+119,map-fullrun-20261016,senate--finance--health-care,healthcare-plans,SSFI10,subcommittee,Healthcare Plans,healthcare,Healthcare,3
+119,map-fullrun-20261016,senate--finance--health-care,medical-care-facilities,SSFI10,subcommittee,Medical Care Facilities,healthcare,Healthcare,3
+119,map-fullrun-20261016,senate--finance--international-trade-customs-and-global-competitiveness,integrated-freight-logistics,SSFI13,subcommittee,Integrated Freight & Logistics,industrials,Industrials,3
+119,map-fullrun-20261016,senate--finance--social-security-pensions-and-family-policy,asset-management,SSFI02,subcommittee,Asset Management,financial-services,Financial Services,3
+119,map-fullrun-20261016,senate--finance--social-security-pensions-and-family-policy,insurance-life,SSFI02,subcommittee,Insurance - Life,financial-services,Financial Services,3
+119,map-fullrun-20261016,senate--finance--taxation-and-irs-oversight,personal-services,SSFI11,subcommittee,Personal Services,consumer-cyclical,Consumer Cyclical,3
+119,map-fullrun-20261016,senate--finance--taxation-and-irs-oversight,software-application,SSFI11,subcommittee,Software - Application,technology,Technology,3
+119,map-fullrun-20261016,senate--foreign-relations,aerospace-defense,SSFR,committee_parent_core,Aerospace & Defense,industrials,Industrials,3
+119,map-fullrun-20261016,senate--foreign-relations,uranium,SSFR,committee_parent_core,Uranium,energy,Energy,2
+119,map-fullrun-20261016,senate--foreign-relations--africa-and-global-health-policy,drug-manufacturers-general,SSFR09,subcommittee,Drug Manufacturers - General,healthcare,Healthcare,2
+119,map-fullrun-20261016,senate--foreign-relations--africa-and-global-health-policy,drug-manufacturers-specialty-generic,SSFR09,subcommittee,Drug Manufacturers - Specialty & Generic,healthcare,Healthcare,2
+119,map-fullrun-20261016,senate--foreign-relations--east-asia-the-pacific-and-international-cybersecurity-policy,aerospace-defense,SSFR02,subcommittee,Aerospace & Defense,industrials,Industrials,3
+119,map-fullrun-20261016,senate--foreign-relations--east-asia-the-pacific-and-international-cybersecurity-policy,software-infrastructure,SSFR02,subcommittee,Software - Infrastructure,technology,Technology,3
+119,map-fullrun-20261016,senate--foreign-relations--europe-and-regional-security-cooperation,aerospace-defense,SSFR01,subcommittee,Aerospace & Defense,industrials,Industrials,3
+119,map-fullrun-20261016,senate--foreign-relations--europe-and-regional-security-cooperation,oil-gas-midstream,SSFR01,subcommittee,Oil & Gas Midstream,energy,Energy,3
+119,map-fullrun-20261016,senate--foreign-relations--near-east-south-asia-central-asia-and-counterterrorism,aerospace-defense,SSFR07,subcommittee,Aerospace & Defense,industrials,Industrials,3
+119,map-fullrun-20261016,senate--foreign-relations--near-east-south-asia-central-asia-and-counterterrorism,oil-gas-integrated,SSFR07,subcommittee,Oil & Gas Integrated,energy,Energy,3
+119,map-fullrun-20261016,senate--foreign-relations--state-department-and-usaid-management-international-operations-and-bilateral-international-development,broadcasting,SSFR14,subcommittee,Broadcasting,communication-services,Communication Services,2
+119,map-fullrun-20261016,senate--foreign-relations--western-hemisphere-transnational-crime-civilian-security-democracy-human-rights-and-global-women-s-issues,aerospace-defense,SSFR06,subcommittee,Aerospace & Defense,industrials,Industrials,3
+119,map-fullrun-20261016,senate--foreign-relations--western-hemisphere-transnational-crime-civilian-security-democracy-human-rights-and-global-women-s-issues,apparel-manufacturing,SSFR06,subcommittee,Apparel Manufacturing,consumer-cyclical,Consumer Cyclical,2
+119,map-fullrun-20261016,senate--health-education-labor-and-pensions,biotechnology,SSHR,committee_parent_core,Biotechnology,healthcare,Healthcare,3
+119,map-fullrun-20261016,senate--health-education-labor-and-pensions,education-training-services,SSHR,committee_parent_core,Education & Training Services,consumer-defensive,Consumer Defensive,3
+119,map-fullrun-20261016,senate--health-education-labor-and-pensions--education-and-the-american-family,education-training-services,SSHR09,subcommittee,Education & Training Services,consumer-defensive,Consumer Defensive,4
+119,map-fullrun-20261016,senate--health-education-labor-and-pensions--education-and-the-american-family,personal-services,SSHR09,subcommittee,Personal Services,consumer-cyclical,Consumer Cyclical,2
+119,map-fullrun-20261016,senate--health-education-labor-and-pensions--employment-and-workplace-safety,education-training-services,SSHR11,subcommittee,Education & Training Services,consumer-defensive,Consumer Defensive,3
+119,map-fullrun-20261016,senate--health-education-labor-and-pensions--employment-and-workplace-safety,thermal-coal,SSHR11,subcommittee,Thermal Coal,energy,Energy,2
+119,map-fullrun-20261016,senate--health-education-labor-and-pensions--primary-health-and-retirement-security,asset-management,SSHR12,subcommittee,Asset Management,financial-services,Financial Services,2
+119,map-fullrun-20261016,senate--health-education-labor-and-pensions--primary-health-and-retirement-security,medical-care-facilities,SSHR12,subcommittee,Medical Care Facilities,healthcare,Healthcare,3
+119,map-fullrun-20261016,senate--homeland-security-and-governmental-affairs,security-protection-services,SSGA,committee_parent_core,Security & Protection Services,industrials,Industrials,3
+119,map-fullrun-20261016,senate--homeland-security-and-governmental-affairs,software-infrastructure,SSGA,committee_parent_core,Software - Infrastructure,technology,Technology,3
+119,map-fullrun-20261016,senate--homeland-security-and-governmental-affairs--border-management-federal-workforce-and-regulatory-affairs,infrastructure-operations,SSGA22,subcommittee,Infrastructure Operations,industrials,Industrials,2
+119,map-fullrun-20261016,senate--homeland-security-and-governmental-affairs--border-management-federal-workforce-and-regulatory-affairs,security-protection-services,SSGA22,subcommittee,Security & Protection Services,industrials,Industrials,2
+119,map-fullrun-20261016,senate--homeland-security-and-governmental-affairs--disaster-management-district-of-columbia-and-census,insurance-property-casualty,SSGA20,subcommittee,Insurance - Property & Casualty,financial-services,Financial Services,3
+119,map-fullrun-20261016,senate--homeland-security-and-governmental-affairs--investigations,banks-diversified,SSGA01,subcommittee,Banks - Diversified,financial-services,Financial Services,3
+119,map-fullrun-20261016,senate--homeland-security-and-governmental-affairs--investigations,capital-markets,SSGA01,subcommittee,Capital Markets,financial-services,Financial Services,2
+119,map-fullrun-20261016,senate--indian-affairs,gambling,SLIA,committee_direct,Gambling,consumer-cyclical,Consumer Cyclical,3
+119,map-fullrun-20261016,senate--indian-affairs,resorts-casinos,SLIA,committee_direct,Resorts & Casinos,consumer-cyclical,Consumer Cyclical,3
+119,map-fullrun-20261016,senate--intelligence,aerospace-defense,SLIN,committee_direct,Aerospace & Defense,industrials,Industrials,3
+119,map-fullrun-20261016,senate--intelligence,telecom-services,SLIN,committee_direct,Telecom Services,communication-services,Communication Services,3
+119,map-fullrun-20261016,senate--judiciary,internet-content-information,SSJU,committee_parent_core,Internet Content & Information,communication-services,Communication Services,3
+119,map-fullrun-20261016,senate--judiciary,security-protection-services,SSJU,committee_parent_core,Security & Protection Services,industrials,Industrials,2
+119,map-fullrun-20261016,senate--judiciary--antitrust-competition-policy-and-consumer-rights,internet-content-information,SSJU01,subcommittee,Internet Content & Information,communication-services,Communication Services,3
+119,map-fullrun-20261016,senate--judiciary--antitrust-competition-policy-and-consumer-rights,internet-retail,SSJU01,subcommittee,Internet Retail,consumer-cyclical,Consumer Cyclical,3
+119,map-fullrun-20261016,senate--judiciary--border-security-and-immigration,personal-services,SSJU04,subcommittee,Personal Services,consumer-cyclical,Consumer Cyclical,2
+119,map-fullrun-20261016,senate--judiciary--border-security-and-immigration,security-protection-services,SSJU04,subcommittee,Security & Protection Services,industrials,Industrials,2
+119,map-fullrun-20261016,senate--judiciary--constitution,internet-content-information,SSJU21,subcommittee,Internet Content & Information,communication-services,Communication Services,2
+119,map-fullrun-20261016,senate--judiciary--constitution,medical-care-facilities,SSJU21,subcommittee,Medical Care Facilities,healthcare,Healthcare,2
+119,map-fullrun-20261016,senate--judiciary--crime-and-counterterrorism,security-protection-services,SSJU22,subcommittee,Security & Protection Services,industrials,Industrials,4
+119,map-fullrun-20261016,senate--judiciary--crime-and-counterterrorism,software-infrastructure,SSJU22,subcommittee,Software - Infrastructure,technology,Technology,3
+119,map-fullrun-20261016,senate--judiciary--federal-courts-oversight-agency-action-and-federal-rights,medical-care-facilities,SSJU25,subcommittee,Medical Care Facilities,healthcare,Healthcare,2
+119,map-fullrun-20261016,senate--judiciary--federal-courts-oversight-agency-action-and-federal-rights,personal-services,SSJU25,subcommittee,Personal Services,consumer-cyclical,Consumer Cyclical,3
+119,map-fullrun-20261016,senate--judiciary--intellectual-property,biotechnology,SSJU26,subcommittee,Biotechnology,healthcare,Healthcare,3
+119,map-fullrun-20261016,senate--judiciary--intellectual-property,entertainment,SSJU26,subcommittee,Entertainment,communication-services,Communication Services,3
+119,map-fullrun-20261016,senate--judiciary--privacy-technology-and-the-law,internet-content-information,SSJU28,subcommittee,Internet Content & Information,communication-services,Communication Services,3
+119,map-fullrun-20261016,senate--judiciary--privacy-technology-and-the-law,software-infrastructure,SSJU28,subcommittee,Software - Infrastructure,technology,Technology,3
+119,map-fullrun-20261016,senate--rules-and-administration,internet-content-information,SSRA,committee_direct,Internet Content & Information,communication-services,Communication Services,2
+119,map-fullrun-20261016,senate--rules-and-administration,specialty-business-services,SSRA,committee_direct,Specialty Business Services,industrials,Industrials,2
+119,map-fullrun-20261016,senate--small-business-and-entrepreneurship,asset-management,SSSB,committee_direct,Asset Management,financial-services,Financial Services,3
+119,map-fullrun-20261016,senate--small-business-and-entrepreneurship,credit-services,SSSB,committee_direct,Credit Services,financial-services,Financial Services,3
+119,map-fullrun-20261016,senate--special-committee-on-aging,drug-manufacturers-specialty-generic,SPAG,committee_direct,Drug Manufacturers - Specialty & Generic,healthcare,Healthcare,3
+119,map-fullrun-20261016,senate--special-committee-on-aging,medical-care-facilities,SPAG,committee_direct,Medical Care Facilities,healthcare,Healthcare,3
+119,map-fullrun-20261016,senate--veterans-affairs,education-training-services,SSVA,committee_direct,Education & Training Services,consumer-defensive,Consumer Defensive,4
+119,map-fullrun-20261016,senate--veterans-affairs,insurance-life,SSVA,committee_direct,Insurance - Life,financial-services,Financial Services,3
+119,map-fullrun-20261016,senate--veterans-affairs,medical-care-facilities,SSVA,committee_direct,Medical Care Facilities,healthcare,Healthcare,4
