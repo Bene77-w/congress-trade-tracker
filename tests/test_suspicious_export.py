@@ -442,6 +442,28 @@ def _run_cli(monkeypatch, *args) -> int:
     return 0
 
 
+def _schreibfehler_mitten_in(monkeypatch, filename):
+    """to_csv auf ``filename`` (auch auf eine temporaere Datei dazu) schreibt
+    nur bis in die Mitte der letzten Zeile und bricht dann ab, wie eine volle
+    Platte. Gibt die Original-Methode zurueck, um den Fehler aufzuheben."""
+    original = pd.DataFrame.to_csv
+
+    def _to_csv(self, path_or_buf=None, *args, **kwargs):
+        if not (isinstance(path_or_buf, str)
+                and os.path.basename(path_or_buf).startswith(filename)):
+            return original(self, path_or_buf, *args, **kwargs)
+        mode = kwargs.pop('mode', 'w')
+        kwargs.pop('encoding', None)
+        text = original(self, None, *args, **kwargs)
+        start = text.rstrip('\n').rfind('\n') + 1
+        with open(path_or_buf, mode, encoding='utf-8') as f:
+            f.write(text[:start + (len(text) - start) // 2])
+        raise OSError('Platte voll')
+
+    monkeypatch.setattr(pd.DataFrame, 'to_csv', _to_csv)
+    return original
+
+
 class TestSave:
     def _provide_stage(self, tmp_path):
         today = datetime.now().date().isoformat()
@@ -559,6 +581,53 @@ class TestSave:
                             lambda self, df: df)
         assert _run_cli(monkeypatch, '--save') == 0
         assert len(pd.read_csv(it.SUSPICIOUS_EVENTS_PATH)) == 3
+
+    def test_abgebrochener_event_append_laesst_archiv_unveraendert(
+            self, save_paths, monkeypatch):
+        TradeImporter()._append_suspicious_events(pd.DataFrame(
+            [make_event(trade_id='t0', signal_event_id='sig_alt')],
+            columns=SIGNAL_EVENT_COLUMNS))
+        archiv_vorher = (save_paths / 'suspicious_events.csv').read_bytes()
+        self._provide_stage(save_paths)
+
+        original = _schreibfehler_mitten_in(monkeypatch, 'suspicious_events.csv')
+        assert _run_cli(monkeypatch, '--save') == 1
+        assert (save_paths / 'suspicious_events.csv').read_bytes() == archiv_vorher
+
+        # Der erneute Save uebernimmt den liegengebliebenen Satz vollstaendig.
+        monkeypatch.setattr(pd.DataFrame, 'to_csv', original)
+        assert _run_cli(monkeypatch, '--save') == 0
+        events = pd.read_csv(it.SUSPICIOUS_EVENTS_PATH)
+        keys = _event_keys()
+        expected = {('sig_alt', 't0'), ('sig_aaa_0001', 't1'),
+                    ('sig_bbb', 't2'), ('sig_ccc', 't1')}
+        assert set(keys) == expected and len(keys) == len(expected)
+        assert events['signal_type'].notna().all()
+
+    def test_abbruch_in_der_promotion_erhaelt_unmatched_bericht(
+            self, save_paths, monkeypatch):
+        self._provide_stage(save_paths)
+        unmatched = pd.DataFrame([{'name': 'Doe, Jane', 'count': 1}])
+        unmatched.to_csv(save_paths / 'unmatched_names_stage.csv', index=False)
+        pd.DataFrame([{'trade_id': 't1'}]).to_csv(
+            save_paths / 'delisted_trades_stage.csv', index=False)
+
+        original = it.shutil.copy2
+
+        def _copy2(src, dst, *args, **kwargs):
+            if dst == it.DELISTED_TRADES_PATH:
+                raise OSError('Platte voll')
+            return original(src, dst, *args, **kwargs)
+
+        monkeypatch.setattr(it.shutil, 'copy2', _copy2)
+        assert _run_cli(monkeypatch, '--save') == 1
+        monkeypatch.setattr(it.shutil, 'copy2', original)
+        assert _run_cli(monkeypatch, '--save') == 0
+
+        pd.testing.assert_frame_equal(pd.read_csv(it.UNMATCHED_PATH), unmatched)
+        assert os.path.exists(it.DELISTED_TRADES_PATH)
+        for name in ('unmatched_names_stage.csv', 'delisted_trades_stage.csv'):
+            assert not (save_paths / name).exists(), name
 
 
 # ---------- --dry_run -> --save (ganzer Lauf, externe Schnittstellen isoliert)
@@ -702,6 +771,17 @@ class TestDryRunSave:
         assert (pipeline_paths / 'branch1_events_stage.csv').exists()
         assert not (pipeline_paths / 'trades_stage.csv').exists()
 
+        assert _run_cli(monkeypatch, '--save') == 1
+        assert not os.path.exists(it.MASTER_COMPLETE_CSV_PATH)
+        assert not os.path.exists(it.SUSPICIOUS_EVENTS_PATH)
+
+    def test_schreibfehler_in_trades_stage_hinterlaesst_keinen_uebernehmbaren_satz(
+            self, pipeline_paths, monkeypatch):
+        original = _schreibfehler_mitten_in(monkeypatch, 'trades_stage.csv')
+        assert _run_cli(monkeypatch, '--dry_run') == 1
+        assert not (pipeline_paths / 'trades_stage.csv').exists()
+
+        monkeypatch.setattr(pd.DataFrame, 'to_csv', original)
         assert _run_cli(monkeypatch, '--save') == 1
         assert not os.path.exists(it.MASTER_COMPLETE_CSV_PATH)
         assert not os.path.exists(it.SUSPICIOUS_EVENTS_PATH)

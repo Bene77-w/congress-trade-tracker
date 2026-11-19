@@ -119,6 +119,22 @@ def _event_stages() -> tuple:
             SWARM_EVENTS_STAGE_PATH)
 
 
+def _write_csv_atomic(df: pd.DataFrame, path: str, append: bool = False) -> None:
+    """Schreibt df ueber eine temporaere Datei im selben Verzeichnis und
+    ersetzt path erst danach (os.replace): ein Abbruch laesst path unveraendert.
+
+    append=True haengt an den bisherigen Inhalt von path an (Header nur, wenn
+    path noch fehlt).
+    """
+    temp_path = path + '.tmp'
+    appending = append and os.path.isfile(path)
+    if appending:
+        shutil.copyfile(path, temp_path)
+    df.to_csv(temp_path, mode='a' if appending else 'w', header=not appending,
+              index=False, encoding='utf-8')
+    os.replace(temp_path, path)
+
+
 SUSPICIOUS_EVENTS_PATH  = os.path.join(PROCESSED_DIR, settings.SUSPICIOUS_EVENTS_FILE)
 SUSPICIOUS_ASSETS_PATH  = os.path.join(PROCESSED_DIR, settings.SUSPICIOUS_ASSETS_FILE)
 SUSPICIOUS_MEMBERS_PATH = os.path.join(PROCESSED_DIR, settings.SUSPICIOUS_MEMBERS_FILE)
@@ -419,7 +435,9 @@ class TradeImporter:
         """Promotet Stage-Dateien zu Live-Dateien fuer alle Problem-Outputs.
 
         Overwrite Live mit Stage; falls Stage fehlt oder leer, wird Live
-        geloescht (Auto-Purge). Stage-Dateien werden am Ende entfernt.
+        geloescht (Auto-Purge). Die Stage-Dateien raeumt der Aufrufer nach dem
+        ganzen Save auf (_clear_run_stages), damit ein Abbruch sie nicht
+        einzeln verliert.
         """
         for stage_path, live_path, label in [
             (UNMATCHED_STAGE_PATH, UNMATCHED_PATH, 'Unmatched-Names'),
@@ -438,8 +456,6 @@ class TradeImporter:
             elif os.path.isfile(live_path):
                 os.remove(live_path)
                 print(f"      {label}: {live_path} entfernt (keine offenen Probleme)")
-            if os.path.isfile(stage_path):
-                os.remove(stage_path)
 
     def _write_manual_review_subset(self, df: pd.DataFrame):
         """Aggregiert manual_review-Tickers pro raw_ticker und schreibt CSV.
@@ -1141,14 +1157,7 @@ class TradeImporter:
         # Spaltenreihenfolge konsistent zum Master halten.
         to_append = to_append.reindex(columns=SIGNAL_EVENT_COLUMNS)
 
-        write_header = not os.path.isfile(SUSPICIOUS_EVENTS_PATH)
-        to_append.to_csv(
-            SUSPICIOUS_EVENTS_PATH,
-            mode='a',
-            header=write_header,
-            index=False,
-            encoding='utf-8',
-        )
+        _write_csv_atomic(to_append, SUSPICIOUS_EVENTS_PATH, append=True)
         return len(to_append)
 
     def _load_trade_scores(self) -> pd.DataFrame:
@@ -1747,8 +1756,10 @@ class TradeImporter:
             print("\n[16-17/17] Dry-Run: schreibe trades_stage.csv...")
             df_out = df.copy()
             df_out['ImportDate'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            df_out.to_csv(STAGE_CSV_PATH, index=False, encoding='utf-8')
             self._write_manual_review_subset(df_out)
+            # Zuletzt und atomar: erst eine vollstaendige trades_stage.csv
+            # weist den Dry-Run als abgeschlossen aus (siehe save()).
+            _write_csv_atomic(df_out, STAGE_CSV_PATH)
             print(f"\nDry-Run: {len(df_out):,} Trades -> {STAGE_CSV_PATH}")
             print("(Zum Speichern: python scripts/import_trades.py --save)")
         else:
