@@ -139,6 +139,10 @@ def _write_csv_atomic(df: pd.DataFrame, path: str, append: bool = False) -> None
             os.remove(temp_path)
 
 
+# IDs immer als Text lesen: rein numerische Hash-IDs verloeren sonst
+# fuehrende Nullen und passten nicht mehr zum Master.
+ID_DTYPES = {'trade_id': str, 'signal_event_id': str}
+
 SUSPICIOUS_EVENTS_PATH  = os.path.join(PROCESSED_DIR, settings.SUSPICIOUS_EVENTS_FILE)
 SUSPICIOUS_ASSETS_PATH  = os.path.join(PROCESSED_DIR, settings.SUSPICIOUS_ASSETS_FILE)
 SUSPICIOUS_MEMBERS_PATH = os.path.join(PROCESSED_DIR, settings.SUSPICIOUS_MEMBERS_FILE)
@@ -1000,7 +1004,7 @@ class TradeImporter:
         for path in _event_stages():
             if not os.path.isfile(path):
                 continue
-            df = pd.read_csv(path, low_memory=False)
+            df = pd.read_csv(path, dtype=ID_DTYPES, low_memory=False)
             if not df.empty:
                 frames.append(df)
         if not frames:
@@ -1140,7 +1144,7 @@ class TradeImporter:
             existing = pd.read_csv(
                 SUSPICIOUS_EVENTS_PATH,
                 usecols=['signal_event_id', 'trade_id'],
-                low_memory=False,
+                dtype=ID_DTYPES, low_memory=False,
             )
             existing_keys = set(
                 zip(existing['signal_event_id'].astype(str),
@@ -1219,7 +1223,7 @@ class TradeImporter:
             df = pd.read_csv(
                 MASTER_COMPLETE_CSV_PATH,
                 usecols=cols,
-                low_memory=False,
+                dtype=ID_DTYPES, low_memory=False,
             )
         except ValueError as e:
             # usecols schlaegt fehl, wenn Spalten fehlen (Phase 8.3 nicht durchgelaufen).
@@ -1250,7 +1254,8 @@ class TradeImporter:
         if not os.path.isfile(SUSPICIOUS_EVENTS_PATH):
             return 0
 
-        events = pd.read_csv(SUSPICIOUS_EVENTS_PATH, low_memory=False)
+        events = pd.read_csv(SUSPICIOUS_EVENTS_PATH, dtype=ID_DTYPES,
+                             low_memory=False)
         if events.empty:
             # Datei evtl. nur mit Header — leere View schreiben und gehen.
             pd.DataFrame(columns=ASSETS_VIEW_COLUMNS).to_csv(
@@ -1342,7 +1347,8 @@ class TradeImporter:
         if not os.path.isfile(SUSPICIOUS_EVENTS_PATH):
             return 0
 
-        events = pd.read_csv(SUSPICIOUS_EVENTS_PATH, low_memory=False)
+        events = pd.read_csv(SUSPICIOUS_EVENTS_PATH, dtype=ID_DTYPES,
+                             low_memory=False)
         if events.empty:
             pd.DataFrame(columns=MEMBERS_VIEW_COLUMNS).to_csv(
                 SUSPICIOUS_MEMBERS_PATH, index=False, encoding='utf-8')
@@ -1564,7 +1570,7 @@ class TradeImporter:
             raise FileNotFoundError(
                 f"Dry-Run-Ergebnis fehlt oder ist unvollstaendig: {missing}\n"
                 f"Bitte zuerst ausfuehren: python scripts/import_trades.py --dry_run")
-        df = pd.read_csv(STAGE_CSV_PATH, low_memory=False)
+        df = pd.read_csv(STAGE_CSV_PATH, dtype=ID_DTYPES, low_memory=False)
 
         # Recent-Monitoring Papier-Return: aktueller Kurs zum Speicherzeitpunkt.
         print("\n[Recent-Monitoring] Papier-Return aktualisieren...")
@@ -1822,7 +1828,8 @@ class TradeImporter:
             raise FileNotFoundError(
                 f"trades_master_complete.csv nicht vorhanden: {MASTER_COMPLETE_CSV_PATH}\n"
                 f"Bitte Full Rebuild ausfuehren: python scripts/import_trades.py")
-        df = pd.read_csv(MASTER_COMPLETE_CSV_PATH, low_memory=False)
+        df = pd.read_csv(MASTER_COMPLETE_CSV_PATH, dtype=ID_DTYPES,
+                         low_memory=False)
         self._write_manual_review_subset(df)
         print(f"\n[OK] Manual-Review aus {len(df):,} Trades regeneriert.")
 
@@ -1832,7 +1839,8 @@ class TradeImporter:
             raise FileNotFoundError(
                 f"trades_master_complete.csv nicht vorhanden: {MASTER_COMPLETE_CSV_PATH}\n"
                 f"Bitte Full Rebuild ausfuehren: python scripts/import_trades.py")
-        df = pd.read_csv(MASTER_COMPLETE_CSV_PATH, low_memory=False)
+        df = pd.read_csv(MASTER_COMPLETE_CSV_PATH, dtype=ID_DTYPES,
+                         low_memory=False)
         self._backup_master()
         curated = self._export_curated_master(df)
         curated.to_csv(MASTER_CSV_PATH, index=False, encoding='utf-8')

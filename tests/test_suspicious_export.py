@@ -529,6 +529,24 @@ class TestSave:
         assert members.iloc[0]['score_max'] == 20
         assert members.iloc[0]['score_total'] == 30
 
+    def test_numerische_ids_behalten_fuehrende_nullen(
+            self, save_paths, monkeypatch):
+        today = datetime.now().date().isoformat()
+        tid, sid = '0352181743254980', '0123'
+        _write_trade_stage(save_paths, [
+            {'trade_id': tid, 'trade_score': 22,
+             'trade_volume_usd': 1000, 'trade_warnings': ''}])
+        _write_stage_files(save_paths, branch1_events=[
+            make_event(trade_id=tid, signal_event_id=sid,
+                       triggering_date=today)])
+        assert _run_cli(monkeypatch, '--save') == 0
+
+        events = pd.read_csv(it.SUSPICIOUS_EVENTS_PATH, dtype=str)
+        assert list(zip(events['signal_event_id'], events['trade_id'])) == [
+            (sid, tid)]
+        assets = pd.read_csv(it.SUSPICIOUS_ASSETS_PATH)
+        assert assets.iloc[0]['score_max'] == 22
+
     def test_save_ohne_stage_bricht_ab(self, save_paths, monkeypatch):
         assert _run_cli(monkeypatch, '--save') == 1
 
