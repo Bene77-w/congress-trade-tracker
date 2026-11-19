@@ -227,9 +227,15 @@ python scripts/import_trades.py --save
 
 ### Dry-Run pruefen und mit `--save` uebernehmen
 
-`--dry_run` schreibt nur `data/processed/trades_stage.csv` und die Event-Stage-Dateien
-(`branch1_events_stage.csv`, `sequence_events_stage.csv`, `swarm_events_stage.csv`);
-Master und `suspicious_*.csv` bleiben unangetastet.
+`--dry_run` entfernt zuerst die Stage-Dateien frueherer Laeufe und schreibt dann nach
+`data/processed/`:
+- `trades_stage.csv`
+- die Event-Stage-Dateien `branch1_events_stage.csv`, `sequence_events_stage.csv`, `swarm_events_stage.csv`
+- `unmatched_names_stage.csv` (immer, auch leer) und `delisted_trades_stage.csv` (nur bei delisteten Tickern)
+- `manual_review_tickers.csv` (Diagnose; wird neu geschrieben oder entfernt, wenn nichts zu pruefen ist)
+
+Master, `suspicious_*.csv`, `unmatched_names.csv` und `delisted_trades.csv` bleiben unangetastet.
+Bricht der Dry-Run ab, fehlt `trades_stage.csv`, und `--save` bricht ab.
 
 ```bash
 python scripts/import_trades.py --dry_run            # -> trades_stage.csv + Event-Stage
@@ -237,11 +243,15 @@ head -1 data/processed/trades_stage.csv              # Spalten pruefen
 python scripts/import_trades.py --save               # -> Master + suspicious_*.csv
 ```
 
-`--save` uebernimmt alle Artefakte desselben Laufs: erst die Event-Stage-Dateien nach
-`suspicious_events.csv` (Dedup ueber `(signal_event_id, trade_id)`; die Scores der
-Signalansichten stammen aus `trades_stage.csv`), dann `trades_stage.csv` als
+`--save` uebernimmt alle Artefakte desselben Laufs und bricht ab, wenn `trades_stage.csv`
+oder eine Event-Stage-Datei fehlt. Reihenfolge: Papier-Return mit aktuellem Kurs, dann
+die Event-Stage-Dateien nach `suspicious_events.csv` (Dedup ueber
+`(signal_event_id, trade_id)`; `suspicious_assets.csv` und `suspicious_members.csv` werden
+immer neu berechnet, mit den Scores aus `trades_stage.csv`), dann `trades_stage.csv` als
 `trades_master_complete.csv` + `trades_master.csv` (vorher Backup unter
-`archive/trades_master_backup/`); danach raeumt es die Stage-Dateien auf.
+`archive/trades_master_backup/`) samt `unmatched_names.csv`/`delisted_trades.csv`.
+Erst danach raeumt es die Stage-Dateien auf; bricht ein Schritt ab, bleiben sie liegen
+und ein erneutes `--save` uebernimmt sie.
 
 Nach Aenderungen an Settings, Signalen, Scoring oder Referenzdaten laeuft die ganze
 Pipeline neu (`import_trades.py` oder `--dry_run` → `--save`).

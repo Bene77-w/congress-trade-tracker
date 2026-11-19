@@ -113,6 +113,14 @@ DELISTED_STAGE_PATH = os.path.join(PROCESSED_DIR, 'delisted_trades_stage.csv')
 BRANCH1_EVENTS_STAGE_PATH = os.path.join(PROCESSED_DIR, 'branch1_events_stage.csv')
 SEQUENCE_EVENTS_STAGE_PATH = os.path.join(PROCESSED_DIR, 'sequence_events_stage.csv')
 SWARM_EVENTS_STAGE_PATH = os.path.join(PROCESSED_DIR, 'swarm_events_stage.csv')
+
+
+def _event_stages() -> tuple:
+    """Pfade der drei Event-Stage-Dateien eines Laufs (zur Laufzeit gelesen)."""
+    return (BRANCH1_EVENTS_STAGE_PATH, SEQUENCE_EVENTS_STAGE_PATH,
+            SWARM_EVENTS_STAGE_PATH)
+
+
 SUSPICIOUS_EVENTS_PATH  = os.path.join(PROCESSED_DIR, settings.SUSPICIOUS_EVENTS_FILE)
 SUSPICIOUS_ASSETS_PATH  = os.path.join(PROCESSED_DIR, settings.SUSPICIOUS_ASSETS_FILE)
 SUSPICIOUS_MEMBERS_PATH = os.path.join(PROCESSED_DIR, settings.SUSPICIOUS_MEMBERS_FILE)
@@ -1035,8 +1043,7 @@ class TradeImporter:
             keine Stage-Datei existiert.
         """
         frames = []
-        for path in (BRANCH1_EVENTS_STAGE_PATH, SEQUENCE_EVENTS_STAGE_PATH,
-                     SWARM_EVENTS_STAGE_PATH):
+        for path in _event_stages():
             if not os.path.isfile(path):
                 continue
             df = pd.read_csv(path, low_memory=False)
@@ -1048,14 +1055,16 @@ class TradeImporter:
 
     def _export_suspicious(self, trades: pd.DataFrame) -> None:
         """Uebernimmt die Event-Stage-Dateien nach suspicious_events.csv
-        (append-only mit (signal_event_id, trade_id)-Dedup), materialisiert
+        (append-only mit (signal_event_id, trade_id)-Dedup) und materialisiert
         suspicious_assets.csv (Y-Tage-Verfall) und suspicious_members.csv
-        (dauerhaft) und entfernt danach die Event-Stage-Dateien, damit sie nur
-        einmal uebernommen werden.
+        (dauerhaft) immer neu, auch ohne neue Events: die Scores des Laufs
+        gelten auch fuer die Event-Historie.
 
         Aufgerufen aus run() (ohne --dry_run) und aus save(), jeweils bevor
         der Master geschrieben wird. Die Scores der Views stammen aus
         ``trades`` (In-Flight), nicht aus dem alten trades_master_complete.csv.
+        Die Event-Stage-Dateien raeumt der Aufrufer nach dem Master-Schreiben
+        auf (_clear_run_stages).
 
         Args:
             trades: Trades des laufenden Laufs mit trade_id, trade_score,
@@ -1065,27 +1074,29 @@ class TradeImporter:
         # alten 20-Spalten-Schema (idempotent: no-op wenn bereits aktuell).
         self._migrate_suspicious_events_schema()
 
-        new_df = self._load_event_stages()
-        if new_df.empty:
-            print("      0 Events in Stage-Dateien — keine Aktion.")
-        else:
-            self._inflight_trade_scores = trades
+        self._inflight_trade_scores = trades
+        self._trade_scores_cache = None
+        try:
+            n_appended = self._append_suspicious_events(self._load_event_stages())
+            n_assets = self._materialize_suspicious_assets()
+            n_members = self._materialize_suspicious_members()
+        finally:
+            self._inflight_trade_scores = None
             self._trade_scores_cache = None
-            try:
-                n_appended = self._append_suspicious_events(new_df)
-                n_assets = self._materialize_suspicious_assets()
-                n_members = self._materialize_suspicious_members()
-            finally:
-                self._inflight_trade_scores = None
-                self._trade_scores_cache = None
-            print(f"      {n_appended:,} neue Events -> {SUSPICIOUS_EVENTS_PATH}")
-            print(f"      {n_assets:,} aktive Assets "
-                  f"(<= {settings.SUSPICIOUS_ASSET_PERSISTENCE_DAYS}d) "
-                  f"-> {SUSPICIOUS_ASSETS_PATH}")
-            print(f"      {n_members:,} Members (gesamt) -> {SUSPICIOUS_MEMBERS_PATH}")
+        print(f"      {n_appended:,} neue Events -> {SUSPICIOUS_EVENTS_PATH}")
+        print(f"      {n_assets:,} aktive Assets "
+              f"(<= {settings.SUSPICIOUS_ASSET_PERSISTENCE_DAYS}d) "
+              f"-> {SUSPICIOUS_ASSETS_PATH}")
+        print(f"      {n_members:,} Members (gesamt) -> {SUSPICIOUS_MEMBERS_PATH}")
 
-        for path in (BRANCH1_EVENTS_STAGE_PATH, SEQUENCE_EVENTS_STAGE_PATH,
-                     SWARM_EVENTS_STAGE_PATH):
+    def _clear_run_stages(self) -> None:
+        """Entfernt alle Stage-Dateien eines Laufs (Trades, Unmatched,
+        Delisted, Events). Zu Beginn jedes Laufs, damit ein abgebrochener Lauf
+        keine Mischung mit Dateien eines frueheren Laufs hinterlaesst, und nach
+        der erfolgreichen Uebernahme, damit sie nur einmal uebernommen werden.
+        """
+        for path in (STAGE_CSV_PATH, UNMATCHED_STAGE_PATH, DELISTED_STAGE_PATH,
+                     *_event_stages()):
             if os.path.isfile(path):
                 os.remove(path)
 
@@ -1158,7 +1169,8 @@ class TradeImporter:
     def _append_suspicious_events(self, new_df: pd.DataFrame) -> int:
         """Hängt neue (signal_event_id, trade_id)-Paare an suspicious_events.csv.
 
-        Idempotent: Paare die schon in der Datei stehen werden uebersprungen.
+        Idempotent: Paare die schon in der Datei stehen oder in new_df doppelt
+        vorkommen, werden nur einmal geschrieben.
 
         Returns:
             Anzahl neu angehaengter Zeilen.
@@ -1186,7 +1198,9 @@ class TradeImporter:
         new_keys = list(zip(new_df['signal_event_id'].astype(str),
                             new_df['trade_id'].astype(str)))
         mask = [k not in existing_keys for k in new_keys]
-        to_append = new_df[mask]
+        to_append = new_df[mask].drop_duplicates(
+            subset=['signal_event_id', 'trade_id']
+        )
         if to_append.empty:
             return 0
 
@@ -1590,26 +1604,30 @@ class TradeImporter:
 
     def save(self):
         """
-        --save: uebernimmt das Ergebnis von --dry_run. Reihenfolge: Scores
-        aus trades_stage.csv -> Suspicious-Export (Event-Stage-Dateien) ->
-        Master schreiben. Raeumt trades_stage.csv danach auf.
+        --save: uebernimmt das Ergebnis von --dry_run. Reihenfolge: Stage
+        lesen -> Papier-Return (Kurs-Refresh, kann abbrechen) ->
+        Suspicious-Export mit den Scores aus trades_stage.csv -> Master
+        schreiben -> Stage-Dateien aufraeumen. Bricht ein Schritt ab, bleibt
+        der ganze Satz liegen und ein erneutes --save uebernimmt ihn.
         """
         print("\n[Save] Uebernehme Dry-Run-Ergebnis...")
-        if not os.path.isfile(STAGE_CSV_PATH):
+        missing = [p for p in (STAGE_CSV_PATH, *_event_stages())
+                   if not os.path.isfile(p)]
+        if missing:
             raise FileNotFoundError(
-                f"trades_stage.csv nicht gefunden: {STAGE_CSV_PATH}\n"
+                f"Dry-Run-Ergebnis fehlt oder ist unvollstaendig: {missing}\n"
                 f"Bitte zuerst ausfuehren: python scripts/import_trades.py --dry_run")
         df = pd.read_csv(STAGE_CSV_PATH, low_memory=False)
-
-        print("\n[Suspicious-Export] Promote Events + materialisiere Views...")
-        self._export_suspicious(df)
 
         # Recent-Monitoring Papier-Return: aktueller Kurs zum Speicherzeitpunkt.
         print("\n[Recent-Monitoring] Papier-Return aktualisieren...")
         df = self._compute_recent_paper_returns(df)
 
+        print("\n[Suspicious-Export] Promote Events + materialisiere Views...")
+        self._export_suspicious(df)
+
         self.save_results(df)
-        os.remove(STAGE_CSV_PATH)
+        self._clear_run_stages()
         print(f"\n[OK] {len(df):,} Trades -> {MASTER_COMPLETE_CSV_PATH}")
 
     def run(self, dry_run: bool = False) -> dict:
@@ -1626,6 +1644,9 @@ class TradeImporter:
         print("=" * 60)
         print("CONGRESS TRADE TRACKER - Import Pipeline (17 Schritte)")
         print("=" * 60)
+        # Stage-Dateien frueherer Laeufe entfernen: ein abgebrochener Lauf
+        # hinterlaesst so keinen Satz, den --save uebernehmen koennte.
+        self._clear_run_stages()
 
         # 1. Laden + Umbenennen + trade_id
         print("\n[1/17] Lade Quiver-Trades...")
@@ -1803,6 +1824,7 @@ class TradeImporter:
             # 17. Speichern
             print("\n[17/17] Speichere Ergebnisse...")
             self.save_results(df)
+            self._clear_run_stages()
 
         # Zusammenfassung
         print("\n" + "=" * 60)

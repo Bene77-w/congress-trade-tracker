@@ -4,6 +4,7 @@ import json
 import os
 import sys
 from datetime import datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pandas as pd
@@ -54,16 +55,16 @@ def make_event(**overrides) -> dict:
     return base
 
 
-def _write_stage_files(tmp_path, branch1_events=None, sequence_events=None):
-    """Schreibt die beiden Stage-CSVs unter tmp_path."""
+def _write_stage_files(tmp_path, branch1_events=None, sequence_events=None,
+                       swarm_events=None):
+    """Schreibt die drei Event-Stage-CSVs unter tmp_path."""
     b1_path = tmp_path / 'branch1_events_stage.csv'
     seq_path = tmp_path / 'sequence_events_stage.csv'
-    pd.DataFrame(
-        branch1_events or [], columns=SIGNAL_EVENT_COLUMNS
-    ).to_csv(b1_path, index=False)
-    pd.DataFrame(
-        sequence_events or [], columns=SIGNAL_EVENT_COLUMNS
-    ).to_csv(seq_path, index=False)
+    for path, events in [(b1_path, branch1_events),
+                         (seq_path, sequence_events),
+                         (tmp_path / 'swarm_events_stage.csv', swarm_events)]:
+        pd.DataFrame(events or [], columns=SIGNAL_EVENT_COLUMNS).to_csv(
+            path, index=False)
     return b1_path, seq_path
 
 
@@ -198,6 +199,18 @@ class TestAppendSuspiciousEvents:
         assert n == 2
         df = pd.read_csv(it.SUSPICIOUS_EVENTS_PATH)
         assert len(df) == 3
+
+    def test_doppelte_keys_im_eingang_nur_einmal(self, isolated_paths):
+        # Zwei identische Trades eines Laufs erzeugen denselben Event-Schluessel.
+        importer = TradeImporter()
+        events = pd.DataFrame(
+            [make_event(trade_id='t1'), make_event(trade_id='t1')],
+            columns=SIGNAL_EVENT_COLUMNS,
+        )
+        assert importer._append_suspicious_events(events) == 1
+        assert importer._append_suspicious_events(events) == 0
+        df = pd.read_csv(it.SUSPICIOUS_EVENTS_PATH)
+        assert len(df) == 1
 
     def test_leerer_input_keine_aktion(self, isolated_paths):
         importer = TradeImporter()
@@ -360,9 +373,9 @@ class TestExportSuspicious:
         assert os.path.exists(it.SUSPICIOUS_MEMBERS_PATH)
         events = pd.read_csv(it.SUSPICIOUS_EVENTS_PATH)
         assert len(events) == 2
-        # Event-Stage-Dateien werden nur einmal uebernommen.
-        assert not b1_path.exists()
-        assert not seq_path.exists()
+        # Aufraeumen ist Sache des Aufrufers, erst nach dem Master-Schreiben.
+        assert b1_path.exists()
+        assert seq_path.exists()
 
     def test_idempotenz_voller_zyklus(self, isolated_paths):
         today = datetime.now().date().isoformat()
@@ -382,7 +395,7 @@ class TestExportSuspicious:
         importer._export_suspicious(_no_scores())
         assert not os.path.exists(it.SUSPICIOUS_EVENTS_PATH)
         out = capsys.readouterr().out
-        assert '0 Events' in out
+        assert '0 neue Events' in out
 
 
 # ---------- --save (Speicher-Schritt nach --dry_run) -----------------------
@@ -493,6 +506,204 @@ class TestSave:
 
     def test_save_ohne_stage_bricht_ab(self, save_paths, monkeypatch):
         assert _run_cli(monkeypatch, '--save') == 1
+
+    def test_save_mit_unvollstaendigem_satz_bricht_ab(
+            self, save_paths, monkeypatch):
+        self._provide_stage(save_paths)
+        (save_paths / 'swarm_events_stage.csv').unlink()
+        assert _run_cli(monkeypatch, '--save') == 1
+        assert not os.path.exists(it.SUSPICIOUS_EVENTS_PATH)
+        assert not os.path.exists(it.MASTER_COMPLETE_CSV_PATH)
+
+    def test_leere_event_stage_aktualisiert_scores_der_ansichten(
+            self, save_paths, monkeypatch):
+        # Event-Historie mit altem Score 11; der neue Lauf liefert keine
+        # Events, aber Score 22 fuer denselben Trade.
+        today = datetime.now().date().isoformat()
+        TradeImporter()._append_suspicious_events(pd.DataFrame(
+            [make_event(trade_id='t1', triggering_date=today)],
+            columns=SIGNAL_EVENT_COLUMNS))
+        _write_trade_scores_csv(save_paths, [
+            {'trade_id': 't1', 'trade_score': 11,
+             'trade_volume_usd': 1, 'trade_warnings': ''},
+        ])
+        _write_trade_stage(save_paths, [
+            {'trade_id': 't1', 'trade_score': 22,
+             'trade_volume_usd': 1, 'trade_warnings': ''},
+        ])
+        _write_stage_files(save_paths)  # alle leer
+        assert _run_cli(monkeypatch, '--save') == 0
+
+        assert pd.read_csv(it.SUSPICIOUS_ASSETS_PATH).iloc[0]['score_max'] == 22
+        assert pd.read_csv(it.SUSPICIOUS_MEMBERS_PATH).iloc[0]['score_max'] == 22
+
+    def test_abbruch_im_kurs_refresh_laesst_alles_unveraendert(
+            self, save_paths, monkeypatch):
+        self._provide_stage(save_paths)
+
+        def _refresh_bricht_ab(self, df):
+            raise RuntimeError('Netz ROT')
+
+        monkeypatch.setattr(TradeImporter, '_compute_recent_paper_returns',
+                            _refresh_bricht_ab)
+        assert _run_cli(monkeypatch, '--save') == 1
+        assert not os.path.exists(it.SUSPICIOUS_EVENTS_PATH)
+        assert not os.path.exists(it.MASTER_COMPLETE_CSV_PATH)
+        for name in ('trades_stage.csv', 'branch1_events_stage.csv',
+                     'sequence_events_stage.csv', 'swarm_events_stage.csv'):
+            assert (save_paths / name).exists(), name
+
+        # Der liegengebliebene Satz laesst sich danach vollstaendig uebernehmen.
+        monkeypatch.setattr(TradeImporter, '_compute_recent_paper_returns',
+                            lambda self, df: df)
+        assert _run_cli(monkeypatch, '--save') == 0
+        assert len(pd.read_csv(it.SUSPICIOUS_EVENTS_PATH)) == 3
+
+
+# ---------- --dry_run -> --save (ganzer Lauf, externe Schnittstellen isoliert)
+
+class _FakeReference:
+    """Ersetzt ReferenceData: alle Trades gematcht, ohne Ausschuesse."""
+
+    def assign(self, df):
+        df = df.copy()
+        df['Member_Congress'] = 119
+        df['Member_Committees_Full'] = ''
+        df['Member_Committee_Status'] = it.STATUS_MATCHED
+        df['Member_ExOfficio'] = ''
+        df['Member_Chamber'] = df['chamber']
+        return df
+
+
+class _FakeNormalizer:
+    """Ersetzt OpenFIGI."""
+
+    def __init__(self, **kwargs):
+        pass
+
+    def normalize_batch(self, classifications):
+        return [it.NormalizedTicker(
+            classification=c, figi=None, ticker_figi=c.ticker_base,
+            asset_name_figi='APPLE INC', security_type_figi='Common Stock',
+            market_sector_figi='Equity', share_class_figi=None,
+            normalization_errors=[]) for c in classifications]
+
+
+class _FakeIssuerMapper:
+    """Ersetzt SEC EDGAR."""
+
+    def resolve_issuer_group_key(self, row):
+        return f"TICKER:{row['issuer_ticker']}"
+
+
+class _FakeSectorEnricher:
+    """Ersetzt yfinance-Sektoren."""
+
+    def __init__(self, **kwargs):
+        pass
+
+    def enrich_batch(self, normalized, transaction_dates=None):
+        return [SimpleNamespace(sector_yf='Technology',
+                                industry_yf='Consumer Electronics',
+                                quote_type_yf='EQUITY') for _ in normalized]
+
+
+class _FakeVoteTag:
+    """Ersetzt die Vote-Daten (bill_actions.json)."""
+
+    def load_votes(self):
+        return pd.DataFrame()
+
+
+@pytest.fixture
+def pipeline_paths(save_paths, monkeypatch):
+    """Synthetische Quiver-Datei; OpenFIGI, EDGAR, yfinance, Kursreihen,
+    Referenz- und Vote-Daten sind ersetzt. Zwei Abgeordnete kaufen AAPL
+    innerhalb weniger Tage (Schwarm)."""
+    tmp = save_paths
+    today = datetime.now().date()
+    pd.DataFrame([
+        {'Name': f'Member {m}', 'Ticker': 'AAPL', 'Company': 'Apple Inc',
+         'Traded': (today - timedelta(days=d)).isoformat(),
+         'Filed': today.isoformat(), 'Transaction': 'Purchase',
+         'Trade_Size_USD': '$1,001 - $15,000', 'Chamber': 'House',
+         'BioGuideID': m, 'Party': 'D', 'State': 'CA'}
+        for m, d in [('A000001', 3), ('B000002', 1)]
+    ]).to_csv(tmp / 'quiver.csv', index=False)
+    monkeypatch.setattr(it, 'QUIVER_TRADES_PATH', str(tmp / 'quiver.csv'))
+    monkeypatch.setattr(it, 'IGNORED_TICKERS_PATH', str(tmp / 'ignored.csv'))
+    monkeypatch.setattr(it, 'ReferenceData', _FakeReference)
+    monkeypatch.setattr(it, 'TickerNormalizer', _FakeNormalizer)
+    monkeypatch.setattr(it, 'IssuerGroupMapper', _FakeIssuerMapper)
+    monkeypatch.setattr(it, 'TickerSectorEnricher', _FakeSectorEnricher)
+    monkeypatch.setattr(it, 'VoteTimingTag', _FakeVoteTag)
+    monkeypatch.setattr(it, 'compute_post_trade_returns', lambda df, **kw: df)
+    monkeypatch.setattr(TradeImporter, '_apply_abnormal_returns',
+                        lambda self, df: df)
+    monkeypatch.setattr(TradeImporter, '_ensure_fresh_vote_data',
+                        lambda self: None)
+    return tmp
+
+
+def _event_keys():
+    events = pd.read_csv(it.SUSPICIOUS_EVENTS_PATH)
+    return list(zip(events['signal_event_id'].astype(str),
+                    events['trade_id'].astype(str)))
+
+
+class TestDryRunSave:
+    def test_dry_run_dann_save_uebernimmt_den_lauf(
+            self, pipeline_paths, monkeypatch):
+        tmp = pipeline_paths
+        assert _run_cli(monkeypatch, '--dry_run') == 0
+
+        # Der Dry-Run schreibt nur Stage-Dateien.
+        for name in ('trades_stage.csv', 'branch1_events_stage.csv',
+                     'sequence_events_stage.csv', 'swarm_events_stage.csv',
+                     'unmatched_names_stage.csv'):
+            assert (tmp / name).exists(), name
+        assert not os.path.exists(it.MASTER_COMPLETE_CSV_PATH)
+        assert not os.path.exists(it.SUSPICIOUS_EVENTS_PATH)
+        stage = pd.read_csv(tmp / 'trades_stage.csv')
+        assert len(stage) == 2
+        assert (stage['trade_score'] > 1).all()
+        swarm = pd.read_csv(tmp / 'swarm_events_stage.csv')
+        assert set(swarm['trade_id']) == set(stage['trade_id'])
+
+        # Alter Master mit absichtlich abweichenden Scores.
+        _write_trade_scores_csv(tmp, [
+            {'trade_id': t, 'trade_score': 1, 'trade_volume_usd': 1,
+             'trade_warnings': ''} for t in stage['trade_id']])
+
+        assert _run_cli(monkeypatch, '--save') == 0
+        master = pd.read_csv(it.MASTER_COMPLETE_CSV_PATH)
+        assert sorted(master['trade_id']) == sorted(stage['trade_id'])
+        assert set(swarm['trade_id']) <= {t for _, t in _event_keys()}
+        assets = pd.read_csv(it.SUSPICIOUS_ASSETS_PATH)
+        assert assets.iloc[0]['score_max'] == stage['trade_score'].max()
+        members = pd.read_csv(it.SUSPICIOUS_MEMBERS_PATH)
+        assert set(members['score_max']) == set(stage['trade_score'])
+        for name in ('trades_stage.csv', 'branch1_events_stage.csv',
+                     'sequence_events_stage.csv', 'swarm_events_stage.csv'):
+            assert not (tmp / name).exists(), name
+
+    def test_abgebrochener_dry_run_hinterlaesst_keinen_uebernehmbaren_satz(
+            self, pipeline_paths, monkeypatch):
+        # Lauf A vollstaendig, Lauf B bricht nach den Branch-1-Events ab.
+        assert _run_cli(monkeypatch, '--dry_run') == 0
+
+        def _bricht_ab(self, df):
+            raise RuntimeError('Abbruch in Lauf B')
+
+        monkeypatch.setattr(TradeImporter, '_apply_sequence_signals',
+                            _bricht_ab)
+        assert _run_cli(monkeypatch, '--dry_run') == 1
+        assert (pipeline_paths / 'branch1_events_stage.csv').exists()
+        assert not (pipeline_paths / 'trades_stage.csv').exists()
+
+        assert _run_cli(monkeypatch, '--save') == 1
+        assert not os.path.exists(it.MASTER_COMPLETE_CSV_PATH)
+        assert not os.path.exists(it.SUSPICIOUS_EVENTS_PATH)
 
 
 # ---------- Modul 8.4: Score-Aggregation in Views --------------------------
