@@ -43,12 +43,10 @@ from scoring.post_trade_returns import (
 from scoring.abnormal_returns import compute_abnormal_returns
 from utils.ticker_classifier import (
     classify,
-    TickerType,
-    ApiStrategy,
     Confidence,
     TickerClassification,
 )
-from utils.ticker_normalizer import TickerNormalizer, NormalizedTicker
+from utils.ticker_normalizer import TickerNormalizer
 from utils.ticker_sector import TickerSectorEnricher
 from utils.issuer_group_mapper import IssuerGroupMapper
 from tags.vote_timing_tag import VoteTimingTag, VOTE_TIMING_COLUMNS
@@ -381,69 +379,6 @@ class TradeImporter:
             .sort_values('count', ascending=False))
         return df, unmatched_df
 
-    # =========================================================================
-    # Ticker-Stages (Rebuild Teil 3): Classify -> OpenFIGI -> yfinance
-    # =========================================================================
-
-    def _reconstruct_classifications(self, df: pd.DataFrame) -> list:
-        """Rekonstruiert TickerClassification-Liste aus DataFrame-Spalten.
-
-        Strategie: classify() einmal pro Trade neu aufrufen (deterministisch);
-        dann DataFrame-Overrides anwenden (ticker_type, manual_review_flag,
-        classification_reason — gesetzt von _apply_ignore_list und manuell).
-        So bleibt api_strategy + parent_ticker (Classifier-Output) verfuegbar,
-        ohne im Master persistiert zu werden.
-
-        Reihenfolge entspricht df.index (positional).
-        """
-        out = []
-        for _, row in df.iterrows():
-            raw_ticker = str(row.get('ticker') or '')
-            company_name = str(row.get('asset_name') or '')
-            cls = classify(raw_ticker, company_name)
-
-            df_ticker_type = row.get('ticker_type')
-            overrides = {}
-            if pd.notna(df_ticker_type) and str(df_ticker_type).strip():
-                tt = TickerType(df_ticker_type)
-                if tt != cls.ticker_type:
-                    overrides['ticker_type'] = tt
-                    if tt == TickerType.IGNORED:
-                        overrides['api_strategy'] = ApiStrategy.SKIP
-            df_reason = row.get('classification_reason')
-            if pd.notna(df_reason) and str(df_reason).strip() \
-                    and str(df_reason) != cls.classification_reason:
-                overrides['classification_reason'] = str(df_reason)
-            df_manual = row.get('manual_review_flag')
-            if pd.notna(df_manual):
-                overrides['manual_review'] = bool(df_manual)
-
-            if overrides:
-                import dataclasses as _dc
-                cls = _dc.replace(cls, **overrides)
-            out.append(cls)
-        return out
-
-    def _reconstruct_normalized(self, df: pd.DataFrame) -> list:
-        """Rekonstruiert NormalizedTicker-Liste aus DataFrame-Spalten."""
-        classifications = self._reconstruct_classifications(df)
-        out = []
-        for cls, (_, row) in zip(classifications, df.iterrows()):
-            def _val(col):
-                v = row.get(col)
-                return v if pd.notna(v) and v != '' else None
-            out.append(NormalizedTicker(
-                classification=cls,
-                figi=_val('figi'),
-                ticker_figi=_val('ticker_figi'),
-                asset_name_figi=_val('asset_name_figi'),
-                security_type_figi=_val('security_type_figi'),
-                market_sector_figi=_val('market_sector_figi'),
-                share_class_figi=_val('share_class_figi'),
-                normalization_errors=[],
-            ))
-        return out
-
     def _load_ignored_tickers(self) -> set:
         """Lädt Ignore-Liste (raw_ticker → set). Cached pro Instanz."""
         if hasattr(self, '_ignored_tickers_cache'):
@@ -461,8 +396,7 @@ class TradeImporter:
     def _apply_ignore_list(self, df: pd.DataFrame) -> pd.DataFrame:
         """Markiert Trades, deren raw_ticker in ignored_tickers.csv steht.
 
-        Setzt ticker_type='ignored', manual_review_flag=False. Reconstruct leitet
-        daraus api_strategy=SKIP ab (siehe _reconstruct_classifications).
+        Setzt ticker_type='ignored', manual_review_flag=False.
         Verhindert, dass private/nicht-oeffentliche Assets in manual_review-Aggregat
         oder API-Lookups landen.
         """

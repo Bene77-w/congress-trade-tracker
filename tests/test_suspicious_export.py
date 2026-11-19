@@ -16,6 +16,7 @@ if BASE_DIR not in sys.path:
 
 # Wir importieren das Modul, um Pfade zu monkey-patchen.
 import scripts.import_trades as it
+from utils.ticker_normalizer import NormalizedTicker
 from scripts.import_trades import (
     TradeImporter,
     _counter_string,
@@ -582,7 +583,7 @@ class _FakeNormalizer:
         pass
 
     def normalize_batch(self, classifications):
-        return [it.NormalizedTicker(
+        return [NormalizedTicker(
             classification=c, figi=None, ticker_figi=c.ticker_base,
             asset_name_figi='APPLE INC', security_type_figi='Common Stock',
             market_sector_figi='Equity', share_class_figi=None,
