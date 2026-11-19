@@ -141,7 +141,7 @@ def _write_csv_atomic(df: pd.DataFrame, path: str, append: bool = False) -> None
 
 # IDs immer als Text lesen: rein numerische Hash-IDs verloeren sonst
 # fuehrende Nullen und passten nicht mehr zum Master.
-ID_DTYPES = {'trade_id': str, 'signal_event_id': str}
+ID_DTYPES = {'trade_id': str, 'signal_event_id': str, 'scope_key': str}
 
 SUSPICIOUS_EVENTS_PATH  = os.path.join(PROCESSED_DIR, settings.SUSPICIOUS_EVENTS_FILE)
 SUSPICIOUS_ASSETS_PATH  = os.path.join(PROCESSED_DIR, settings.SUSPICIOUS_ASSETS_FILE)

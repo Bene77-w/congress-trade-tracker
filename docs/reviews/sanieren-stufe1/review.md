@@ -15,3 +15,14 @@ Modus: `implement-sequenziell`, ab P3 `autonomous` mit Umsetzer Opus high; alle 
 | P4 | `02e14f0`, Korrekturen `0fa841e`, `a1ee978` und folgende | AST-Import-Gate 0 Treffer in 64 Dateien, Loader gelöscht; Mapper-Vergleich 204 Ausschüsse: 202 gleich, 2 gefüllt (HSWM05, SSEV15), 0 Verluste; compileall; 2091 passed (2128 − 48 gelöschte + 11 neue Tests); Interim Review Generalist gpt-6.2-sol high: Runde 1 nicht abgenommen (4 behoben, 1 abgelehnt: Reset-Schutzliste), Runde 2 nicht abgenommen (1 MITTEL trivial behoben, 2 KRITISCH abgelehnt: Snapshot-Veröffentlichung und App-Cache betreffen nur den lokalen Stand, Deploy bricht ab bzw. erzeugt Container neu) → Stoppregel erfüllt, abgeschlossen |
 | P5 | `c1b6457`, Korrekturen `7267935`, `b136163` und folgende | Fixtures aus echten OpenFIGI-Antworten; Live-Kurzcheck (BRK.B/BF.B FIGI, SPY/QQQ etf, AAPL ab 1980, Lauf 2 ohne Fetch); 2108 passed (2091 − 1 + 18 neue Tests); [autonomous] yfinance-Symbol für Share-Classes bei Kursen und Sektor, Benchmark-Rückbefüllung; Interim Review Generalist gpt-6.2-sol high: Runde 1 nicht abgenommen (2 behoben, 1 abgelehnt: FB/K4), Runde 2 abgenommen mit 2 MITTEL (trivial behoben) → abgeschlossen |
 | P6 | `182b490`, Korrekturen `ee6be8d` und folgende | Gate-Tests H6 (McCaul EOG 44 Lots: kein Signal; zweiter Handelstag im/außerhalb des Fensters) und H2 (Dry-Run, ausgeschlossene Zeilen ohne Signal/Score/Wirkung); `report_integrity.py` 117 Zeilen, Probelauf gegen den alten Master bestätigt die Audit-Zahlen; 2120 passed (2108 + 12 neue Tests); Interim Review Generalist gpt-6.2-sol high: Runde 1 nicht abgenommen (3 KRITISCH behoben), Runde 2 nicht abgenommen (1 trivial behoben, 2 abgelehnt: synthetische Excel-Zelltypen, Cache-Löschung während des Laufs) → Stoppregel erfüllt, abgeschlossen |
+
+## Final Review (P0–P6)
+Anker `d00ff2d`, Prüfer: 1 Generalist gpt-6.2-sol high (eine Plandatei; Releasezusatz entfällt, Repo PRIVATE; kein Fachprüfer: keine neuen Modulgrenzen, die Umbauten P3/P4 waren je Ticket geprüft).
+
+| Runde | Endstand | Ergebnis |
+|---|---|---|
+| 1 | `22c88ed` | nicht abgenommen: numerische IDs (KRITISCH) und Snapshot-Upload (KRITISCH) behoben, wiederholter Vollabruf (MITTEL) abgelehnt |
+| 2 | `eedb2c7` | nicht abgenommen: Upload-Restfenster (KRITISCH) abgelehnt (akzeptiertes Risiko), `scope_key` (MITTEL) trivial behoben → Stoppregel erfüllt, Final Review abgeschlossen |
+
+Prüfungen am Endstand: 2121 passed (Baseline 2371), compileall ohne Fehler.
+
