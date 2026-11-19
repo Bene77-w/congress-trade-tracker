@@ -33,7 +33,7 @@ import yfinance as yf
 from config import settings
 from utils.network_canary import GREEN, RED, NetworkCanary
 from utils.network_retry import NetworkRetryExhausted, retry_call
-from utils.ticker_routing import POST_TRADE_PRICE_TYPES
+from utils.ticker_routing import POST_TRADE_PRICE_TYPES, yf_symbol
 
 logger = logging.getLogger(__name__)
 
@@ -66,18 +66,20 @@ def _is_valid_yf_ticker(ticker: object) -> bool:
 def _yf_symbols(df: pd.DataFrame, mask: pd.Series) -> dict[str, str]:
     """Cache-Schluessel (``ticker``) -> yfinance-Symbol, wo beide abweichen.
 
-    Das yfinance-Symbol ist der ``ticker_base`` des Klassifikators (Share-Class
-    ``BRK.B`` -> ``BRK-B``). Der Kurs-Cache bleibt nach ``ticker`` geschluesselt,
-    damit alle Leser (Abnormal Returns, App, Event-Study) ihn unveraendert
-    ueber den Ticker des Trades finden.
+    Das yfinance-Symbol bestimmt :func:`utils.ticker_routing.yf_symbol`
+    (dieselbe Regel wie der Sektor-Lookup; Share-Class ``BRK.B`` -> ``BRK-B``).
+    Der Kurs-Cache bleibt nach ``ticker`` geschluesselt, damit alle Leser
+    (Abnormal Returns, App, Event-Study) ihn unveraendert ueber den Ticker des
+    Trades finden.
     """
     if 'ticker_base' not in df.columns:
         return {}
-    sub = df.loc[mask, ['ticker', 'ticker_base']].dropna()
+    sub = df.loc[mask, ['ticker', 'ticker_type', 'ticker_base']].dropna()
     key = sub['ticker'].astype(str).str.strip().str.upper()
-    sym = sub['ticker_base'].astype(str).str.strip().str.upper()
-    differs = (sym != '') & (sym != key)
-    return dict(zip(key[differs], sym[differs]))
+    ttype = sub['ticker_type'].astype(str).str.strip().str.lower()
+    base = sub['ticker_base'].astype(str).str.strip().str.upper()
+    sym = [yf_symbol(k, t, b) for k, t, b in zip(key, ttype, base)]
+    return {k: s for k, s in zip(key, sym) if s != k}
 
 
 def _load_price_cache(cache_path: str) -> pd.DataFrame:
