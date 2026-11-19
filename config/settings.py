@@ -15,9 +15,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 # =============================================================================
 # GATE: ASSET CLASS
-# Nicht-Aktien (ETFs, Options, Bonds, Crypto etc.) aus nachfolgenden
-# Tags und Scoring ausschliessen. Das Gate setzt nur eine Flag-Spalte;
-# die Trades bleiben in trades_master.csv erhalten.
+# Nicht-Aktien (ETFs, Options, Bonds, Crypto etc.) hart ausschliessen: keine
+# Signale, kein Score, kein Input fuer Sequenz- und Schwarmsignale anderer
+# Trades. Die Trades bleiben mit asset_class_excluded=True im Master erhalten.
 # Code: gates/asset_class_gate.py (AssetClassGate)
 # In der User-Sprache: "Filter 0".
 # =============================================================================
@@ -104,12 +104,12 @@ CONTRARIAN_WINDOW_DAYS = 30
 
 # =============================================================================
 # SIGNAL: ACCUMULATIVE (Branch 1, Sequenz)
-# Derselbe Politiker handelt mehrfach dasselbe Asset (gleiche Richtung) im
-# Fenster.
+# Derselbe Politiker handelt dasselbe Asset (gleiche Richtung) an mehreren
+# Handelstagen im Fenster. Lots desselben Handelstags zaehlen als ein Ereignis.
 # Code: signals/accumulative_signal.py (AccumulativeSignal)
 # =============================================================================
 ACCUMULATIVE_WINDOW_DAYS = 30
-ACCUMULATIVE_MIN_COUNT   = 2            # Mindest-Trade-Zahl im Fenster fuer Trigger
+ACCUMULATIVE_MIN_COUNT   = 2            # Mindestzahl Handelstage im Fenster fuer Trigger
 
 # =============================================================================
 # SIGNAL: EXTREME REPORT (Branch 1)

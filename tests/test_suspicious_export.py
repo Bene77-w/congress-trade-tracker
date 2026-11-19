@@ -1,6 +1,7 @@
 """Tests fuer den Suspicious-Export (_export_suspicious + Helpers) und --save."""
 
 import json
+from dataclasses import replace
 import os
 import sys
 from datetime import datetime, timedelta
@@ -16,6 +17,7 @@ if BASE_DIR not in sys.path:
 
 # Wir importieren das Modul, um Pfade zu monkey-patchen.
 import scripts.import_trades as it
+from utils.ticker_classifier import TickerType
 from utils.ticker_normalizer import NormalizedTicker
 from scripts.import_trades import (
     TradeImporter,
@@ -786,6 +788,66 @@ class TestDryRunSave:
         assert _run_cli(monkeypatch, '--save') == 1
         assert not os.path.exists(it.MASTER_COMPLETE_CSV_PATH)
         assert not os.path.exists(it.SUSPICIOUS_EVENTS_PATH)
+
+
+# ---------- H2: Asset-Gate schliesst hart aus (ganzer Lauf) ----------------
+
+class _FakeNormalizerBonds(_FakeNormalizer):
+    """Wie _FakeNormalizer; Anleihen (Name mit '%') bekommen den Typ bond."""
+
+    def normalize_batch(self, classifications):
+        return super().normalize_batch([
+            replace(c, ticker_type=TickerType.BOND) if '%' in c.company_name
+            else c for c in classifications])
+
+
+class TestAssetGateHarterAusschluss:
+    def test_ausgeschlossene_zeile_ohne_signal_score_und_wirkung(
+            self, pipeline_paths, monkeypatch):
+        """Apple-Anleihen teilen den Issuer mit der Apple-Aktie. Ohne Gate
+        bildeten sie mit dem Aktienkauf von A einen Schwarm (B) und eine
+        Sequenz (A) und bekaemen selbst Signale und Score."""
+        tmp = pipeline_paths
+        today = datetime.now().date()
+        notes = 'Apple Inc 3.85% Notes due 2043'
+        pd.DataFrame([
+            {'Name': f'Member {m}', 'Ticker': 'AAPL', 'Company': company,
+             'Traded': (today - timedelta(days=d)).isoformat(),
+             'Filed': today.isoformat(), 'Transaction': 'Purchase',
+             'Trade_Size_USD': size, 'Chamber': 'House',
+             'BioGuideID': m, 'Party': 'D', 'State': 'CA'}
+            for m, d, company, size in [
+                ('A000001', 5, 'Apple Inc', '$1,001 - $15,000'),
+                ('B000002', 4, notes, '$1,000,001 - $5,000,000'),
+                ('A000001', 2, notes, '$1,000,001 - $5,000,000'),
+            ]
+        ]).to_csv(tmp / 'quiver.csv', index=False)
+        monkeypatch.setattr(it, 'TickerNormalizer', _FakeNormalizerBonds)
+
+        assert _run_cli(monkeypatch, '--dry_run') == 0
+
+        stage = pd.read_csv(tmp / 'trades_stage.csv')
+        assert len(stage) == 3
+        excluded = stage[stage['asset_class_excluded']]
+        assert set(excluded['ticker_type']) == {'bond'} and len(excluded) == 2
+        assert (excluded['signal_count'] == 0).all()
+        assert excluded['signals_triggered'].isna().all()
+        assert (excluded['trade_score'] == 0).all()
+        assert excluded['trade_score_breakdown'].isna().all()
+
+        stock = stage[~stage['asset_class_excluded']].iloc[0]
+        stock_signals = str(stock['signals_triggered']).split(';')
+        for sig in ('swarm_buy', 'accumulative', 'contrarian'):
+            assert sig not in stock_signals
+        assert stock['trade_score'] == 0
+
+        events = pd.concat(
+            [pd.read_csv(tmp / name) for name in (
+                'branch1_events_stage.csv', 'sequence_events_stage.csv',
+                'swarm_events_stage.csv')], ignore_index=True)
+        assert not set(events['trade_id']) & set(excluded['trade_id'])
+        assert not pd.read_csv(tmp / 'sequence_events_stage.csv').shape[0]
+        assert not pd.read_csv(tmp / 'swarm_events_stage.csv').shape[0]
 
 
 # ---------- Modul 8.4: Score-Aggregation in Views --------------------------

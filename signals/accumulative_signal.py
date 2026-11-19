@@ -3,13 +3,15 @@ Signal: Accumulative — triggert wenn ein Member innerhalb eines kurzen
 Zeitfensters mehrfach dasselbe Asset in dieselbe Richtung handelt
 (wiederholtes Aufbauen oder Abbauen einer Position).
 
-Trigger:         >= ACCUMULATIVE_MIN_COUNT Trades desselben Members auf
-                 demselben issuer_ticker mit gleicher Direction innerhalb
-                 eines rollenden Fensters von ACCUMULATIVE_WINDOW_DAYS.
-Triggering-Date: transaction_date des Trades, der die Schwelle erreicht
+Trigger:         >= ACCUMULATIVE_MIN_COUNT Handelstage, an denen derselbe
+                 Member auf demselben issuer_ticker in gleicher Direction
+                 handelt, innerhalb eines rollenden Fensters von
+                 ACCUMULATIVE_WINDOW_DAYS. Mehrere Lots desselben
+                 Handelstags zaehlen als ein Ereignis (H6).
+Triggering-Date: Handelstag, der die Schwelle erreicht
 Scope-Key:       f"{member_id}|{issuer_ticker}|{window_start_iso}|{direction}"
-                 wobei window_start_iso = transaction_date des aeltesten
-                 Trades im qualifizierenden Fenster.
+                 wobei window_start_iso = aeltester Handelstag im
+                 qualifizierenden Fenster.
 """
 
 from typing import List, Dict, Any, Optional
@@ -66,14 +68,14 @@ class AccumulativeSignal:
     """Bewertet eine (Member x Asset)-Gruppe auf wiederholte Trades in
     derselben Richtung innerhalb eines rollenden Fensters.
 
-    Implementierung als Sliding-Window pro Direction:
-      * Sortiere Trades nach Datum.
-      * Maintain einen Pointer auf den aeltesten Trade, der noch innerhalb
-        des Fensters liegt.
-      * Sobald die Fenster-Groesse >= MIN_COUNT erreicht, wird das
-        Fenster eingefroren und ein einziges Event-Set fuer alle
-        Beteiligten emittiert. Anschliessend startet die naechste Suche
-        nach dem ersten Trade jenseits des Fensters.
+    Implementierung als Sliding-Window pro Direction ueber Handelstage:
+      * Fasse die Trades je Handelstag zusammen (Lots = ein Ereignis).
+      * Maintain einen Pointer auf den aeltesten Handelstag, der noch
+        innerhalb des Fensters liegt.
+      * Sobald das Fenster >= MIN_COUNT Handelstage enthaelt, wird es
+        eingefroren und ein einziges Event-Set fuer alle Trades dieser
+        Tage emittiert. Anschliessend startet die naechste Suche nach dem
+        ersten Handelstag jenseits des Fensters.
     """
 
     SIGNAL_TYPE = SIGNAL_TYPE
@@ -123,30 +125,33 @@ class AccumulativeSignal:
 
     def _scan_direction(self, sub: List[Dict[str, Any]],
                         direction: str) -> List[Dict[str, Any]]:
+        days: Dict[pd.Timestamp, List[Dict[str, Any]]] = {}
+        for row in sub:
+            days.setdefault(row['_td'].normalize(), []).append(row)
+        dates = sorted(days)
+
         events: List[Dict[str, Any]] = []
         i = 0
-        n = len(sub)
+        n = len(dates)
         while i <= n - self.min_count:
             window_end = i + self.min_count - 1
-            delta = (sub[window_end]['_td'] - sub[i]['_td']).days
-            if delta < 0 or delta > self.window_days:
+            if (dates[window_end] - dates[i]).days > self.window_days:
                 i += 1
                 continue
 
             # Fenster qualifiziert — erweitere window_end weiter, solange
-            # alle weiteren Trades noch innerhalb des Fensters liegen
-            window_start_ts = sub[i]['_td']
+            # alle weiteren Handelstage noch innerhalb des Fensters liegen
             j = window_end
             while j + 1 < n and \
-                    (sub[j + 1]['_td'] - window_start_ts).days <= self.window_days:
+                    (dates[j + 1] - dates[i]).days <= self.window_days:
                 j += 1
 
-            window = sub[i:j + 1]
-            triggering_date = sub[window_end]['_td'].date()
+            window = [row for day in dates[i:j + 1] for row in days[day]]
+            triggering_date = dates[window_end].date()
             last = window[-1]
             member_id = last.get('bio_guide_id', '') or ''
             issuer_ticker = resolve_issuer_ticker(last)
-            window_start_iso = window_start_ts.date().isoformat()
+            window_start_iso = dates[i].date().isoformat()
             scope_key = f"{member_id}|{issuer_ticker}|{window_start_iso}|{direction}"
             sig_id = make_signal_event_id(
                 triggering_date, SIGNAL_TYPE, scope_key

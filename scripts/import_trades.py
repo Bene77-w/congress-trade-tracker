@@ -1727,17 +1727,30 @@ class TradeImporter:
         print("\n[11/17] Filter-Logik (Scoring, Asset-Klasse, Vote-Timing)...")
         df = self._apply_gates_and_tags(df)
 
+        # 12.-14. Signale nur fuer Trades, die das Asset-Gate durchlassen (H2):
+        # Ausgeschlossene Zeilen bleiben im Master, bekommen kein Signal (und
+        # damit keinen Score) und sind kein Input fuer Sequenz- und
+        # Schwarmsignale anderer Trades.
+        excluded = df['asset_class_excluded'].astype(bool)
+        signaled = df[~excluded]
+        print(f"\n      {int(excluded.sum()):,} Trades vom Asset-Gate ausgeschlossen, ohne Signale")
+
         # 12. Branch-1 Signale (committee, ex_officio, floor_action, extreme_report)
         print("\n[12/17] Branch-1 Signale auswerten...")
-        df = self._apply_branch1_signals(df)
+        signaled = self._apply_branch1_signals(signaled)
 
         # 13. Sequenz-Signale (contrarian, accumulative)
         print("\n[13/17] Sequenz-Signale auswerten...")
-        df = self._apply_sequence_signals(df)
+        signaled = self._apply_sequence_signals(signaled)
 
         # 14. Schwarm-Signale (swarm_buy/sell/conflict/paradox, P6)
         print("\n[14/17] Schwarm-Signale auswerten...")
-        df = self._apply_swarm_signals(df)
+        signaled = self._apply_swarm_signals(signaled)
+
+        df = pd.concat([
+            signaled,
+            df[excluded].assign(signal_count=0, signals_triggered=''),
+        ]).reindex(df.index)
 
         # 15. Scoring (trade_score + breakdown + warnings, Modul 8.3)
         print("\n[15/17] Trade-Score berechnen (Modul 8.3)...")
