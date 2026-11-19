@@ -46,13 +46,15 @@ def _section(title: str, body) -> None:
 
 
 def report(master_path: str, xlsx_path: str, cache_path: str) -> None:
+    if not os.path.isfile(cache_path):
+        raise FileNotFoundError(f'Kurs-Cache fehlt: {cache_path}')
     df = pd.read_csv(master_path, usecols=MASTER_COLUMNS, low_memory=False)
     year = pd.to_datetime(df['transaction_date'], errors='coerce').dt.year
     year = year.astype('Int64').rename('jahr')
     excluded = df['asset_class_excluded'].astype(str).str.lower() == 'true'
     signals = df['signals_triggered'].fillna('').astype(str)
 
-    xlsx = pd.read_excel(xlsx_path)
+    xlsx = pd.read_excel(xlsx_path, dtype=object, keep_default_na=False)
     _section('Zeilen', pd.Series({
         'Master': len(df), 'XLSX': len(xlsx), 'Master - XLSX': len(df) - len(xlsx),
         'XLSX identische Zeilen (Wiederholungen)': int(xlsx.duplicated().sum()),

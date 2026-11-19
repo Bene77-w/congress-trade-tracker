@@ -109,10 +109,7 @@ class AccumulativeSignal:
 
         # In dicts arbeiten — vermeidet pandas-Overhead pro Gruppe.
         records = group_df.to_dict('records')
-        records = [r for r in records
-                   if r.get('_td') is not None
-                   and not (isinstance(r.get('_td'), float)
-                            and pd.isna(r.get('_td')))]
+        records = [r for r in records if pd.notna(r.get('_td'))]
 
         events: List[Dict[str, Any]] = []
         for direction in ('buy', 'sell'):

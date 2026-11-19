@@ -228,6 +228,18 @@ class TestAccumulativeSameDayLots:
         assert len({e['signal_event_id'] for e in events}) == 1
         assert {e['triggering_date'] for e in events} == {date(2016, 5, 25)}
 
+    def test_undatierte_zeile_wird_uebersprungen(self, tx_type):
+        sig = AccumulativeSignal(window_days=30, min_count=2)
+        undatiert = make_trade(date(2016, 5, 20), tx_type, trade_id='ohne_datum',
+                               ticker='EOG', member_id='M001157')
+        undatiert['transaction_date'] = pd.NaT
+        trades = _mccaul_eog_lots(tx_type)[:2] + [undatiert] + [
+            make_trade(date(2016, 5, 25), tx_type, trade_id='tag2',
+                       ticker='EOG', member_id='M001157')]
+        events = sig.evaluate_group(make_group(trades))
+        assert 'ohne_datum' not in {e['trade_id'] for e in events}
+        assert len(events) == 3
+
     def test_zweiter_handelstag_ausserhalb_des_fensters_loest_nicht_aus(
             self, tx_type):
         sig = AccumulativeSignal(window_days=30, min_count=2)
