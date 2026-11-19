@@ -138,6 +138,7 @@ class TestLookupUsesYfinanceSymbol:
         ("AAPL", "AAPL"),       # Stock unveraendert
         ("SAP.DE", "SAP.DE"),   # Auslandssuffix unveraendert
         ("ABC1", "ABC1"),       # Numeric-Suffix: nicht der Stamm ABC
+        ("GUA-CL", "GUA-CL"),   # Stock mit fremdem ticker_base: nicht GUA
     ])
     def test_lookup_symbol(self, enricher, raw, expected_symbol):
         from utils.ticker_classifier import classify

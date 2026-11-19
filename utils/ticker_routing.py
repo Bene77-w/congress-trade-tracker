@@ -33,12 +33,12 @@ POST_TRADE_PRICE_TYPES = frozenset({
 def yf_symbol(ticker: str, ticker_type: str, ticker_base: str | None) -> str:
     """yfinance-Symbol eines Tickers — eine Regel fuer Kurse und Sektor.
 
-    Das Symbol ist der ``ticker_base`` des Klassifikators (Share-Class
-    ``BRK.B`` -> ``BRK-B``; Auslandssuffixe wie ``SAP.DE`` bleiben). Ausnahme
-    NUMERIC_SUFFIX: dort ist ``ticker_base`` der Stamm eines anderen Listings,
-    abgefragt wird der Ticker selbst. Fehlt ``ticker_base``, ist der Ticker
-    das Symbol. ``ticker_type`` als TickerType oder dessen String-Wert.
+    Nur fuer Share-Classes ist das Symbol der ``ticker_base`` des
+    Klassifikators (``BRK.B`` -> ``BRK-B``). Alle anderen Typen fragt yfinance
+    unter dem Ticker selbst ab: dort kann ``ticker_base`` der Stamm eines
+    anderen Papiers sein (NUMERIC_SUFFIX ``ABC1`` -> ``ABC``, ``GUA-CL`` ->
+    ``GUA``). ``ticker_type`` als TickerType oder dessen String-Wert.
     """
-    if ticker_type == TickerType.NUMERIC_SUFFIX or not ticker_base:
-        return ticker
-    return ticker_base
+    if ticker_type == TickerType.SHARECLASS and ticker_base:
+        return ticker_base
+    return ticker
