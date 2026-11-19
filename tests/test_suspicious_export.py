@@ -593,6 +593,7 @@ class TestSave:
         original = _schreibfehler_mitten_in(monkeypatch, 'suspicious_events.csv')
         assert _run_cli(monkeypatch, '--save') == 1
         assert (save_paths / 'suspicious_events.csv').read_bytes() == archiv_vorher
+        assert not (save_paths / 'suspicious_events.csv.tmp').exists()
 
         # Der erneute Save uebernimmt den liegengebliebenen Satz vollstaendig.
         monkeypatch.setattr(pd.DataFrame, 'to_csv', original)

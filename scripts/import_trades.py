@@ -128,11 +128,15 @@ def _write_csv_atomic(df: pd.DataFrame, path: str, append: bool = False) -> None
     """
     temp_path = path + '.tmp'
     appending = append and os.path.isfile(path)
-    if appending:
-        shutil.copyfile(path, temp_path)
-    df.to_csv(temp_path, mode='a' if appending else 'w', header=not appending,
-              index=False, encoding='utf-8')
-    os.replace(temp_path, path)
+    try:
+        if appending:
+            shutil.copyfile(path, temp_path)
+        df.to_csv(temp_path, mode='a' if appending else 'w',
+                  header=not appending, index=False, encoding='utf-8')
+        os.replace(temp_path, path)
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
 
 
 SUSPICIOUS_EVENTS_PATH  = os.path.join(PROCESSED_DIR, settings.SUSPICIOUS_EVENTS_FILE)
