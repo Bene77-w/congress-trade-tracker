@@ -534,8 +534,9 @@ POST_TRADE_HORIZONS_DAYS = [30, 60, 90, 120, 180, 270, 365]
 EXIT_DETECTION_WINDOW_DAYS = None
 # yfinance-Daily-Cache (MultiIndex [ticker, date], Spalte close).
 POST_TRADE_PRICE_CACHE = 'data/cache/price_history.parquet'
-# Erstabruf-Fenster pro Ticker.
-POST_TRADE_PRICE_FETCH_YEARS = 5
+# yfinance-Abrufzeitraum pro Ticker ('max' = volle Historie; Trades reichen
+# bis 2012 zurueck, ein Fenster wie '5y' liesse aeltere Trades ohne Kurs).
+POST_TRADE_PRICE_FETCH_PERIOD = 'max'
 # Hoechster Abstand (Kalendertage) zwischen Zieldatum und dem naechsten Close,
 # den ein Preislookup noch als "Kurs an diesem Tag" gelten laesst. Deckt
 # Wochenenden und Feiertage ab. Liegt der naechste Close weiter weg - etwa weil

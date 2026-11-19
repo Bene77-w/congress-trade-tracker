@@ -1477,7 +1477,7 @@ class TradeImporter:
             cache_path=cache_path,
             recent_window_days=settings.RECENT_MONITORING_WINDOW_DAYS,
             max_price_age_bdays=settings.RECENT_PRICE_MAX_AGE_BUSINESS_DAYS,
-            fetch_years=settings.POST_TRADE_PRICE_FETCH_YEARS,
+            fetch_period=settings.POST_TRADE_PRICE_FETCH_PERIOD,
             cache_flush_every=settings.POST_TRADE_CACHE_FLUSH_EVERY,
         )
 
@@ -1701,13 +1701,14 @@ class TradeImporter:
             df,
             horizons_days=settings.POST_TRADE_HORIZONS_DAYS,
             cache_path=post_trade_cache,
-            fetch_years=settings.POST_TRADE_PRICE_FETCH_YEARS,
+            fetch_period=settings.POST_TRADE_PRICE_FETCH_PERIOD,
             cache_ttl_days=settings.POST_TRADE_PRICE_CACHE_TTL_DAYS,
             refresh_window_days=settings.POST_TRADE_REFRESH_WINDOW_DAYS,
             exit_amount_tolerance=settings.POST_TRADE_EXIT_AMOUNT_TOLERANCE,
             cache_flush_every=settings.POST_TRADE_CACHE_FLUSH_EVERY,
             progress_every=settings.POST_TRADE_PROGRESS_EVERY,
             exit_window_days=settings.EXIT_DETECTION_WINDOW_DAYS,
+            benchmark_ticker=settings.AR_BENCHMARK_TICKER,
         )
         # Recent-Monitoring Papier-Return (Voll-Pass ueber den ganzen Master).
         df = self._compute_recent_paper_returns(df)

@@ -6,7 +6,9 @@ Keine echten API-Calls.
 
 from __future__ import annotations
 
+import json
 import sqlite3
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -17,6 +19,7 @@ from utils.ticker_classifier import (
     Confidence,
     TickerClassification,
     TickerType,
+    classify,
 )
 from utils.ticker_normalizer import NormalizedTicker, TickerNormalizer
 
@@ -200,36 +203,48 @@ class TestFallbackMappingToSearch:
         assert result[0].asset_name_figi == "Obscure Co"
 
 
-class TestTypeCorrectionStockToEtf:
-    def test_type_correction_stock_to_etf(self, normalizer, make_classification):
-        """OpenFIGI securityType2='ETP' bei STOCK → ticker_type wird auf ETF korrigiert."""
-        cls = make_classification(
-            raw="SPY", ticker_type=TickerType.STOCK,
-            api_strategy=ApiStrategy.FIGI_MAPPING,
-            classification_reason="entry_v1",
-        )
+# Echte /v3/mapping-Antworten (2026-11-19 live aufgezeichnet, ohne API-Key),
+# je Job-idValue. Enthaelt BRK.B als Gegenprobe fuer das alte Format.
+_RECORDED_MAPPING = json.loads(
+    (Path(__file__).parent / "fixtures" / "openfigi" / "mapping_responses.json")
+    .read_text(encoding="utf-8")
+)
 
-        payload = [{
-            "data": [{
-                "ticker": "SPY", "figi": "BBG000BDTBL9",
-                "securityType": "ETP",
-                "securityType2": "ETP",
-                "name": "SPDR S&P 500 ETF Trust",
-                "marketSector": "Equity",
-            }],
-        }]
 
-        with patch(
-            "utils.ticker_normalizer.requests.post",
-            return_value=_http_response(200, payload),
-        ):
-            result = normalizer.normalize_batch([cls])
+def _recorded_post(url, json=None, headers=None, timeout=None):
+    """requests.post-Ersatz: beantwortet jeden Job mit der aufgezeichneten Antwort."""
+    return _http_response(200, [_RECORDED_MAPPING[job["idValue"]] for job in json])
 
-        assert result[0].classification.ticker_type == TickerType.ETF
-        assert "+openfigi_corrected" in result[0].classification.classification_reason
-        # Original-Reason bleibt erhalten.
-        assert result[0].classification.classification_reason.startswith("entry_v1")
-        assert result[0].figi == "BBG000BDTBL9"
+
+class TestRecordedOpenFigiResponses:
+    """H1/H3 gegen aufgezeichnete echte OpenFIGI-Antworten statt Mock-Payloads."""
+
+    def _normalize(self, normalizer, raw_tickers):
+        with patch("utils.ticker_normalizer.requests.post", side_effect=_recorded_post):
+            return {r.classification.raw_ticker: r
+                    for r in normalizer.normalize_batch([classify(t) for t in raw_tickers])}
+
+    def test_etp_becomes_etf(self, normalizer):
+        """H1: securityType='ETP' (securityType2='Mutual Fund') → STOCK wird ETF."""
+        result = self._normalize(normalizer, ["SPY", "QQQ"])
+        for tkr in ("SPY", "QQQ"):
+            assert result[tkr].classification.ticker_type == TickerType.ETF
+            assert result[tkr].classification.classification_reason.endswith(
+                "+openfigi_corrected")
+        assert result["SPY"].figi == "BBG000BDTBL9"
+
+    def test_common_stock_stays_stock(self, normalizer):
+        result = self._normalize(normalizer, ["AAPL"])
+        assert result["AAPL"].classification.ticker_type == TickerType.STOCK
+        assert result["AAPL"].figi == "BBG000B9XRY4"
+
+    def test_share_class_gets_figi(self, normalizer):
+        """H3: BRK.B/BF.B gehen als BRK/B bzw. BF/B an OpenFIGI und bekommen FIGIs."""
+        result = self._normalize(normalizer, ["BRK.B", "BF.B"])
+        assert result["BRK.B"].figi == "BBG000DWG505"
+        assert result["BRK.B"].share_class_figi == "BBG001S90346"
+        assert result["BF.B"].figi == "BBG000BD2NY8"
+        assert result["BRK.B"].classification.ticker_type == TickerType.SHARECLASS
 
 
 # ---------------------------------------------------------------------------

@@ -17,6 +17,7 @@ Robustheits-Hinweise:
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -85,6 +86,30 @@ def _save_price_cache(df: pd.DataFrame, cache_path: str) -> None:
     os.replace(tmp, cache_path)
 
 
+def _full_fetch_marks_path(cache_path: str) -> str:
+    """Datei neben dem Kurs-Cache: ``{ticker: Datum des letzten Vollabrufs}``.
+
+    Liegt bewusst NICHT im Kurs-Cache: NaN-Marker neben echten Kursen verwirft
+    ``_merge_into_cache`` (E5).
+    """
+    return os.path.splitext(cache_path)[0] + '_full_fetch.json'
+
+
+def _load_full_fetch_marks(cache_path: str | None) -> dict[str, pd.Timestamp]:
+    if not cache_path or not os.path.isfile(_full_fetch_marks_path(cache_path)):
+        return {}
+    with open(_full_fetch_marks_path(cache_path), encoding='utf-8') as fh:
+        return {t: pd.Timestamp(d) for t, d in json.load(fh).items()}
+
+
+def _save_full_fetch_marks(marks: dict[str, pd.Timestamp], cache_path: str) -> None:
+    path = _full_fetch_marks_path(cache_path)
+    tmp = path + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as fh:
+        json.dump({t: d.strftime('%Y-%m-%d') for t, d in sorted(marks.items())}, fh)
+    os.replace(tmp, path)
+
+
 def _yf_close_series(hist: pd.DataFrame) -> pd.Series | None:
     """Extrahiere robust eine Close-Series aus dem yfinance-Resultat.
 
@@ -143,7 +168,7 @@ def _net_attempt_printer(label: str) -> Callable[[int, str], None]:
     return _hook
 
 
-def _download_with_retry(tkr: str, fetch_years: int,
+def _download_with_retry(tkr: str, fetch_period: str,
                          on_attempt_failed: Callable[[int, str], None] | None = None):
     """yf.download mit Standard-Retry/Backoff (network_retry).
 
@@ -168,7 +193,7 @@ def _download_with_retry(tkr: str, fetch_years: int,
     def _download():
         return yf.download(
             tkr,
-            period=f'{fetch_years}y',
+            period=fetch_period,
             auto_adjust=True,
             progress=False,
             threads=False,
@@ -192,13 +217,14 @@ def _default_post_trade_probe(tkr: str) -> bool:
 def _ensure_cache_for_tickers(
     cache: pd.DataFrame,
     tickers: Iterable[str],
-    fetch_years: int = 5,
+    fetch_period: str = 'max',
     cache_ttl_days: int = 7,
     cache_path: str | None = None,
     flush_every: int = 50,
     cutoff_date: pd.Timestamp | None = None,
     delisted_recheck_days: int | None = None,
     refresh_eligible: set[str] | None = None,
+    earliest_trade: dict[str, pd.Timestamp] | None = None,
     canary: NetworkCanary | None = None,
     time_fn: Callable[[], float] | None = None,
     verbose_timeouts: bool = True,
@@ -209,6 +235,13 @@ def _ensure_cache_for_tickers(
     - Ticker mit echten Preisen: Refresh wenn ``max(real date) < cutoff``
       (``cutoff_date`` oder ``today - cache_ttl_days``) UND der Ticker im
       ``refresh_eligible``-Set liegt (oder das Set ``None`` ist).
+    - **Rueckbefuellung**: Refresh auch, wenn der erste echte Kurs mehr als
+      ``POST_TRADE_MAX_PRICE_GAP_DAYS`` nach dem fruehesten Trade
+      (``earliest_trade``) liegt — es sei denn, der letzte Vollabruf (Marke in
+      ``_full_fetch_marks_path``) ist juenger als ``delisted_recheck_days``.
+      So laden Ticker ohne aeltere Historie (delistet, wiederverwendete
+      Kuerzel) nicht in jedem Lauf neu. Vorhandene Cache-Zeilen bleiben beim
+      Zusammenfuehren erhalten.
     - **Delisted** (Ticker mit ausschliesslich ``close=NaN``-Markern): Refresh erst,
       wenn der Marker (last_checked) aelter als ``delisted_recheck_days`` ist
       (last_checked-TTL). Alt-Marker (1900-01-01) sind immer faellig (Heilung).
@@ -260,8 +293,8 @@ def _ensure_cache_for_tickers(
         seen.add(tkr)
         unique_valid.append(tkr)
 
-    # Pro relevantem Ticker juengsten ECHTEN Preis + juengsten Marker (last_checked)
-    # in EINEM Pass bestimmen (Marker = close==NaN).
+    # Pro relevantem Ticker ersten + juengsten ECHTEN Preis + juengsten Marker
+    # (last_checked) in EINEM Pass bestimmen (Marker = close==NaN).
     freshness: dict[str, tuple] = {}
     if len(cache) and seen:
         rel = cache[cache.index.get_level_values(0).isin(seen)]
@@ -271,22 +304,34 @@ def _ensure_cache_for_tickers(
             real = dts[~is_nan]
             mark = dts[is_nan]
             freshness[str(tkr)] = (
+                real.min() if len(real) else None,
                 real.max() if len(real) else None,
                 mark.max() if len(mark) else None,
             )
 
+    full_fetch_marks = _load_full_fetch_marks(cache_path)
+    earliest_trade = earliest_trade or {}
+    max_gap = pd.Timedelta(_max_gap())
     need_refresh: list[str] = []
+    n_backfill = 0
     for tkr in unique_valid:
         f = freshness.get(tkr)
         if f is None:
             need_refresh.append(tkr)  # nicht im Cache
             continue
-        max_real, max_marker = f
+        min_real, max_real, max_marker = f
         if max_real is not None:
+            first_trade = earliest_trade.get(tkr)
+            last_full = full_fetch_marks.get(tkr)
             if max_real < cutoff and (
                 refresh_eligible is None or tkr in refresh_eligible
             ):
                 need_refresh.append(tkr)  # echte Preise veraltet + aktiver Ticker
+            elif (first_trade is not None and pd.notna(first_trade)
+                    and min_real - first_trade > max_gap
+                    and (last_full is None or last_full < delisted_cutoff)):
+                need_refresh.append(tkr)  # Historie beginnt nach dem ersten Trade
+                n_backfill += 1
             # sonst: frisch ODER nur noch geschlossene/abgelaufene Positionen -> skip
         else:
             # nur Marker (delisted) -> last_checked-TTL
@@ -306,7 +351,8 @@ def _ensure_cache_for_tickers(
 
     n_need = len(need_refresh)
     print(f"  Cache-Refresh: {n_need} von {len(seen)} validen Tickern "
-          f"brauchen yfinance-Fetch ({fetch_years}y daily).")
+          f"brauchen yfinance-Fetch (period={fetch_period}, daily), davon "
+          f"{n_backfill} zur Rueckbefuellung aelterer Historie.")
 
     # --- Canary + Fenster-State (Variante B) --------------------------------
     if canary is None:
@@ -330,9 +376,11 @@ def _ensure_cache_for_tickers(
             return
         cache = _merge_into_cache(cache, window_buffer)
         counters['committed'] += len(window_tickers)
+        full_fetch_marks.update({t: today for t in window_tickers})
         if cache_path:
             try:
                 _save_price_cache(cache, cache_path)
+                _save_full_fetch_marks(full_fetch_marks, cache_path)
                 print(f"  [commit] Fenster bestaetigt (GRUEN) + gespeichert: "
                       f"{counters['committed']}/{n_need} Ticker.", flush=True)
             except Exception as exc:  # noqa: BLE001
@@ -391,7 +439,7 @@ def _ensure_cache_for_tickers(
             # (b) Fetch (Exceptions retried + sichtbar)
             try:
                 hist = _download_with_retry(
-                    tkr, fetch_years,
+                    tkr, fetch_period,
                     on_attempt_failed=(
                         _net_attempt_printer(f"yf.download[{tkr}]")
                         if verbose_timeouts else (lambda a, r: None)),
@@ -641,15 +689,19 @@ def compute_post_trade_returns(
     df: pd.DataFrame,
     horizons_days: list[int],
     cache_path: str,
-    fetch_years: int = 5,
+    fetch_period: str = 'max',
     cache_ttl_days: int = 7,
     exit_amount_tolerance: float = 0.0,
     cache_flush_every: int = 50,
     progress_every: int = 20000,
     exit_window_days: int | None = None,
     refresh_window_days: int | None = None,
+    benchmark_ticker: str | None = None,
 ) -> pd.DataFrame:
     """Erweitert df um Post-Trade-Spalten. Idempotent. Liefert NEUE Kopie.
+
+    ``benchmark_ticker`` (Abnormal Returns): wird mitgeladen und bis zum
+    fruehesten Trade ALLER Ticker zurueckbefuellt, nicht nur seiner eigenen.
 
     Erwartete Input-Spalten:
         trade_id, name, ticker, issuer_group_key, transaction_date,
@@ -702,6 +754,17 @@ def compute_post_trade_returns(
     tickers_relevant = (
         relevant.dropna().astype(str).str.strip().str.upper().unique().tolist()
     )
+    # Fruehester Trade je Ticker: Massstab fuer die Rueckbefuellung der Historie.
+    earliest_trade = (
+        df.loc[df['_post_trade_applicable'], 'transaction_date']
+        .groupby(relevant.astype(str).str.strip().str.upper()).min()
+        .dropna().dt.normalize().to_dict()
+    )
+    if benchmark_ticker and earliest_trade:
+        bench = benchmark_ticker.strip().upper()
+        if bench not in tickers_relevant:
+            tickers_relevant.append(bench)
+        earliest_trade[bench] = min(earliest_trade.values())
 
     # Refetch-Fenster (Option A): begrenzt den TTL-Refresh auf Ticker mit
     # mindestens einer Position innerhalb der letzten ``refresh_window_days``.
@@ -729,11 +792,12 @@ def compute_post_trade_returns(
     cache = _ensure_cache_for_tickers(
         cache,
         tickers_relevant,
-        fetch_years=fetch_years,
+        fetch_period=fetch_period,
         cache_ttl_days=cache_ttl_days,
         cache_path=cache_path,
         flush_every=cache_flush_every,
         refresh_eligible=refresh_eligible,
+        earliest_trade=earliest_trade,
     )
 
     max_horizon = max(horizons_days)
@@ -928,7 +992,7 @@ def compute_paper_returns(
     cache_path: str,
     recent_window_days: int = 180,
     max_price_age_bdays: int = 1,
-    fetch_years: int = 5,
+    fetch_period: str = 'max',
     cache_flush_every: int = 50,
 ) -> pd.DataFrame:
     """Voll-Pass: ``paper_return_pct`` + ``price_as_of`` fuer Recent-Trades.
@@ -989,7 +1053,7 @@ def compute_paper_returns(
         cache = _ensure_cache_for_tickers(
             cache,
             recent_tickers,
-            fetch_years=fetch_years,
+            fetch_period=fetch_period,
             cache_path=cache_path,
             flush_every=cache_flush_every,
             cutoff_date=last_bday,
