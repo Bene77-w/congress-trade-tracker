@@ -683,6 +683,92 @@ def test_benchmark_backfilled_to_earliest_trade_of_all_tickers(monkeypatch, tmp_
     assert calls == ['SPY']
 
 
+def test_empty_backfill_keeps_existing_closes(monkeypatch, tmp_path):
+    """Leerer Rueckbefuellungs-Abruf (GRUEN) loescht keinen vorhandenen Kurs,
+    auch nicht den Schlusskurs von heute (gleicher Schluessel wie der Marker)."""
+    cache_path = str(tmp_path / 'p.parquet')
+    cache = _recent_cache('WFC', '2021-05-28')
+    monkeypatch.setattr(PTR + '._download_with_retry',
+                        lambda tkr, fetch_period, on_attempt_failed=None: pd.DataFrame())
+
+    _ensure_cache_for_tickers(
+        cache, ['WFC'], cache_ttl_days=1, cache_path=cache_path,
+        earliest_trade={'WFC': pd.Timestamp('2015-03-02')}, canary=_GreenCanary())
+
+    pd.testing.assert_frame_equal(_load_price_cache(cache_path), cache,
+                                  check_freq=False)
+
+
+def _recording_yf_download(symbols_with_history: set[str]):
+    """Ersatz fuer ``yf.download``: zeichnet Symbol und ``period`` auf und liefert
+    nur fuer ``symbols_with_history`` Kurse (2013 bis heute), sonst leer."""
+    calls: list[tuple[str, str]] = []
+
+    def _download(tkr, period, **kwargs):
+        calls.append((tkr, period))
+        if tkr not in symbols_with_history:
+            return pd.DataFrame()
+        idx = pd.date_range('2013-01-01', pd.Timestamp.now().normalize(),
+                            freq='B', name='Date')
+        return pd.DataFrame({'Close': np.linspace(10.0, 20.0, len(idx))}, index=idx)
+
+    return _download, calls
+
+
+def test_backfill_requests_full_history_from_yfinance(monkeypatch, tmp_path):
+    """Pipeline-Setting bis yf.download: die Rueckbefuellung fordert period='max' an."""
+    cache_path = str(tmp_path / 'p.parquet')
+    _save_price_cache(_recent_cache('AAPL', '2021-05-28'), cache_path)
+    download, calls = _recording_yf_download({'AAPL'})
+    monkeypatch.setattr(PTR + '.yf.download', download)
+    monkeypatch.setattr(PTR + '.NetworkCanary', lambda *a, **kw: _GreenCanary())
+
+    df = pd.DataFrame([_make_trade_row(transaction_date='2015-03-02')])
+    compute_post_trade_returns(
+        df, horizons_days=[30], cache_path=cache_path, cache_ttl_days=1,
+        fetch_period=settings.POST_TRADE_PRICE_FETCH_PERIOD)
+
+    assert calls == [('AAPL', 'max')]
+
+
+def test_shareclass_prices_fetched_with_yfinance_symbol(monkeypatch, tmp_path):
+    """Share-Class 'BRK.B': yfinance bekommt 'BRK-B' (ticker_base), der Cache-Schluessel
+    bleibt der Ticker des Trades, und der Trade bekommt Returns."""
+    cache_path = str(tmp_path / 'p.parquet')
+    download, calls = _recording_yf_download({'BRK-B'})
+    monkeypatch.setattr(PTR + '.yf.download', download)
+    monkeypatch.setattr(PTR + '.NetworkCanary', lambda *a, **kw: _GreenCanary())
+
+    df = pd.DataFrame([_make_trade_row(
+        ticker='BRK.B', ticker_base='BRK-B', ticker_type='shareclass',
+        issuer_group_key='CIK:0001067983', transaction_date='2015-03-02')])
+    out = compute_post_trade_returns(
+        df, horizons_days=[30], cache_path=cache_path, cache_ttl_days=1)
+
+    assert calls == [('BRK-B', 'max')]
+    assert set(_load_price_cache(cache_path).index.get_level_values(0)) == {'BRK.B'}
+    assert out['post_return_30d'].notna().iloc[0]
+
+
+def test_shareclass_paper_return_fetched_with_yfinance_symbol(monkeypatch, tmp_path):
+    """Recent-Monitoring: derselbe Weg zum yfinance-Symbol wie die Post-Trade-Stage."""
+    cache_path = str(tmp_path / 'p.parquet')
+    download, calls = _recording_yf_download({'BRK-B'})
+    monkeypatch.setattr(PTR + '.yf.download', download)
+    monkeypatch.setattr(PTR + '.NetworkCanary', lambda *a, **kw: _GreenCanary())
+
+    today = pd.Timestamp.now().normalize()
+    df = pd.DataFrame([_make_trade_row(
+        ticker='BRK.B', ticker_base='BRK-B', ticker_type='shareclass',
+        issuer_group_key='CIK:0001067983',
+        transaction_date=pd.bdate_range(end=today, periods=5)[0])])
+    df['post_trade_baseline_price'] = [np.nan]
+    out = compute_paper_returns(df, cache_path=cache_path)
+
+    assert calls == [('BRK-B', 'max')]
+    assert out['paper_return_pct'].notna().iloc[0]
+
+
 # ---------------------------------------------------------------------------
 # 17. Single-row yfinance-Resultat — kein Crash mehr durch squeeze()
 # ---------------------------------------------------------------------------

@@ -63,6 +63,23 @@ def _is_valid_yf_ticker(ticker: object) -> bool:
     return bool(_VALID_TICKER_RE.match(s))
 
 
+def _yf_symbols(df: pd.DataFrame, mask: pd.Series) -> dict[str, str]:
+    """Cache-Schluessel (``ticker``) -> yfinance-Symbol, wo beide abweichen.
+
+    Das yfinance-Symbol ist der ``ticker_base`` des Klassifikators (Share-Class
+    ``BRK.B`` -> ``BRK-B``). Der Kurs-Cache bleibt nach ``ticker`` geschluesselt,
+    damit alle Leser (Abnormal Returns, App, Event-Study) ihn unveraendert
+    ueber den Ticker des Trades finden.
+    """
+    if 'ticker_base' not in df.columns:
+        return {}
+    sub = df.loc[mask, ['ticker', 'ticker_base']].dropna()
+    key = sub['ticker'].astype(str).str.strip().str.upper()
+    sym = sub['ticker_base'].astype(str).str.strip().str.upper()
+    differs = (sym != '') & (sym != key)
+    return dict(zip(key[differs], sym[differs]))
+
+
 def _load_price_cache(cache_path: str) -> pd.DataFrame:
     """Laedt parquet falls existiert, sonst leerer DataFrame."""
     if os.path.isfile(cache_path):
@@ -225,6 +242,7 @@ def _ensure_cache_for_tickers(
     delisted_recheck_days: int | None = None,
     refresh_eligible: set[str] | None = None,
     earliest_trade: dict[str, pd.Timestamp] | None = None,
+    yf_symbols: dict[str, str] | None = None,
     canary: NetworkCanary | None = None,
     time_fn: Callable[[], float] | None = None,
     verbose_timeouts: bool = True,
@@ -265,6 +283,9 @@ def _ensure_cache_for_tickers(
       Fenster-Beginn neu verarbeitet (rueckwirkende Invalidierung).
     - Erholt sich das Netz nach ``CANARY_MAX_RED_ROUNDS`` Runden nicht ->
       ``RuntimeError`` (fail-closed; KEINE degradierten Daten geschrieben).
+
+    ``yf_symbols`` (s. :func:`_yf_symbols`): Abruf unter dem yfinance-Symbol,
+    gespeichert unter dem Ticker; fehlt ein Eintrag, ist der Ticker das Symbol.
 
     ``canary`` / ``time_fn`` sind injizierbar (Tests). ``flush_every`` bleibt aus
     Kompatibilitaet erhalten, steuert aber nicht mehr den Commit (Fenster tut das).
@@ -311,6 +332,7 @@ def _ensure_cache_for_tickers(
 
     full_fetch_marks = _load_full_fetch_marks(cache_path)
     earliest_trade = earliest_trade or {}
+    yf_symbols = yf_symbols or {}
     max_gap = pd.Timedelta(_max_gap())
     need_refresh: list[str] = []
     n_backfill = 0
@@ -439,7 +461,7 @@ def _ensure_cache_for_tickers(
             # (b) Fetch (Exceptions retried + sichtbar)
             try:
                 hist = _download_with_retry(
-                    tkr, fetch_period,
+                    yf_symbols.get(tkr, tkr), fetch_period,
                     on_attempt_failed=(
                         _net_attempt_printer(f"yf.download[{tkr}]")
                         if verbose_timeouts else (lambda a, r: None)),
@@ -504,7 +526,9 @@ def _merge_into_cache(cache: pd.DataFrame,
                      new_rows: list[pd.DataFrame]) -> pd.DataFrame:
     """Konkateniert neue Bloecke in den Cache mit Marker-Hygiene.
 
-    1. Dedup auf ``(ticker, date)`` — letzter gewinnt (erneuter Fetch am selben Tag).
+    1. Dedup auf ``(ticker, date)`` — ein echter Kurs schlaegt einen Marker,
+       sonst gewinnt der letzte (erneuter Fetch am selben Tag). Ein leerer
+       Abruf loescht so keinen vorhandenen Kurs mit dem Datum des Markers.
     2. **E5**: hat ein (betroffener) Ticker echte Preise UND ``close=NaN``-Marker,
        werden die Marker physisch entfernt (Karteileiche, sobald Preise vorliegen).
     3. **Marker-Kollaps**: hat ein delisteter Ticker mehrere NaN-Marker (mehrere
@@ -518,7 +542,10 @@ def _merge_into_cache(cache: pd.DataFrame,
     new = pd.concat(new_rows)
     affected = set(new.index.get_level_values(0).unique())
     combined = pd.concat([cache, new]) if len(cache) else new
-    # (1) exakte (ticker,date)-Duplikate: letzter gewinnt.
+    # (1) exakte (ticker,date)-Duplikate: Marker vor echte Kurse sortieren
+    # (stabil), dann gewinnt der letzte -> echter Kurs vor Marker.
+    combined = combined.iloc[
+        np.argsort(combined['close'].notna().to_numpy(), kind='stable')]
     combined = combined[~combined.index.duplicated(keep='last')]
 
     aff_mask = combined.index.get_level_values(0).isin(affected)
@@ -798,6 +825,7 @@ def compute_post_trade_returns(
         flush_every=cache_flush_every,
         refresh_eligible=refresh_eligible,
         earliest_trade=earliest_trade,
+        yf_symbols=_yf_symbols(df, df['_post_trade_applicable']),
     )
 
     max_horizon = max(horizons_days)
@@ -1057,6 +1085,7 @@ def compute_paper_returns(
             cache_path=cache_path,
             flush_every=cache_flush_every,
             cutoff_date=last_bday,
+            yf_symbols=_yf_symbols(df, target_mask),
         )
 
     latest_map = _latest_close_map(cache)
