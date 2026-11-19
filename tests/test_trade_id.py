@@ -12,7 +12,6 @@ from utils.trade_id import (
     TRADE_ID_SOURCE_COLUMNS,
     compute_trade_id,
     compute_trade_ids,
-    detect_new_trades,
 )
 
 
@@ -107,60 +106,3 @@ class TestComputeTradeIds:
         ids = compute_trade_ids(empty)
         assert len(ids) == 0
 
-
-class TestDetectNewTrades:
-    def test_detect_new_trades_empty_master(self):
-        """Leerer Master: alle Input-Trades sind neu."""
-        input_df = pd.DataFrame({'trade_id': ['a' * 16, 'b' * 16, 'c' * 16]})
-        master_df = pd.DataFrame(columns=['trade_id'])
-        result = detect_new_trades(input_df, master_df)
-        assert len(result) == 3
-
-    def test_detect_new_trades_master_without_column(self):
-        """Master ohne trade_id-Spalte: defensiv, gesamter Input als neu."""
-        input_df = pd.DataFrame({'trade_id': ['a' * 16]})
-        master_df = pd.DataFrame({'other': [1, 2]})
-        result = detect_new_trades(input_df, master_df)
-        assert len(result) == 1
-
-    def test_detect_new_trades_partial_overlap(self):
-        """Teilweise Überschneidung: nur die nicht-überlappenden neu."""
-        input_df = pd.DataFrame({'trade_id': ['a' * 16, 'b' * 16, 'c' * 16]})
-        master_df = pd.DataFrame({'trade_id': ['b' * 16]})
-        result = detect_new_trades(input_df, master_df)
-        assert sorted(result['trade_id'].tolist()) == ['a' * 16, 'c' * 16]
-
-    def test_detect_new_trades_full_overlap(self):
-        """Alle bereits im Master: Ergebnis ist leer."""
-        input_df = pd.DataFrame({'trade_id': ['a' * 16, 'b' * 16]})
-        master_df = pd.DataFrame({'trade_id': ['a' * 16, 'b' * 16, 'c' * 16]})
-        result = detect_new_trades(input_df, master_df)
-        assert len(result) == 0
-
-    def test_detect_new_trades_preserves_columns(self):
-        """Zusatzspalten aus input_df bleiben erhalten."""
-        input_df = pd.DataFrame({
-            'trade_id': ['a' * 16, 'b' * 16],
-            'ticker': ['AAPL', 'MSFT'],
-        })
-        master_df = pd.DataFrame({'trade_id': ['a' * 16]})
-        result = detect_new_trades(input_df, master_df)
-        assert list(result.columns) == ['trade_id', 'ticker']
-        assert result.iloc[0]['ticker'] == 'MSFT'
-
-    def test_detect_new_trades_multiset_extra_copy(self):
-        """Multiset (DEDUP_STRATEGY='keep_all'): hat ein trade_id im Input
-        mehr Kopien als im Master, gelten die ueberzaehligen als neu.
-
-        Regression: frueher reine Set-Membership -> jede weitere Kopie eines
-        bereits vorhandenen trade_id wurde faelschlich verworfen.
-        """
-        input_df = pd.DataFrame({
-            'trade_id': ['a' * 16, 'a' * 16, 'c' * 16, 'b' * 16],
-            'lbl': ['a1', 'a2', 'c1', 'b1'],
-        })
-        master_df = pd.DataFrame({'trade_id': ['a' * 16, 'b' * 16]})
-        result = detect_new_trades(input_df, master_df)
-        # a: 2 Input vs 1 Master -> 1 ueberzaehlig (das spaetere Vorkommen);
-        # c: komplett neu; b: unveraendert -> verworfen.
-        assert result['lbl'].tolist() == ['a2', 'c1']

@@ -7,7 +7,7 @@ fertigen Master, berechnet den signierten, marktbereinigten Abnormal Return
   - data/processed/ar_outliers.csv         (identifizierte Ausreisser-Trades)
 Es SCHREIBT NICHT in den Master und ist KEINE Pipeline-Stage. Aenderungen an den
 AR_*-Settings (Horizonte/Schwellen) erfordern nur einen erneuten Skript-Lauf
-(reine Cache-Lookups, kein yfinance-Download, kein Delta-Lauf-Risiko).
+(reine Cache-Lookups, kein yfinance-Download).
 
 Kernfragen:
   1. Diskriminator: Korreliert trade_score beim AR besser als beim rohen

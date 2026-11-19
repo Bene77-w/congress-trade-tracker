@@ -196,7 +196,7 @@ python scrapers/senate_pdf_extractor.py --headless False
 
 ---
 
-## 3. Import Pipeline (18 Stages)
+## 3. Import Pipeline
 
 **Datei:** `scripts/import_trades.py`
 **Zweck:** Liest Quiver-Snapshot (`congress-trading-all.xlsx`), verknüpft Abgeordnete über `bio_guide_id` und den Kongress des Transaktionsdatums mit `data/reference/` (Abschnitt 7b2), klassifiziert Tickers offline, normalisiert via OpenFIGI, reichert via yfinance an, wendet Filter an.
@@ -208,157 +208,43 @@ Provider-Suffixe — `_figi` (OpenFIGI: `ticker_figi`, `asset_name_figi`,
 Suffix. Details siehe `organisation/DATA_STRUCTURE.md`.
 
 ```bash
-# Standard: vollständige Pipeline (alle 17 Stages sequenziell)
+# Vollauf: schreibt Master + suspicious_*.csv
 python scripts/import_trades.py
 
-# Delta-Modus: nur neue Trades (via trade_id) anreichern und mergen
-python scripts/import_trades.py --delta
-
-# Dry-Run: alle Stages, Output in trades_stage.csv (kein Master-Touch)
+# Dry-Run: Vollauf, Ergebnis nur in trades_stage.csv + Event-Stage-Dateien (kein Master-Touch)
 python scripts/import_trades.py --dry_run
+
+# Dry-Run uebernehmen
+python scripts/import_trades.py --save
 ```
 
 **Output:**
 - `data/processed/trades_master_complete.csv` — vollstaendige Spalten
 - `data/processed/trades_master.csv` — kuratierte Sicht (settings.CURATED_COLUMNS)
+- `data/processed/suspicious_events.csv`, `suspicious_assets.csv`, `suspicious_members.csv` — Signalansichten
 - `data/processed/manual_review_tickers.csv` — Diagnose-Output
 - `data/processed/unmatched_names.csv` (bei Bedarf)
 
-### Dry-Run-Ergebnisse in `trades_master_complete.csv` uebernehmen
+### Dry-Run pruefen und mit `--save` uebernehmen
 
-`--dry_run` schreibt absichtlich **nur** nach `data/processed/trades_stage.csv` —
-Sicherheits-Sandbox, damit der Master unangetastet bleibt. Wenn der Dry-Run
-geprueft ist und das Ergebnis in den `complete`-Master soll, gibt es zwei Wege:
-
-**Weg 1 — Promotion via `--stage_save` (empfohlen, wenn der Dry-Run bereits gelaufen ist):**
+`--dry_run` schreibt nur `data/processed/trades_stage.csv` und die Event-Stage-Dateien
+(`branch1_events_stage.csv`, `sequence_events_stage.csv`, `swarm_events_stage.csv`);
+Master und `suspicious_*.csv` bleiben unangetastet.
 
 ```bash
-# 1. Dry-Run anschauen / sanity-checken
-python scripts/import_trades.py --dry_run            # -> trades_stage.csv
+python scripts/import_trades.py --dry_run            # -> trades_stage.csv + Event-Stage
 head -1 data/processed/trades_stage.csv              # Spalten pruefen
-wc -l data/processed/trades_stage.csv                # Zeilen zaehlen
-
-# 2. Promoten: Stage-CSV -> complete + curated Master
-python scripts/import_trades.py --stage_save
+python scripts/import_trades.py --save               # -> Master + suspicious_*.csv
 ```
 
-`_stage_save` legt vorher automatisch ein Backup unter
-`archive/trades_master_backup/` an, schreibt `trades_master_complete.csv`
-**komplett neu** aus `trades_stage.csv`, regeneriert `trades_master.csv`
-(kuratiert) und raeumt `trades_stage.csv` danach auf.
+`--save` uebernimmt alle Artefakte desselben Laufs: erst die Event-Stage-Dateien nach
+`suspicious_events.csv` (Dedup ueber `(signal_event_id, trade_id)`; die Scores der
+Signalansichten stammen aus `trades_stage.csv`), dann `trades_stage.csv` als
+`trades_master_complete.csv` + `trades_master.csv` (vorher Backup unter
+`archive/trades_master_backup/`); danach raeumt es die Stage-Dateien auf.
 
-> **Achtung — `--stage_save` ohne `--delta` ersetzt den Master komplett.**
-> Das ist nur sicher, wenn der vorhergehende Dry-Run eine **volle Pipeline**
-> war (`python scripts/import_trades.py --dry_run`). Bei einem Single-Stage-Dry-Run
-> (`--stage_post_trade_performance --dry_run`) enthaelt `trades_stage.csv` nur das
-> Snapshot dieser einen Stage — ein anschliessendes `--stage_save` wuerde
-> dann den Master auf diesen Snapshot reduzieren. In dem Fall stattdessen
-> Weg 2 nehmen.
-
-**Weg 2 — Direkt in den Master schreiben (Single-Stage, kein `--dry_run`):**
-
-Wenn nur eine einzelne Stage ausgefuehrt wird, schreibt `_write_stage_output`
-ohne `--dry_run` und ohne `--delta` automatisch direkt in
-`trades_master_complete.csv` (mit Backup vorher). Alle anderen Spalten bleiben
-erhalten — die Stage fuegt nur ihre eigenen Output-Spalten hinzu bzw. ueberschreibt
-diese.
-
-```bash
-# Direkter Stage-Lauf -> trades_master_complete.csv (mit auto-Backup)
-python scripts/import_trades.py --stage_post_trade_performance
-
-# Optional: kuratierte Sicht aktualisieren (falls Stage curated-relevante Spalten anfasst)
-python scripts/import_trades.py --regenerate_curated
-```
-
-**Wann welcher Weg?**
-
-| Situation | Weg | Befehl |
-|---|---|---|
-| Volle Pipeline-Verifikation, dann Promotion | Weg 1 | `--dry_run` → Pruefung → `--stage_save` |
-| Einzelne Stage soll direkt in Master | Weg 2 | nur `--stage_<X>` (ohne `--dry_run`) |
-| Einzelne Stage erst pruefen, dann promoten | Weg 1 (vorsichtig) | `--stage_<X> --dry_run` → Pruefung → `--stage_save` **erst wenn klar ist, dass der Stage-Snapshot vollstaendig ist** |
-
-**Migration vor erstem Lauf** (einmalig, vergibt trade_id auf Bestand):
-```bash
-python scripts/migrate_add_trade_ids.py [--dry-run] [--force]
-```
-
-### Einzelne Pipeline-Stages (Debug / Repair)
-
-Nur **ein** `--stage_*` Flag gleichzeitig erlaubt. Kombination mit `--delta` und `--dry_run` möglich.
-
-```bash
-python scripts/import_trades.py --stage_rename            # laden + Rename + trade_id
-python scripts/import_trades.py --stage_date              # Datum normalisieren
-python scripts/import_trades.py --stage_committees        # Committee-Enrichment
-python scripts/import_trades.py --stage_tickerclassify    # Offline-Klassifikation (Regex)
-python scripts/import_trades.py --stage_tickeropenfigi    # OpenFIGI-Normalisierung
-python scripts/import_trades.py --stage_issuer_group      # Cross-Class Issuer Mapping (SEC EDGAR CIK)
-python scripts/import_trades.py --stage_tickeryfinance    # yfinance Sector/Industry
-python scripts/import_trades.py --stage_trade_volume      # trade_volume_usd aus Amount-Range (MUSS VOR post_trade_returns)
-python scripts/import_trades.py --stage_post_trade_performance  # Post-Trade-Preise + Exit-Detection (Modul 9.x, braucht trade_amount_max_usd)
-python scripts/import_trades.py --stage_abnormal_returns  # Abnormal Return (marktbereinigt vs. SPY) → signed_ar_{H}d (deskriptiv, kein Scoring-Input)
-python scripts/import_trades.py --stage_asset_volume      # Cross-Class Asset-Tradingvolume rolling-window
-python scripts/import_trades.py --stage_gates_tags        # Gates + Tags (Asset-Class, Committee, Vote-Timing)
-python scripts/import_trades.py --stage_branch1_signals   # Branch-1 Signale
-python scripts/import_trades.py --stage_sequence_signals  # Sequenz-Signale (contrarian, accumulative)
-python scripts/import_trades.py --stage_swarm_signals     # Schwarm-Signale (P6)
-python scripts/import_trades.py --stage_scoring           # Trade-Score + breakdown + warnings
-python scripts/import_trades.py --stage_suspicious_export # Promote Events + Views (inkl. Score-Aggregate)
-python scripts/import_trades.py --stage_save              # trades_stage.csv -> Master
-
-# Kombination mit Delta:
-python scripts/import_trades.py --delta --stage_rename
-```
-
-Stage-Reihenfolge und Indizes werden von `scripts/import_trades.py` definiert.
-
-### Welche Stages bei Scoring-Anpassungen neu laufen lassen?
-
-Hängt davon ab, welcher Parameter in `config/settings.py` geändert wurde. Drei Fälle:
-
-**Fall A — Nur Score-Gewichte / Formel-Parameter** (z. B. `SCORING_WEIGHTS`, `SCORING_PARADOX_*`, Ex-Officio-Multiplikator — alles was ausschliesslich in `scoring/trade_score.py` gelesen wird):
-
-```bash
-python scripts/import_trades.py --stage_scoring
-python scripts/import_trades.py --stage_suspicious_export
-python scripts/import_trades.py --stage_save
-python scripts/import_trades.py --regenerate_curated   # optional, falls curated benötigt
-```
-
-`_stage_scoring` rechnet `trade_score`, `trade_score_breakdown`, `trade_warnings` aus dem unveränderten `signals_triggered` neu. `_stage_suspicious_export` materialisiert anschliessend `suspicious_assets.csv` / `suspicious_members.csv` mit den neuen Scores.
-
-**Fall B — Signal-Trigger-Schwellen geändert** (z. B. `SWARM_*`, `SEQUENCE_*`, `EXTREME_REPORT_*`, Vote-Timing-Trigger — Parameter, die bestimmen, *ob* ein Signal feuert, nicht nur dessen Gewicht):
-
-Ab der betroffenen Signal-Stage neu laufen lassen, dann Scoring + Export + Save:
-
-```bash
---stage_branch1_signals    # bei committee / ex_officio / floor_action / extreme_report
---stage_sequence_signals   # bei contrarian / accumulative
---stage_swarm_signals      # bei swarm_buy / swarm_sell / swarm_conflict / swarm_paradox
---stage_scoring
---stage_suspicious_export
---stage_save
-```
-
-**Fall C — Gate/Tag-Parameter geändert** (z. B. `COMMITTEE_*`, `VOTE_TIMING_*`, Asset-Class-Gate — Parameter, die Master-Spalten wie `Insider_Sectors`, `Relevant_Sectors`, `Vote_Timing_Hit_Count` erzeugen):
-
-Ab `--stage_gates_tags` neu, danach alle Signal-Stages + Scoring + Export + Save (= praktisch P2..P5 der Pipeline). Bei sehr breiten Tag-Änderungen ist oft ein voller `python scripts/import_trades.py` einfacher.
-
-**Merksatz:** `STAGE_DEPS` in `scripts/import_trades.py` zeigt pro Stage, welche Spalten produziert oder konsumiert werden — daraus lässt sich der minimale Re-Run ableiten.
-
-> **Re-Run-Sequenz nach Änderung der Referenzdaten** (Abschnitt 7b2
-> neu ausgeführt → `data/reference/*.csv` geändert): vollständig
-> ```
-> --stage_committees → --stage_gates_tags → --stage_branch1_signals →
-> --stage_sequence_signals → --stage_swarm_signals → --stage_scoring
-> (+ --regenerate_curated)
-> ```
-> durchlaufen lassen. Grund: `--stage_branch1_signals` baut
-> `signals_triggered` von Grund auf neu — ohne die anschließenden
-> sequence-/swarm-Stages verschwinden Sequenz-/Schwarm-Signale aus dem
-> Master. Die Datenfelder sind in `organisation/DATA_STRUCTURE.md` dokumentiert.
+Nach Aenderungen an Settings, Signalen, Scoring oder Referenzdaten laeuft die ganze
+Pipeline neu (`import_trades.py` oder `--dry_run` → `--save`).
 
 ### Bonus-Flags (kein Master-Touch ausser Curated, exklusiv)
 
@@ -380,18 +266,9 @@ Die Pipeline schreibt **zwei** Master-Dateien:
 
 #### Wozu `--regenerate_curated`?
 
-Aus Performance-Gründen schreibt **nicht jede Stage** den curated Master neu:
-
-- Single-Stage-Runs (`--stage_gates_tags`, `--stage_committees`, …) ohne `--delta`/`--dry_run` schreiben **nur** ins `trades_master_complete.csv` (`_write_stage_output` in `scripts/import_trades.py`).
-- Das curated wird sonst nur am Ende der vollständigen Pipeline durch `--stage_save` regeneriert.
-
-→ Wer also nur eine einzelne Stage neu rechnet (z.B. Filter-Logik geändert), aktualisiert das `complete`. LibreOffice öffnet aber das `curated` und sieht weiterhin alte Werte. **`--regenerate_curated`** liest das `complete` und projiziert die kuratierten Spalten neu raus, ohne sonst etwas anzufassen — schneller als ein vollständiger Pipeline-Lauf, weil Scoring/Enrichment nicht erneut berechnet werden.
-
-**Typischer Workflow nach Filter-Änderung:**
-```bash
-python scripts/import_trades.py --stage_gates_tags     # neu berechnen → complete
-python scripts/import_trades.py --regenerate_curated   # Sicht-Refresh → curated
-```
+Jeder Lauf (Vollauf oder `--save`) schreibt `complete` und `curated` gemeinsam.
+**`--regenerate_curated`** liest das `complete` und projiziert die kuratierten Spalten
+neu, ohne sonst etwas anzufassen — etwa nach einer Aenderung an `settings.CURATED_COLUMNS`.
 
 #### Wozu `--manual_review_only`?
 
@@ -403,36 +280,23 @@ Schreibt die **Diagnose-CSV** `data/processed/manual_review_tickers.csv` neu —
 
 | Flag | Liest aus | Schreibt | Berührt Master? |
 |---|---|---|---|
-| `--stage_*` (single) | stage-Input bzw. complete | complete (oder `trades_stage.csv` bei `--delta`/`--dry_run`) | ja (complete) |
 | `--regenerate_curated` | complete | curated (`trades_master.csv`) | nein, nur Sicht-Refresh |
 | `--manual_review_only` | complete | `manual_review_tickers.csv` | nein, nur Diagnose |
 
 ### Komplette Flag-Matrix
 
+Die Flags schliessen sich gegenseitig aus.
+
 | Aufruf | Wirkung |
 |---|---|
-| `import_trades.py` | Full-Run, schreibt complete + curated + review |
-| `--dry_run` | Full-Run, alles in `trades_stage.csv` + review |
-| `--delta` | Delta-Detect via trade_id, merge in complete + curated |
-| `--delta --dry_run` | Delta in Stage-CSV, kein Master-Touch |
-| `--stage_<X>` | Einzel-Stage gegen complete-Master |
-| `--stage_<X> --dry_run` | Einzel-Stage in Stage-CSV |
-| `--stage_<X> --delta` | Einzel-Stage auf Delta-Subset |
-| `--stage_<X> --delta --dry_run` | Stage + Delta, kein Master-Touch |
+| `import_trades.py` | Vollauf, schreibt complete + curated + review + suspicious_*.csv |
+| `--dry_run` | Vollauf, schreibt `trades_stage.csv` + Event-Stage-Dateien + review |
+| `--save` | uebernimmt den Dry-Run nach complete + curated + suspicious_*.csv |
 | `--manual_review_only` | NUR review aus complete |
 | `--regenerate_curated` | NUR curated aus complete |
 
-> **Full Rebuild:** Um alle Trades neu anzureichern (z.B. nach Änderung an Member-CSVs
-> oder former_members.csv), `data/processed/trades_master.csv` und
-> `data/processed/trades_master_complete.csv` löschen und Pipeline
-> erneut ausführen. Die Pipeline erkennt den fehlenden Master und behandelt alle Trades als neu.
-
-> **Dedup-Strategie:** `DEDUP_STRATEGY` in `config/settings.py` steuert das Verhalten bei
-> identischer `trade_id`:
-> - `'keep_all'` (Default) — alle Zeilen bleiben; `trade_id` ist KEIN eindeutiger Schlüssel.
-> - `'last_wins'` — nur die letzte Zeile pro `trade_id` wird behalten.
-> Wirkt in `_merge_into_master` (`scripts/import_trades.py`) und in
-> `scripts/migrate_add_trade_ids.py`. Delta-Erkennung zwischen Läufen ist davon unberührt.
+> **Dubletten:** Der Import behaelt alle Zeilen, auch bei identischer `trade_id`;
+> `trade_id` ist kein eindeutiger Schluessel im Master.
 
 ---
 
@@ -488,7 +352,7 @@ python scripts/analyse_event_study.py
 - `organisation/analyse_event_study.md` — Befund-Report (Single-Source der Ergebnisse)
 - `data/processed/ar_outliers.csv` — Ausreißer-Trades (gitignored)
 
-**Hinweise:** Dieses Standalone-Skript schreibt keinen Master (Konstrukt B + Bootstrap nur in-memory). Die **produktive Stage `--stage_abnormal_returns`** (Abschnitt 3) schreibt dagegen die `signed_ar_*` (Konstrukt A) in den Master und speist die App-Detail-Popups. Settings-Aenderung = Skript bzw. Stage neu laufen lassen. Spalten + Metrik: `DATA_STRUCTURE.md` Abschnitt 7e.
+**Hinweise:** Dieses Standalone-Skript schreibt keinen Master (Konstrukt B + Bootstrap nur in-memory). Die **Import-Pipeline** (Abschnitt 3) schreibt dagegen die `signed_ar_*` (Konstrukt A) in den Master und speist die App-Detail-Popups. Settings-Aenderung = Skript bzw. Pipeline neu laufen lassen. Spalten + Metrik: `DATA_STRUCTURE.md` Abschnitt 7e.
 
 ---
 
@@ -592,7 +456,7 @@ Neuer Kongress: Eintrag in `settings.REFERENCE_CONGRESSES` ergänzen (Commit,
 Mapping-Revision), Skript aufrufen, offene Units in `data/reference/unit_overrides.csv`
 klären. Die Zeilen anderer Kongresse bleiben erhalten.
 
-**Offen:** Bis der Master ab `--stage_rename` neu aufgebaut ist, darf kein Delta-Lauf (`--delta`) laufen: sonst mischen alte Zeilen (`Member_Party` als `D`/`R`, leeres `Member_Congress`) und neue Zeilen (`Democratic`/`Republican`) im Master. Der Timer `quiver-import.timer` ist deshalb seit 2026-11-14 deaktiviert; nach dem Neuaufbau wieder einschalten mit `systemctl --user enable --now quiver-import.timer`.
+**Offen:** Der Timer `quiver-import.timer` ist seit 2026-11-14 deaktiviert, bis der Master neu aufgebaut ist; er startet einen Vollauf. Wieder einschalten mit `systemctl --user enable --now quiver-import.timer`.
 
 ---
 
@@ -964,7 +828,7 @@ Defense-in-Depth. Default ist ein reversibler **Move** nach
 # Logs (logs/*.log + logs/debug_tesseract/)
 python scripts/reset_pipeline.py --logs
 
-# Stage-Files (*_stage.csv, pipeline_state.json, duplicate_inspection_sample.csv,
+# Stage-Files (*_stage.csv, duplicate_inspection_sample.csv,
 #              .enrichment_checkpoint.pkl aus alten Läufen)
 python scripts/reset_pipeline.py --stage-files
 

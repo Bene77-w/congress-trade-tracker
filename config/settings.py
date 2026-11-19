@@ -377,16 +377,8 @@ CANARY_MAX_RED_ROUNDS = 30        # max. ROT/Throttle-Runden (~60s) vor fail-clo
 # in trades_master.csv. Nur via bewusste Migration aendern.
 # =============================================================================
 TRADE_ID_HASH_LENGTH = 16              # Hex-Zeichen aus SHA256 (16 = 64 Bit Entropie)
-
-# Strategie fuer trade_id-Duplikate innerhalb eines Imports / einer Migration:
-#   'keep_all'  - alle Zeilen behalten, auch wenn trade_id identisch ist.
-#                 trade_id ist dann KEIN eindeutiger Schluessel mehr im Master.
-#   'last_wins' - bei gleicher trade_id nur die zuletzt erscheinende Zeile behalten
-#                 (frueheres Standardverhalten).
-# Delta-Imports zwischen Laeufen (detect_new_trades via isin) sind hiervon
-# unberuehrt — bereits im Master vorhandene trade_ids werden weiterhin nicht
-# erneut hinzugefuegt.
-DEDUP_STRATEGY = 'keep_all'
+# Der Import behaelt alle Zeilen, auch bei identischer trade_id; trade_id ist
+# damit KEIN eindeutiger Schluessel im Master.
 
 # =============================================================================
 # ALLGEMEINE EINSTELLUNGEN
@@ -569,9 +561,9 @@ POST_TRADE_PRICE_FETCH_YEARS = 5
 # und damit 0 % Rendite. Gilt fuer post_return_*, signed_ar_*, Exit-Preise.
 POST_TRADE_MAX_PRICE_GAP_DAYS = 5
 # Refresh-Schwelle pro Ticker (max(date) < today - TTL -> Refresh).
-# 1 Tag: jeder orchestrierte --delta-Lauf erzwingt tagesaktuelle Preise (der
-# Lauf rechnet compute_post_trade_returns ueber den vollen kombinierten Master,
-# History + Delta). Trade-off: taeglicher Voll-Refetch aller faelligen Ticker.
+# 1 Tag: jeder orchestrierte Lauf erzwingt tagesaktuelle Preise (der Lauf
+# rechnet compute_post_trade_returns ueber den vollen Master).
+# Trade-off: taeglicher Voll-Refetch aller faelligen Ticker.
 POST_TRADE_PRICE_CACHE_TTL_DAYS = 1
 # Refetch-Fenster (Tage): begrenzt den TAEGLICHEN TTL-Refresh auf Ticker mit
 # mindestens einer Position, deren transaction_date >= heute - N liegt. Aeltere
@@ -726,7 +718,7 @@ SCORE_CORR_DEFAULT_HORIZON_DAYS = 180
 # Dublettenbehandlung vor der Analyse: 'trade_id' (je trade_id die frueheste
 # Offenlegung; erfasst auch Wiederholungen aus spaeteren Uploads/Amendments,
 # die sich nur in Metadaten unterscheiden), 'full_row' (nur identische Zeilen)
-# oder 'none'. Der Import behaelt Dubletten bewusst (DEDUP_STRATEGY='keep_all');
+# oder 'none'. Der Import behaelt Dubletten bewusst (Abschnitt TRADE-ID);
 # bereinigt wird nur in der Analyse.
 ANALYSIS_DEDUP = 'trade_id'
 # Exchange-Trades haben keine Richtung und fallen aus Rendite-Auswertungen.

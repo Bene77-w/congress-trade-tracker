@@ -267,17 +267,8 @@ untracked) validierbar via `scrapers/house_pdf_parsing_tool/validate_house.py`.
 **Format-Spec:** F2-Format (`;`/`:`/`~`/`|`), Single-Source:
 `scrapers/senate_pdf_parsing_tool/csv_zielstruktur.md`.
 
-> **WICHTIG — Re-Run-Sequenz nach Änderung der Referenzdaten (`data/reference/`):** Nach Neuaufbau der
-> Referenzdaten muss die folgende Single-Stage-Sequenz vollständig durchlaufen
-> werden (s. Pipeline 5):
-> ```
-> --stage_committees → --stage_gates_tags → --stage_branch1_signals →
-> --stage_sequence_signals → --stage_swarm_signals → --stage_scoring
-> (+ --regenerate_curated)
-> ```
-> Grund: `--stage_branch1_signals` baut `signals_triggered` von Grund auf
-> neu — ohne die anschließenden sequence-/swarm-Stages verschwinden
-> Sequenz-/Schwarm-Signale aus dem Master.
+> **WICHTIG — nach Änderung der Referenzdaten (`data/reference/`):** Pipeline
+> vollständig neu laufen lassen (`python scripts/import_trades.py`, s. Pipeline 5).
 
 ---
 
@@ -317,37 +308,10 @@ untracked) validierbar via `scrapers/house_pdf_parsing_tool/validate_house.py`.
   - `data/processed/manual_review_tickers.csv` (Diagnose-Output)
   - `data/processed/unmatched_names.csv` (bei Bedarf)
 
-**Modi:**
-- `python scripts/import_trades.py` — Full Rebuild (alle 18 Stages, schreibt complete + curated + review)
-- `python scripts/import_trades.py --delta` — Delta-Import via `trade_id` (nur neue Trades, merge)
-- `python scripts/import_trades.py --dry_run` — Alle Stages → trades_stage.csv (Master unberuehrt)
-
-**Migration vor erstem Rebuild-T3-Lauf:**
-```bash
-python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splittet complete/curated
-```
-
-**Stage-Pipeline (17 Schritte, unabhaengig re-runnable):**
-```
---stage_rename            # Quiver laden + Spalten umbenennen + trade_id
---stage_date              # Datum normalisieren
---stage_committees        # Committee-Member-Enrichment
---stage_tickerclassify    # Offline-Klassifikation (Regex, utils/ticker_classifier.py)
---stage_tickeropenfigi    # OpenFIGI-Normalisierung (FIGI, ticker_figi)
---stage_issuer_group      # Cross-Class Issuer Mapping (SEC EDGAR CIK, P5.6)
---stage_tickeryfinance    # yfinance Sector/Industry-Anreicherung
---stage_trade_volume      # Trade-Volume aus Amount-Range → trade_volume_usd + trade_amount_max_usd (MUSS VOR post_trade_returns)
---stage_post_trade_performance  # Post-Trade-Preise + Exit-Detection (Modul 9.x, braucht trade_amount_max_usd)
---stage_abnormal_returns  # Abnormal Return (marktbereinigt vs. SPY) → signed_ar_{30,60,90,120,180}d (deskriptiv, kein Scoring-Input)
---stage_asset_volume      # Cross-Class Asset-Tradingvolume → asset_tradingvolume_usd
---stage_gates_tags        # Gates + Tags (Asset-Class, Committee, Vote-Timing) + Scoring
---stage_branch1_signals   # Branch-1 Signale (committee, ex_officio, floor_action, extreme_report)
---stage_sequence_signals  # Sequenz-Signale (contrarian, accumulative)
---stage_swarm_signals     # Schwarm-Signale (swarm_buy/sell/conflict/paradox, P6)
---stage_scoring           # Trade-Score + breakdown + warnings (Modul 8, Phase 8.3) → trade_score, trade_score_breakdown, trade_warnings
---stage_suspicious_export # Suspicious-Events → suspicious_*.csv promoten
---stage_save              # trades_stage.csv → complete + curated Master
-```
+**Modi (schliessen sich gegenseitig aus):**
+- `python scripts/import_trades.py` — Vollauf (schreibt complete + curated + review + suspicious_*.csv)
+- `python scripts/import_trades.py --dry_run` — Vollauf → trades_stage.csv + Event-Stage-Dateien (Master unberuehrt)
+- `python scripts/import_trades.py --save` — uebernimmt den Dry-Run: Event-Stage → suspicious_*.csv, dann trades_stage.csv → complete + curated
 
 **Bonus-Flags (kein Master-Touch, exklusiv):**
 - `--manual_review_only` — regeneriert `manual_review_tickers.csv` aus complete-Master
@@ -356,13 +320,9 @@ python scripts/migrate_add_trade_ids.py [--dry-run]   # vergibt trade_id, splitt
 **Flag-Matrix:**
 | Aufruf | Input | Output | Master-Backup |
 |--------|-------|--------|---------------|
-| `--stage_X` | trades_master_complete.csv | trades_master_complete.csv | ✅ |
-| `--stage_X --dry_run` | trades_master_complete.csv | trades_stage.csv | ❌ |
-| `--stage_X --delta` | trades_stage.csv | trades_stage.csv | ❌ |
-| `--stage_save` | trades_stage.csv | complete + curated (replace) | ✅ |
-| `--delta --stage_save` | trades_stage.csv | complete + curated (merge via trade_id) | ✅ |
-| `--dry_run` (kein Stage) | Quiver | trades_stage.csv + review | ❌ |
-| `--delta` (kein Stage) | Quiver+complete | complete + curated (merge) | ✅ |
+| (kein Flag) | Quiver | complete + curated + review + suspicious_*.csv | ✅ |
+| `--dry_run` | Quiver | trades_stage.csv + Event-Stage-Dateien + review | ❌ |
+| `--save` | trades_stage.csv + Event-Stage-Dateien | complete + curated + suspicious_*.csv | ✅ |
 | `--manual_review_only` | complete | review (only) | ❌ |
 | `--regenerate_curated` | complete | curated (only) | ✅ |
 
@@ -704,33 +664,11 @@ Eingabe-/Quell-Reihenfolge (Quiver liefert bereits absteigend). Zeilen ohne pars
 `trades_master.csv` (Curated) erbt die Reihenfolge, da er aus dem bereits sortierten Complete
 abgeleitet wird.
 
-**Delta-Modus** (`--delta`): Lädt aktuelle Quiver-CSV, erkennt neue Trades per Multiset-Differenz
-(s. `detect_new_trades` oben), reichert nur neue Trades an und mergt sie (mit Dedup) in Master.
-
-**Einzelstage re-runnen (Beispiele):**
+**Bedienung (Beispiele):**
 ```bash
-# Klassifikation nach Regex-Update neu berechnen (mit Backup):
-python scripts/import_trades.py --stage_tickerclassify
-
-# OpenFIGI-Cache nutzen (refresh_ticker_types.py wurde in T3 entfernt):
-python scripts/import_trades.py --stage_tickeropenfigi
-
-# Post-Trade-Preise + Exit-Detection (Modul 9.x):
-python scripts/import_trades.py --stage_post_trade_returns
-
-# Filter-Stage nach Mapping-Änderung neu berechnen:
-python scripts/import_trades.py --stage_filter
-
-# Dry-Run: komplette Pipeline ohne Master-Touch:
+# Dry-Run: komplette Pipeline ohne Master-Touch, dann uebernehmen:
 python scripts/import_trades.py --dry_run
-
-# Dry-Run committen:
-python scripts/import_trades.py --stage_save
-
-# Delta stage-weise:
-python scripts/import_trades.py --delta --stage_rename    # neue Trades → stage.csv
-python scripts/import_trades.py --delta --stage_filter    # filter auf stage.csv
-python scripts/import_trades.py --delta --stage_save      # merge in complete-Master
+python scripts/import_trades.py --save
 
 # Bonus-Flags (kein Master-Touch ausser Curated):
 python scripts/import_trades.py --manual_review_only      # review aus complete

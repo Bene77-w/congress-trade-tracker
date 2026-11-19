@@ -57,7 +57,6 @@ TARGETS: dict[str, list[Path | str]] = {
     ],
     "stage-files": [
         str(DATA_PROCESSED / "*_stage.csv"),
-        DATA_PROCESSED / "pipeline_state.json",
         DATA_PROCESSED / "duplicate_inspection_sample.csv",
     ],
     "cache_reset": [
@@ -81,7 +80,7 @@ TARGETS: dict[str, list[Path | str]] = {
         # jeden --rebuild als Stale-Artefakt.
         DATA_PROCESSED / "ar_outliers.csv",
         # Suspicious-Persistenz: suspicious_events.csv ist append-only und wird
-        # von import_trades.py NIE getruncatet (full+delta nur append+dedup) ->
+        # von import_trades.py NIE getruncatet (nur append+dedup) ->
         # fuer einen sauberen Rebuild zwingend zuruecksetzen. Die beiden Views
         # werden daraus materialisiert und der Konsistenz halber mitentfernt.
         DATA_PROCESSED / settings.SUSPICIOUS_EVENTS_FILE,
@@ -353,7 +352,7 @@ def main() -> int:
     parser.add_argument("--logs", action="store_true",
                         help="logs/*.log")
     parser.add_argument("--stage-files", action="store_true",
-                        help="*_stage.csv, pipeline_state.json, duplicate_inspection_sample.csv")
+                        help="*_stage.csv, duplicate_inspection_sample.csv")
     parser.add_argument("--cache_reset", action="store_true",
                         help="gesamtes data/cache/* (OpenFIGI-DB, EDGAR-CIK, Post-Trade-Preise) + ticker_industry/0_cache.json")
     parser.add_argument("--processed", action="store_true",

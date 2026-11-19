@@ -1,4 +1,4 @@
-"""Tests fuer P4: Suspicious-Export-Stage (_stage_suspicious_export + Helpers)."""
+"""Tests fuer den Suspicious-Export (_export_suspicious + Helpers) und --save."""
 
 import json
 import os
@@ -335,25 +335,17 @@ class TestMaterializeMembers:
         assert str(df.iloc[0]['is_ex_officio_ever']).lower() in ('true', '1')
 
 
-# ---------- _stage_suspicious_export (Integration) --------------------------
+# ---------- _export_suspicious (Integration) --------------------------------
 
-class TestStageSuspiciousExport:
-    def test_dry_run_schreibt_keine_dateien(self, isolated_paths, capsys):
-        _write_stage_files(
-            isolated_paths,
-            branch1_events=[make_event(trade_id='t1')],
-        )
-        importer = TradeImporter()
-        importer._stage_suspicious_export(delta=False, dry_run=True)
-        assert not os.path.exists(it.SUSPICIOUS_EVENTS_PATH)
-        assert not os.path.exists(it.SUSPICIOUS_ASSETS_PATH)
-        assert not os.path.exists(it.SUSPICIOUS_MEMBERS_PATH)
-        out = capsys.readouterr().out
-        assert 'dry_run' in out
+def _no_scores():
+    return pd.DataFrame(columns=['trade_id', 'trade_score',
+                                 'trade_volume_usd', 'trade_warnings'])
 
+
+class TestExportSuspicious:
     def test_live_schreibt_alle_drei_dateien(self, isolated_paths):
         today = datetime.now().date().isoformat()
-        _write_stage_files(
+        b1_path, seq_path = _write_stage_files(
             isolated_paths,
             branch1_events=[make_event(trade_id='t1', triggering_date=today)],
             sequence_events=[make_event(trade_id='t2',
@@ -362,32 +354,145 @@ class TestStageSuspiciousExport:
                                         triggering_date=today)],
         )
         importer = TradeImporter()
-        importer._stage_suspicious_export(delta=False, dry_run=False)
+        importer._export_suspicious(_no_scores())
         assert os.path.exists(it.SUSPICIOUS_EVENTS_PATH)
         assert os.path.exists(it.SUSPICIOUS_ASSETS_PATH)
         assert os.path.exists(it.SUSPICIOUS_MEMBERS_PATH)
         events = pd.read_csv(it.SUSPICIOUS_EVENTS_PATH)
         assert len(events) == 2
+        # Event-Stage-Dateien werden nur einmal uebernommen.
+        assert not b1_path.exists()
+        assert not seq_path.exists()
 
     def test_idempotenz_voller_zyklus(self, isolated_paths):
         today = datetime.now().date().isoformat()
-        _write_stage_files(
-            isolated_paths,
-            branch1_events=[make_event(trade_id='t1', triggering_date=today)],
-        )
         importer = TradeImporter()
-        importer._stage_suspicious_export(delta=False, dry_run=False)
-        importer._stage_suspicious_export(delta=False, dry_run=False)
+        for _ in range(2):
+            _write_stage_files(
+                isolated_paths,
+                branch1_events=[make_event(trade_id='t1', triggering_date=today)],
+            )
+            importer._export_suspicious(_no_scores())
         events = pd.read_csv(it.SUSPICIOUS_EVENTS_PATH)
         assert len(events) == 1
 
     def test_leere_stages_keine_outputs(self, isolated_paths, capsys):
         _write_stage_files(isolated_paths)  # beide leer
         importer = TradeImporter()
-        importer._stage_suspicious_export(delta=False, dry_run=False)
+        importer._export_suspicious(_no_scores())
         assert not os.path.exists(it.SUSPICIOUS_EVENTS_PATH)
         out = capsys.readouterr().out
         assert '0 Events' in out
+
+
+# ---------- --save (Speicher-Schritt nach --dry_run) -----------------------
+
+SCORE_COLS = ['trade_id', 'trade_score', 'trade_volume_usd', 'trade_warnings']
+
+
+@pytest.fixture
+def save_paths(isolated_paths, monkeypatch):
+    """Lenkt zusaetzlich Stage-, Master-, Backup- und Problem-Output-Pfade
+    in tmp_path um und stellt den Kurs-Refresh still."""
+    tmp = isolated_paths
+    for name, fname in [
+        ('PROCESSED_DIR', ''),
+        ('STAGE_CSV_PATH', 'trades_stage.csv'),
+        ('MASTER_CSV_PATH', 'trades_master.csv'),
+        ('MANUAL_REVIEW_CSV_PATH', 'manual_review_tickers.csv'),
+        ('UNMATCHED_STAGE_PATH', 'unmatched_names_stage.csv'),
+        ('UNMATCHED_PATH', 'unmatched_names.csv'),
+        ('DELISTED_STAGE_PATH', 'delisted_trades_stage.csv'),
+        ('DELISTED_TRADES_PATH', 'delisted_trades.csv'),
+        ('ARCHIVE_BACKUP_DIR', 'backup'),
+    ]:
+        monkeypatch.setattr(it, name, str(tmp / fname) if fname else str(tmp))
+    monkeypatch.setattr(TradeImporter, '_compute_recent_paper_returns',
+                        lambda self, df: df)
+    return tmp
+
+
+def _write_trade_stage(tmp_path, rows):
+    """Schreibt trades_stage.csv, wie --dry_run sie hinterlaesst."""
+    df = pd.DataFrame(rows)
+    df['transaction_date'] = datetime.now().date().isoformat()
+    df.to_csv(tmp_path / 'trades_stage.csv', index=False)
+
+
+def _run_cli(monkeypatch, *args) -> int:
+    monkeypatch.setattr(sys, 'argv', ['import_trades.py', *args])
+    try:
+        it.main()
+    except SystemExit as exc:
+        return exc.code
+    return 0
+
+
+class TestSave:
+    def _provide_stage(self, tmp_path):
+        today = datetime.now().date().isoformat()
+        _write_trade_stage(tmp_path, [
+            {'trade_id': 't1', 'trade_score': 10,
+             'trade_volume_usd': 1000, 'trade_warnings': ''},
+            {'trade_id': 't2', 'trade_score': 20,
+             'trade_volume_usd': 2000, 'trade_warnings': ''},
+        ])
+        _write_stage_files(
+            tmp_path,
+            branch1_events=[
+                make_event(trade_id='t1', triggering_date=today),
+                make_event(trade_id='t2', signal_event_id='sig_bbb',
+                           triggering_date=today),
+            ],
+            sequence_events=[
+                make_event(trade_id='t1', signal_event_id='sig_ccc',
+                           signal_type='contrarian', triggering_date=today),
+            ],
+        )
+
+    def test_zweites_save_derselben_stage_erzeugt_keine_doppelten_events(
+            self, save_paths, monkeypatch):
+        self._provide_stage(save_paths)
+        assert _run_cli(monkeypatch, '--save') == 0
+        # Der Save raeumt Stage-CSV und Event-Stage-Dateien auf.
+        assert not (save_paths / 'trades_stage.csv').exists()
+        assert not (save_paths / 'branch1_events_stage.csv').exists()
+        assert not (save_paths / 'sequence_events_stage.csv').exists()
+
+        self._provide_stage(save_paths)
+        assert _run_cli(monkeypatch, '--save') == 0
+
+        events = pd.read_csv(it.SUSPICIOUS_EVENTS_PATH)
+        keys = list(zip(events['signal_event_id'].astype(str),
+                        events['trade_id'].astype(str)))
+        expected = {('sig_aaa_0001', 't1'), ('sig_bbb', 't2'), ('sig_ccc', 't1')}
+        assert set(keys) == expected
+        assert all(keys.count(k) == 1 for k in expected)
+        master = pd.read_csv(it.MASTER_COMPLETE_CSV_PATH)
+        assert sorted(master['trade_id']) == ['t1', 't2']
+
+    def test_save_nimmt_scores_aus_stage_nicht_aus_altem_master(
+            self, save_paths, monkeypatch):
+        # Alter Master mit absichtlich abweichenden Scores.
+        _write_trade_scores_csv(save_paths, [
+            {'trade_id': 't1', 'trade_score': 1,
+             'trade_volume_usd': 1, 'trade_warnings': ''},
+            {'trade_id': 't2', 'trade_score': 1,
+             'trade_volume_usd': 1, 'trade_warnings': ''},
+        ])
+        self._provide_stage(save_paths)
+        assert _run_cli(monkeypatch, '--save') == 0
+
+        assets = pd.read_csv(it.SUSPICIOUS_ASSETS_PATH)
+        assert assets.iloc[0]['score_max'] == 20
+        assert assets.iloc[0]['score_total'] == 30
+        assert assets.iloc[0]['total_volume_usd'] == 3000
+        members = pd.read_csv(it.SUSPICIOUS_MEMBERS_PATH)
+        assert members.iloc[0]['score_max'] == 20
+        assert members.iloc[0]['score_total'] == 30
+
+    def test_save_ohne_stage_bricht_ab(self, save_paths, monkeypatch):
+        assert _run_cli(monkeypatch, '--save') == 1
 
 
 # ---------- Modul 8.4: Score-Aggregation in Views --------------------------
@@ -535,7 +640,7 @@ class TestMembersViewScoreAggregation:
         assert row['score_total'] == 20
 
     def test_inflight_override_uebersteuert_file(self, isolated_paths):
-        """Voll-/Delta-Pipeline-Pfad: _inflight_trade_scores hat Vorrang vor
+        """Pipeline-Pfad: _inflight_trade_scores hat Vorrang vor
         der trades_master_complete.csv. Simuliert den Fall, dass die Datei
         veraltete (oder gar keine) Scores enthaelt, der laufende Run aber
         frische Scores im DataFrame hat (Bug-Regression-Schutz)."""

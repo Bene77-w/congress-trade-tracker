@@ -267,8 +267,8 @@ def load_trades() -> pd.DataFrame:
 def _ar_sorted_dist(headline_h: int) -> np.ndarray:
     """Aufsteigend sortierte, NaN-freie Verteilung von ``signed_ar_{headline}d``
     ueber ALLE Trades (globale Grundgesamtheit fuer den Perzentil-Rang im
-    Trade-Detail). Einmal pro Session gecacht; leeres Array, falls die Stage
-    ``--stage_abnormal_returns`` noch nicht gelaufen ist."""
+    Trade-Detail). Einmal pro Session gecacht; leeres Array, falls der Master
+    noch keine ``signed_ar_*``-Spalten hat."""
     col = f'signed_ar_{int(headline_h)}d'
     if col not in trades.columns:
         return np.array([], dtype='float64')
@@ -1701,8 +1701,8 @@ def render_trade_detail(trade, trade_rows, key_prefix: str) -> None:
             headline_h = int(settings.AR_HEADLINE_HORIZON_DAYS)
         ar_head_col = f'signed_ar_{headline_h}d'
         if ar_head_col not in trade.index:
-            st.caption('Abnormal Return: noch nicht im Master — Stage '
-                       '`--stage_abnormal_returns` ausführen.')
+            st.caption('Abnormal Return: noch nicht im Master — Pipeline '
+                       '`python scripts/import_trades.py` ausführen.')
         else:
             st.subheader('Abnormal Return (marktbereinigt vs. SPY)',
                          help='Rendite abzueglich der Marktbewegung — zeigt, '
@@ -1967,7 +1967,7 @@ with tab_detail:
     if not has_detail_data:
         st.info(
             'Keine Post-Trade-Performance-Daten vorhanden. '
-            'Bitte Pipeline-Stage `--stage_post_trade_returns` ausführen.'
+            'Bitte Pipeline `python scripts/import_trades.py` ausführen.'
         )
     elif detail_pool.empty:
         st.info('Keine Trades im aktuellen Filter.')
@@ -2056,7 +2056,7 @@ with tab_recent:
     if 'paper_return_pct' not in trades.columns:
         st.info(
             'Keine Recent-Monitoring-Daten im Master (`paper_return_pct` fehlt). '
-            'Bitte Pipeline-Stage `--stage_post_trade_performance` ausführen.'
+            'Bitte Pipeline `python scripts/import_trades.py` ausführen.'
         )
     else:
         _inherit = settings.RECENT_WINDOW_INHERIT_LABEL
