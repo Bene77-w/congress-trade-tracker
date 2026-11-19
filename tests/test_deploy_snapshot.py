@@ -130,9 +130,10 @@ def test_pipeline_reads_current_reference_tables_despite_snapshot(tmp_path, monk
     source = tmp_path / 'master.csv'
     _master_frame().to_csv(source, index=False)
     current = _reference_copy(tmp_path / settings.REFERENCE_DATA_PATH)
-    deploy = tmp_path / Path(settings.DEPLOY_REFERENCE_PATH).parent
-    build_snapshot(source, deploy / 'snap.parquet', deploy / 'm.json',
+    build_snapshot(source, tmp_path / settings.DEPLOY_SNAPSHOT_PATH,
+                   tmp_path / settings.DEPLOY_SNAPSHOT_MANIFEST,
                    reference_dir=current)
+    assert (tmp_path / settings.DEPLOY_SNAPSHOT_PATH).exists()
     # Snapshot weicht ab: ohne den 118. Kongress
     snap_congresses = tmp_path / settings.DEPLOY_REFERENCE_PATH / 'congresses.csv'
     df = pd.read_csv(snap_congresses, dtype=str)
