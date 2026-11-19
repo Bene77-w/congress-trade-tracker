@@ -71,21 +71,11 @@ def _categorical_columns(df: pd.DataFrame) -> list[str]:
 
 
 def _copy_reference(reference_dir: Path, target: Path) -> int:
-    """Kopiert die von ``ReferenceData`` gelesenen Tabellen nach ``target``.
-
-    Erst in einen temporaeren Ordner, dann tauschen: ein abgebrochener Lauf
-    hinterlaesst sonst einen Ordner mit Tabellen verschiedener Staende.
-    """
-    tmp = target.with_name(target.name + '.tmp')
-    shutil.rmtree(tmp, ignore_errors=True)
-    tmp.mkdir(parents=True)
-    try:
-        for name in REFERENCE_TABLES:
-            shutil.copy2(reference_dir / f'{name}.csv', tmp / f'{name}.csv')
-        shutil.rmtree(target, ignore_errors=True)
-        tmp.rename(target)
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
+    """Kopiert die von ``ReferenceData`` gelesenen Tabellen nach ``target``."""
+    shutil.rmtree(target, ignore_errors=True)
+    target.mkdir(parents=True)
+    for name in REFERENCE_TABLES:
+        shutil.copy2(reference_dir / f'{name}.csv', target / f'{name}.csv')
     return len(REFERENCE_TABLES)
 
 
@@ -120,17 +110,6 @@ def build_snapshot(source: Path, target: Path, manifest: Path,
         df[col] = df[col].astype('category')
     mem_after = int(df.memory_usage(deep=True).sum())
 
-    # Erst in eine temporaere Datei, dann umbenennen: ein abgebrochener Lauf
-    # hinterlaesst sonst ein halbes Parquet, das der Loader dem Master-CSV
-    # trotzdem vorziehen wuerde.
-    target.parent.mkdir(parents=True, exist_ok=True)
-    tmp_target = target.with_suffix(target.suffix + '.tmp')
-    try:
-        df.to_parquet(tmp_target, compression='zstd', index=False)
-        tmp_target.replace(target)
-    finally:
-        tmp_target.unlink(missing_ok=True)
-
     # Datenstand = juengstes Disclosure-Datum; das ist der Anker, an dem auch
     # die Zeitfenster des Dashboards haengen.
     data_as_of = None
@@ -141,36 +120,54 @@ def build_snapshot(source: Path, target: Path, manifest: Path,
 
     # Kurs-Cache neben den Snapshot legen, damit ein einziger Ordner
     # (data/deploy/) alles enthaelt, was der Server braucht.
+    target.parent.mkdir(parents=True, exist_ok=True)
     price_bytes = None
     if price_cache is not None and price_cache.is_file():
         price_target = target.parent / price_cache.name
         shutil.copy2(price_cache, price_target)
         price_bytes = int(price_target.stat().st_size)
 
-    reference_tables = None
-    if reference_dir is not None:
-        reference_tables = _copy_reference(
-            reference_dir, target.parent / Path(settings.DEPLOY_REFERENCE_PATH).name)
-
-    info = {
-        'built_at': datetime.now(timezone.utc).isoformat(timespec='seconds'),
-        'source_file': source.name,
-        'data_as_of': data_as_of,
-        'rows': int(len(df)),
-        'columns': int(len(df.columns)),
-        'source_bytes': int(source.stat().st_size),
-        'snapshot_bytes': int(target.stat().st_size),
-        'memory_bytes_plain': mem_before,
-        'memory_bytes_snapshot': mem_after,
-        'price_cache_bytes': price_bytes,
-        'reference_tables': reference_tables,
-    }
+    # Snapshot, Referenztabellen und Manifest erst vollstaendig als
+    # temporaere Dateien vorbereiten, dann gemeinsam umbenennen: ein
+    # abgebrochener Lauf hinterlaesst sonst ein halbes Parquet oder neue
+    # Trades neben den Referenztabellen und dem Manifest des alten Stands.
     manifest.parent.mkdir(parents=True, exist_ok=True)
+    reference_target = target.parent / Path(settings.DEPLOY_REFERENCE_PATH).name
+    tmp_target = target.with_suffix(target.suffix + '.tmp')
+    tmp_reference = reference_target.with_name(reference_target.name + '.tmp')
     tmp_manifest = manifest.with_suffix(manifest.suffix + '.tmp')
-    tmp_manifest.write_text(
-        json.dumps(info, indent=2, sort_keys=True), encoding='utf-8'
-    )
-    tmp_manifest.replace(manifest)
+    try:
+        df.to_parquet(tmp_target, compression='zstd', index=False)
+        reference_tables = None
+        if reference_dir is not None:
+            reference_tables = _copy_reference(reference_dir, tmp_reference)
+
+        info = {
+            'built_at': datetime.now(timezone.utc).isoformat(timespec='seconds'),
+            'source_file': source.name,
+            'data_as_of': data_as_of,
+            'rows': int(len(df)),
+            'columns': int(len(df.columns)),
+            'source_bytes': int(source.stat().st_size),
+            'snapshot_bytes': int(tmp_target.stat().st_size),
+            'memory_bytes_plain': mem_before,
+            'memory_bytes_snapshot': mem_after,
+            'price_cache_bytes': price_bytes,
+            'reference_tables': reference_tables,
+        }
+        tmp_manifest.write_text(
+            json.dumps(info, indent=2, sort_keys=True), encoding='utf-8'
+        )
+
+        tmp_target.replace(target)
+        if reference_tables is not None:
+            shutil.rmtree(reference_target, ignore_errors=True)
+            tmp_reference.rename(reference_target)
+        tmp_manifest.replace(manifest)
+    finally:
+        tmp_target.unlink(missing_ok=True)
+        shutil.rmtree(tmp_reference, ignore_errors=True)
+        tmp_manifest.unlink(missing_ok=True)
     return info
 
 

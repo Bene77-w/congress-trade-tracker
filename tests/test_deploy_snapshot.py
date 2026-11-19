@@ -139,11 +139,70 @@ def test_pipeline_reads_current_reference_tables_despite_snapshot(tmp_path, monk
     df[df.congress != '118'].to_csv(snap_congresses, index=False)
     monkeypatch.setattr(settings, 'BASE_DIR', tmp_path)
 
-    importer = TradeImporter()
-    importer._init_reference()
+    trades = pd.DataFrame({'name': ['Ro Khanna'], 'bio_guide_id': ['K000389'],
+                           'chamber': ['House'],
+                           'transaction_date': pd.to_datetime(['2023-06-01'])})
+    enriched, _ = TradeImporter().enrich_member_data(trades)
 
-    dates = pd.Series(pd.to_datetime(['2023-06-01']))
-    assert list(importer.reference.congress_of(dates)) == ['118']
+    assert list(enriched['Member_Congress']) == ['118']
+
+
+def test_build_snapshot_failure_keeps_previous_snapshot(tmp_path):
+    """Scheitert ein Bau (hier: fehlende Referenztabelle), bleiben Parquet,
+    Referenztabellen und Manifest des vorigen Baus zusammen stehen."""
+    source = tmp_path / 'master.csv'
+    _master_frame().to_csv(source, index=False)
+    reference = _reference_copy(tmp_path / 'ref')
+    deploy = tmp_path / 'deploy'
+    paths = (deploy / 'snap.parquet', deploy / 'm.json')
+    build_snapshot(source, *paths, reference_dir=reference)
+    before = {p: p.read_bytes() for p in deploy.rglob('*') if p.is_file()}
+
+    _master_frame().head(10).to_csv(source, index=False)
+    (reference / 'committee_industries.csv').unlink()
+    with pytest.raises(FileNotFoundError):
+        build_snapshot(source, *paths, reference_dir=reference)
+
+    assert {p: p.read_bytes() for p in deploy.rglob('*') if p.is_file()} == before
+
+
+def _load_trades(root: Path):
+    """Die ECHTE ``load_trades`` aus ``app/streamlit_app.py`` (Skript, nicht
+    importierbar; Quelle per ``ast``, ohne Cache-Dekorator) mit Pfaden unter
+    ``root``."""
+    import ast
+    from types import SimpleNamespace
+    app = Path(__file__).resolve().parent.parent / 'app' / 'streamlit_app.py'
+    src = app.read_text(encoding='utf-8')
+    node = next(n for n in ast.parse(src).body
+                if isinstance(n, ast.FunctionDef) and n.name == 'load_trades')
+    ns = {'pd': pd, 'Path': Path, 'settings': settings, 'ROOT': root,
+          'st': SimpleNamespace(warning=lambda _msg: None),
+          'TRADES_CSV': root / 'master.csv',
+          'DEPLOY_SNAPSHOT': root / settings.DEPLOY_SNAPSHOT_PATH,
+          'DEPLOY_REFERENCE': root / settings.DEPLOY_REFERENCE_PATH}
+    exec(ast.get_source_segment(src, node), ns)  # noqa: S102 - Testcode
+    return ns['load_trades']
+
+
+def test_app_reads_reference_tables_of_loaded_trades(tmp_path):
+    """Liest die App den Master-CSV, gehoeren dazu die aktuellen
+    Referenztabellen, auch wenn ein alter Snapshot-Ordner liegt; liest sie den
+    Snapshot, die des Snapshots."""
+    master = _master_frame()
+    for col in set(settings.TRADES_DATE_COLUMNS) - set(master.columns):
+        master[col] = '2025-01-01'
+    master.to_csv(tmp_path / 'master.csv', index=False)
+    (tmp_path / settings.DEPLOY_REFERENCE_PATH).mkdir(parents=True)
+    load_trades = _load_trades(tmp_path)
+
+    _, reference = load_trades()
+    assert reference == tmp_path / settings.REFERENCE_DATA_PATH
+
+    build_snapshot(tmp_path / 'master.csv',
+                   tmp_path / settings.DEPLOY_SNAPSHOT_PATH, tmp_path / 'm.json')
+    _, reference = load_trades()
+    assert reference == tmp_path / settings.DEPLOY_REFERENCE_PATH
 
 
 def test_build_snapshot_without_price_cache(tmp_path):

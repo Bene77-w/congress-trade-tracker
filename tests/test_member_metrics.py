@@ -586,6 +586,30 @@ def test_committee_blocks_without_congress_column():
     assert committee_blocks(df, 'House', lambda c: _FakeMapper()) == ([], 2)
 
 
+def _render_committees_app(congresses):
+    """AppTest-Skript: ``_render_committees`` mit Trades ohne Mitgliedschaft."""
+    import pandas as pd
+    from app import member_detail as md
+    md._render_committees(
+        pd.DataFrame({'Member_Congress': congresses,
+                      'Member_Committees_Full': [''] * len(congresses)}),
+        'House', None)
+
+
+def test_render_committees_labels_block_without_memberships():
+    """Haben die Trades im 118. und 119. keine Mitgliedschaft, zeigt die
+    Ansicht trotzdem den beschrifteten Block statt nur 'Keine Gremien-Daten.'."""
+    from streamlit.testing.v1 import AppTest
+    at = AppTest.from_function(_render_committees_app, args=([119, 118],),
+                               default_timeout=30)
+    at.run()
+    assert not at.exception
+    assert '**119. / 118. Kongress**' in [m.value for m in at.markdown]
+    captions = [c.value for c in at.caption]
+    assert 'Keine Ausschussmitgliedschaft in den Daten.' in captions
+    assert 'Keine Gremien-Daten.' not in captions
+
+
 # ---------------------------------------------------------------------------
 # committee_full / Aufsichts-Sektoren
 # ---------------------------------------------------------------------------

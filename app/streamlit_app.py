@@ -225,21 +225,20 @@ def load_snapshot_manifest() -> dict:
 # Loader (cached)
 # ---------------------------------------------------------------------------
 
-def reference_dir() -> Path:
-    """Referenztabellen zum Datenstand von :func:`load_trades`: die des
-    Snapshots, wenn der Snapshot-Builder sie gelegt hat, sonst die der Pipeline.
-    Im Deployment gibt es nur den Snapshot-Ordner."""
-    if DEPLOY_REFERENCE.is_dir():
-        return DEPLOY_REFERENCE
-    return ROOT / settings.REFERENCE_DATA_PATH
-
-
 @st.cache_data(show_spinner='Lade Trade-Daten …')
-def load_trades() -> pd.DataFrame:
+def load_trades() -> tuple[pd.DataFrame, Path]:
+    """Trades und der Ordner der Referenztabellen desselben Datenstands.
+
+    Beides folgt aus derselben Quellenwahl: zum Snapshot gehoeren die
+    Tabellen, die der Snapshot-Builder daneben gelegt hat, zum Master-CSV die
+    der Pipeline. Getrennt gewaehlt koennten aktuelle Trades neben den
+    Ausschuss-Industries eines alten Snapshots stehen.
+    """
     # Deployment-Snapshot hat Vorrang: gleiche Spalten, aber Parquet mit
     # category-Dtypes -> ~0,1 s statt ~5 s Ladezeit. Ohne Snapshot laeuft die
     # App unveraendert gegen den Master-CSV (lokaler Entwicklungsstand).
     if DEPLOY_SNAPSHOT.exists():
+        reference = DEPLOY_REFERENCE
         df = pd.read_parquet(DEPLOY_SNAPSHOT)
         # Lokal faellt sonst nicht auf, dass ein Pipeline-Lauf den Master
         # aktualisiert hat, der Snapshot aber alt ist.
@@ -251,6 +250,7 @@ def load_trades() -> pd.DataFrame:
                 'Neu bauen mit: python scripts/build_deploy_snapshot.py'
             )
     else:
+        reference = ROOT / settings.REFERENCE_DATA_PATH
         df = pd.read_csv(
             TRADES_CSV,
             parse_dates=list(settings.TRADES_DATE_COLUMNS),
@@ -270,7 +270,7 @@ def load_trades() -> pd.DataFrame:
     # price_as_of optional (erst seit Recent-Monitoring im Master) -> defensiv.
     if 'price_as_of' in df.columns:
         df['price_as_of'] = pd.to_datetime(df['price_as_of'], errors='coerce')
-    return df
+    return df, reference
 
 
 @st.cache_data(show_spinner=False)
@@ -652,7 +652,7 @@ if _manifest.get('data_as_of'):
         .replace(',', '.')
     )
 
-trades = load_trades()
+trades, reference_dir = load_trades()
 max_observed_score = int(trades['trade_score'].max()) if 'trade_score' in trades.columns else 200
 
 
@@ -1953,7 +1953,7 @@ with tab_members:
                 params_override=params_override or None,
             )
         render_member_detail(m_df, base[~msel], m_name, m_chamber,
-                             reference_dir=reference_dir())
+                             reference_dir=reference_dir)
 
     _m_rows = []
     if member_sel_state and getattr(member_sel_state, 'selection', None):

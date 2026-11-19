@@ -219,7 +219,7 @@ def _render_committees(member_df: pd.DataFrame, chamber: str,
     blocks, without = mm.committee_blocks(
         member_df, chamber,
         reference.mapper if reference is not None else (lambda congress: None))
-    if not any(b['committees'] for b in blocks):
+    if not blocks:
         st.caption('Keine Gremien-Daten.')
     else:
         sectors = sorted(mm.member_oversight_sectors(member_df))
