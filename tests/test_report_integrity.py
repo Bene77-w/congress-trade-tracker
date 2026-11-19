@@ -36,3 +36,17 @@ def test_xlsx_leer_und_na_text_sind_verschiedene_zeilen(tmp_path, capsys):
     out = capsys.readouterr().out
     line = next(l for l in out.splitlines() if 'identische Zeilen' in l)
     assert line.split()[-1] == '1'
+
+
+def test_master_ohne_signaltreffer_laeuft_durch(tmp_path, capsys):
+    master = tmp_path / 'master.csv'
+    df = pd.read_csv(_master(tmp_path))
+    df['signals_triggered'] = ''
+    df['asset_class_excluded'] = 'True'
+    df.to_csv(master, index=False)
+    xlsx = tmp_path / 'q.xlsx'
+    pd.DataFrame({'a': ['x']}).to_excel(xlsx, index=False)
+    report(master, xlsx, _cache(tmp_path))
+    out = capsys.readouterr().out
+    assert 'keine Signaltreffer' in out
+    assert 'Share-Class-Zeilen mit FIGI' in out

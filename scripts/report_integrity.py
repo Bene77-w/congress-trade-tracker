@@ -80,7 +80,8 @@ def report(master_path: str, xlsx_path: str, cache_path: str) -> None:
     }), year))
 
     hits = signals.str.get_dummies(sep=';').drop(columns='', errors='ignore')
-    _section('Trefferquote je Signal und Jahr (%)', _per_year(hits, year))
+    _section('Trefferquote je Signal und Jahr (%)',
+             _per_year(hits, year) if len(hits.columns) else 'keine Signaltreffer')
 
     ttype = df['ticker_type'].fillna('').astype(str)
     shareclass = ttype == 'shareclass'
