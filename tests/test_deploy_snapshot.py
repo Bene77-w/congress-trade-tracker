@@ -7,6 +7,7 @@ sind hier als Gegenprobe mit abgedeckt.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -91,6 +92,58 @@ def test_build_snapshot_copies_price_cache(tmp_path):
 
     assert (tmp_path / 'deploy' / 'price_history.parquet').is_file()
     assert info['price_cache_bytes'] > 0
+
+
+def _reference_copy(target_dir):
+    """Die eingecheckten Referenztabellen (plus members.csv) in einen Ordner."""
+    import shutil
+    target_dir.mkdir(parents=True)
+    for name in ('congresses', 'committees', 'committee_memberships',
+                 'committee_industries', 'members'):
+        shutil.copy(settings.BASE_DIR / settings.REFERENCE_DATA_PATH / f'{name}.csv',
+                    target_dir)
+    return target_dir
+
+
+def test_build_snapshot_copies_reference_tables(tmp_path):
+    """Die App liest im Deployment die Ausschuss-Industries aus data/deploy/;
+    data/reference/ kommt nicht auf den Server."""
+    from utils.reference_data import TABLES, ReferenceData
+    source = tmp_path / 'master.csv'
+    _master_frame().to_csv(source, index=False)
+    deploy = tmp_path / 'deploy'
+
+    info = build_snapshot(source, deploy / 'snap.parquet', deploy / 'm.json',
+                          reference_dir=_reference_copy(tmp_path / 'ref'))
+
+    copied = deploy / Path(settings.DEPLOY_REFERENCE_PATH).name
+    assert sorted(p.stem for p in copied.iterdir()) == sorted(TABLES)
+    assert info['reference_tables'] == len(TABLES)
+    assert ReferenceData(copied).mapper('119').get_all_sectors_for_committee(
+        'Senate', 'Committee on the Judiciary')
+
+
+def test_pipeline_reads_current_reference_tables_despite_snapshot(tmp_path, monkeypatch):
+    """Ein Vollauf darf nicht die Tabellen eines alten Snapshots lesen: der
+    Snapshot-Ordner gilt nur fuer die App."""
+    from scripts.import_trades import TradeImporter
+    source = tmp_path / 'master.csv'
+    _master_frame().to_csv(source, index=False)
+    current = _reference_copy(tmp_path / settings.REFERENCE_DATA_PATH)
+    deploy = tmp_path / Path(settings.DEPLOY_REFERENCE_PATH).parent
+    build_snapshot(source, deploy / 'snap.parquet', deploy / 'm.json',
+                   reference_dir=current)
+    # Snapshot weicht ab: ohne den 118. Kongress
+    snap_congresses = tmp_path / settings.DEPLOY_REFERENCE_PATH / 'congresses.csv'
+    df = pd.read_csv(snap_congresses, dtype=str)
+    df[df.congress != '118'].to_csv(snap_congresses, index=False)
+    monkeypatch.setattr(settings, 'BASE_DIR', tmp_path)
+
+    importer = TradeImporter()
+    importer._init_reference()
+
+    dates = pd.Series(pd.to_datetime(['2023-06-01']))
+    assert list(importer.reference.congress_of(dates)) == ['118']
 
 
 def test_build_snapshot_without_price_cache(tmp_path):

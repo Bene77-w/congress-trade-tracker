@@ -396,15 +396,6 @@ LOGS_PATH = 'logs'
 # Mapping-Dateien (data/mappings/)
 HOUSE_COMMITTEES_FILE = 'house_member&(sub)committees.csv'
 SENATE_COMMITTEES_FILE = 'senate_member&(sub)committees.csv'
-COMMITTEE_MAPPING_FILE = 'subcommittee_sector_industry_mapping.csv'
-
-# Aktive Mappingrevision des Committee Matchers V2 (Integrationsplan P2).
-# Benannt wird die Revision, nicht ihr Pfad: er wird unter
-# data/committee_matcher_v2/reviews/<id>/ abgeleitet. Verbraucher:
-# config/committee_revision.py.
-# 'map-fullrun-20261016': Codex-Fullrun ueber alle 225 Units (522 Zuordnungen),
-# abgenommen 2026-10-16. Vorher gebunden: Probeartefakt 'map-test-20260904'.
-COMMITTEE_MAPPING_REVIEW_ID = 'map-fullrun-20261016'
 
 # Referenzdaten je Kongress (scripts/build_reference_data.py): Abgeordnete,
 # Ausschüsse, Mitgliedschaften und Ausschuss -> Industries mit stabilen
@@ -430,14 +421,6 @@ REFERENCE_MEMBERS_SINCE = '2012-01-01'
 REFERENCE_TRADES_XLSX = 'data/raw/congress-trading-all.xlsx'
 REFERENCE_HOUSE_PDF_URL = 'https://clerk.house.gov/committee_info/scsoal.pdf'
 
-# Gilt die Zustaendigkeit des Ausschusses selbst auch fuer Mitglieder, die
-# zusaetzlich in einem seiner Unterausschuesse sitzen? Der Matcher bildet dazu
-# eine eigene Unit (committee_parent_core) aus dem Zustaendigkeitstext des
-# Ausschusses - sie ist kein Aggregat seiner Unterausschuesse. Ohne diese
-# Einstellung erreichten die 31 Parent-Core-Units nur die wenigen Mitglieder
-# ohne Unterausschuss-Sitz. Wirkt nur auf das V2-Mapping; die Legacy-CSV
-# aggregiert ihre Unterausschusszeilen ohnehin selbst.
-COMMITTEE_PARENT_CORE_ADDITIVE = True
 IGNORED_TICKERS_FILE = 'ignored_tickers.csv'
 
 # Trade-Daten
@@ -909,6 +892,11 @@ DEPLOY_SNAPSHOT_MANIFEST = 'data/deploy/snapshot_manifest.json'
 # was der Server braucht. Die App nimmt diesen Pfad, wenn der Cache am
 # Normalort fehlt — ohne Kursdaten blieben alle Verlaufs-Charts leer.
 DEPLOY_PRICE_CACHE_PATH = 'data/deploy/price_history.parquet'
+
+# Referenztabellen (utils.reference_data.TABLES) im Deployment-Ordner, gelegt
+# vom Snapshot-Builder. Nur die App liest sie (statt REFERENCE_DATA_PATH),
+# wenn der Ordner existiert; die Pipeline liest immer REFERENCE_DATA_PATH.
+DEPLOY_REFERENCE_PATH = 'data/deploy/reference'
 
 # Spalten unterhalb dieser Zahl verschiedener Werte werden im Snapshot als
 # category gespeichert. 2000 deckt alle Member-/Committee-Attribute ab, laesst

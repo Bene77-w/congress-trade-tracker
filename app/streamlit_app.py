@@ -57,6 +57,7 @@ TRADES_CSV = ROOT / 'data' / 'processed' / settings.TRADES_MASTER_COMPLETE_CSV
 # scripts/build_deploy_snapshot.py.
 DEPLOY_SNAPSHOT = ROOT / settings.DEPLOY_SNAPSHOT_PATH
 DEPLOY_MANIFEST = ROOT / settings.DEPLOY_SNAPSHOT_MANIFEST
+DEPLOY_REFERENCE = ROOT / settings.DEPLOY_REFERENCE_PATH
 
 TRADE_DISPLAY_COLS = [
     # Default-Spalten in Anzeige-Reihenfolge (links -> rechts); die Display-
@@ -223,6 +224,15 @@ def load_snapshot_manifest() -> dict:
 # ---------------------------------------------------------------------------
 # Loader (cached)
 # ---------------------------------------------------------------------------
+
+def reference_dir() -> Path:
+    """Referenztabellen zum Datenstand von :func:`load_trades`: die des
+    Snapshots, wenn der Snapshot-Builder sie gelegt hat, sonst die der Pipeline.
+    Im Deployment gibt es nur den Snapshot-Ordner."""
+    if DEPLOY_REFERENCE.is_dir():
+        return DEPLOY_REFERENCE
+    return ROOT / settings.REFERENCE_DATA_PATH
+
 
 @st.cache_data(show_spinner='Lade Trade-Daten …')
 def load_trades() -> pd.DataFrame:
@@ -1942,7 +1952,8 @@ with tab_members:
                 weights_override=weights_override or None,
                 params_override=params_override or None,
             )
-        render_member_detail(m_df, base[~msel], m_name, m_chamber)
+        render_member_detail(m_df, base[~msel], m_name, m_chamber,
+                             reference_dir=reference_dir())
 
     _m_rows = []
     if member_sel_state and getattr(member_sel_state, 'selection', None):

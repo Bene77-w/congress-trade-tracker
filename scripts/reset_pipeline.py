@@ -109,7 +109,8 @@ PROTECTED_FILES: frozenset[Path] = frozenset(
     for p in [
         DATA_MAPPINGS / settings.HOUSE_COMMITTEES_FILE,
         DATA_MAPPINGS / settings.SENATE_COMMITTEES_FILE,
-        DATA_MAPPINGS / settings.COMMITTEE_MAPPING_FILE,
+        # Legacy-Mapping: geschuetzte Baseline des Committee Matchers
+        DATA_MAPPINGS / "subcommittee_sector_industry_mapping.csv",
         DATA_MAPPINGS / "subcommittee_region_mapping.csv",
         DATA_MAPPINGS / "subcommittee_sector_industry_mapping.xlsx",
         DATA_MAPPINGS / "yf_sectors_with_industries.json",

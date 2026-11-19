@@ -1,8 +1,7 @@
 import logging
 import re
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple
 from config import settings
-from config.committee_mapping import CommitteeMapper, dedupe_entries
 from utils.committee_parser import parse_committees_full
 
 logger = logging.getLogger(__name__)
@@ -32,6 +31,21 @@ SUBCOMMITTEE_ROLE_KEYS = {
     'rankingmember':   'subcommittee_ranking_member',
     'exofficio':       'subcommittee_ex_officio',
 }
+
+
+def dedupe_entries(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Je (sector, industry) bleibt ein Eintrag: der mit der hoechsten Konfidenz.
+
+    Bei gleicher Konfidenz gewinnt der erste. Rueckgabe sind Kopien: der
+    Aufrufer haengt Rollen an die Eintraege.
+    """
+    unique: Dict[Tuple[str, str], Dict[str, Any]] = {}
+    for entry in entries:
+        key = (entry['sector'], entry['industry'])
+        vorhanden = unique.get(key)
+        if vorhanden is None or entry.get('confidence', 0) > vorhanden.get('confidence', 0):
+            unique[key] = entry
+    return [entry.copy() for entry in unique.values()]
 
 
 def _normalize_role(role: Any) -> str:
@@ -66,34 +80,26 @@ class CommitteeTag:
     Tagger: annotiert Trades mit Committee-Sector-Relevanzinfo.
 
     Schreibt Insider_Sectors und Relevant_Sectors in den Master. Kombiniert
-    den zentralen F2-Parser (utils/committee_parser.py) und CommitteeMapper,
-    um zu bestimmen, ob die Committee-Zugehoerigkeit eines Politikers
-    thematisch zum Trade passt.
+    den zentralen F2-Parser (utils/committee_parser.py) und den Mapper eines
+    Kongresses (``ReferenceData.mapper``), um zu bestimmen, ob die
+    Committee-Zugehoerigkeit eines Politikers thematisch zum Trade passt.
 
     In der User-Sprache entspricht dieser Tag dem historischen "Filter 3".
     """
 
-    def __init__(self, mapper: Optional[CommitteeMapper] = None):
+    def __init__(self, mapper: Any):
         """
-        Initialize tag.
-
         Args:
-            mapper: CommitteeMapper instance (creates default if None)
+            mapper: Industries je Ausschuss eines Kongresses, z. B.
+                ``ReferenceData().mapper(congress)``; braucht
+                ``get_all_sectors_for_committee`` und
+                ``get_sectors_for_subcommittee``.
         """
-        self.mapper = mapper or CommitteeMapper()
+        self.mapper = mapper
 
         # Match-Modus fuer Intersection Insider_Sectors × Ticker
         self.match_mode = getattr(settings, 'RELEVANT_SECTORS_MATCH_MODE',
                                   'sector_or_industry')
-
-        # Gilt die Zustaendigkeit des Ausschusses auch bei Unterausschuss-Sitz?
-        # Nur fuer das V2-Mapping: dort ist der Committee-Lookup der eigene
-        # Text des Ausschusses. Die Legacy-CSV aggregiert an derselben Stelle
-        # ihre Unterausschusszeilen — dieselbe Regel bedeutete dort etwas
-        # anderes und veraenderte den Vergleichsstand, gegen den gemessen wird.
-        self.parent_core_additive = (
-            getattr(self.mapper, 'revision', None) is not None
-            and getattr(settings, 'COMMITTEE_PARENT_CORE_ADDITIVE', True))
 
     @staticmethod
     def _norm(value: Any) -> str:
@@ -167,33 +173,21 @@ class CommitteeTag:
                         s['committee'] = comm['committee']
                         s['subcommittee'] = subcom['name']
                     all_sectors.extend(sectors)
-                if self.parent_core_additive:
-                    # Die Zustaendigkeit des Ausschusses selbst gilt auch, wenn
-                    # jemand zusaetzlich in einem Unterausschuss sitzt. Der
-                    # Matcher fuehrt sie als eigene Unit aus dem eigenen Text
-                    # des Ausschusses - kein Aggregat seiner Kinder, deshalb
-                    # doppelt hier auch nichts. subcommittee_role bleibt leer:
-                    # eine Fuehrungsrolle im Unterausschuss darf nicht auf die
-                    # Committee-Ebene abfaerben.
-                    sectors = self.mapper.get_all_sectors_for_committee(
-                        chamber, comm['committee']
-                    )
-                    for s in sectors:
-                        s['committee_role'] = comm['role']
-                        s['subcommittee_role'] = ''
-                        s['committee'] = comm['committee']
-                        s['subcommittee'] = ''
-                    all_sectors.extend(sectors)
-            else:
-                sectors = self.mapper.get_all_sectors_for_committee(
-                    chamber, comm['committee']
-                )
-                for s in sectors:
-                    s['committee_role'] = comm['role']
-                    s['subcommittee_role'] = ''
-                    s['committee'] = comm['committee']
-                    s['subcommittee'] = ''
-                all_sectors.extend(sectors)
+            # Die Zustaendigkeit des Ausschusses selbst gilt immer, auch wenn
+            # jemand zusaetzlich in einem Unterausschuss sitzt. Der Matcher
+            # fuehrt sie als eigene Unit aus dem eigenen Text des Ausschusses -
+            # kein Aggregat seiner Kinder, deshalb doppelt hier auch nichts.
+            # subcommittee_role bleibt leer: eine Fuehrungsrolle im
+            # Unterausschuss darf nicht auf die Committee-Ebene abfaerben.
+            sectors = self.mapper.get_all_sectors_for_committee(
+                chamber, comm['committee']
+            )
+            for s in sectors:
+                s['committee_role'] = comm['role']
+                s['subcommittee_role'] = ''
+                s['committee'] = comm['committee']
+                s['subcommittee'] = ''
+            all_sectors.extend(sectors)
 
         unique_sectors = self._deduplicate_sectors(all_sectors)
 
@@ -266,12 +260,5 @@ class CommitteeTag:
         return full_matches + sector_only_matches
 
     def _deduplicate_sectors(self, sectors: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """
-        Dedupliziert (sector, industry)-Kombinationen.
-        Bei Duplikaten gewinnt die höhere Konfidenz; wo keine numerische
-        Konfidenz steht (Legacy-Mapping), entscheidet weiter der niedrigere
-        Rank. Die Regel steht in `config/committee_mapping.dedupe_entries` —
-        der Mapper dedupliziert eine Ebene tiefer nach derselben, und zwei
-        Fassungen derselben Regel könnten verschiedene Sieger küren.
-        """
+        """Dedupliziert (sector, industry)-Kombinationen (:func:`dedupe_entries`)."""
         return dedupe_entries(sectors)
