@@ -11,6 +11,7 @@ Python + Streamlit zur Analyse von Aktiengeschäften von US-Kongressmitgliedern.
 - Antworten; immer mit `Bene, ` beginnen
 - Tokenintensive, unabhängige Teilaufgaben; Subagents einsetzen
 - Für neues Todo neue Plan-Datei anlegen statt unverwandte überschreiben (spart Read-Roundtrip).
+- Qualitätsschwelle; `CONSTRAINTS.md` vor dem Schreiben von Code lesen, nicht abschwächen, damit eine Änderung durchkommt; Prüflauf am Ticketende `tools/check.sh`
 
 
 
