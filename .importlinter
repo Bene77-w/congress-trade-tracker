@@ -1,0 +1,82 @@
+[importlinter]
+root_packages =
+    app
+    committee_matcher
+    config
+    gates
+    scoring
+    scrapers
+    scripts
+    signals
+    tags
+    utils
+include_external_packages = True
+
+[importlinter:contract:app-grenze]
+name = App importiert nichts aus Signalen, Tags, Gates, Skripten, Scrapern, Matcher
+type = forbidden
+source_modules =
+    app
+forbidden_modules =
+    signals
+    tags
+    gates
+    scripts
+    scrapers
+    committee_matcher
+# Ausnahme W1 (CONSTRAINTS.md): Altbestand, faellt mit Sanierungstickets weg
+ignore_imports =
+    app.member_metrics -> signals.committee_signal
+    app.streamlit_app -> signals.committee_signal
+    scoring.post_trade_returns -> signals.committee_signal
+    scoring.trade_score -> signals.trade_volume_signal
+
+[importlinter:contract:keine-app-importe]
+name = Nichts ausserhalb von app importiert app
+type = forbidden
+source_modules =
+    committee_matcher
+    config
+    gates
+    scoring
+    scrapers
+    scripts
+    signals
+    tags
+    utils
+forbidden_modules =
+    app
+# Ausnahme W2 (CONSTRAINTS.md): faellt mit analysis/event_study weg
+ignore_imports =
+    scripts.analyse_event_study -> app.score_correlation
+
+[importlinter:contract:signale-unabhaengig]
+name = Signalmodule importieren einander nicht
+type = independence
+modules =
+    signals.accumulative_signal
+    signals.committee_ex_officio_signal
+    signals.committee_full_signal
+    signals.committee_signal
+    signals.contrarian_signal
+    signals.extreme_report_signal
+    signals.floor_action_signal
+    signals.swarm_buy_signal
+    signals.swarm_conflict_signal
+    signals.swarm_paradox_signal
+    signals.swarm_sell_signal
+    signals.trade_volume_signal
+
+[importlinter:contract:netz-nur-in-adaptern]
+name = Fachlogik importiert keine Netz-Clients
+type = forbidden
+source_modules =
+    app
+    gates
+    signals
+    tags
+    scoring.trade_score
+    scoring.abnormal_returns
+forbidden_modules =
+    requests
+    yfinance
