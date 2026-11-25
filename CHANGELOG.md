@@ -11,6 +11,10 @@ Historie abgeschlossener Module/Phasen. **Aktiver WIP-Modul-Stand** steht im „
 
 ---
 
+## 2026-11-25 — Impressum und Datenschutzerklärung
+
+Caddy liefert `/impressum` und `/datenschutz` aus `deploy/legal/` aus (Templates, Anbieterangaben aus `LEGAL_*` in `deploy/.env`); das Dashboard verlinkt beide oben in der Seitenleiste, auch vor dem Passwort-Gate. Access-Log mit gekürzten IPs (IPv4 /24, IPv6 /48), ohne Cookie- und Sitzungs-Header, Wechsel täglich 00:00 UTC, 14 Tage aufbewahrt; Caddys Fehlerlog ohne Besucherdaten. Lokal hinter Caddy geprüft: 98 Anfragen, keine an Dritte, nur Cookie `_streamlit_xsrf`, Rechtsseiten auch bei gestopptem Dashboard erreichbar. Noch nicht ausgerollt.
+
 ## 2026-11-13 — Ausschüsse nach Handelsdatum
 
 Stage `committees` verknüpft Trades über `bio_guide_id` und den Kongress des Transaktionsdatums mit `data/reference/` (`utils/reference_data.py`); der Fuzzy-Namensabgleich ist aus der Pipeline entfernt, Partei und Bundesstaat bleiben die der Quelle. Neue Spalten `Member_Congress`, `Member_Committee_Status`; Industries je Kongress aus `committee_industries.csv`. Der Master ist noch nicht neu gebaut; bis zum Neuaufbau ab `--stage_rename` darf kein Delta-Lauf (`--delta`) laufen, weil sonst alte Zeilen (`Member_Party` als `D`/`R`, leeres `Member_Congress`) und neue (`Democratic`/`Republican`) im Master gemischt würden.

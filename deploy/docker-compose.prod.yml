@@ -53,8 +53,16 @@ services:
       # Domain in deploy/.env setzen — das Caddyfile bleibt unveraendert,
       # sonst kollidiert die Aenderung mit dem naechsten 'git pull'.
       SITE_DOMAIN: "${SITE_DOMAIN:?SITE_DOMAIN fehlt — in deploy/.env setzen}"
+      # Anbieterangaben fuer Impressum und Datenschutzerklaerung; nur in
+      # deploy/.env, nie im Repo. Fehlt eine, zeigt die Seite einen Hinweis.
+      LEGAL_NAME: "${LEGAL_NAME:-}"
+      LEGAL_STREET: "${LEGAL_STREET:-}"
+      LEGAL_CITY: "${LEGAL_CITY:-}"
+      LEGAL_EMAIL: "${LEGAL_EMAIL:-}"
+      LEGAL_PHONE: "${LEGAL_PHONE:-}"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./legal:/srv/legal:ro
       - caddy_data:/data      # Let's-Encrypt-Zertifikate (ueberleben Neustarts)
       - caddy_config:/config
       - caddy_logs:/var/log/caddy
