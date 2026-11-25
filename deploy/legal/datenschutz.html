@@ -1,0 +1,154 @@
+{{- /* Wird von Caddy (Direktive 'templates') ausgeliefert; Angaben zum
+Verantwortlichen aus LEGAL_* wie in impressum.html. Die Abschnitte zu Logs,
+Cookies und Drittanbietern beschreiben deploy/Caddyfile und Streamlit 1.57
+mit .streamlit/config.toml — bei Aenderungen dort diese Seite mitpflegen. */ -}}
+{{- define "req" }}{{ with env . }}{{ html . }}{{ else }}<span class="missing">[Angabe fehlt: {{ . }}]</span>{{ end }}{{ end -}}
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Datenschutzerklärung · Congress Trade Tracker</title>
+  {{ include "_style.html" }}
+</head>
+<body>
+<main>
+  <nav><a href="/">Zurück zum Dashboard</a> · <a href="/impressum">Impressum</a></nav>
+
+  <h1>Datenschutzerklärung</h1>
+  <p class="muted">Stand: 25.11.2026</p>
+
+  <h2>1. Verantwortlicher</h2>
+  <p>
+    {{ template "req" "LEGAL_NAME" }}<br>
+    {{ template "req" "LEGAL_STREET" }}<br>
+    {{ template "req" "LEGAL_CITY" }}<br>
+    Deutschland<br>
+    E-Mail: {{ with env "LEGAL_EMAIL" }}<a href="mailto:{{ html . }}">{{ html . }}</a>{{ else }}<span class="missing">[Angabe fehlt: LEGAL_EMAIL]</span>{{ end }}
+  </p>
+  <p>
+    Ein Datenschutzbeauftragter ist nicht bestellt, weil die gesetzlichen
+    Voraussetzungen dafür nicht vorliegen.
+  </p>
+
+  <h2>2. Überblick</h2>
+  <p>
+    Diese Website setzt keine Analyse- oder Tracking-Werkzeuge ein, zeigt keine
+    Werbung und lädt keine Inhalte von fremden Servern; Schriften und Skripte
+    werden vom eigenen Server ausgeliefert. Es gibt kein Benutzerkonto und kein
+    Kontaktformular. Verarbeitet werden nur die Daten, die beim Aufruf technisch
+    anfallen.
+  </p>
+
+  <h2>3. Hosting</h2>
+  <p>
+    Die Website läuft auf einem virtuellen Server der IONOS SE,
+    Elgendorfer Str. 57, 56410 Montabaur, in einem Rechenzentrum in der
+    Europäischen Union. IONOS verarbeitet die unten beschriebenen Daten als
+    Auftragsverarbeiter nach meinen Weisungen (Art. 28 DSGVO). Eine Übermittlung
+    in Länder außerhalb der EU findet nicht statt.
+  </p>
+
+  <h2>4. Server-Protokolle</h2>
+  <p>
+    Bei jedem Aufruf protokolliert der Webserver:
+  </p>
+  <ul>
+    <li>die IP-Adresse in gekürzter Form (IPv4 ohne letzten Block, IPv6 nur die ersten 48 Bit),</li>
+    <li>Datum und Uhrzeit, aufgerufene Adresse, Methode und Protokoll,</li>
+    <li>Statuscode, übertragene Datenmenge und Bearbeitungsdauer,</li>
+    <li>die vom Browser gesendeten Header, etwa Browsertyp und Betriebssystem
+      (User-Agent), die zuvor besuchte Seite (Referrer) und bevorzugte Sprache,</li>
+    <li>Angaben zur verschlüsselten Verbindung (TLS-Version, Verschlüsselungsverfahren).</li>
+  </ul>
+  <p>
+    Cookie- und Anmelde-Header werden nicht protokolliert. Zweck ist der sichere
+    und stabile Betrieb: Fehler finden, Missbrauch und Angriffe erkennen.
+    Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO; mein berechtigtes Interesse
+    liegt in der Sicherheit und Funktionsfähigkeit der Website. Die Protokolle
+    werden täglich gewechselt und spätestens nach 16 Tagen automatisch gelöscht.
+    Fehlermeldungen des Webservers enthalten keine IP-Adressen oder Browserdaten.
+  </p>
+
+  <h2>5. Cookies und Speicher im Browser</h2>
+  <p>
+    Das Dashboard setzt ein einziges Cookie, <code>_streamlit_xsrf</code>. Es
+    enthält einen Zufallswert, schützt die Verbindung vor gefälschten Anfragen
+    (Cross-Site Request Forgery) und wird beim Schließen des Browsers gelöscht.
+    Es ist für den Betrieb der Website unbedingt erforderlich und deshalb ohne
+    Einwilligung zulässig (§ 25 Abs. 2 Nr. 2 TDDDG; Art. 6 Abs. 1 lit. f DSGVO).
+  </p>
+  <p>
+    Ändern Sie Darstellungseinstellungen wie Farbschema oder Breite der
+    Seitenleiste, speichert Ihr Browser diese im lokalen Speicher (Local
+    Storage), bis Sie ihn löschen. Diese Einträge bleiben auf Ihrem Gerät und
+    enthalten keine Kennung (§ 25 Abs. 2 Nr. 2 TDDDG).
+  </p>
+  <p>
+    Filter und Bewertungseinstellungen hält der Server nur für die Dauer Ihrer
+    Sitzung im Arbeitsspeicher; sie werden nicht dauerhaft gespeichert. Ist ein
+    Zugangsschutz aktiv, wird das eingegebene Passwort nur in der laufenden
+    Sitzung geprüft und nicht gespeichert.
+  </p>
+
+  <h2>6. Links zu anderen Websites</h2>
+  <p>
+    Einige Tabellen verlinken auf die Google-Suche. Erst wenn Sie einen solchen
+    Link anklicken, verbindet sich Ihr Browser mit Google; für die
+    Datenverarbeitung dort ist Google verantwortlich.
+  </p>
+
+  <h2>7. Kontakt per E-Mail oder Telefon</h2>
+  <p>
+    Wenn Sie mir schreiben oder mich anrufen, verarbeite ich Ihre Angaben, um
+    Ihre Anfrage zu beantworten (Art. 6 Abs. 1 lit. f DSGVO, bei Anfragen zu
+    einem Vertrag lit. b). Empfänger ist mein E-Mail- bzw. Telefonanbieter. Ich
+    lösche die Angaben, wenn die Anfrage erledigt ist und keine gesetzlichen
+    Aufbewahrungspflichten entgegenstehen.
+  </p>
+
+  <h2>8. Daten über Mitglieder des US-Kongresses</h2>
+  <p>
+    Das Dashboard zeigt Namen, Partei, Bundesstaat, Kammer, Ausschüsse und die
+    gemeldeten Aktiengeschäfte von Mitgliedern des US-Kongresses. Quelle sind
+    deren gesetzlich vorgeschriebene, öffentliche Offenlegungen (STOCK Act),
+    bezogen über den Datendienst Quiver Quantitative, sowie die Stammdaten des
+    Projekts unitedstates/congress-legislators. Zweck ist die Information der
+    Öffentlichkeit über das Handeln von Amtsträgern; die Daten werden zu
+    journalistischen Zwecken aufbereitet. Rechtsgrundlage ist, soweit die DSGVO
+    nicht ohnehin durch das Medienprivileg (Art. 85 DSGVO) eingeschränkt ist,
+    Art. 6 Abs. 1 lit. f DSGVO, für die Parteizugehörigkeit Art. 9 Abs. 2
+    lit. e DSGVO (offensichtlich öffentlich gemacht). Die Daten werden
+    gespeichert, solange sie für diesen Zweck angezeigt werden.
+  </p>
+
+  <h2>9. Ihre Rechte</h2>
+  <p>
+    Sie haben das Recht auf Auskunft (Art. 15 DSGVO), Berichtigung (Art. 16),
+    Löschung (Art. 17), Einschränkung der Verarbeitung (Art. 18) und
+    Datenübertragbarkeit (Art. 20). Wenden Sie sich dazu an die oben genannte
+    E-Mail-Adresse.
+  </p>
+  <p>
+    <strong>Widerspruchsrecht (Art. 21 DSGVO):</strong> Soweit ich Daten auf
+    Grundlage von Art. 6 Abs. 1 lit. f DSGVO verarbeite, können Sie aus Gründen,
+    die sich aus Ihrer besonderen Situation ergeben, jederzeit widersprechen.
+    Ich verarbeite die Daten dann nicht mehr, es sei denn, ich kann zwingende
+    schutzwürdige Gründe nachweisen, die Ihre Interessen überwiegen, oder die
+    Verarbeitung dient der Geltendmachung, Ausübung oder Verteidigung von
+    Rechtsansprüchen.
+  </p>
+  <p>
+    Sie können sich außerdem bei einer Datenschutz-Aufsichtsbehörde beschweren
+    (Art. 77 DSGVO), insbesondere in dem Mitgliedstaat Ihres Aufenthaltsorts,
+    Ihres Arbeitsplatzes oder des mutmaßlichen Verstoßes.
+  </p>
+  <p>
+    Sie sind nicht verpflichtet, Daten bereitzustellen; ohne die technisch
+    nötigen Verbindungsdaten lässt sich die Website aber nicht aufrufen. Eine
+    automatisierte Entscheidungsfindung oder Profilbildung (Art. 22 DSGVO)
+    findet nicht statt.
+  </p>
+</main>
+</body>
+</html>

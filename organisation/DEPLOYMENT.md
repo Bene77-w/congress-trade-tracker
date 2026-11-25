@@ -294,7 +294,8 @@ Betrieb):** `deploy/README_deployment.md`.
 | `scripts/build_deploy_snapshot.py` | Eigenstaendiges Skript (keine Pipeline-Stage), erzeugt den Snapshot in `data/deploy/` — Details: `organisation/CLI_Bedienungsanleitung.md` Abschnitt 14, Datenformat: `organisation/DATA_STRUCTURE.md` Abschnitt 7g. |
 | `deploy/Dockerfile.app` | Schlankes Dashboard-Image ohne Tesseract/Chromium (~600 MB kleiner als `Dockerfile`, weil auf dem Server kein Scraper laeuft). |
 | `deploy/docker-compose.prod.yml` | Produktiv-Compose: Dashboard-Container + Caddy als HTTPS-Reverse-Proxy, Speicherdeckel, Snapshot read-only gemountet. |
-| `deploy/Caddyfile` | Reverse-Proxy-Konfiguration (Domain, automatisches HTTPS via Let's Encrypt). |
+| `deploy/Caddyfile` | Reverse-Proxy-Konfiguration (Domain, automatisches HTTPS via Let's Encrypt), liefert `/impressum` und `/datenschutz` selbst aus; Access-Log mit gekuerzten IPs, taeglich rotiert, 14 Tage aufbewahrt; Fehlerlog ohne Besucherdaten. |
+| `deploy/legal/` | Impressum und Datenschutzerklaerung als Caddy-Templates; persoenliche Angaben aus `LEGAL_*`. Die Datenschutzerklaerung beschreibt Caddyfile und Streamlit-Konfiguration — bei Aenderungen dort mitpflegen. |
 | `.streamlit/config.toml` | Servereinstellungen: `headless = true`, `maxUploadSize = 5`, `gatherUsageStats = false`, `showErrorDetails = "none"`. |
 
 ### Neue ENV-Variablen (`.env.example`)
@@ -303,6 +304,7 @@ Betrieb):** `deploy/README_deployment.md`.
 |---|---|---|
 | `APP_AUTH_ENABLED` | aus (`0`) | Passwort-Gate vor dem Dashboard. Bewusst deaktiviert — ein Login schreckt Betrachter ab. |
 | `APP_PASSWORD` | leer | Passwort, wenn `APP_AUTH_ENABLED=1`. Max. 5 Fehlversuche je Browser-Sitzung (`APP_AUTH_MAX_ATTEMPTS`, `config/settings.py`). |
+| `LEGAL_NAME`, `LEGAL_STREET`, `LEGAL_CITY`, `LEGAL_EMAIL`, `LEGAL_PHONE` | leer | Anbieterangaben fuer Impressum und Datenschutzerklaerung, nur in `deploy/.env` auf dem Server (nicht im Repo). Fehlt eine, zeigt die Seite einen roten Hinweis. |
 | `APP_PUBLIC_MODE` | aus (`0`) | Scoring-Presets liegen pro Browser-Session im Arbeitsspeicher statt in `data/config/scoring_presets.json` — verhindert, dass sich Besucher einer geteilten Instanz gegenseitig die Presets ueberschreiben. |
 
 ### Abhaengigkeit
@@ -328,5 +330,6 @@ Seit 2026-08-30 live unter `https://congress-trading-tracker.com` (auch `www`).
 Neustartfest geprueft: nach `reboot` war die Seite ohne Eingriff in rund
 40 Sekunden wieder erreichbar.
 
-Offen: Git-Historie bereinigen (Altdaten entfernen, braucht Nutzerfreigabe),
+Offen: Impressum und Datenschutzerklaerung ausrollen (`LEGAL_*` in `deploy/.env`,
+Ablauf in `deploy/README_deployment.md` Abschnitt 8). Git-Historie bereinigen (Altdaten entfernen, braucht Nutzerfreigabe),
 danach Repo oeffentlich schalten. Details: `CHANGELOG.md`.

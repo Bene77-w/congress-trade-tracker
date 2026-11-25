@@ -168,6 +168,12 @@ SITE_DOMAIN=deine-domain.de, www.deine-domain.de
 # Passwortschutz (optional, s. Abschnitt 7)
 APP_AUTH_ENABLED=0
 APP_PASSWORD=
+# Impressum und Datenschutzerklaerung (Pflicht, s. Abschnitt 8)
+LEGAL_NAME=
+LEGAL_STREET=
+LEGAL_CITY=
+LEGAL_EMAIL=
+LEGAL_PHONE=
 ```
 
 Mehrere Hostnamen komma-getrennt: Caddy holt fuer jeden ein eigenes
@@ -284,7 +290,47 @@ Das Passwort steht nie im Code und in keiner versionierten Datei. Nach fuenf
 Fehlversuchen bleibt das Formular fuer diese Sitzung gesperrt
 (`APP_AUTH_MAX_ATTEMPTS` in `config/settings.py`).
 
-## 8. Was auf dem Server bewusst fehlt
+## 8. Impressum und Datenschutzerklaerung
+
+Caddy liefert `/impressum` und `/datenschutz` selbst aus (`deploy/legal/`,
+Direktive `templates`). Die Seiten brauchen kein JavaScript und bleiben
+erreichbar, wenn das Dashboard neu startet oder der Passwortschutz aktiv ist.
+Das Dashboard verlinkt sie oben in der Seitenleiste.
+
+Die persoenlichen Angaben stehen nur in `$DEPLOY_PATH/deploy/.env`
+(`LEGAL_NAME`, `LEGAL_STREET` mit Hausnummer, `LEGAL_CITY` mit PLZ,
+`LEGAL_EMAIL`, `LEGAL_PHONE`), nie im Repo. Fehlt eine, zeigt die Seite an
+dieser Stelle einen roten Hinweis `[Angabe fehlt: ...]`.
+
+Die Datenschutzerklaerung beschreibt den technischen Ist-Zustand: gekuerzte
+IPs und 14 Tage Aufbewahrung im Access-Log, ein Fehlerlog ohne Besucherdaten,
+nur das Cookie `_streamlit_xsrf`, keine Drittanbieter
+(`gatherUsageStats = false`). Wer am `log`-Block im Caddyfile, an
+`.streamlit/config.toml` oder an eingebundenen Diensten (Karten, Schriften,
+Analyse) etwas aendert, muss `deploy/legal/datenschutz.html` mitpflegen.
+
+Erstes Ausrollen:
+
+1. Auf dem Server die `LEGAL_*`-Werte in `deploy/.env` eintragen.
+2. Lokal `scripts/deploy_code.sh` ausfuehren. Weil sich Umgebung und Volumes
+   des Caddy-Dienstes aendern, erstellt Compose den Container neu; damit
+   verschwindet auch sein altes Docker-Log.
+3. Das alte Access-Log enthaelt noch volle IP-Adressen. Auf dem Server
+   loeschen; der Neustart laesst Caddy eine frische Datei anlegen:
+
+   ```bash
+   cd $DEPLOY_PATH
+   docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env exec caddy sh -c 'rm -f /var/log/caddy/access*'
+   docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env restart caddy
+   ```
+
+4. `https://<domain>/impressum` und `/datenschutz` aufrufen: keine roten
+   Hinweise mehr.
+
+Spaetere Aenderungen nur am Caddyfile erkennt Compose nicht (die Datei ist
+eingebunden, nicht kopiert); danach `docker compose ... restart caddy`.
+
+## 9. Was auf dem Server bewusst fehlt
 
 - **Keine API-Keys, keine Quiver-Zugangsdaten.** Das Dashboard braucht zur
   Laufzeit kein Netz und keine Schluessel; es liest nur den Snapshot.

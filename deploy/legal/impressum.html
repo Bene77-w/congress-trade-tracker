@@ -1,0 +1,53 @@
+{{- /* Wird von Caddy (Direktive 'templates') ausgeliefert. Die persoenlichen
+Angaben kommen aus den Umgebungsvariablen LEGAL_* (deploy/.env auf dem
+Server) und stehen bewusst nicht im Repo. Fehlt eine, zeigt die Seite einen
+roten Hinweis statt einer Leerstelle. */ -}}
+{{- define "req" }}{{ with env . }}{{ html . }}{{ else }}<span class="missing">[Angabe fehlt: {{ . }}]</span>{{ end }}{{ end -}}
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Impressum · Congress Trade Tracker</title>
+  {{ include "_style.html" }}
+</head>
+<body>
+<main>
+  <nav><a href="/">Zurück zum Dashboard</a> · <a href="/datenschutz">Datenschutzerklärung</a></nav>
+
+  <h1>Impressum</h1>
+
+  <h2>Angaben gemäß § 5 DDG und § 18 Abs. 1 MStV</h2>
+  <p>
+    {{ template "req" "LEGAL_NAME" }}<br>
+    {{ template "req" "LEGAL_STREET" }}<br>
+    {{ template "req" "LEGAL_CITY" }}<br>
+    Deutschland
+  </p>
+
+  <h2>Kontakt</h2>
+  <p>
+    E-Mail: {{ with env "LEGAL_EMAIL" }}<a href="mailto:{{ html . }}">{{ html . }}</a>{{ else }}<span class="missing">[Angabe fehlt: LEGAL_EMAIL]</span>{{ end }}<br>
+    Telefon: {{ template "req" "LEGAL_PHONE" }}
+  </p>
+
+  <h2>Verantwortlich für den Inhalt nach § 18 Abs. 2 MStV</h2>
+  <p>{{ template "req" "LEGAL_NAME" }}, Anschrift wie oben</p>
+
+  <h2>Hinweise zu den Inhalten</h2>
+  <p>
+    Das Dashboard bereitet die öffentlichen Offenlegungen von Aktiengeschäften
+    der Mitglieder des US-Kongresses (STOCK Act) auf. Die Meldungen werden über
+    den Datendienst Quiver Quantitative bezogen, Angaben zu Abgeordneten und
+    Ausschüssen stammen aus dem Projekt unitedstates/congress-legislators,
+    Kursdaten von Yahoo Finance. Bewertungen und Scores entstehen automatisch
+    nach festen Regeln.
+  </p>
+  <p>
+    Alle Informationen sind zu journalistischen Zwecken aufbereitet und stellen
+    keine Anlageberatung dar. Bei der automatischen Verarbeitung können Fehler
+    entstehen; Hinweise auf Fehler bitte an die oben genannte E-Mail-Adresse.
+  </p>
+</main>
+</body>
+</html>

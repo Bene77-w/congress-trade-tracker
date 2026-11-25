@@ -618,6 +618,11 @@ def _check_password() -> bool:
     return False
 
 
+# Rechtliche Pflichtseiten: liefert Caddy aus (deploy/legal/). Oben in der
+# Seitenleiste und vor dem Passwort-Gate, damit sie von jeder Ansicht aus
+# ohne Scrollen und auch ohne Anmeldung erreichbar sind.
+st.sidebar.caption('[Impressum](/impressum) · [Datenschutz](/datenschutz)')
+
 if not _check_password():
     st.stop()
 
