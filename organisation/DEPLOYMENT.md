@@ -294,7 +294,7 @@ Betrieb):** `deploy/README_deployment.md`.
 | `scripts/build_deploy_snapshot.py` | Eigenstaendiges Skript (keine Pipeline-Stage), erzeugt den Snapshot in `data/deploy/` — Details: `organisation/CLI_Bedienungsanleitung.md` Abschnitt 14, Datenformat: `organisation/DATA_STRUCTURE.md` Abschnitt 7g. |
 | `deploy/Dockerfile.app` | Schlankes Dashboard-Image ohne Tesseract/Chromium (~600 MB kleiner als `Dockerfile`, weil auf dem Server kein Scraper laeuft). |
 | `deploy/docker-compose.prod.yml` | Produktiv-Compose: Dashboard-Container + Caddy als HTTPS-Reverse-Proxy, Speicherdeckel, Snapshot read-only gemountet. |
-| `deploy/Caddyfile` | Reverse-Proxy-Konfiguration (Domain, automatisches HTTPS via Let's Encrypt), liefert `/impressum` und `/datenschutz` selbst aus; Access-Log mit gekuerzten IPs, taeglich rotiert, 14 Tage aufbewahrt; Fehlerlog ohne Besucherdaten. |
+| `deploy/Caddyfile` | Reverse-Proxy-Konfiguration (Domain, automatisches HTTPS via Let's Encrypt), liefert `/impressum` und `/datenschutz` selbst aus; Access-Log mit gekuerzten IPs, ohne Cookie-/Sitzungs-Header, Wechsel taeglich 00:00 UTC, 14 Tage aufbewahrt; Fehlerlog ohne Besucherdaten. |
 | `deploy/legal/` | Impressum und Datenschutzerklaerung als Caddy-Templates; persoenliche Angaben aus `LEGAL_*`. Die Datenschutzerklaerung beschreibt Caddyfile und Streamlit-Konfiguration — bei Aenderungen dort mitpflegen. |
 | `.streamlit/config.toml` | Servereinstellungen: `headless = true`, `maxUploadSize = 5`, `gatherUsageStats = false`, `showErrorDetails = "none"`. |
 

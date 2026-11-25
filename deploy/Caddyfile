@@ -41,10 +41,10 @@
     # ohne JavaScript, vor einem aktiven Passwortschutz und auch dann, wenn
     # der Dashboard-Container gerade neu startet. Die persoenlichen Angaben
     # setzt 'templates' aus den LEGAL_*-Variablen ein (deploy/.env).
-    @legal path /impressum /datenschutz
+    @legal path_regexp legal ^/(impressum|datenschutz)/?$
     handle @legal {
         root * /srv/legal
-        try_files {path}.html
+        rewrite * /{re.legal.1}.html
         templates
         file_server
     }
@@ -56,12 +56,14 @@
     }
 
     log {
-        # Nicht nach /data: dort liegen die Zertifikate. Taeglich eine neue
-        # Datei, nach 14 Tagen geloescht; IPs gekuerzt (IPv4 /24, IPv6 /48).
-        # Caddy rotiert und loescht erst beim naechsten Schreiben, deshalb
-        # nennt die Datenschutzerklaerung "spaetestens nach 16 Tagen".
+        # Nicht nach /data: dort liegen die Zertifikate. Neue Datei jeden Tag
+        # um 00:00 UTC (fester Zeitplan, unabhaengig von Traffic und
+        # Neustarts), geloescht 14 Tage nach dem Wechsel; IPs gekuerzt
+        # (IPv4 /24, IPv6 /48). Eine Datei umfasst also hoechstens einen Tag,
+        # das Aufraeumen laeuft beim naechsten Wechsel — daher nennt die
+        # Datenschutzerklaerung "spaetestens nach 16 Tagen".
         output file /var/log/caddy/access.log {
-            roll_interval 24h
+            roll_at 00:00
             roll_keep_for 336h
             roll_keep 15
         }
@@ -70,8 +72,16 @@
             request>client_ip ip_mask 24 48
             request>remote_port delete
             request>headers>X-Forwarded-For ip_mask 24 48
+            # Header, die IPs oder Sitzungskennungen tragen koennen. Streamlit
+            # schickt Wert des XSRF-Cookies und Session-ID im WebSocket-
+            # Subprotocol bzw. in X-Xsrftoken.
+            request>headers>Forwarded delete
+            request>headers>X-Real-Ip delete
+            request>headers>Client-Ip delete
             request>headers>Cookie delete
             request>headers>Authorization delete
+            request>headers>Sec-Websocket-Protocol delete
+            request>headers>X-Xsrftoken delete
             resp_headers>Set-Cookie delete
             wrap console
         }

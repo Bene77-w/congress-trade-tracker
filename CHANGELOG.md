@@ -13,7 +13,7 @@ Historie abgeschlossener Module/Phasen. **Aktiver WIP-Modul-Stand** steht im „
 
 ## 2026-11-25 — Impressum und Datenschutzerklärung
 
-Caddy liefert `/impressum` und `/datenschutz` aus `deploy/legal/` aus (Templates, Anbieterangaben aus `LEGAL_*` in `deploy/.env`); das Dashboard verlinkt beide oben in der Seitenleiste, auch vor dem Passwort-Gate. Access-Log mit gekürzten IPs (IPv4 /24, IPv6 /48), täglich rotiert, 14 Tage aufbewahrt; Caddys Fehlerlog ohne Besucherdaten. Lokal hinter Caddy geprüft: 98 Anfragen, keine an Dritte, nur Cookie `_streamlit_xsrf`, Rechtsseiten auch bei gestopptem Dashboard erreichbar. Noch nicht ausgerollt.
+Caddy liefert `/impressum` und `/datenschutz` aus `deploy/legal/` aus (Templates, Anbieterangaben aus `LEGAL_*` in `deploy/.env`); das Dashboard verlinkt beide oben in der Seitenleiste, auch vor dem Passwort-Gate. Access-Log mit gekürzten IPs (IPv4 /24, IPv6 /48), ohne Cookie- und Sitzungs-Header, Wechsel täglich 00:00 UTC, 14 Tage aufbewahrt; Caddys Fehlerlog ohne Besucherdaten. Lokal hinter Caddy geprüft: 98 Anfragen, keine an Dritte, nur Cookie `_streamlit_xsrf`, Rechtsseiten auch bei gestopptem Dashboard erreichbar. Noch nicht ausgerollt.
 
 ## 2026-11-13 — Ausschüsse nach Handelsdatum
 

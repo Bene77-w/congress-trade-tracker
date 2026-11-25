@@ -303,7 +303,8 @@ Die persoenlichen Angaben stehen nur in `$DEPLOY_PATH/deploy/.env`
 dieser Stelle einen roten Hinweis `[Angabe fehlt: ...]`.
 
 Die Datenschutzerklaerung beschreibt den technischen Ist-Zustand: gekuerzte
-IPs und 14 Tage Aufbewahrung im Access-Log, ein Fehlerlog ohne Besucherdaten,
+IPs, keine Cookie- oder Sitzungs-Header und 14 Tage Aufbewahrung im
+Access-Log (Wechsel taeglich 00:00 UTC), ein Fehlerlog ohne Besucherdaten,
 nur das Cookie `_streamlit_xsrf`, keine Drittanbieter
 (`gatherUsageStats = false`). Wer am `log`-Block im Caddyfile, an
 `.streamlit/config.toml` oder an eingebundenen Diensten (Karten, Schriften,
@@ -319,16 +320,16 @@ Erstes Ausrollen:
    loeschen; der Neustart laesst Caddy eine frische Datei anlegen:
 
    ```bash
-   cd $DEPLOY_PATH
-   docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env exec caddy sh -c 'rm -f /var/log/caddy/access*'
-   docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env restart caddy
+   docker exec congress-caddy sh -c 'rm -f /var/log/caddy/access*'
+   docker restart congress-caddy
+   docker exec congress-caddy ls -la /var/log/caddy   # nur die neue access.log
    ```
 
 4. `https://<domain>/impressum` und `/datenschutz` aufrufen: keine roten
    Hinweise mehr.
 
 Spaetere Aenderungen nur am Caddyfile erkennt Compose nicht (die Datei ist
-eingebunden, nicht kopiert); danach `docker compose ... restart caddy`.
+eingebunden, nicht kopiert); danach `docker restart congress-caddy`.
 
 ## 9. Was auf dem Server bewusst fehlt
 
