@@ -458,7 +458,7 @@ Neue Regel: Doku nur bei Änderungen an Schema, CLI oder Architektur (O16). Das 
 | **E4** | Elternausschuss ohne eigene Branchen: nur Chair/Ranking Member erben die Zuständigkeit aller Unterausschüsse. | 4 (CM-5), 6 (#3), 7 |
 | **E5** | CONSTRAINTS.md mit zwei Dimensionen: Zeilenbudget (Ratchet; Zielzahl laut Audit **15.000 Produktivzeilen**, Tests ≤ 10.000) und Architekturgrenzen (import-linter, Regeln in Abschnitt 6). Grundregeln blockieren, der Rest warnt zunächst. Volle Testsuite je Ticket (nach E1 unter 20 s). | 3, 6 |
 
-### 11.2 Im Interview entschieden (2026-11-20, jeweils die Empfehlung; O15: kuratierter Master bleibt). Umsetzung: GitHub-Issue „Sanierung Stufe 2“ (#1)
+### 11.2 Im Interview entschieden (2026-11-20, jeweils die Empfehlung; O15: kuratierter Master bleibt). Der darauf aufbauende Plan (Issues #1–#20) ist verworfen und archiviert in `plan-stufe2-verworfen.md`; Bene hat sich am 2026-11-25 für einen Neubau entschieden.
 
 | Nr. | Frage | Optionen | Empfehlung | Befunde |
 |---|---|---|---|---|
