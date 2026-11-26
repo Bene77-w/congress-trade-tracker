@@ -155,7 +155,7 @@ SWARM_PARADOX_MIN_CONFLICTS       = 2            # ab N Gegen-Trades: swarm_para
 # Code: utils/issuer_group_mapper.py
 # Doku: organisation/tool_specific_md/Ticker_Architektur.md
 # =============================================================================
-SEC_EDGAR_USER_AGENT = 'Congress Trade Tracker <kontakt@example.com>'  # Pflicht, sonst 403
+SEC_EDGAR_USER_AGENT = ('Congress Trade Tracker <' + os.getenv("CONTACT_EMAIL", "kontakt@example.com") + '>')  # Pflicht, sonst 403
 SEC_EDGAR_URL        = 'https://www.sec.gov/files/company_tickers_exchange.json'
 SEC_EDGAR_CACHE_FILE = 'edgar_cik_map.json'      # unter data/cache/
 SEC_EDGAR_TTL_DAYS   = 7
