@@ -1,69 +1,34 @@
-# Deployment des Dashboards auf einem eigenen Server
+# Deploy the dashboard to a VPS
 
-Diese Anleitung stellt das Streamlit-Dashboard oeffentlich unter einer eigenen
-Domain bereit — ohne Login, mit HTTPS, auf einem eingefrorenen Datenstand.
-Die Pipeline (Scraper, Import, Scoring) laeuft **nicht** auf dem Server; sie
-bleibt auf dem Entwicklungsrechner.
+This guide publishes the Streamlit dashboard on your domain over HTTPS. It serves a frozen data snapshot and is public by default. Run the scraper, import, and scoring pipeline on your development machine. The VPS only needs the dashboard and the snapshot, so it can operate without API keys or Quiver credentials and continue serving the snapshot if the pipeline fails.
 
-**Rollenverteilung:**
+## Prerequisites
 
-| Ort | Aufgabe |
-|---|---|
-| Entwicklungsrechner | Pipeline laufen lassen, Snapshot bauen, hochladen |
-| Server (VPS) | Nur das Dashboard anzeigen |
+- A VPS that can run a persistent Python process with WebSocket support. A server with two CPU cores and 4 GB of RAM is suitable. The dashboard uses about 800 MB of RAM per active session, and the Compose configuration caps its memory at 3 GB.
+- A domain with an A record pointing to the VPS. You can register the domain with a different provider.
 
-Grund fuer die Trennung: Der Server braucht dann weder API-Keys noch die
-Quiver-Zugangsdaten, und ein Pipeline-Fehler kann die oeffentliche Seite nicht
-umwerfen.
+## Build the snapshot
 
----
-
-## 0. Was du brauchst
-
-- **Einen VPS**, nicht Webhosting. Shared Webhosting fuehrt Python nur pro
-  Seitenaufruf aus und kann keinen Dauerprozess mit WebSocket betreiben —
-  Streamlit laeuft dort grundsaetzlich nicht. Passend sind z. B. IONOS
-  „VPS Linux" oder Hetzner „CX22": 2 Kerne, 4 GB RAM, ca. 4–6 EUR/Monat.
-  Das Dashboard braucht im Betrieb rund 800 MB Arbeitsspeicher pro aktiver
-  Sitzung; die Compose-Datei deckelt es bei 2 GB.
-- **Eine Domain** mit einem A-Record auf die IP-Adresse des Servers.
-  Domain und Server muessen nicht beim selben Anbieter liegen.
-
----
-
-## 1. Snapshot bauen (auf dem Entwicklungsrechner)
+On the development machine, run from the repository root:
 
 ```bash
 source venv/bin/activate
 python scripts/build_deploy_snapshot.py
 ```
 
-Erzeugt in `data/deploy/` alles, was der Server braucht:
+The script writes the server data to `data/deploy/`.
 
-| Datei | Groesse | Zweck |
-|---|---|---|
-| `trades_snapshot.parquet` | ~15 MB | die Trades (aus dem 645-MB-Master) |
-| `price_history.parquet` | ~26 MB | Kursdaten fuer die Verlaufs-Charts |
-| `snapshot_manifest.json` | wenige Zeilen | Datenstand, den die App unter dem Titel anzeigt |
+| File | Approximate size | Contents |
+| --- | --- | --- |
+| `trades_snapshot.parquet` | 15 MB | Trades extracted from the 645 MB master dataset |
+| `price_history.parquet` | 26 MB | Price history for the charts |
+| `snapshot_manifest.json` | A few lines | Snapshot information displayed below the dashboard title |
 
-Die App sucht den Kurs-Cache zuerst am Normalort (`data/cache/`, den es auf
-dem Server nicht gibt) und faellt dann auf `data/deploy/` zurueck — ein
-zusaetzlicher Mount ist nicht noetig. Fehlt die Datei ganz, laufen alle
-Detail-Popups weiter, zeigen statt der Kursverlaeufe aber nur den Hinweis,
-dass Kursdaten fehlen.
+The app first looks for the price cache in `data/cache/` and falls back to `data/deploy/` on the VPS. If neither cache exists, trade details still open and show that price history is unavailable. Git ignores `data/deploy/` to keep snapshots out of the public repository and its history.
 
-Der Ordner ist bewusst **nicht** im Git-Repo (`.gitignore`): So bleibt die
-Repo-Historie schlank, und die Trade-Daten liegen nicht dauerhaft oeffentlich
-auf GitHub.
+## Prepare the server
 
-## 2. Server vorbereiten (einmalig)
-
-**Zugang zuerst.** Bei IONOS gibt es fuer einen bestehenden VPS kein Menue,
-um nachtraeglich einen SSH-Schluessel zu hinterlegen, und keinen Knopf fuer
-einen Passwort-Reset. Der praktikable Weg ist *Server > Aktionen > Image neu
-installieren*: Dort setzt man ein Root-Passwort und traegt unter
-*Weitere Einstellungen > Skripte > Benutzerdaten* (Skripttyp: Cloud Config)
-den Schluessel ein:
+Set up SSH key access before configuring the firewall. On an existing IONOS VPS, the original setup used **Server → Actions → Reinstall image** to set a root password and provide cloud-init user data under **Additional settings → Scripts → User data**. Reinstalling replaces the server image. Use this snippet when provisioning a fresh server and substitute your public key.
 
 ```yaml
 #cloud-config
@@ -71,23 +36,19 @@ disable_root: false
 runcmd:
   - mkdir -p /root/.ssh
   - chmod 700 /root/.ssh
-  - echo 'ssh-ed25519 AAAA... dein-kommentar' >> /root/.ssh/authorized_keys
+  - echo 'ssh-ed25519 AAAA... your-comment' >> /root/.ssh/authorized_keys
   - chmod 600 /root/.ssh/authorized_keys
 ```
 
-**Anbieter-Firewall.** IONOS weist dem Server eine eigene Firewall-Richtlinie
-zu, die *vor* dem Betriebssystem filtert — die `ufw` auf dem Server allein
-genuegt also nicht. Unter *Netzwerk > Firewall-Richtlinien* muessen TCP 80 und
-443 zugelassen sein. Die von IONOS vorbelegten Ports 8443 und 8447 (Plesk)
-kann man loeschen, wenn kein Plesk laeuft.
+Allow TCP ports 80 and 443 in the provider firewall as well as on the server. In IONOS, open **Network → Firewall Policies**. You can remove the preset Plesk ports 8443 and 8447 if you do not use Plesk.
 
-Dann als root auf dem Server:
+Run the following as root on Ubuntu:
 
 ```bash
 apt update && apt upgrade -y
 apt install -y ca-certificates curl rsync ufw fail2ban unattended-upgrades
 
-# Docker aus dem offiziellen Repo (nicht aus den Ubuntu-Paketen)
+# Install Docker from Docker's official Ubuntu repository
 install -m 0755 -d /etc/apt/keyrings
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
 chmod a+r /etc/apt/keyrings/docker.asc
@@ -98,15 +59,13 @@ apt update && apt install -y docker-ce docker-ce-cli containerd.io \
   docker-buildx-plugin docker-compose-plugin
 systemctl enable --now docker
 
-# Firewall: nur SSH und Web
+# Allow incoming SSH and web traffic
 ufw default deny incoming && ufw default allow outgoing
 ufw allow 22/tcp && ufw allow 80/tcp && ufw allow 443/tcp
 ufw --force enable
 ```
 
-**SSH haerten.** Ubuntu 24.04 laedt `/etc/ssh/sshd_config.d/*.conf`, und der
-*erste* gefundene Wert gewinnt. Die eigene Datei muss deshalb alphabetisch vor
-`50-cloud-init.conf` sortieren:
+On Ubuntu 24.04, SSH uses the first value it reads for each setting. Name the hardening file so it sorts before `50-cloud-init.conf`. Confirm key-based access before changing password authentication.
 
 ```bash
 cat > /etc/ssh/sshd_config.d/00-hardening.conf <<'CONF'
@@ -117,33 +76,26 @@ PubkeyAuthentication yes
 MaxAuthTries 3
 CONF
 sshd -t && systemctl reload ssh
-sshd -T | grep -E '^(passwordauthentication|permitrootlogin) '   # kontrollieren
+sshd -T | grep -E '^(passwordauthentication|permitrootlogin) '   # Verify the effective settings
 ```
 
-Der Passwort-Login ist damit nur ueber SSH aus; die Remotekonsole des Anbieters
-funktioniert weiter — das bleibt der Weg zurueck, falls der Schluessel abhanden
-kommt.
+The provider's remote console remains available if you lose SSH key access.
 
-## 3. Code und Datenstand auf den Server bringen
+## Copy the code and snapshot
 
-Die private Zielkonfiguration wird einmalig aus der Vorlage erstellt und
-nicht versioniert:
+Create the local deployment configuration from the template:
 
 ```bash
 cp .deploy.env.example .deploy.env
 chmod 600 .deploy.env
 ```
 
-Danach `DEPLOY_TARGET`, `DEPLOY_PATH` und bei Bedarf die E2E-Werte lokal
-eintragen. `.deploy.env` ist sowohl in Git als auch im Docker-Buildkontext
-ausgeschlossen.
+Set `DEPLOY_TARGET`, `DEPLOY_PATH`, and any values needed for end-to-end deployment tests. Git and the Docker build context exclude `.deploy.env`.
 
-Bei oeffentlichem Repo genuegt ein Clone. Solange das Repo **privat** ist,
-braeuchte der Server einen Deploy-Key — einfacher ist es, den Code direkt
-hochzuladen:
+You can clone the public repository on the VPS or transfer the checkout from the development machine. The example uses a deploy account with access to the destination directory.
 
 ```bash
-# Auf dem Entwicklungsrechner, aus dem Projektroot:
+# Run from the repository root on the development machine
 rsync -az --delete \
   --exclude='.git/' --exclude='.env' --exclude='.deploy.env' \
   --exclude='venv/' --exclude='archive/' \
@@ -151,24 +103,22 @@ rsync -az --delete \
   --exclude='deploy/.env' \
   ./ deploy@server.example:/srv/congress-tracker/
 
-# Datenstand separat (~41 MB)
+# Transfer the snapshot separately (about 41 MB)
 rsync -az --mkpath data/deploy/ deploy@server.example:/srv/congress-tracker/data/deploy/
 ```
 
-Der Ausschluss von `data/` ist wichtig: Sonst wandert der 645-MB-Master mit.
+Excluding `data/` from the code transfer keeps the full trade master on the development machine. If you clone the repository on the server, run only the snapshot transfer.
 
-## 4. Domain eintragen und starten
+## Set the domain and start the dashboard
 
-Die Domain steht nicht im Caddyfile, sondern in einer `.env` — so bleiben alle
-versionierten Dateien unveraendert und `git pull` laeuft spaeter konfliktfrei.
-Auf dem Server `$DEPLOY_PATH/deploy/.env` anlegen:
+On the server, create `$DEPLOY_PATH/deploy/.env`:
 
-```bash
-SITE_DOMAIN=deine-domain.de, www.deine-domain.de
-# Passwortschutz (optional, s. Abschnitt 7)
+```dotenv
+SITE_DOMAIN=example.com, www.example.com
+# Optional dashboard password
 APP_AUTH_ENABLED=0
 APP_PASSWORD=
-# Impressum und Datenschutzerklaerung (Pflicht, s. Abschnitt 8)
+# Required legal notice and privacy policy details
 LEGAL_NAME=
 LEGAL_STREET=
 LEGAL_CITY=
@@ -176,168 +126,75 @@ LEGAL_EMAIL=
 LEGAL_PHONE=
 ```
 
-Mehrere Hostnamen komma-getrennt: Caddy holt fuer jeden ein eigenes
-Zertifikat. Steht `www` nicht drin, laeuft der A-Record fuer `www` ins Leere.
-Ein AAAA-Record beim Domain-Parking muss geloescht werden — sonst landet
-sowohl der Browser als auch die Zertifikatspruefung ueber IPv6 auf der
-Parkseite des Anbieters.
-
-Dann starten:
+List each hostname that Caddy should serve. Caddy requests a certificate for each one. Remove any parked AAAA record that directs IPv6 traffic to the domain provider's parking page.
 
 ```bash
 cd /srv/congress-tracker
 docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env up -d --build
 ```
 
-Der erste Build dauert einige Minuten. Caddy holt das HTTPS-Zertifikat
-automatisch, sobald die Domain auf den Server zeigt — es ist kein
-Zertifikatsschritt von Hand noetig.
-
-Danach ist die Seite unter `https://<deine-domain>` erreichbar.
-
-Status pruefen:
+The first build takes a few minutes. Caddy provisions HTTPS automatically once DNS points to the VPS. Check the service status and logs:
 
 ```bash
 docker compose -f deploy/docker-compose.prod.yml ps
 docker compose -f deploy/docker-compose.prod.yml logs -f dashboard
 ```
 
-## 5. Datenstand aktualisieren
+## Publish a new snapshot
 
-Ein Lauf von `scripts/import_trades.py` aktualisiert nur den Master auf dem
-Entwicklungsrechner. Die Website aendert sich dadurch noch nicht. Fuer einen
-neuen Datenstand auf der Website sind immer alle drei Schritte noetig:
-Snapshot neu bauen, `data/deploy/` hochladen und den Dashboard-Container neu
-starten.
-
-Auf dem Entwicklungsrechner nach dem vollstaendigen Import-Lauf:
+`scripts/import_trades.py` updates the trade master on the development machine. After the import finishes, run:
 
 ```bash
 scripts/deploy_data.sh
 ```
 
-Das Skript baut den Snapshot samt Kurs-Cache, laedt `data/deploy/` hoch und
-erstellt das Dashboard neu. Es wartet bis zu 180 Sekunden auf einen gesunden
-Container und bricht sonst mit Fehler ab. Mit `scripts/deploy_data.sh
---dry-run` werden die Befehle nur angezeigt. Abweichende Ziele lassen sich
-ueber `DEPLOY_TARGET` und `DEPLOY_PATH` setzen.
+This builds the snapshot and price cache, uploads `data/deploy/`, and recreates the dashboard container so Streamlit loads the new data. The script waits up to 180 seconds for the container to become healthy and exits with an error if it times out. Use `scripts/deploy_data.sh --dry-run` to print the commands. Override the destination with `DEPLOY_TARGET` and `DEPLOY_PATH`.
 
-Der Neustart ist noetig, weil Streamlit die Daten beim Start in den Cache
-laedt. Er dauert wenige Sekunden.
+## Deploy code changes
 
-## 6. Code-Aenderungen ausrollen
-
-Ein `git push` aktualisiert die Website derzeit nicht automatisch. Der Server
-wird per `rsync` gepflegt, solange das Repository privat ist. Nach einem Push
-oder einem lokalen Commit deshalb aus dem Projektroot ausfuehren:
+A Git push does not automatically deploy the site. From the repository root, run:
 
 ```bash
 scripts/deploy_code.sh
 ```
 
-Das Skript schuetzt die lokalen Dateien `.env` und `.deploy.env`, `data/`,
-`logs/` und die serverseitige `deploy/.env`, baut die Container neu, wartet auf deren
-Healthchecks und zeigt danach den Status. Ausgerollt wird ausschliesslich der
-aktuelle Commit (`HEAD`); bei uncommitteten Aenderungen bricht das Skript ab.
-Vorab kann
-`scripts/deploy_code.sh --dry-run` verwendet werden. Enthaelt die Aenderung
-zugleich neue Daten, zuerst `scripts/deploy_data.sh`, danach
-`scripts/deploy_code.sh` ausfuehren und abschliessend die Website im Browser
-pruefen.
+The script deploys the current commit (`HEAD`) and refuses to run with uncommitted changes. It preserves local secrets and runtime files, including `.env`, `.deploy.env`, `data/`, `logs/`, and the server's `deploy/.env`. It rebuilds the containers, waits for their health checks, and prints their status. Use `scripts/deploy_code.sh --dry-run` to preview the commands. For a release with new data and code, deploy the snapshot first, deploy the code second, then check the site in a browser.
 
-Beide Skripte akzeptieren nur Zielpfade, die auf `/congress-tracker` enden,
-und pruefen vor dem Upload die vorhandene produktive Compose-Datei sowie
-`deploy/.env`. Das verhindert einen Upload in ein versehentlich falsch
-gesetztes Systemverzeichnis.
+Both deployment scripts require a destination path ending in `/congress-tracker` and check for the existing production Compose file and `deploy/.env` before uploading.
 
-Ein echter Code-/Daten-Rollback-Test steht opt-in unter
-`tests/integration/test_deploy_e2e.sh`. Er arbeitet auf demselben VPS, aber mit
-eigenem Testpfad, Container, Image, Compose-Projekt und localhost-Port. Sein
-EXIT-Cleanup entfernt diese Ressourcen bei Erfolg, Fehler und Abbruch; die
-Produktionsinstanz wird vor und nach dem Lauf auf unveraenderten Zustand
-geprueft. Die Datenpruefung liest sowohl Manifest als auch Parquet direkt im
-laufenden Testcontainer; der HTTP-Test prueft Streamlits Health-Endpunkt.
-Vor jeder Mutation bricht der Test ab, wenn er verwaiste
-`congress-tracker-e2e-*`-Pfade, Container, Images, Netzwerke oder Volumes
-findet. Ein hart beendeter Client (`SIGKILL`/Rechnerausfall) kann den lokalen
-EXIT-Cleanup nicht ausfuehren; die gemeldete Run-ID muss dann vor einem neuen
-Lauf mit `tests/integration/remote_cleanup_deploy_e2e.sh` bereinigt werden.
-Jedes Datendeployment muss zudem eine neue, anschliessend gesunde Container-ID
-erzeugen.
+The opt-in rollback test at `tests/integration/test_deploy_e2e.sh` runs on the same VPS in a separate path, container, image, Compose project, and localhost port. It compares production state before and after the run, checks the manifest and Parquet file inside the test container, and uses Streamlit's health endpoint. Every data deployment must create a new container ID and reach a healthy state. The test refuses to proceed if it finds leftover `congress-tracker-e2e-*` paths, containers, images, networks, or volumes. Its exit handler cleans up test resources. If the client is killed with `SIGKILL` or the machine loses power, use `tests/integration/remote_cleanup_deploy_e2e.sh` with the reported run ID before retrying.
 
-Live-Verifikation am 02.09.2026: Codeaenderung und Datenaenderung (80 auf 81
-Trades) wurden auf der isolierten VPS-Instanz deployt und jeweils erfolgreich
-zurueckgerollt. Das Cleanup entfernte Testcontainer, Testimage, Netzwerk,
-Volumes und Testpfad; Dashboard und Caddy der Produktion blieben gesund und
-unveraendert.
+On September 2, 2026, the isolated VPS test deployed and rolled back a code change and a data change from 80 to 81 trades. Cleanup removed the test resources and both production services stayed healthy.
 
-## 7. Passwortschutz (optional, standardmaessig aus)
+## Require a dashboard password
 
-Das Dashboard ist absichtlich ohne Login erreichbar — ein Passwort haelt
-Betrachter ab, die sich die Arbeit nur ansehen sollen. Falls der Zugriff doch
-eingeschraenkt werden muss:
+The default setup lets visitors view the dashboard without signing in. To restrict access, set these values in `$DEPLOY_PATH/deploy/.env`:
 
-In `$DEPLOY_PATH/deploy/.env` setzen:
-
-```bash
+```dotenv
 APP_AUTH_ENABLED=1
-APP_PASSWORD=<dein-passwort>
+APP_PASSWORD=<your-password>
 ```
 
-Dann `docker compose -f deploy/docker-compose.prod.yml up -d`.
+Then run `docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env up -d`. Keep the password in the deployment environment. After five failed attempts, the form locks for the current session. The limit is configurable as `APP_AUTH_MAX_ATTEMPTS` in `config/settings.py`.
 
-Das Passwort steht nie im Code und in keiner versionierten Datei. Nach fuenf
-Fehlversuchen bleibt das Formular fuer diese Sitzung gesperrt
-(`APP_AUTH_MAX_ATTEMPTS` in `config/settings.py`).
+## Legal notice and privacy policy
 
-## 8. Impressum und Datenschutzerklaerung
+Caddy serves `/impressum` and `/datenschutz` from the templates in `deploy/legal/`. The pages remain available during dashboard restarts and when password protection is enabled. Visitors can reach both pages from the dashboard sidebar, and neither page requires JavaScript.
 
-Caddy liefert `/impressum` und `/datenschutz` selbst aus (`deploy/legal/`,
-Direktive `templates`). Die Seiten brauchen kein JavaScript und bleiben
-erreichbar, wenn das Dashboard neu startet oder der Passwortschutz aktiv ist.
-Das Dashboard verlinkt sie oben in der Seitenleiste.
+Set `LEGAL_NAME`, `LEGAL_STREET` (including house number), `LEGAL_CITY` (including postal code), `LEGAL_EMAIL`, and `LEGAL_PHONE` in the server's `deploy/.env`. Missing values appear as red `[Angabe fehlt: ...]` placeholders.
 
-Die persoenlichen Angaben stehen nur in `$DEPLOY_PATH/deploy/.env`
-(`LEGAL_NAME`, `LEGAL_STREET` mit Hausnummer, `LEGAL_CITY` mit PLZ,
-`LEGAL_EMAIL`, `LEGAL_PHONE`), nie im Repo. Fehlt eine, zeigt die Seite an
-dieser Stelle einen roten Hinweis `[Angabe fehlt: ...]`.
+The privacy policy documents truncated IP addresses, access logs without cookie or session headers, 14-day retention with rotation at 00:00 UTC, and an error log without visitor data. It also describes the `_streamlit_xsrf` cookie and the absence of third-party services. Streamlit usage telemetry is disabled (`gatherUsageStats = false`). Update `deploy/legal/datenschutz.html` when changing Caddy logging, `.streamlit/config.toml`, or third-party services such as maps, fonts, or analytics.
 
-Die Datenschutzerklaerung beschreibt den technischen Ist-Zustand: gekuerzte
-IPs, keine Cookie- oder Sitzungs-Header und 14 Tage Aufbewahrung im
-Access-Log (Wechsel taeglich 00:00 UTC), ein Fehlerlog ohne Besucherdaten,
-nur das Cookie `_streamlit_xsrf`, keine Drittanbieter
-(`gatherUsageStats = false`). Wer am `log`-Block im Caddyfile, an
-`.streamlit/config.toml` oder an eingebundenen Diensten (Karten, Schriften,
-Analyse) etwas aendert, muss `deploy/legal/datenschutz.html` mitpflegen.
+After entering the legal details, run `scripts/deploy_code.sh`. When migrating from the older configuration that logged full IP addresses, Compose recreates Caddy for the changed environment and volumes, which also removes the old Docker log. Remove the old access logs and restart Caddy to open a fresh log:
 
-Erstes Ausrollen:
+```bash
+docker exec congress-caddy sh -c 'rm -f /var/log/caddy/access*'
+docker restart congress-caddy
+docker exec congress-caddy ls -la /var/log/caddy   # Verify that only the new access.log remains
+```
 
-1. Auf dem Server die `LEGAL_*`-Werte in `deploy/.env` eintragen.
-2. Lokal `scripts/deploy_code.sh` ausfuehren. Weil sich Umgebung und Volumes
-   des Caddy-Dienstes aendern, erstellt Compose den Container neu; damit
-   verschwindet auch sein altes Docker-Log.
-3. Das alte Access-Log enthaelt noch volle IP-Adressen. Auf dem Server
-   loeschen; der Neustart laesst Caddy eine frische Datei anlegen:
+Check `/impressum` and `/datenschutz` on your domain for missing fields. If a later deploy changes only the mounted Caddyfile, run `docker restart congress-caddy` to load it.
 
-   ```bash
-   docker exec congress-caddy sh -c 'rm -f /var/log/caddy/access*'
-   docker restart congress-caddy
-   docker exec congress-caddy ls -la /var/log/caddy   # nur die neue access.log
-   ```
+## What the VPS runs
 
-4. `https://<domain>/impressum` und `/datenschutz` aufrufen: keine roten
-   Hinweise mehr.
-
-Spaetere Aenderungen nur am Caddyfile erkennt Compose nicht (die Datei ist
-eingebunden, nicht kopiert); danach `docker restart congress-caddy`.
-
-## 9. Was auf dem Server bewusst fehlt
-
-- **Keine API-Keys, keine Quiver-Zugangsdaten.** Das Dashboard braucht zur
-  Laufzeit kein Netz und keine Schluessel; es liest nur den Snapshot.
-- **Kein Scraper, kein Import, kein OCR.** Deshalb enthaelt
-  `deploy/Dockerfile.app` weder Tesseract noch Chromium (~600 MB gespart).
-- **Kein Schreibzugriff auf die Daten.** Snapshot und Kurs-Cache sind `:ro`
-  gemountet, der Container laeuft als unprivilegierter Nutzer, und der
-  CSV-Export des Recent-Tabs ist im oeffentlichen Modus ausgeblendet — sonst
-  koennte jeder Besucher Dateien auf der Serverplatte anlegen.
+The dashboard reads the snapshot without API keys, Quiver credentials, or outbound data requests. The dashboard image excludes the scraper, import tools, Tesseract, and Chromium. The container runs as an unprivileged user with read-only snapshot and price cache mounts. Public mode hides the Recent tab's CSV export to prevent visitors from writing files to the server.

@@ -1,25 +1,13 @@
-# systemd-User-Timer: Quiver-Auto-Download + Import
+# Schedule Quiver downloads and imports with a systemd user timer
 
-Versionierte Vorlagen der systemd-Units, die den Quiver-Scraper
-(`scrapers/quiver_scraper.py`) + die Import-Pipeline (`scripts/import_trades.py`)
-taeglich um **03:00** als **User-Timer** ausfuehren.
+These unit templates run the Quiver scraper (`scrapers/quiver_scraper.py`) and trade import (`scripts/import_trades.py`) daily at **03:00**. The service uses the project's virtual environment and local `.env` file. The timer runs in the user session and uses `Persistent=true` to catch up on a missed run when the session starts.
 
-`Persistent=true` holt einen verpassten Lauf nach, sobald der Laptop wieder
-laeuft / die User-Session startet — ein reiner cron-Job wuerde bei nachts
-ausgeschaltetem Rechner nie ausloesen.
+## Install the units
 
-## Warum User-Timer (nicht System-Timer)?
-- Kein `sudo` noetig.
-- Nutzt das Host-`venv` und die User-`.env` (Credentials) direkt.
-- Laeuft im Kontext der User-Session; `Persistent=true` holt verpasste Laeufe
-  beim naechsten Login nach.
-
-## Installation
-`__PROJECT_DIR__` durch den absoluten Projektpfad ersetzen und nach
-`~/.config/systemd/user/` kopieren:
+From the repository root, set `PROJECT_DIR` to the absolute path of your checkout and install the templates under `~/.config/systemd/user/`.
 
 ```bash
-PROJECT_DIR=/home/bene/Nextcloud/Projekte/bmb_trdprg/congress_tracker
+PROJECT_DIR=/absolute/path/to/congress_tracker
 mkdir -p ~/.config/systemd/user
 sed "s#__PROJECT_DIR__#$PROJECT_DIR#g" deploy/systemd/quiver-import.service > ~/.config/systemd/user/quiver-import.service
 cp deploy/systemd/quiver-import.timer ~/.config/systemd/user/quiver-import.timer
@@ -28,24 +16,19 @@ systemctl --user daemon-reload
 systemctl --user enable --now quiver-import.timer
 ```
 
-## Optional: Lauf auch ohne aktives Login (Lingering)
-Ohne Lingering laeuft der User-Timer nur waehrend einer aktiven Session
-(`Persistent=true` holt beim Login nach — fuer einen Laptop meist ausreichend).
-Soll der Timer auch ohne eingeloggten User feuern (benoetigt einmalig `sudo`):
+To run the timer while logged out, enable lingering once with:
 
 ```bash
-sudo loginctl enable-linger $USER
+sudo loginctl enable-linger "$USER"
 ```
 
-## Bedienung / Diagnose
+## Run and troubleshoot
+
 ```bash
-systemctl --user list-timers quiver-import.timer   # naechster/letzter Lauf
-systemctl --user start quiver-import.service        # sofort manuell ausloesen
-systemctl --user status quiver-import.service       # Ergebnis/Exit-Code
-journalctl --user -u quiver-import.service -e       # Logs (zusaetzl. logs/quiver_cron.log)
+systemctl --user list-timers quiver-import.timer   # Show next and previous runs
+systemctl --user start quiver-import.service      # Run immediately
+systemctl --user status quiver-import.service     # Show the result and exit code
+journalctl --user -u quiver-import.service -e     # See also logs/quiver_cron.log
 ```
 
-## Fehlerklassen-Semantik
-Die Service-Unit hat zwei `ExecStart`-Zeilen ohne `-`-Praefix. Faellt der
-Scraper mit Non-Zero-Exit aus (2 = Login, 3 = Download/Abo), stoppt systemd
-und fuehrt `import_trades.py` **nicht** aus — identisch zur cron-`&&`-Semantik.
+The service runs its two `ExecStart` commands in order. A nonzero scraper exit stops the service before import. Exit code `2` indicates a login failure, and `3` indicates a download or subscription failure.
