@@ -4,7 +4,7 @@ EIN Parser fuer beide Consumer (``tags/committee_tag.py`` und
 ``app/member_metrics.py``). Rein und abhaengigkeitsfrei (kein pandas/Streamlit/
 Settings) -> ueberall importierbar, voll unit-testbar.
 
-F2-Grammatik (kanonische Spec: ``scrapers/senate_pdf_parsing_tool/csv_zielstruktur.md``;
+F2-Grammatik (kanonische Spec: ``organisation/tool_specific_md/csv_zielstruktur.md``;
 Quell-Roster ``data/mappings/*_member&(sub)committees.csv``, Spalte ``Committees``
 -> 1:1 in ``Member_Committees_Full``):
   - ``;`` trennt NUR Committees (Top-Level)

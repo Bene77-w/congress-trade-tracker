@@ -12,6 +12,8 @@ import pandas as pd
 from config import settings
 import pytest
 
+from utils.network_canary import GREEN
+
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -435,7 +437,7 @@ def test_compute_post_trade_returns_integration(sample_cache, monkeypatch):
         df,
         horizons_days=[30, 60],
         cache_path=tmp_cache,
-        fetch_years=5,
+        fetch_period='max',
         cache_ttl_days=7,
         exit_amount_tolerance=0.0,
     )
@@ -544,6 +546,227 @@ def test_refresh_eligible_gate_excludes_closed_positions(monkeypatch):
         cache, ['OLD', 'NEW'], cache_ttl_days=1,
         refresh_eligible=set(), canary=_GreenCanary())
     assert calls == ['NEW']
+
+
+# ---------------------------------------------------------------------------
+# 16c. K1: Rueckbefuellung, wenn die Historie erst nach dem ersten Trade beginnt
+# ---------------------------------------------------------------------------
+
+PTR = 'scoring.post_trade_returns'
+
+
+class _GreenCanary:
+    """Haelt den Fetch-Commit-Pfad offline (kein echtes yfinance-Probe)."""
+    saw_throttle = False
+
+    def verdict(self):
+        return GREEN
+
+    def force_reprobe(self):
+        return GREEN
+
+    def wait_then_reprobe(self):
+        return GREEN
+
+
+def _fake_history(start: str, end: str):
+    """yfinance-Ersatz: liefert fuer jeden Ticker taegliche Closes start..end."""
+    calls: list[str] = []
+
+    def _download(tkr, fetch_period, on_attempt_failed=None):
+        calls.append(tkr)
+        idx = pd.date_range(start, end, freq='B', name='Date')
+        return pd.DataFrame({'Close': np.linspace(10.0, 20.0, len(idx))}, index=idx)
+
+    return _download, calls
+
+
+def _recent_cache(tkr: str, start: str) -> pd.DataFrame:
+    """Cache mit echten Kursen von ``start`` bis heute (frisch, kein TTL-Refresh)."""
+    days = pd.date_range(start, pd.Timestamp.now().normalize(), freq='D')
+    return _make_cache([(tkr, d.strftime('%Y-%m-%d'), 50.0) for d in days])
+
+
+def test_backfill_when_history_starts_after_first_trade(monkeypatch, tmp_path):
+    """Frischer Cache ab 2021-05-28, Trade 2015 -> Rueckbefuellung, alte Zeilen bleiben."""
+    download, calls = _fake_history('2013-01-01', '2016-12-30')
+    monkeypatch.setattr(PTR + '._download_with_retry', download)
+    cache = _recent_cache('WFC', '2021-05-28')
+
+    out = _ensure_cache_for_tickers(
+        cache, ['WFC'], cache_ttl_days=1, cache_path=str(tmp_path / 'p.parquet'),
+        earliest_trade={'WFC': pd.Timestamp('2015-03-02')}, canary=_GreenCanary())
+
+    assert calls == ['WFC']
+    dates = out.loc['WFC'].index
+    assert dates.min() == pd.Timestamp('2013-01-01')
+    # Vorhandene Zeilen (nicht im neuen Abruf) bleiben erhalten.
+    assert len(out.loc['WFC'].loc['2021-05-28':]) == len(cache)
+
+
+def test_no_backfill_when_history_covers_first_trade(monkeypatch):
+    download, calls = _fake_history('2013-01-01', '2016-12-30')
+    monkeypatch.setattr(PTR + '._download_with_retry', download)
+    cache = _recent_cache('WFC', '2021-05-28')
+
+    _ensure_cache_for_tickers(
+        cache, ['WFC'], cache_ttl_days=1,
+        earliest_trade={'WFC': pd.Timestamp('2021-05-24')}, canary=_GreenCanary())
+
+    assert calls == []  # erster Kurs 4 Tage nach dem Trade: innerhalb der Lueckengrenze
+
+
+def test_backfill_second_run_does_not_reload(monkeypatch, tmp_path):
+    """Ticker ohne aeltere Historie (z. B. wiederverwendetes Kuerzel) laedt nur einmal."""
+    cache_path = str(tmp_path / 'p.parquet')
+    # yfinance liefert keine aeltere Historie: Abruf beginnt wie der Cache.
+    download, calls = _fake_history('2022-06-09', pd.Timestamp.now().strftime('%Y-%m-%d'))
+    monkeypatch.setattr(PTR + '._download_with_retry', download)
+    cache = _recent_cache('FB', '2022-06-09')
+    first_trade = {'FB': pd.Timestamp('2014-01-06')}
+
+    out = _ensure_cache_for_tickers(
+        cache, ['FB'], cache_ttl_days=1, cache_path=cache_path,
+        earliest_trade=first_trade, canary=_GreenCanary())
+    assert calls == ['FB']
+
+    # Zweiter Lauf (neuer Prozess: Cache und Marke von der Platte).
+    _ensure_cache_for_tickers(
+        _load_price_cache(cache_path), ['FB'], cache_ttl_days=1,
+        cache_path=cache_path, earliest_trade=first_trade, canary=_GreenCanary())
+    assert calls == ['FB']
+    assert out.loc['FB']['close'].notna().all()  # keine NaN-Marke im Kurs-Cache
+
+    # Nach Ablauf der Recheck-Frist wird erneut versucht.
+    _ensure_cache_for_tickers(
+        _load_price_cache(cache_path), ['FB'], cache_ttl_days=1,
+        cache_path=cache_path, earliest_trade=first_trade, canary=_GreenCanary(),
+        delisted_recheck_days=-1)
+    assert calls == ['FB', 'FB']
+
+
+def test_backfill_fills_pre_2021_returns(monkeypatch, tmp_path):
+    """compute_post_trade_returns gibt den fruehesten Trade weiter: 2015er Trade bekommt Kurse."""
+    cache_path = str(tmp_path / 'p.parquet')
+    _save_price_cache(_recent_cache('AAPL', '2021-05-28'), cache_path)
+    download, calls = _fake_history('2013-01-01', '2016-12-30')
+    monkeypatch.setattr(PTR + '._download_with_retry', download)
+    monkeypatch.setattr(PTR + '.NetworkCanary', lambda *a, **kw: _GreenCanary())
+
+    df = pd.DataFrame([_make_trade_row(transaction_date='2015-03-02')])
+    out = compute_post_trade_returns(
+        df, horizons_days=[30], cache_path=cache_path, cache_ttl_days=1)
+
+    assert calls == ['AAPL']
+    assert out['post_return_30d'].notna().iloc[0]
+    assert out['post_return_30d'].iloc[0] != 0.0
+
+
+def test_benchmark_backfilled_to_earliest_trade_of_all_tickers(monkeypatch, tmp_path):
+    """Benchmark ohne eigenen alten Trade wird bis zum fruehesten Trade insgesamt geladen."""
+    cache_path = str(tmp_path / 'p.parquet')
+    cache = pd.concat([_recent_cache('AAPL', '2013-01-01'), _recent_cache('SPY', '2021-05-28')])
+    _save_price_cache(cache, cache_path)
+    download, calls = _fake_history('2012-01-03', '2016-12-30')
+    monkeypatch.setattr(PTR + '._download_with_retry', download)
+    monkeypatch.setattr(PTR + '.NetworkCanary', lambda *a, **kw: _GreenCanary())
+
+    df = pd.DataFrame([
+        _make_trade_row(trade_id='A', transaction_date='2013-03-04'),
+        _make_trade_row(trade_id='S', ticker='SPY', ticker_type='etf',
+                        issuer_group_key='SPY', transaction_date='2022-03-01'),
+    ])
+    compute_post_trade_returns(
+        df, horizons_days=[30], cache_path=cache_path, cache_ttl_days=1,
+        benchmark_ticker='SPY')
+
+    assert calls == ['SPY']
+
+
+def test_empty_backfill_keeps_existing_closes(monkeypatch, tmp_path):
+    """Leerer Rueckbefuellungs-Abruf (GRUEN) loescht keinen vorhandenen Kurs,
+    auch nicht den Schlusskurs von heute (gleicher Schluessel wie der Marker)."""
+    cache_path = str(tmp_path / 'p.parquet')
+    cache = _recent_cache('WFC', '2021-05-28')
+    monkeypatch.setattr(PTR + '._download_with_retry',
+                        lambda tkr, fetch_period, on_attempt_failed=None: pd.DataFrame())
+
+    _ensure_cache_for_tickers(
+        cache, ['WFC'], cache_ttl_days=1, cache_path=cache_path,
+        earliest_trade={'WFC': pd.Timestamp('2015-03-02')}, canary=_GreenCanary())
+
+    pd.testing.assert_frame_equal(_load_price_cache(cache_path), cache,
+                                  check_freq=False)
+
+
+def _recording_yf_download(symbols_with_history: set[str]):
+    """Ersatz fuer ``yf.download``: zeichnet Symbol und ``period`` auf und liefert
+    nur fuer ``symbols_with_history`` Kurse (2013 bis heute), sonst leer."""
+    calls: list[tuple[str, str]] = []
+
+    def _download(tkr, period, **kwargs):
+        calls.append((tkr, period))
+        if tkr not in symbols_with_history:
+            return pd.DataFrame()
+        idx = pd.date_range('2013-01-01', pd.Timestamp.now().normalize(),
+                            freq='B', name='Date')
+        return pd.DataFrame({'Close': np.linspace(10.0, 20.0, len(idx))}, index=idx)
+
+    return _download, calls
+
+
+def test_backfill_requests_full_history_from_yfinance(monkeypatch, tmp_path):
+    """Pipeline-Setting bis yf.download: die Rueckbefuellung fordert period='max' an."""
+    cache_path = str(tmp_path / 'p.parquet')
+    _save_price_cache(_recent_cache('AAPL', '2021-05-28'), cache_path)
+    download, calls = _recording_yf_download({'AAPL'})
+    monkeypatch.setattr(PTR + '.yf.download', download)
+    monkeypatch.setattr(PTR + '.NetworkCanary', lambda *a, **kw: _GreenCanary())
+
+    df = pd.DataFrame([_make_trade_row(transaction_date='2015-03-02')])
+    compute_post_trade_returns(
+        df, horizons_days=[30], cache_path=cache_path, cache_ttl_days=1,
+        fetch_period=settings.POST_TRADE_PRICE_FETCH_PERIOD)
+
+    assert calls == [('AAPL', 'max')]
+
+
+def test_shareclass_prices_fetched_with_yfinance_symbol(monkeypatch, tmp_path):
+    """Share-Class 'BRK.B': yfinance bekommt 'BRK-B' (ticker_base), der Cache-Schluessel
+    bleibt der Ticker des Trades, und der Trade bekommt Returns."""
+    cache_path = str(tmp_path / 'p.parquet')
+    download, calls = _recording_yf_download({'BRK-B'})
+    monkeypatch.setattr(PTR + '.yf.download', download)
+    monkeypatch.setattr(PTR + '.NetworkCanary', lambda *a, **kw: _GreenCanary())
+
+    df = pd.DataFrame([_make_trade_row(
+        ticker='BRK.B', ticker_base='BRK-B', ticker_type='shareclass',
+        issuer_group_key='CIK:0001067983', transaction_date='2015-03-02')])
+    out = compute_post_trade_returns(
+        df, horizons_days=[30], cache_path=cache_path, cache_ttl_days=1)
+
+    assert calls == [('BRK-B', 'max')]
+    assert set(_load_price_cache(cache_path).index.get_level_values(0)) == {'BRK.B'}
+    assert out['post_return_30d'].notna().iloc[0]
+
+
+def test_shareclass_paper_return_fetched_with_yfinance_symbol(monkeypatch, tmp_path):
+    """Recent-Monitoring: derselbe Weg zum yfinance-Symbol wie die Post-Trade-Stage."""
+    cache_path = str(tmp_path / 'p.parquet')
+    download, calls = _recording_yf_download({'BRK-B'})
+    monkeypatch.setattr(PTR + '.yf.download', download)
+    monkeypatch.setattr(PTR + '.NetworkCanary', lambda *a, **kw: _GreenCanary())
+
+    today = pd.Timestamp.now().normalize()
+    df = pd.DataFrame([_make_trade_row(
+        ticker='BRK.B', ticker_base='BRK-B', ticker_type='shareclass',
+        issuer_group_key='CIK:0001067983',
+        transaction_date=pd.bdate_range(end=today, periods=5)[0])])
+    df['post_trade_baseline_price'] = [np.nan]
+    out = compute_paper_returns(df, cache_path=cache_path)
+
+    assert calls == [('BRK-B', 'max')]
+    assert out['paper_return_pct'].notna().iloc[0]
 
 
 # ---------------------------------------------------------------------------

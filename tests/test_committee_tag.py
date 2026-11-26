@@ -1,9 +1,9 @@
-"""Tests fuer tags/committee_tag.py — CommitteeTag.calculate_relevance (Phase 3).
+"""Tests fuer tags/committee_tag.py — CommitteeTag.calculate_relevance.
 
 Pinnt die F2-Integration des zentralen Parsers, die zwei expliziten Rollen-
-Ebenen-Felder (committee_role/subcommittee_role) und Befund A (Artikel-Strip
-in committee_mapping._normalize). Laeuft gegen das echte Mapping-CSV
-(data/mappings/subcommittee_sector_industry_mapping.csv, im Repo committet).
+Ebenen-Felder (committee_role/subcommittee_role), die eigene Zustaendigkeit
+des Vollausschusses und die Dublettenwahl. Laeuft gegen die eingecheckten
+Referenztabellen (data/reference/, 119. Kongress).
 """
 from __future__ import annotations
 
@@ -16,67 +16,47 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from config import settings  # noqa: E402
-from config.committee_mapping import CommitteeMapper  # noqa: E402
 from tags.committee_tag import (  # noqa: E402
     CommitteeTag,
+    dedupe_entries,
     role_keys_for_entries,
 )
+from utils.reference_data import ReferenceData  # noqa: E402
 
-#: Diese Datei prueft die Tag-Logik gegen das Legacy-Mapping und nennt seinen
-#: Pfad seit P3 ausdruecklich: ohne Pfad laedt der Mapper die aktive
-#: Mappingrevision des Matchers, und die kennt diese Ausschuesse nicht.
-LEGACY_CSV = str(ROOT / settings.DATA_MAPPINGS_PATH
-                 / settings.COMMITTEE_MAPPING_FILE)
-
-# Realer Walberg-Roster-String in F2 (s. tests/test_member_metrics.py).
-WALBERG = ('Education And Workforce|Chairman:Early Childhood, Elementary, And '
-           'Secondary Education|Ex Officio~Health, Employment, Labor, And '
-           'Pensions|Ex Officio~Higher Education And Workforce Development|Ex '
-           'Officio~Workforce Protections|Ex Officio;Natural Resources|:Indian '
-           'And Insular Affairs|~Water, Wildlife And Fisheries|')
+# F2-String aus den Referenztabellen (Tim Walberg, 119. Kongress).
+WALBERG = ('Committee on Education and Workforce|Chairman;'
+           'Committee on Natural Resources|:Water, Wildlife and Fisheries|'
+           '~Indian and Insular Affairs|')
+WATER = 'Water, Wildlife and Fisheries'
 
 
 @pytest.fixture(scope='module')
 def tag() -> CommitteeTag:
-    t = CommitteeTag(mapper=CommitteeMapper(mapping_path=LEGACY_CSV))
+    t = CommitteeTag(mapper=ReferenceData().mapper('119'))
     # Match-Modus fixieren, damit der Test nicht von settings abhaengt.
     t.match_mode = 'sector_or_industry'
     return t
 
 
-def test_walberg_trailing_sub_sectors_present(tag):
-    """Der alte Parser flachte ab und verlor trailing Subs (Walberg 4 statt 20
-    Treffer). Mit F2 muessen die Sektoren des LETZTEN Subs des ZWEITEN
-    Committees ('Water, Wildlife And Fisheries') vorhanden sein."""
+def test_trailing_sub_sectors_present(tag):
+    """Der alte Parser flachte ab und verlor trailing Subs. Mit F2 muessen die
+    Sektoren des LETZTEN Subs des ZWEITEN Committees vorhanden sein."""
     res = tag.calculate_relevance(WALBERG, 'House')
     subs_seen = {s['subcommittee'] for s in res['insider_sectors']}
-    assert 'Water, Wildlife And Fisheries' in subs_seen
-    assert 'Workforce Protections' in subs_seen
-    # ('Indian And Insular Affairs' hat KEINE Zeile im Mapping-CSV —
-    #  inhaltliche Mapping-Luecke, kein Parser-Thema.)
+    assert {'Indian and Insular Affairs', WATER} <= subs_seen
 
 
 def test_role_fields_carry_both_levels(tag):
     """Jeder Sektor-Eintrag traegt committee_role UND subcommittee_role
     (statt des frueheren vermischten 'role')."""
-    res = tag.calculate_relevance(WALBERG, 'House')
+    res = tag.calculate_relevance(
+        f'Committee on Natural Resources|Chairman:{WATER}|Ex Officio', 'House')
     assert res['insider_sectors'], 'Mapping lieferte keine Sektoren'
     for entry in res['insider_sectors']:
-        assert 'committee_role' in entry
-        assert 'subcommittee_role' in entry
+        assert entry['committee_role'] == 'Chairman'
         assert 'role' not in entry
-
-    edu = [e for e in res['insider_sectors']
-           if e['committee'] == 'Education And Workforce']
-    assert edu, 'Education And Workforce ohne Mapping-Treffer'
-    assert all(e['committee_role'] == 'Chairman' for e in edu)
-    assert all(e['subcommittee_role'] == 'Ex Officio' for e in edu)
-
-    nat = [e for e in res['insider_sectors']
-           if e['committee'] == 'Natural Resources']
-    assert nat, 'Natural Resources ohne Mapping-Treffer'
-    assert all(e['committee_role'] == '' for e in nat)
+    sub = [e for e in res['insider_sectors'] if e['subcommittee'] == WATER]
+    assert sub and all(e['subcommittee_role'] == 'Ex Officio' for e in sub)
 
 
 def test_committee_without_subs_maps_committee_wide(tag):
@@ -84,29 +64,18 @@ def test_committee_without_subs_maps_committee_wide(tag):
     subcommittee_role leer, subcommittee leer."""
     res = tag.calculate_relevance('Committee on the Judiciary|Chairman',
                                   'Senate')
-    assert res['insider_sectors'], 'Befund-A-Fix greift nicht (Judiciary leer)'
+    assert res['insider_sectors']
     for entry in res['insider_sectors']:
         assert entry['committee_role'] == 'Chairman'
         assert entry['subcommittee_role'] == ''
         assert entry['subcommittee'] == ''
 
 
-def test_befund_a_article_stripped_for_subcommittee_lookup(tag):
-    """Befund A: 'Committee on the Judiciary' muss das Mapping 'Judiciary'
-    treffen — auch auf Subcommittee-Ebene."""
-    res = tag.calculate_relevance(
-        'Committee on the Judiciary|:'
-        'Subcommittee on Privacy, Technology, and the Law|Chair', 'Senate')
-    assert res['insider_sectors'], 'Judiciary-Sub ohne Sektoren (Befund A)'
-    assert all(e['subcommittee_role'] == 'Chair'
-               for e in res['insider_sectors'])
-
-
 def test_relevant_sectors_match_carries_role_fields(tag):
     """Match-Pass: relevante Treffer behalten beide Rollen-Felder +
     match_type."""
     res = tag.calculate_relevance(
-        'Natural Resources|:Water, Wildlife And Fisheries|Chair', 'House',
+        f'Committee on Natural Resources|:{WATER}|Chair', 'House',
         ticker_sector='Utilities',
         ticker_industry='Utilities - Regulated Water')
     assert res['match_count'] >= 1
@@ -114,6 +83,80 @@ def test_relevant_sectors_match_carries_role_fields(tag):
         assert entry['match_type'] in ('full', 'sector')
         assert entry['committee_role'] == ''
         assert entry['subcommittee_role'] == 'Chair'
+
+
+# ---------------------------------------------------------------------------
+# Eigene Zustaendigkeit des Vollausschusses
+# ---------------------------------------------------------------------------
+
+class _StubMapper:
+    """Mapper mit gestellten Antworten, ohne weitere Attribute."""
+
+    def __init__(self, committee, subcommittee):
+        self._committee = committee
+        self._subcommittee = subcommittee
+
+    def get_all_sectors_for_committee(self, chamber, committee):
+        return [e.copy() for e in self._committee]
+
+    def get_sectors_for_subcommittee(self, chamber, committee, subcommittee):
+        return [e.copy() for e in self._subcommittee]
+
+
+KERN = [{'sector': 'Consumer Defensive', 'industry': 'Farm Products',
+         'confidence': 4}]
+SUB = [{'sector': 'Consumer Defensive', 'industry': 'Packaged Foods',
+        'confidence': 3}]
+
+
+def _stub_tag(committee, subcommittee) -> CommitteeTag:
+    t = CommitteeTag(mapper=_StubMapper(committee, subcommittee))
+    t.match_mode = 'sector_or_industry'
+    return t
+
+
+def test_der_vollausschuss_gilt_auch_bei_unterausschuss_sitz():
+    """Sonst erreichte die Zustaendigkeit des Ausschusses nur Mitglieder
+    ohne Unterausschuss-Sitz."""
+    res = _stub_tag(KERN, SUB).calculate_relevance(
+        'Agriculture|:Livestock|Chairman', 'House')
+    assert {e['industry'] for e in res['insider_sectors']} == {
+        'Farm Products', 'Packaged Foods'}
+
+
+def test_die_unterausschuss_rolle_faerbt_nicht_auf_den_kern_ab():
+    """Geprueft an einem Ticker, den nur der Kern trifft: truege der
+    Kerneintrag die Rolle des Unterausschusses, stuende dessen Bonus in den
+    Rollenkeys, obwohl der Unterausschuss den Trade nicht beruehrt."""
+    fremd = [{'sector': 'Technology', 'industry': 'Semiconductors',
+              'confidence': 3}]
+    res = _stub_tag(KERN, fremd).calculate_relevance(
+        'Agriculture|Chairman:Livestock|Chairman', 'House',
+        ticker_sector='Consumer Defensive', ticker_industry='Farm Products')
+    kern = [e for e in res['insider_sectors']
+            if e['industry'] == 'Farm Products'][0]
+    assert kern['subcommittee_role'] == ''
+    assert kern['subcommittee'] == ''
+    assert res['ex_officio_role_keys'] == 'committee_chairman'
+
+
+# ---------------------------------------------------------------------------
+# Dublettenwahl
+# ---------------------------------------------------------------------------
+
+def test_die_dublettenwahl_haengt_nicht_an_der_reihenfolge():
+    hoch = {'sector': 'Energy', 'industry': 'Oil & Gas E&P', 'confidence': 4}
+    niedrig = {'sector': 'Energy', 'industry': 'Oil & Gas E&P', 'confidence': 1}
+    assert dedupe_entries([niedrig, hoch])[0]['confidence'] == 4
+    assert dedupe_entries([hoch, niedrig])[0]['confidence'] == 4
+
+
+def test_verschiedene_industries_bleiben_nebeneinander():
+    eintraege = [
+        {'sector': 'Energy', 'industry': 'Oil & Gas E&P', 'confidence': 3},
+        {'sector': 'Energy', 'industry': 'Uranium', 'confidence': 2},
+    ]
+    assert len(dedupe_entries(eintraege)) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -151,8 +194,7 @@ def test_role_keys_mapping_levels_and_aliases():
 def test_ex_officio_role_keys_end_to_end(tag):
     """Treffer mit Committee-Chairman + Sub-Chair -> beide Keys, sortiert."""
     res = tag.calculate_relevance(
-        'Natural Resources|Chairman:Water, Wildlife And Fisheries|Chair',
-        'House',
+        f'Committee on Natural Resources|Chairman:{WATER}|Chair', 'House',
         ticker_sector='Utilities',
         ticker_industry='Utilities - Regulated Water')
     assert res['match_count'] >= 1
@@ -162,7 +204,7 @@ def test_ex_officio_role_keys_end_to_end(tag):
 
 def test_ex_officio_role_keys_empty_without_leadership(tag):
     res = tag.calculate_relevance(
-        'Natural Resources|:Water, Wildlife And Fisheries|', 'House',
+        f'Committee on Natural Resources|:{WATER}|', 'House',
         ticker_sector='Utilities',
         ticker_industry='Utilities - Regulated Water')
     assert res['match_count'] >= 1
@@ -178,16 +220,16 @@ def test_ex_officio_role_keys_empty_without_ticker_info(tag):
 
 class _FakeDedupMapper:
     """Zwei Committees mappen dieselbe (Sector, Industry)-Kombination:
-    'Alpha' rollenlos mit Rank 1, 'Beta' (Sub-Chair) mit Rank 2. Die Dedup
-    behaelt den rollenlosen Rank-1-Eintrag."""
+    'Alpha' rollenlos mit Konfidenz 3, 'Beta' (Sub-Chair) mit Konfidenz 2.
+    Die Dedup behaelt den rollenlosen Eintrag."""
 
     def get_sectors_for_subcommittee(self, chamber, committee, subcommittee):
         if committee == 'Alpha':
             return [{'sector': 'Technology', 'industry': 'Software',
-                     'rank': 1, 'confidence': 'Hoch'}]
+                     'confidence': 3}]
         if committee == 'Beta':
             return [{'sector': 'Technology', 'industry': 'Software',
-                     'rank': 2, 'confidence': 'Hoch'}]
+                     'confidence': 2}]
         return []
 
     def get_all_sectors_for_committee(self, chamber, committee):
@@ -196,14 +238,14 @@ class _FakeDedupMapper:
 
 def test_role_keys_survive_dedup_displacement():
     """Prae-Dedup-Garantie: verdraengt die (sector, industry)-Dedup den
-    Fuehrungsrollen-Eintrag (rollenlos Rank 1 schlaegt Sub-Chair Rank 2),
-    muss der Role-Key trotzdem in ex_officio_role_keys stehen."""
+    Fuehrungsrollen-Eintrag, muss der Role-Key trotzdem in
+    ex_officio_role_keys stehen."""
     t = CommitteeTag(mapper=_FakeDedupMapper())
     t.match_mode = 'sector_or_industry'
     res = t.calculate_relevance(
         'Alpha|:SubA|;Beta|:SubB|Chair', 'House',
         ticker_sector='Technology', ticker_industry='Software')
-    # Dedup behaelt nur den Alpha-Eintrag (Rank 1, rollenlos) ...
+    # Dedup behaelt nur den Alpha-Eintrag (hoehere Konfidenz, rollenlos) ...
     assert len(res['relevant_sectors']) == 1
     assert res['relevant_sectors'][0]['committee'] == 'Alpha'
     assert res['relevant_sectors'][0]['subcommittee_role'] == ''

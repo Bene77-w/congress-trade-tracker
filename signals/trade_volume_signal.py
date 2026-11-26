@@ -2,7 +2,7 @@
 Signal: Trade Volume — triggert bei Trades mit hohem Disclosure-Amount.
 
 Score-Basis ist die Obergrenze der Quiver-Amount-Range
-(Spalte ``trade_amount_max_usd``, befuellt von Stage ``_stage_trade_volume``).
+(Spalte ``trade_amount_max_usd``, befuellt in ``TradeImporter.run()``).
 Pro Trade zaehlt nur die hoechste erreichte Stufe; der Score-Beitrag kommt
 aus ``settings.SCORING_TRADE_VOLUME_TIERS`` (nicht aus ``SCORING_WEIGHTS``).
 

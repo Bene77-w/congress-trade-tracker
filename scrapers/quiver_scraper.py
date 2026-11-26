@@ -24,7 +24,7 @@ import logging
 import os
 import sys
 
-# Projekt-Root in sys.path einfuegen (analog senate_scraper.py)
+# Projekt-Root in sys.path einfuegen (Repo-Root fuer die Imports)
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import settings
 
@@ -132,7 +132,7 @@ def download_quiver(headless: bool = True, dry_run: bool = False) -> str:
     Returns: Pfad der bereitgestellten Datei.
     Raises:  QuiverLoginError / QuiverDownloadError je nach Fehlerklasse.
     """
-    # Lazy-Import (analog senate_scraper.py) — Playwright erst zur Laufzeit laden.
+    # Lazy-Import — Playwright erst zur Laufzeit laden.
     from playwright.sync_api import sync_playwright
     from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 

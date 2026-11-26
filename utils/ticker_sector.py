@@ -28,7 +28,7 @@ from utils.network_canary import RED, NetworkCanary
 from utils.network_retry import NetworkRetryExhausted, retry_call
 from utils.ticker_classifier import TickerType
 from utils.ticker_normalizer import NormalizedTicker
-from utils.ticker_routing import SECTOR_LOOKUP_TYPES
+from utils.ticker_routing import SECTOR_LOOKUP_TYPES, yf_symbol
 
 
 logger = logging.getLogger(__name__)
@@ -141,7 +141,7 @@ class TickerSectorEnricher:
         """Anreicherung für einen Batch von NormalizedTicker.
 
         Routing:
-        - Eligible Types (STOCK, ETF, ...) → direkter yfinance-Call
+        - Eligible Types (STOCK, ETF, ...) → yfinance-Call unter yf_symbol()
         - PREFERRED → yfinance(parent_ticker aus Classifier)
         - Sonst → leeres SectorInfo (kein Call)
 
@@ -178,7 +178,8 @@ class TickerSectorEnricher:
                 else:
                     targets.append((idx, norm, parent))
             elif ttype in SECTOR_LOOKUP_TYPES:
-                targets.append((idx, norm, raw))
+                symbol = yf_symbol(raw, ttype, norm.classification.ticker_base)
+                targets.append((idx, norm, symbol))
             else:
                 targets.append((idx, norm, None))
 

@@ -74,6 +74,6 @@ if (( ! DRY_RUN )); then
   }
 fi
 
-run rsync -avz data/deploy/ "$DEPLOY_TARGET:$DEPLOY_PATH/data/deploy/"
+run rsync -avz --delay-updates data/deploy/ "$DEPLOY_TARGET:$DEPLOY_PATH/data/deploy/"
 REMOTE_CMD="cd '$DEPLOY_PATH' && docker compose -p '$DEPLOY_COMPOSE_PROJECT' -f deploy/docker-compose.prod.yml --env-file deploy/.env up -d --force-recreate --wait --wait-timeout 180 dashboard && docker compose -p '$DEPLOY_COMPOSE_PROJECT' -f deploy/docker-compose.prod.yml --env-file deploy/.env ps dashboard"
 run ssh "$DEPLOY_TARGET" "$REMOTE_CMD"

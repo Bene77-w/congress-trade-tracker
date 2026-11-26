@@ -199,3 +199,51 @@ class TestAccumulativeSignal:
         sig = AccumulativeSignal()
         assert sig.window_days == settings.ACCUMULATIVE_WINDOW_DAYS
         assert sig.min_count == settings.ACCUMULATIVE_MIN_COUNT
+
+
+# ---------- H6: Lots desselben Handelstags sind ein Ereignis -----------------
+# Audit-Fall: McCaul verkauft EOG am 2016-05-18 in 44 Lots (Quiver-XLSX).
+
+def _mccaul_eog_lots(tx_type):
+    return [make_trade(date(2016, 5, 18), tx_type, trade_id=f'lot{i}',
+                       ticker='EOG', member_id='M001157')
+            for i in range(44)]
+
+
+@pytest.mark.parametrize('tx_type', ['Sale', 'Purchase'])
+class TestAccumulativeSameDayLots:
+    def test_lots_eines_handelstags_loesen_nicht_aus(self, tx_type):
+        sig = AccumulativeSignal(window_days=30, min_count=2)
+        assert sig.evaluate_group(make_group(_mccaul_eog_lots(tx_type))) == []
+
+    def test_zweiter_handelstag_im_fenster_loest_aus(self, tx_type):
+        sig = AccumulativeSignal(window_days=30, min_count=2)
+        trades = _mccaul_eog_lots(tx_type) + [
+            make_trade(date(2016, 5, 25), tx_type, trade_id='tag2',
+                       ticker='EOG', member_id='M001157')]
+        events = sig.evaluate_group(make_group(trades))
+        # Ein Event-Set ueber beide Handelstage, alle 45 Zeilen beteiligt.
+        assert sorted(e['trade_id'] for e in events) == sorted(
+            [f'lot{i}' for i in range(44)] + ['tag2'])
+        assert len({e['signal_event_id'] for e in events}) == 1
+        assert {e['triggering_date'] for e in events} == {date(2016, 5, 25)}
+
+    def test_undatierte_zeile_wird_uebersprungen(self, tx_type):
+        sig = AccumulativeSignal(window_days=30, min_count=2)
+        undatiert = make_trade(date(2016, 5, 20), tx_type, trade_id='ohne_datum',
+                               ticker='EOG', member_id='M001157')
+        undatiert['transaction_date'] = pd.NaT
+        trades = _mccaul_eog_lots(tx_type)[:2] + [undatiert] + [
+            make_trade(date(2016, 5, 25), tx_type, trade_id='tag2',
+                       ticker='EOG', member_id='M001157')]
+        events = sig.evaluate_group(make_group(trades))
+        assert 'ohne_datum' not in {e['trade_id'] for e in events}
+        assert len(events) == 3
+
+    def test_zweiter_handelstag_ausserhalb_des_fensters_loest_nicht_aus(
+            self, tx_type):
+        sig = AccumulativeSignal(window_days=30, min_count=2)
+        trades = _mccaul_eog_lots(tx_type) + [
+            make_trade(date(2016, 7, 1), tx_type, trade_id='spaet',
+                       ticker='EOG', member_id='M001157')]
+        assert sig.evaluate_group(make_group(trades)) == []

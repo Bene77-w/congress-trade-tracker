@@ -1,0 +1,85 @@
+{
+  "AAPL": {
+    "data": [
+      {
+        "compositeFIGI": "BBG000B9XRY4",
+        "exchCode": "US",
+        "figi": "BBG000B9XRY4",
+        "marketSector": "Equity",
+        "name": "APPLE INC",
+        "securityDescription": "AAPL",
+        "securityType": "Common Stock",
+        "securityType2": "Common Stock",
+        "shareClassFIGI": "BBG001S5N8V8",
+        "ticker": "AAPL"
+      }
+    ]
+  },
+  "BF/B": {
+    "data": [
+      {
+        "compositeFIGI": "BBG000BD2NY8",
+        "exchCode": "US",
+        "figi": "BBG000BD2NY8",
+        "marketSector": "Equity",
+        "name": "BROWN-FORMAN CORP-CLASS B",
+        "securityDescription": "BF/B",
+        "securityType": "Common Stock",
+        "securityType2": "Common Stock",
+        "shareClassFIGI": "BBG001S5P4H1",
+        "ticker": "BF/B"
+      }
+    ]
+  },
+  "BRK.B": {
+    "warning": "No identifier found."
+  },
+  "BRK/B": {
+    "data": [
+      {
+        "compositeFIGI": "BBG000DWG505",
+        "exchCode": "US",
+        "figi": "BBG000DWG505",
+        "marketSector": "Equity",
+        "name": "BERKSHIRE HATHAWAY INC-CL B",
+        "securityDescription": "BRK/B",
+        "securityType": "Common Stock",
+        "securityType2": "Common Stock",
+        "shareClassFIGI": "BBG001S90346",
+        "ticker": "BRK/B"
+      }
+    ]
+  },
+  "QQQ": {
+    "data": [
+      {
+        "compositeFIGI": "BBG000BSWKH7",
+        "exchCode": "US",
+        "figi": "BBG000BSWKH7",
+        "marketSector": "Equity",
+        "name": "INVESCO QQQ TRUST SERIES 1",
+        "securityDescription": "QQQ",
+        "securityType": "ETP",
+        "securityType2": "Mutual Fund",
+        "shareClassFIGI": "BBG001S9GN63",
+        "ticker": "QQQ"
+      }
+    ]
+  },
+  "SPY": {
+    "data": [
+      {
+        "compositeFIGI": "BBG000BDTBL9",
+        "exchCode": "US",
+        "figi": "BBG000BDTBL9",
+        "marketSector": "Equity",
+        "name": "SS SPDR S&P 500 ETF TRUST-US",
+        "securityDescription": "SPY",
+        "securityType": "ETP",
+        "securityType2": "Mutual Fund",
+        "shareClassFIGI": "BBG001S72SM3",
+        "ticker": "SPY"
+      }
+    ]
+  }
+}

@@ -7,7 +7,7 @@ werden immer über ``(congress, committee_id)`` gewählt.
 
 ``Member_Committees_Full`` behält das F2-Format (``utils/committee_parser.py``), damit
 Tags, Signale und App unverändert lesen können. ``ReferenceMapper`` liefert dazu die
-Industries eines Kongresses mit der Schnittstelle von ``CommitteeMapper``.
+Industries eines Kongresses für ``CommitteeTag`` und die Ausschussansicht der App.
 """
 from __future__ import annotations
 
@@ -22,6 +22,9 @@ from config import settings
 STATUS_MATCHED = 'matched'                    # Ausschüsse gefunden
 STATUS_NO_MEMBERSHIP = 'no_membership'        # Kongress abgedeckt, keine Mitgliedschaft in den Daten
 STATUS_NOT_COVERED = 'congress_not_covered'   # Transaktionsdatum in keinem Kongress aus congresses.csv
+
+# Die Tabellen, die ReferenceData liest; der Deployment-Snapshot kopiert genau diese.
+TABLES = ('congresses', 'committees', 'committee_memberships', 'committee_industries')
 
 # F2 schreibt Rollen ebenenabhängig: Ausschuss "Chairman"/"Vice Chairman",
 # Unterausschuss "Chair"/"Vice Chair". Die Quelle mischt die Formen.
@@ -122,24 +125,26 @@ class ReferenceData:
         """Ausschuss -> Industries für den Kongress eines Trades (Member_Congress)."""
         source = self._data_from.get(_key(congress), '')
         if source not in self._mappers:
-            self._mappers[source] = ReferenceMapper(self, source)
+            self._mappers[source] = ReferenceMapper(
+                source,
+                {cid: row for (c, cid), row in self._committees.items() if c == source},
+                {cid: rows for (c, cid), rows in self._industries.items() if c == source})
         return self._mappers[source]
 
 
 class ReferenceMapper:
-    """Industries je Ausschuss eines Kongresses; Schnittstelle wie ``CommitteeMapper``.
+    """Industries je Ausschuss eines Kongresses.
 
-    Namen sind die des F2-Strings desselben Kongresses, deshalb genügt ein exakter Vergleich.
+    ``committees``: Ausschuss-ID -> Zeile aus ``committees.csv``; ``industries``: Ausschuss-ID ->
+    Industries, beides nur dieses Kongresses. Namen sind die des F2-Strings desselben Kongresses,
+    deshalb genügt ein exakter Vergleich.
     """
 
-    def __init__(self, data: ReferenceData, congress: str):
+    def __init__(self, congress: str, committees: dict[str, Any], industries: dict[str, list[dict]]):
         self.congress = congress
-        # Nicht None: CommitteeTag rechnet dann die eigene Zuständigkeit des Vollausschusses
-        # hinzu, wenn jemand zusätzlich in einem seiner Unterausschüsse sitzt.
-        self.revision = f'reference:{congress}'
-        self._industries = {cid: rows for (c, cid), rows in data._industries.items() if c == congress}
+        self._industries = industries
         self._ids = {(row.parent_committee_id or row.chamber, _name(row)): cid
-                     for (c, cid), row in data._committees.items() if c == congress}
+                     for cid, row in committees.items()}
 
     def _committee_id(self, chamber: str, committee: str) -> str:
         for scope in (str(chamber or '').strip().lower(), 'joint'):

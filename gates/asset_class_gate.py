@@ -3,8 +3,10 @@ Congress Trade Tracker - Gate: Asset Class
 
 Markiert Trades die keine handelbare Einzel-Aktie sind (ETFs, Options,
 Bonds, Crypto, Warrants, Mutual Funds etc.) als asset_class_excluded=True.
-Diese Trades bleiben in trades_master.csv erhalten, werden aber von
-nachfolgenden Tags (Committee, Vote-Timing) und vom Scoring ignoriert.
+Diese Trades bleiben im Master erhalten, bekommen aber keine Signale und
+keinen Score und sind kein Input fuer Sequenz- und Schwarmsignale anderer
+Trades (Maske vor den Signal-Schritten in TradeImporter.run()). Der
+Vote-Timing-Tag prueft das Flag selbst.
 
 Grundlage: Die via OpenFIGI befuellte ticker_type-Spalte.
 Konfiguration: settings.ASSET_CLASS_KEEP_TYPES.

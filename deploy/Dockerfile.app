@@ -1,10 +1,10 @@
 # Dashboard-Image fuer das oeffentliche Deployment.
 #
 # Unterschied zum Dockerfile im Projektroot: dort steckt die komplette
-# Pipeline drin (Tesseract-OCR fuer den House-PDF-Extractor, Chromium fuer den
-# Senate-Scraper — zusammen ~600 MB). Die oeffentliche Instanz zeigt nur das
-# Dashboard und laedt einen fertigen Datenstand; sie scrapt und importiert
-# nichts. Deshalb faellt beides hier weg: kleineres Image, schnellerer Build.
+# Pipeline drin (Chromium fuer den Quiver-Scraper, ~600 MB). Die oeffentliche
+# Instanz zeigt nur das Dashboard und laedt einen fertigen Datenstand; sie
+# scrapt und importiert nichts. Deshalb faellt Chromium hier weg: kleineres
+# Image, schnellerer Build.
 FROM python:3.12-slim
 
 WORKDIR /app

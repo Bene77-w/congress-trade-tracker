@@ -157,15 +157,15 @@ def _load_price_cache():
 
 
 @st.cache_resource(show_spinner=False)
-def _committee_mapper():
-    """CommitteeMapper (O(1) Subcommittee/Committee -> Sektor/Industry).
+def _reference_data(reference_dir: Path | None):
+    """Referenztabellen (Ausschuss -> Sektor/Industry je Kongress).
 
-    Als cache_resource gehalten (eine Instanz pro Session); bei fehlender
-    Mapping-CSV gibt der Loader None zurueck -> Header faellt auf die simple
-    Rollen-Liste zurueck (kein harter Fehler im Popup)."""
+    Als cache_resource gehalten (eine Instanz je Ordner); fehlen die Tabellen,
+    gibt der Loader None zurueck -> die Gremien-Tabellen bleiben ohne Sektoren
+    (kein harter Fehler im Popup)."""
     try:
-        from config.committee_mapping import CommitteeMapper
-        return CommitteeMapper()
+        from utils.reference_data import ReferenceData
+        return ReferenceData(reference_dir)
     except Exception:
         return None
 
@@ -189,7 +189,8 @@ _TRAJ_COLS = ['trade_id', 'ticker', 'asset_name', 'transaction_type',
 # Header + Controls
 # ---------------------------------------------------------------------------
 
-def _render_header(member_df: pd.DataFrame, name: str, chamber: str) -> None:
+def _render_header(member_df: pd.DataFrame, name: str, chamber: str,
+                   reference_dir: Path | None) -> None:
     party = _first(member_df.get('Member_Party', pd.Series(dtype=object)))
     state = _first(member_df.get('Member_State', pd.Series(dtype=object)))
     district = _first(member_df.get('district', pd.Series(dtype=object)))
@@ -203,52 +204,73 @@ def _render_header(member_df: pd.DataFrame, name: str, chamber: str) -> None:
 
     c1, c2 = st.columns([3, 1])
     with c1:
-        _render_committees(member_df, chamber)
+        _render_committees(member_df, chamber, reference_dir)
     with c2:
         st.link_button('Diesen Politiker auf Google suchen', _google_url(name),
                        width='stretch')
 
 
-def _render_committees(member_df: pd.DataFrame, chamber: str) -> None:
-    """Gremien-Ansicht: Aufsichts-Sektoren-Einzeiler + Committee-Expander mit
-    Subcommittee->Sektor/Industry-Tabelle (Phase G)."""
-    committees_str = _first(member_df.get(
-        'Member_Committees_Full', pd.Series(dtype=object)))
-    committees = mm.parse_committees_full(committees_str)
-    if not committees:
+def _render_committees(member_df: pd.DataFrame, chamber: str,
+                       reference_dir: Path | None) -> None:
+    """Gremien-Ansicht: Aufsichts-Sektoren-Einzeiler + je Stand der
+    Ausschussdaten ein Block (neuester oben, aeltere im Expander) mit
+    Subcommittee->Sektor/Industry-Tabellen je Committee."""
+    reference = _reference_data(reference_dir)
+    blocks, without = mm.committee_blocks(
+        member_df, chamber,
+        reference.mapper if reference is not None else (lambda congress: None))
+    if not blocks:
         st.caption('Keine Gremien-Daten.')
-        return
-
-    sectors = sorted(mm.member_oversight_sectors(member_df))
-    if sectors:
-        st.markdown('**Aufsichts-Sektoren:** ' + ', '.join(sectors))
     else:
-        st.markdown('**Gremien & Rollen**')
+        sectors = sorted(mm.member_oversight_sectors(member_df))
+        if sectors:
+            st.markdown('**Aufsichts-Sektoren:** ' + ', '.join(sectors))
+        else:
+            st.markdown('**Gremien & Rollen**')
+        for i, block in enumerate(blocks):
+            label = ' / '.join(f'{c}.' for c in block['congresses']) + ' Kongress'
+            if i == 0:
+                st.markdown(f'**{label}**')
+                _render_committee_tables(block['committees'], nested=False)
+            else:
+                with st.expander(label):
+                    _render_committee_tables(block['committees'], nested=True)
+    if without:
+        st.caption(f'{without} Trades ohne Kongresszuordnung: keine Ausschussdaten.')
 
-    mapper = _committee_mapper()
-    table = mm.committee_oversight_rows(committees, chamber, mapper)
+
+def _render_committee_tables(table: list[dict], nested: bool) -> None:
+    """Je Committee eine Subcommittee-Tabelle. Streamlit erlaubt keine
+    Expander im Expander: im aelteren Block stehen die Committees deshalb als
+    Zwischenueberschrift statt als eigener Expander."""
+    if not table:
+        st.caption('Keine Ausschussmitgliedschaft in den Daten.')
     expand_default = len(table) <= 2
     for c in table:
         title = f"{c['committee']} — {c['role']}"
-        with st.expander(title, expanded=expand_default):
-            if c['rows']:
-                rows_df = pd.DataFrame(
-                    c['rows'],
-                    columns=['Subcommittee', 'Rolle', 'Sektoren', 'Industries'])
-                st.dataframe(
-                    rows_df, hide_index=True, width='stretch',
-                    column_config={
-                        'Subcommittee': st.column_config.TextColumn(
-                            'Subcommittee', width='medium'),
-                        'Rolle': st.column_config.TextColumn(
-                            'Rolle', width='small'),
-                        'Sektoren': st.column_config.TextColumn(
-                            'Sektoren', width='medium'),
-                        'Industries': st.column_config.TextColumn(
-                            'Industries', width='medium'),
-                    })
-            else:
-                st.caption('Keine Subcommittees / kein Sektor-Mapping.')
+        if nested:
+            st.markdown(f'**{title}**')
+            _render_committee_rows(c['rows'])
+        else:
+            with st.expander(title, expanded=expand_default):
+                _render_committee_rows(c['rows'])
+
+
+def _render_committee_rows(rows: list[dict]) -> None:
+    if not rows:
+        st.caption('Keine Subcommittees / kein Sektor-Mapping.')
+        return
+    st.dataframe(
+        pd.DataFrame(rows, columns=['Subcommittee', 'Rolle', 'Sektoren', 'Industries']),
+        hide_index=True, width='stretch',
+        column_config={
+            'Subcommittee': st.column_config.TextColumn(
+                'Subcommittee', width='medium'),
+            'Rolle': st.column_config.TextColumn('Rolle', width='small'),
+            'Sektoren': st.column_config.TextColumn('Sektoren', width='medium'),
+            'Industries': st.column_config.TextColumn(
+                'Industries', width='medium'),
+        })
 
 
 def _render_controls(member_df: pd.DataFrame, bench_df: pd.DataFrame):
@@ -726,9 +748,13 @@ def _render_top_trades(mview, terminal):
 # ---------------------------------------------------------------------------
 
 def render_member_detail(member_df: pd.DataFrame, bench_df: pd.DataFrame,
-                         name: str, chamber: str) -> None:
-    """Vollstaendige Detail-Ansicht eines Members (im Dialog ODER inline)."""
-    _render_header(member_df, name, chamber)
+                         name: str, chamber: str,
+                         reference_dir: Path | None = None) -> None:
+    """Vollstaendige Detail-Ansicht eines Members (im Dialog ODER inline).
+
+    ``reference_dir``: Ordner der Referenztabellen zum geladenen Datenstand
+    (Default: ``settings.REFERENCE_DATA_PATH``)."""
+    _render_header(member_df, name, chamber, reference_dir)
     st.divider()
     mview, bview, threshold = _render_controls(member_df, bench_df)
 

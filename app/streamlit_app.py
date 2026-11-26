@@ -57,6 +57,7 @@ TRADES_CSV = ROOT / 'data' / 'processed' / settings.TRADES_MASTER_COMPLETE_CSV
 # scripts/build_deploy_snapshot.py.
 DEPLOY_SNAPSHOT = ROOT / settings.DEPLOY_SNAPSHOT_PATH
 DEPLOY_MANIFEST = ROOT / settings.DEPLOY_SNAPSHOT_MANIFEST
+DEPLOY_REFERENCE = ROOT / settings.DEPLOY_REFERENCE_PATH
 
 TRADE_DISPLAY_COLS = [
     # Default-Spalten in Anzeige-Reihenfolge (links -> rechts); die Display-
@@ -225,11 +226,19 @@ def load_snapshot_manifest() -> dict:
 # ---------------------------------------------------------------------------
 
 @st.cache_data(show_spinner='Lade Trade-Daten …')
-def load_trades() -> pd.DataFrame:
+def load_trades() -> tuple[pd.DataFrame, Path]:
+    """Trades und der Ordner der Referenztabellen desselben Datenstands.
+
+    Beides folgt aus derselben Quellenwahl: zum Snapshot gehoeren die
+    Tabellen, die der Snapshot-Builder daneben gelegt hat, zum Master-CSV die
+    der Pipeline. Getrennt gewaehlt koennten aktuelle Trades neben den
+    Ausschuss-Industries eines alten Snapshots stehen.
+    """
     # Deployment-Snapshot hat Vorrang: gleiche Spalten, aber Parquet mit
     # category-Dtypes -> ~0,1 s statt ~5 s Ladezeit. Ohne Snapshot laeuft die
     # App unveraendert gegen den Master-CSV (lokaler Entwicklungsstand).
     if DEPLOY_SNAPSHOT.exists():
+        reference = DEPLOY_REFERENCE
         df = pd.read_parquet(DEPLOY_SNAPSHOT)
         # Lokal faellt sonst nicht auf, dass ein Pipeline-Lauf den Master
         # aktualisiert hat, der Snapshot aber alt ist.
@@ -241,6 +250,7 @@ def load_trades() -> pd.DataFrame:
                 'Neu bauen mit: python scripts/build_deploy_snapshot.py'
             )
     else:
+        reference = ROOT / settings.REFERENCE_DATA_PATH
         df = pd.read_csv(
             TRADES_CSV,
             parse_dates=list(settings.TRADES_DATE_COLUMNS),
@@ -260,15 +270,15 @@ def load_trades() -> pd.DataFrame:
     # price_as_of optional (erst seit Recent-Monitoring im Master) -> defensiv.
     if 'price_as_of' in df.columns:
         df['price_as_of'] = pd.to_datetime(df['price_as_of'], errors='coerce')
-    return df
+    return df, reference
 
 
 @st.cache_data(show_spinner=False)
 def _ar_sorted_dist(headline_h: int) -> np.ndarray:
     """Aufsteigend sortierte, NaN-freie Verteilung von ``signed_ar_{headline}d``
     ueber ALLE Trades (globale Grundgesamtheit fuer den Perzentil-Rang im
-    Trade-Detail). Einmal pro Session gecacht; leeres Array, falls die Stage
-    ``--stage_abnormal_returns`` noch nicht gelaufen ist."""
+    Trade-Detail). Einmal pro Session gecacht; leeres Array, falls der Master
+    noch keine ``signed_ar_*``-Spalten hat."""
     col = f'signed_ar_{int(headline_h)}d'
     if col not in trades.columns:
         return np.array([], dtype='float64')
@@ -647,7 +657,7 @@ if _manifest.get('data_as_of'):
         .replace(',', '.')
     )
 
-trades = load_trades()
+trades, reference_dir = load_trades()
 max_observed_score = int(trades['trade_score'].max()) if 'trade_score' in trades.columns else 200
 
 
@@ -1706,8 +1716,8 @@ def render_trade_detail(trade, trade_rows, key_prefix: str) -> None:
             headline_h = int(settings.AR_HEADLINE_HORIZON_DAYS)
         ar_head_col = f'signed_ar_{headline_h}d'
         if ar_head_col not in trade.index:
-            st.caption('Abnormal Return: noch nicht im Master — Stage '
-                       '`--stage_abnormal_returns` ausführen.')
+            st.caption('Abnormal Return: noch nicht im Master — Pipeline '
+                       '`python scripts/import_trades.py` ausführen.')
         else:
             st.subheader('Abnormal Return (marktbereinigt vs. SPY)',
                          help='Rendite abzueglich der Marktbewegung — zeigt, '
@@ -1947,7 +1957,8 @@ with tab_members:
                 weights_override=weights_override or None,
                 params_override=params_override or None,
             )
-        render_member_detail(m_df, base[~msel], m_name, m_chamber)
+        render_member_detail(m_df, base[~msel], m_name, m_chamber,
+                             reference_dir=reference_dir)
 
     _m_rows = []
     if member_sel_state and getattr(member_sel_state, 'selection', None):
@@ -1972,7 +1983,7 @@ with tab_detail:
     if not has_detail_data:
         st.info(
             'Keine Post-Trade-Performance-Daten vorhanden. '
-            'Bitte Pipeline-Stage `--stage_post_trade_returns` ausführen.'
+            'Bitte Pipeline `python scripts/import_trades.py` ausführen.'
         )
     elif detail_pool.empty:
         st.info('Keine Trades im aktuellen Filter.')
@@ -2061,7 +2072,7 @@ with tab_recent:
     if 'paper_return_pct' not in trades.columns:
         st.info(
             'Keine Recent-Monitoring-Daten im Master (`paper_return_pct` fehlt). '
-            'Bitte Pipeline-Stage `--stage_post_trade_performance` ausführen.'
+            'Bitte Pipeline `python scripts/import_trades.py` ausführen.'
         )
     else:
         _inherit = settings.RECENT_WINDOW_INHERIT_LABEL

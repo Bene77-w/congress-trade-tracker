@@ -345,7 +345,8 @@ def parse_insider_sectors(value: Any) -> list[dict]:
 def member_oversight_sectors(df_member: pd.DataFrame) -> set[str]:
     """Menge der Aufsichts-Sektoren des Members (aus ``Insider_Sectors``).
 
-    Insider_Sectors ist pro Member konstant; ``unique()`` ist nur defensiv.
+    Insider_Sectors haengt am Kongress des Trades; die Menge vereinigt die
+    Sektoren aller Kongresse, aus denen Trades vorliegen.
     """
     sectors: set[str] = set()
     if 'Insider_Sectors' not in df_member.columns:
@@ -363,7 +364,7 @@ def committee_oversight_rows(committees: list[dict], chamber: Any,
     """Tabellenzeilen je Committee fuer die Gremien-Ansicht (Phase G).
 
     Verknuepft die geparste F2-Struktur (:func:`parse_committees_full`) mit dem
-    Sektor/Industry-Lookup (``config.committee_mapping.CommitteeMapper``, als
+    Sektor/Industry-Lookup eines Kongresses (``ReferenceData.mapper``, als
     Argument injiziert -> pure + testbar mit Fake-Mapper).
 
     Pro Committee eine Liste von Zeilen-Dicts:
@@ -408,6 +409,38 @@ def committee_oversight_rows(committees: list[dict], chamber: Any,
 
         out.append({'committee': cname, 'role': crole, 'rows': rows})
     return out
+
+
+def committee_blocks(df_member: pd.DataFrame, chamber: Any,
+                     mapper_for: Any) -> tuple[list[dict], int]:
+    """Ausschussansicht je unterschiedlichem Stand von ``Member_Committees_Full``.
+
+    Ein Block je Stand, beschriftet mit den Kongressen (``Member_Congress``),
+    aus denen Trades mit diesem Stand vorliegen; neuester Kongress zuerst.
+    ``mapper_for(congress)`` liefert den Mapper eines Kongresses
+    (``ReferenceData.mapper``), je Block der des neuesten Kongresses.
+
+    Returns: ``([{'congresses': [119, 118], 'committees': [...]}, ...],
+    Anzahl Trades ohne Kongress)``; ``committees`` wie
+    :func:`committee_oversight_rows`.
+    """
+    if 'Member_Congress' not in df_member.columns:
+        return [], len(df_member)
+    congress = pd.to_numeric(df_member['Member_Congress'], errors='coerce')
+    texts = df_member.get('Member_Committees_Full',
+                          pd.Series('', index=df_member.index))
+    stands: dict[str, set[int]] = {}
+    for text, c in zip(texts[congress.notna()], congress[congress.notna()]):
+        stands.setdefault('' if pd.isna(text) else str(text), set()).add(int(c))
+    blocks = []
+    for text, congresses in stands.items():
+        order = sorted(congresses, reverse=True)
+        blocks.append({'congresses': order,
+                       'committees': committee_oversight_rows(
+                           parse_committees_full(text), chamber,
+                           mapper_for(order[0]))})
+    blocks.sort(key=lambda b: b['congresses'][0], reverse=True)
+    return blocks, int(congress.isna().sum())
 
 
 def _sectors_industries(entries: list[dict]) -> tuple[str, str]:

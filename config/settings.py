@@ -15,9 +15,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 # =============================================================================
 # GATE: ASSET CLASS
-# Nicht-Aktien (ETFs, Options, Bonds, Crypto etc.) aus nachfolgenden
-# Tags und Scoring ausschliessen. Das Gate setzt nur eine Flag-Spalte;
-# die Trades bleiben in trades_master.csv erhalten.
+# Nicht-Aktien (ETFs, Options, Bonds, Crypto etc.) hart ausschliessen: keine
+# Signale, kein Score, kein Input fuer Sequenz- und Schwarmsignale anderer
+# Trades. Die Trades bleiben mit asset_class_excluded=True im Master erhalten.
 # Code: gates/asset_class_gate.py (AssetClassGate)
 # In der User-Sprache: "Filter 0".
 # =============================================================================
@@ -104,12 +104,12 @@ CONTRARIAN_WINDOW_DAYS = 30
 
 # =============================================================================
 # SIGNAL: ACCUMULATIVE (Branch 1, Sequenz)
-# Derselbe Politiker handelt mehrfach dasselbe Asset (gleiche Richtung) im
-# Fenster.
+# Derselbe Politiker handelt dasselbe Asset (gleiche Richtung) an mehreren
+# Handelstagen im Fenster. Lots desselben Handelstags zaehlen als ein Ereignis.
 # Code: signals/accumulative_signal.py (AccumulativeSignal)
 # =============================================================================
 ACCUMULATIVE_WINDOW_DAYS = 30
-ACCUMULATIVE_MIN_COUNT   = 2            # Mindest-Trade-Zahl im Fenster fuer Trigger
+ACCUMULATIVE_MIN_COUNT   = 2            # Mindestzahl Handelstage im Fenster fuer Trigger
 
 # =============================================================================
 # SIGNAL: EXTREME REPORT (Branch 1)
@@ -292,34 +292,8 @@ SUSPICIOUS_ASSETS_FILE  = 'suspicious_assets.csv'    # View, Y-Tage-Verfall
 SUSPICIOUS_MEMBERS_FILE = 'suspicious_members.csv'   # View, dauerhaft
 
 # =============================================================================
-# SCRAPER-EINSTELLUNGEN
-# =============================================================================
-# Rate Limiting und Retry-Logik
-SCRAPER_RATE_LIMIT_SECONDS = 1.0    # Pause zwischen API-Calls
-SCRAPER_RETRY_ATTEMPTS = 3          # Wiederholungsversuche bei Fehler
-SCRAPER_RETRY_DELAY_SECONDS = 5.0   # Wartezeit zwischen Retries
-
-# Multi-Run Strategie (optional, für maximale Abdeckung)
-SENATE_SCRAPE_RUNS = 1                # Runs pro Aufruf (1 reicht – API ist deterministisch)
-SENATE_SCRAPE_RUN_PAUSE_SECONDS = 5   # Pause zwischen Runs (Sekunden)
-
-# PDF Extractor (Anthropic Vision)
-PDF_EXTRACTOR_MODEL = "claude-haiku-4-5-20251001"  # Haiku für Kosteneffizienz
-PDF_EXTRACTOR_PAGE_PAUSE_SECONDS = 2.0              # Pause zwischen Seiten-API-Calls
-PDF_EXTRACTOR_DPI = 300                              # Bildaufloesung (v2: 300, v1: 200)
-PDF_EXTRACTOR_AMOUNT_PIXEL_THRESHOLD = 50            # Min. dunkle Pixel fuer "x"-Erkennung
-PDF_EXTRACTOR_USE_GRID_DETECTION = True              # img2table Grid-Erkennung aktivieren
-PDF_EXTRACTOR_ROW_BATCH_SIZE = 5                     # Zeilen pro Vision API Batch
-
-# User-Agent für HTTP-Requests
-SCRAPER_USER_AGENT = 'CongressTracker/1.0 (Python)'
-
-# =============================================================================
 # IMPORT-EINSTELLUNGEN
 # =============================================================================
-# Fuzzy-Matching Schwellenwert (0-100)
-FUZZY_MATCH_THRESHOLD = 85
-
 # Hinweis: Die Definition "wann sind zwei Trade-Zeilen derselbe Trade?" liegt
 # kanonisch in utils/trade_id.py (TRADE_ID_SOURCE_COLUMNS -> trade_id-Hash).
 # Das frueher hier gepflegte DUPLICATE_CHECK_COLUMNS war eine veraltete Kopie
@@ -403,16 +377,8 @@ CANARY_MAX_RED_ROUNDS = 30        # max. ROT/Throttle-Runden (~60s) vor fail-clo
 # in trades_master.csv. Nur via bewusste Migration aendern.
 # =============================================================================
 TRADE_ID_HASH_LENGTH = 16              # Hex-Zeichen aus SHA256 (16 = 64 Bit Entropie)
-
-# Strategie fuer trade_id-Duplikate innerhalb eines Imports / einer Migration:
-#   'keep_all'  - alle Zeilen behalten, auch wenn trade_id identisch ist.
-#                 trade_id ist dann KEIN eindeutiger Schluessel mehr im Master.
-#   'last_wins' - bei gleicher trade_id nur die zuletzt erscheinende Zeile behalten
-#                 (frueheres Standardverhalten).
-# Delta-Imports zwischen Laeufen (detect_new_trades via isin) sind hiervon
-# unberuehrt — bereits im Master vorhandene trade_ids werden weiterhin nicht
-# erneut hinzugefuegt.
-DEDUP_STRATEGY = 'keep_all'
+# Der Import behaelt alle Zeilen, auch bei identischer trade_id; trade_id ist
+# damit KEIN eindeutiger Schluessel im Master.
 
 # =============================================================================
 # ALLGEMEINE EINSTELLUNGEN
@@ -430,16 +396,6 @@ LOGS_PATH = 'logs'
 # Mapping-Dateien (data/mappings/)
 HOUSE_COMMITTEES_FILE = 'house_member&(sub)committees.csv'
 SENATE_COMMITTEES_FILE = 'senate_member&(sub)committees.csv'
-NAME_ALIASES_FILE = 'name_aliases.csv'
-COMMITTEE_MAPPING_FILE = 'subcommittee_sector_industry_mapping.csv'
-
-# Aktive Mappingrevision des Committee Matchers V2 (Integrationsplan P2).
-# Benannt wird die Revision, nicht ihr Pfad: er wird unter
-# data/committee_matcher_v2/reviews/<id>/ abgeleitet. Verbraucher:
-# config/committee_revision.py.
-# 'map-fullrun-20261016': Codex-Fullrun ueber alle 225 Units (522 Zuordnungen),
-# abgenommen 2026-10-16. Vorher gebunden: Probeartefakt 'map-test-20260904'.
-COMMITTEE_MAPPING_REVIEW_ID = 'map-fullrun-20261016'
 
 # Referenzdaten je Kongress (scripts/build_reference_data.py): Abgeordnete,
 # Ausschüsse, Mitgliedschaften und Ausschuss -> Industries mit stabilen
@@ -465,14 +421,6 @@ REFERENCE_MEMBERS_SINCE = '2012-01-01'
 REFERENCE_TRADES_XLSX = 'data/raw/congress-trading-all.xlsx'
 REFERENCE_HOUSE_PDF_URL = 'https://clerk.house.gov/committee_info/scsoal.pdf'
 
-# Gilt die Zustaendigkeit des Ausschusses selbst auch fuer Mitglieder, die
-# zusaetzlich in einem seiner Unterausschuesse sitzen? Der Matcher bildet dazu
-# eine eigene Unit (committee_parent_core) aus dem Zustaendigkeitstext des
-# Ausschusses - sie ist kein Aggregat seiner Unterausschuesse. Ohne diese
-# Einstellung erreichten die 31 Parent-Core-Units nur die wenigen Mitglieder
-# ohne Unterausschuss-Sitz. Wirkt nur auf das V2-Mapping; die Legacy-CSV
-# aggregiert ihre Unterausschusszeilen ohnehin selbst.
-COMMITTEE_PARENT_CORE_ADDITIVE = True
 IGNORED_TICKERS_FILE = 'ignored_tickers.csv'
 
 # Trade-Daten
@@ -586,8 +534,9 @@ POST_TRADE_HORIZONS_DAYS = [30, 60, 90, 120, 180, 270, 365]
 EXIT_DETECTION_WINDOW_DAYS = None
 # yfinance-Daily-Cache (MultiIndex [ticker, date], Spalte close).
 POST_TRADE_PRICE_CACHE = 'data/cache/price_history.parquet'
-# Erstabruf-Fenster pro Ticker.
-POST_TRADE_PRICE_FETCH_YEARS = 5
+# yfinance-Abrufzeitraum pro Ticker ('max' = volle Historie; Trades reichen
+# bis 2012 zurueck, ein Fenster wie '5y' liesse aeltere Trades ohne Kurs).
+POST_TRADE_PRICE_FETCH_PERIOD = 'max'
 # Hoechster Abstand (Kalendertage) zwischen Zieldatum und dem naechsten Close,
 # den ein Preislookup noch als "Kurs an diesem Tag" gelten laesst. Deckt
 # Wochenenden und Feiertage ab. Liegt der naechste Close weiter weg - etwa weil
@@ -596,9 +545,9 @@ POST_TRADE_PRICE_FETCH_YEARS = 5
 # und damit 0 % Rendite. Gilt fuer post_return_*, signed_ar_*, Exit-Preise.
 POST_TRADE_MAX_PRICE_GAP_DAYS = 5
 # Refresh-Schwelle pro Ticker (max(date) < today - TTL -> Refresh).
-# 1 Tag: jeder orchestrierte --delta-Lauf erzwingt tagesaktuelle Preise (der
-# Lauf rechnet compute_post_trade_returns ueber den vollen kombinierten Master,
-# History + Delta). Trade-off: taeglicher Voll-Refetch aller faelligen Ticker.
+# 1 Tag: jeder orchestrierte Lauf erzwingt tagesaktuelle Preise (der Lauf
+# rechnet compute_post_trade_returns ueber den vollen Master).
+# Trade-off: taeglicher Voll-Refetch aller faelligen Ticker.
 POST_TRADE_PRICE_CACHE_TTL_DAYS = 1
 # Refetch-Fenster (Tage): begrenzt den TAEGLICHEN TTL-Refresh auf Ticker mit
 # mindestens einer Position, deren transaction_date >= heute - N liegt. Aeltere
@@ -753,7 +702,7 @@ SCORE_CORR_DEFAULT_HORIZON_DAYS = 180
 # Dublettenbehandlung vor der Analyse: 'trade_id' (je trade_id die frueheste
 # Offenlegung; erfasst auch Wiederholungen aus spaeteren Uploads/Amendments,
 # die sich nur in Metadaten unterscheiden), 'full_row' (nur identische Zeilen)
-# oder 'none'. Der Import behaelt Dubletten bewusst (DEDUP_STRATEGY='keep_all');
+# oder 'none'. Der Import behaelt Dubletten bewusst (Abschnitt TRADE-ID);
 # bereinigt wird nur in der Analyse.
 ANALYSIS_DEDUP = 'trade_id'
 # Exchange-Trades haben keine Richtung und fallen aus Rendite-Auswertungen.
@@ -944,6 +893,11 @@ DEPLOY_SNAPSHOT_MANIFEST = 'data/deploy/snapshot_manifest.json'
 # was der Server braucht. Die App nimmt diesen Pfad, wenn der Cache am
 # Normalort fehlt — ohne Kursdaten blieben alle Verlaufs-Charts leer.
 DEPLOY_PRICE_CACHE_PATH = 'data/deploy/price_history.parquet'
+
+# Referenztabellen (utils.reference_data.TABLES) im Deployment-Ordner, gelegt
+# vom Snapshot-Builder. Nur die App liest sie (statt REFERENCE_DATA_PATH),
+# wenn der Ordner existiert; die Pipeline liest immer REFERENCE_DATA_PATH.
+DEPLOY_REFERENCE_PATH = 'data/deploy/reference'
 
 # Spalten unterhalb dieser Zahl verschiedener Werte werden im Snapshot als
 # category gespeichert. 2000 deckt alle Member-/Committee-Attribute ab, laesst

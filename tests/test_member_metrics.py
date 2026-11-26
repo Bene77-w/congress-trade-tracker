@@ -24,6 +24,7 @@ from app.member_metrics import (  # noqa: E402
     abnormal_return_summary,
     ar_default_index,
     ar_percentile_rank,
+    committee_blocks,
     committee_full_mask,
     committee_oversight_rows,
     compute_member_trajectories,
@@ -456,7 +457,7 @@ def test_horizon_stats_n_and_aggregates():
 # ---------------------------------------------------------------------------
 
 class _FakeMapper:
-    """Minimal-Mapper im API-Kontrakt der echten CommitteeMapper."""
+    """Minimal-Mapper im API-Kontrakt von ``ReferenceMapper``."""
 
     def __init__(self, sub_map=None, comm_map=None):
         self.sub_map = sub_map or {}
@@ -517,6 +518,96 @@ def test_committee_oversight_rows_dedup_and_join():
     row = out[0]['rows'][0]
     assert row['Sektoren'] == 'Tech, Health'     # dedupliziert, stabil
     assert row['Industries'] == 'SW, HW'
+
+
+# ---------------------------------------------------------------------------
+# Ausschussansicht je Kongress (committee_blocks) — echte Referenztabellen
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope='module')
+def reference():
+    from utils.reference_data import ReferenceData
+    return ReferenceData()
+
+
+def _khanna_trades(reference):
+    """Ro Khanna: je ein Trade im 119. und 118. Kongress und einer davor."""
+    df = pd.DataFrame({
+        'bio_guide_id': ['K000389'] * 3,
+        'transaction_date': pd.to_datetime(['2025-06-01', '2023-06-01', '2017-05-01']),
+        'chamber': ['House'] * 3,
+    })
+    return reference.assign(df)
+
+
+def test_committee_blocks_one_block_for_118_and_119(reference):
+    """Der 118. liest die Daten des 119. -> ein Block mit beiden Kongressen,
+    Sektoren aus dem Mapper; der Trade von 2017 hat keine Ausschussdaten."""
+    df = _khanna_trades(reference)
+    # Master und Snapshot liefern die Kongressnummer als Zahl (NaN ohne Kongress)
+    df['Member_Congress'] = pd.to_numeric(df['Member_Congress'], errors='coerce')
+    blocks, without = committee_blocks(df, 'House', reference.mapper)
+    assert without == 1
+    assert [b['congresses'] for b in blocks] == [[119, 118]]
+    armed = next(c for c in blocks[0]['committees']
+                 if c['committee'] == 'Committee on Armed Services')
+    cyber = next(r for r in armed['rows'] if r['Subcommittee'].startswith('Cyber'))
+    assert cyber['Rolle'] == 'Ranking Member'
+    assert cyber['Sektoren']
+
+
+def test_committee_blocks_newest_first_with_mapper_of_its_congress(reference):
+    """Unterschiedliche Stände -> je ein Block, neuester oben, jeder mit dem
+    Mapper seines Kongresses."""
+    df = _khanna_trades(reference)
+    df.loc[1, 'Member_Committees_Full'] = (
+        'Committee on Natural Resources|:Water, Wildlife and Fisheries|')
+    asked = []
+
+    def mapper_for(congress):
+        asked.append(congress)
+        return reference.mapper(congress)
+
+    blocks, without = committee_blocks(df, 'House', mapper_for)
+    assert without == 1
+    assert [b['congresses'] for b in blocks] == [[119], [118]]
+    assert sorted(asked) == [118, 119]
+    older = blocks[1]['committees']
+    assert [c['committee'] for c in older] == ['Committee on Natural Resources']
+    water = next(r for r in older[0]['rows']
+                 if r['Subcommittee'] == 'Water, Wildlife and Fisheries')
+    assert 'Utilities' in water['Sektoren']
+
+
+def test_committee_blocks_without_congress_column():
+    """Master ohne Member_Congress (vor dem Vollauf): keine Blöcke, alle
+    Trades ohne Ausschussdaten."""
+    df = pd.DataFrame({'Member_Committees_Full': ['Foo|:Bar|', 'Foo|:Bar|']})
+    assert committee_blocks(df, 'House', lambda c: _FakeMapper()) == ([], 2)
+
+
+def _render_committees_app(congresses):
+    """AppTest-Skript: ``_render_committees`` mit Trades ohne Mitgliedschaft."""
+    import pandas as pd
+    from app import member_detail as md
+    md._render_committees(
+        pd.DataFrame({'Member_Congress': congresses,
+                      'Member_Committees_Full': [''] * len(congresses)}),
+        'House', None)
+
+
+def test_render_committees_labels_block_without_memberships():
+    """Haben die Trades im 118. und 119. keine Mitgliedschaft, zeigt die
+    Ansicht trotzdem den beschrifteten Block statt nur 'Keine Gremien-Daten.'."""
+    from streamlit.testing.v1 import AppTest
+    at = AppTest.from_function(_render_committees_app, args=([119, 118],),
+                               default_timeout=30)
+    at.run()
+    assert not at.exception
+    assert '**119. / 118. Kongress**' in [m.value for m in at.markdown]
+    captions = [c.value for c in at.caption]
+    assert 'Keine Ausschussmitgliedschaft in den Daten.' in captions
+    assert 'Keine Gremien-Daten.' not in captions
 
 
 # ---------------------------------------------------------------------------

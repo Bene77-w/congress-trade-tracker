@@ -127,6 +127,38 @@ class TestStockTickerEnriched:
         assert result[0].quote_type_yf == "EQUITY"
 
 
+class TestLookupUsesYfinanceSymbol:
+    """Sektor-Lookup fragt yfinance unter demselben Symbol wie die Kurse ab
+    (``utils.ticker_routing.yf_symbol``), klassifiziert ueber das echte
+    ``classify()``. yfinance kennt nur ``BRK-B``, nicht ``BRK.B``."""
+
+    @pytest.mark.parametrize("raw, expected_symbol", [
+        ("BRK.B", "BRK-B"),     # Share-Class Punkt -> yfinance-Bindestrich
+        ("BRK-B", "BRK-B"),     # Share-Class Bindestrich unveraendert
+        ("AAPL", "AAPL"),       # Stock unveraendert
+        ("SAP.DE", "SAP.DE"),   # Auslandssuffix unveraendert
+        ("ABC1", "ABC1"),       # Numeric-Suffix: nicht der Stamm ABC
+        ("GUA-CL", "GUA-CL"),   # Stock mit fremdem ticker_base: nicht GUA
+    ])
+    def test_lookup_symbol(self, enricher, raw, expected_symbol):
+        from utils.ticker_classifier import classify
+        norm = NormalizedTicker(
+            classification=classify(raw, ""),
+            figi=None, ticker_figi=None, asset_name_figi=None,
+            security_type_figi=None, market_sector_figi=None,
+            share_class_figi=None, normalization_errors=[],
+        )
+        info = {expected_symbol: {"sector": "S", "industry": "I",
+                                  "quoteType": "EQUITY"}}
+        with patch("utils.ticker_sector.yf.Ticker",
+                   side_effect=_yf_ticker_mock_factory(info)) as mock_yf:
+            result = enricher.enrich_batch([norm])
+
+        assert [c.args[0] for c in mock_yf.call_args_list] == [expected_symbol]
+        assert result[0].sector_yf == "S"
+        assert result[0].normalized.classification.raw_ticker == raw
+
+
 class TestSkipTypesNotCalled:
     def test_skip_types_not_called(self, enricher, make_normalized):
         """WARRANT/OPTION/BOND/CRYPTO → kein yfinance-Call."""

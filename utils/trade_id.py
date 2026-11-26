@@ -15,8 +15,7 @@ WICHTIG:
   NACH normalize_dates(), d.h. transaction_date ist dort ein Timestamp
   (str -> 'YYYY-MM-DD 00:00:00'). Wer den Master aus der CSV lädt (dort steht
   'YYYY-MM-DD') und hasht, MUSS die Datums-Spalten vorher via pd.to_datetime
-  konvertieren, sonst entstehen inkompatible IDs (s. migrate_add_trade_ids.py,
-  diagnose_master_quiver_delta.py).
+  konvertieren, sonst entstehen inkompatible IDs.
 """
 
 import hashlib
@@ -82,39 +81,3 @@ def compute_trade_ids(df: pd.DataFrame) -> pd.Series:
         return pd.Series([], dtype='object')
     return df.apply(compute_trade_id, axis=1)
 
-
-def detect_new_trades(input_df: pd.DataFrame,
-                      master_df: pd.DataFrame) -> pd.DataFrame:
-    """Delta-Erkennung über trade_id — Multiset-bewusst.
-
-    Liefert die Input-Zeilen, die im Master noch nicht oder noch nicht oft
-    genug vorhanden sind. Hat ein trade_id im Master m Kopien und im Input
-    i Kopien, werden die (i - m) überzähligen Input-Zeilen als neu gemeldet
-    (Multiset-Differenz Input − Master). Pro trade_id gelten die ersten m
-    Vorkommen (in Input-Reihenfolge) als bereits im Master abgebildet; die
-    späteren werden behalten.
-
-    Das respektiert DEDUP_STRATEGY='keep_all': zusätzliche echte Doppel-
-    Trades gehen nicht mehr verloren. Frühere reine Set-Membership-Logik
-    (`~input_df['trade_id'].isin(set(master))`) verwarf jede weitere Kopie
-    eines bereits vorhandenen trade_id fälschlich als Duplikat. Für den
-    Normalfall (komplett neue trade_ids bzw. unveränderte) bleibt das
-    Verhalten identisch.
-
-    Args:
-        input_df: Neue Trades (müssen trade_id-Spalte haben)
-        master_df: Bestehende trades_master_complete.csv
-
-    Returns:
-        DataFrame mit den (multiset-)neuen Zeilen aus input_df.
-    """
-    if master_df is None or master_df.empty or 'trade_id' not in master_df.columns:
-        return input_df.copy()
-    if input_df.empty or 'trade_id' not in input_df.columns:
-        return input_df.copy()
-    master_counts = master_df['trade_id'].value_counts()
-    # 0-basierter laufender Index je trade_id in Input-Reihenfolge.
-    occ = input_df.groupby('trade_id', sort=False).cumcount().to_numpy()
-    already = input_df['trade_id'].map(master_counts).fillna(0).astype('int64').to_numpy()
-    keep = occ >= already
-    return input_df[keep].copy()

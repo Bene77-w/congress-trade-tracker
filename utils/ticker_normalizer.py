@@ -804,7 +804,7 @@ class TickerNormalizer:
         """OpenFIGI-Bloomberg-Composite-Format.
 
         - Preferred '<root> PR<series>' → '<root>/P<series>' (WRB PRG → WRB/PG)
-        - Class Share BRK-B → BRK.B
+        - Class Share BRK-B → BRK/B (BRK.B liefert bei OpenFIGI keinen Treffer)
         - sonst unverändert
         """
         if " PR" in ticker:
@@ -812,7 +812,7 @@ class TickerNormalizer:
             return f"{root}/P{series}" if series else f"{root}/P"
         parts = ticker.split("-")
         if len(parts) == 2 and len(parts[1]) == 1 and parts[1].isalpha():
-            return f"{parts[0]}.{parts[1]}"
+            return f"{parts[0]}/{parts[1]}"
         return ticker
 
     def _parse_mapping_response(self, resp_item) -> Optional[dict]:
@@ -968,8 +968,8 @@ class TickerNormalizer:
             """, (
                 key,
                 # Echter Klassifikationstyp (z. B. 'stock', 'unit') — vorher
-                # wurde hier faelschlich die source dupliziert, wodurch
-                # report_ticker_types eine falsche Typ-Statistik zeigte.
+                # wurde hier faelschlich die source dupliziert, wodurch die
+                # Typ-Statistik falsch war.
                 classification_type or "unknown",
                 payload.get("figi"),
                 payload.get("ticker_figi"),
@@ -1077,11 +1077,14 @@ class TickerNormalizer:
         payload: dict,
         errors: list[str],
     ) -> NormalizedTicker:
-        """Wendet Type-Korrektur an: STOCK + securityType2='ETP' → ETF."""
-        cls = classification
-        raw_st2 = payload.get("raw_security_type2") or payload.get("security_type_figi")
+        """Wendet Type-Korrektur an: STOCK + securityType='ETP' → ETF.
 
-        if cls.ticker_type == TickerType.STOCK and raw_st2 == "ETP":
+        OpenFIGI meldet Fonds als securityType='ETP' (securityType2 ist dort
+        'Mutual Fund'), s. tests/fixtures/openfigi/mapping_responses.json.
+        """
+        cls = classification
+
+        if cls.ticker_type == TickerType.STOCK and payload.get("security_type_figi") == "ETP":
             new_reason = cls.classification_reason + "+openfigi_corrected"
             cls = dataclasses.replace(
                 cls,
@@ -1089,7 +1092,7 @@ class TickerNormalizer:
                 classification_reason=new_reason,
             )
             print(f"      [i] {classification.raw_ticker}: Type-Korrektur "
-                  f"STOCK → ETF (securityType2=ETP)")
+                  f"STOCK → ETF (securityType=ETP)")
 
         return NormalizedTicker(
             classification=cls,

@@ -424,3 +424,35 @@ class TestIdempotency:
         ids1 = sorted(e['signal_event_id'] for e in events1)
         ids2 = sorted(e['signal_event_id'] for e in events2)
         assert ids1 == ids2
+
+
+# ===========================================================================
+# Importer: Schwarm-Auswertung im Vollauf
+# ===========================================================================
+
+class TestImporterSwarmFullRun:
+    def test_beide_trades_markiert_und_in_event_stage(self, tmp_path, monkeypatch):
+        """Vollauf: beide Trades eines Schwarms bekommen swarm_buy, und die
+        Event-Stage enthaelt Events fuer beide."""
+        import scripts.import_trades as it
+        from scripts.import_trades import TradeImporter
+
+        swarm_events = tmp_path / 'swarm_events_stage.csv'
+        monkeypatch.setattr(it, 'SWARM_EVENTS_STAGE_PATH', str(swarm_events))
+        monkeypatch.setattr(TradeImporter, '_ensure_directories', lambda self: None)
+
+        trades = pd.DataFrame([
+            make_swarm_trade('A', 'AAPL', 'buy', date(2026, 3, 1),
+                             issuer_group_key='CIK:APPLE', trade_id='t_A'),
+            make_swarm_trade('B', 'AAPL', 'buy', date(2026, 3, 3),
+                             issuer_group_key='CIK:APPLE', trade_id='t_B'),
+        ])
+
+        out = TradeImporter()._apply_swarm_signals(trades)
+
+        triggered = {row['trade_id']: str(row['signals_triggered']).split(';')
+                     for _, row in out.iterrows()}
+        assert 'swarm_buy' in triggered['t_A']
+        assert 'swarm_buy' in triggered['t_B']
+        events = pd.read_csv(swarm_events)
+        assert set(events['trade_id'].astype(str)) == {'t_A', 't_B'}

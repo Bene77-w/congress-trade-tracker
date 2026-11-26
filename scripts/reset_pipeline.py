@@ -54,16 +54,10 @@ ARCHIVE_RESET_ROOT = BASE_DIR / "archive" / "reset_pipeline"
 TARGETS: dict[str, list[Path | str]] = {
     "logs": [
         str(LOGS / "*.log"),
-        LOGS / "debug_tesseract",
     ],
     "stage-files": [
         str(DATA_PROCESSED / "*_stage.csv"),
-        DATA_PROCESSED / "pipeline_state.json",
         DATA_PROCESSED / "duplicate_inspection_sample.csv",
-        # Resume-Checkpoint des Member-Enrichments: ein stale Checkpoint nach
-        # einem Abbruch laesst die Pipeline einen Teil-Lauf fortsetzen statt neu
-        # zu starten -> fuer einen frischen Rebuild zwingend entfernen.
-        DATA_PROCESSED / ".enrichment_checkpoint.pkl",
     ],
     "cache_reset": [
         # Gesamtes Cache-Verzeichnis (Wildcard, zukunftssicher): deckt
@@ -82,12 +76,11 @@ TARGETS: dict[str, list[Path | str]] = {
         DATA_PROCESSED / "unmatched_names.csv",
         DATA_PROCESSED / "unmatched_preferred.csv",
         DATA_PROCESSED / "delisted_trades.csv",
-        DATA_PROCESSED / "ticker_liste_index.csv",
         # Output von scripts/analyse_event_study.py — ohne Reset ueberlebt er
         # jeden --rebuild als Stale-Artefakt.
         DATA_PROCESSED / "ar_outliers.csv",
         # Suspicious-Persistenz: suspicious_events.csv ist append-only und wird
-        # von import_trades.py NIE getruncatet (full+delta nur append+dedup) ->
+        # von import_trades.py NIE getruncatet (nur append+dedup) ->
         # fuer einen sauberen Rebuild zwingend zuruecksetzen. Die beiden Views
         # werden daraus materialisiert und der Konsistenz halber mitentfernt.
         DATA_PROCESSED / settings.SUSPICIOUS_EVENTS_FILE,
@@ -114,16 +107,15 @@ TARGETS: dict[str, list[Path | str]] = {
 PROTECTED_FILES: frozenset[Path] = frozenset(
     p.resolve()
     for p in [
-        DATA_MAPPINGS / settings.NAME_ALIASES_FILE,
         DATA_MAPPINGS / settings.HOUSE_COMMITTEES_FILE,
         DATA_MAPPINGS / settings.SENATE_COMMITTEES_FILE,
-        DATA_MAPPINGS / settings.COMMITTEE_MAPPING_FILE,
+        # Legacy-Mapping: geschuetzte Baseline des Committee Matchers
+        DATA_MAPPINGS / "subcommittee_sector_industry_mapping.csv",
         DATA_MAPPINGS / "subcommittee_region_mapping.csv",
         DATA_MAPPINGS / "subcommittee_sector_industry_mapping.xlsx",
         DATA_MAPPINGS / "yf_sectors_with_industries.json",
         DATA_MAPPINGS / "yf_sectors_with_industries.xlsx",
         DATA_MAPPINGS / "legislative_subject_mapping_complete.csv",
-        LOGS / "house_pdf_extractor_done.csv",
         # Verzeichnis-Platzhalter: darf von der data/cache/*-Wildcard nicht
         # mitgeloescht werden (sonst verschwindet das versionierte Cache-Dir).
         DATA_CACHE / ".gitkeep",
@@ -359,9 +351,9 @@ def main() -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--logs", action="store_true",
-                        help="logs/*.log + logs/debug_tesseract/")
+                        help="logs/*.log")
     parser.add_argument("--stage-files", action="store_true",
-                        help="*_stage.csv, pipeline_state.json, duplicate_inspection_sample.csv, .enrichment_checkpoint.pkl")
+                        help="*_stage.csv, duplicate_inspection_sample.csv")
     parser.add_argument("--cache_reset", action="store_true",
                         help="gesamtes data/cache/* (OpenFIGI-DB, EDGAR-CIK, Post-Trade-Preise) + ticker_industry/0_cache.json")
     parser.add_argument("--processed", action="store_true",

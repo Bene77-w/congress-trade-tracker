@@ -7,6 +7,8 @@ eingefrorenen Datenstand fuer die oeffentliche Streamlit-Instanz:
   - ``data/deploy/trades_snapshot.parquet``   (Daten, gleiche Spalten wie der Master)
   - ``data/deploy/price_history.parquet``     (Kurs-Cache — ohne ihn bleiben alle
     Kursverlauf-Charts im Deployment leer)
+  - ``data/deploy/reference/``                (Referenztabellen, die die App liest —
+    ohne sie bleiben die Gremien-Tabellen im Member-Detail ohne Sektoren)
   - ``data/deploy/snapshot_manifest.json``    (Datenstand + Herkunft, fuer die UI)
 
 Warum ueberhaupt ein Snapshot? Der Master-CSV ist ~645 MB gross und braucht
@@ -39,6 +41,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
 
 from config import settings  # noqa: E402
+from utils.reference_data import TABLES as REFERENCE_TABLES  # noqa: E402
 
 # Dtype-Vertrag: dieselben Listen, die auch der CSV-Loader des Dashboards
 # verwendet (config/settings.py). So liest die App aus dem Snapshot garantiert
@@ -67,13 +70,26 @@ def _categorical_columns(df: pd.DataFrame) -> list[str]:
     return out
 
 
+def _copy_reference(reference_dir: Path, target: Path) -> int:
+    """Kopiert die von ``ReferenceData`` gelesenen Tabellen nach ``target``."""
+    shutil.rmtree(target, ignore_errors=True)
+    target.mkdir(parents=True)
+    for name in REFERENCE_TABLES:
+        shutil.copy2(reference_dir / f'{name}.csv', target / f'{name}.csv')
+    return len(REFERENCE_TABLES)
+
+
 def build_snapshot(source: Path, target: Path, manifest: Path,
-                   price_cache: Path | None = None) -> dict:
+                   price_cache: Path | None = None,
+                   reference_dir: Path | None = None) -> dict:
     """Liest den Master, schreibt Snapshot + Manifest, liefert die Kennzahlen.
 
     ``price_cache``: Kurs-Cache, der neben den Snapshot gelegt wird. Das
     Dashboard zeichnet daraus die Kursverlaeufe in den Detail-Popups; fehlt
     er, zeigen die Popups nur den Hinweis 'keine Kursdaten'.
+
+    ``reference_dir``: Referenztabellen (``settings.REFERENCE_DATA_PATH``),
+    die als Ordner ``reference/`` neben den Snapshot gelegt werden.
     """
     if not source.exists():
         raise FileNotFoundError(f'Master-CSV nicht gefunden: {source}')
@@ -94,17 +110,6 @@ def build_snapshot(source: Path, target: Path, manifest: Path,
         df[col] = df[col].astype('category')
     mem_after = int(df.memory_usage(deep=True).sum())
 
-    # Erst in eine temporaere Datei, dann umbenennen: ein abgebrochener Lauf
-    # hinterlaesst sonst ein halbes Parquet, das der Loader dem Master-CSV
-    # trotzdem vorziehen wuerde.
-    target.parent.mkdir(parents=True, exist_ok=True)
-    tmp_target = target.with_suffix(target.suffix + '.tmp')
-    try:
-        df.to_parquet(tmp_target, compression='zstd', index=False)
-        tmp_target.replace(target)
-    finally:
-        tmp_target.unlink(missing_ok=True)
-
     # Datenstand = juengstes Disclosure-Datum; das ist der Anker, an dem auch
     # die Zeitfenster des Dashboards haengen.
     data_as_of = None
@@ -115,30 +120,54 @@ def build_snapshot(source: Path, target: Path, manifest: Path,
 
     # Kurs-Cache neben den Snapshot legen, damit ein einziger Ordner
     # (data/deploy/) alles enthaelt, was der Server braucht.
+    target.parent.mkdir(parents=True, exist_ok=True)
     price_bytes = None
     if price_cache is not None and price_cache.is_file():
         price_target = target.parent / price_cache.name
         shutil.copy2(price_cache, price_target)
         price_bytes = int(price_target.stat().st_size)
 
-    info = {
-        'built_at': datetime.now(timezone.utc).isoformat(timespec='seconds'),
-        'source_file': source.name,
-        'data_as_of': data_as_of,
-        'rows': int(len(df)),
-        'columns': int(len(df.columns)),
-        'source_bytes': int(source.stat().st_size),
-        'snapshot_bytes': int(target.stat().st_size),
-        'memory_bytes_plain': mem_before,
-        'memory_bytes_snapshot': mem_after,
-        'price_cache_bytes': price_bytes,
-    }
+    # Snapshot, Referenztabellen und Manifest erst vollstaendig als
+    # temporaere Dateien vorbereiten, dann gemeinsam umbenennen: ein
+    # abgebrochener Lauf hinterlaesst sonst ein halbes Parquet oder neue
+    # Trades neben den Referenztabellen und dem Manifest des alten Stands.
     manifest.parent.mkdir(parents=True, exist_ok=True)
+    reference_target = target.parent / Path(settings.DEPLOY_REFERENCE_PATH).name
+    tmp_target = target.with_suffix(target.suffix + '.tmp')
+    tmp_reference = reference_target.with_name(reference_target.name + '.tmp')
     tmp_manifest = manifest.with_suffix(manifest.suffix + '.tmp')
-    tmp_manifest.write_text(
-        json.dumps(info, indent=2, sort_keys=True), encoding='utf-8'
-    )
-    tmp_manifest.replace(manifest)
+    try:
+        df.to_parquet(tmp_target, compression='zstd', index=False)
+        reference_tables = None
+        if reference_dir is not None:
+            reference_tables = _copy_reference(reference_dir, tmp_reference)
+
+        info = {
+            'built_at': datetime.now(timezone.utc).isoformat(timespec='seconds'),
+            'source_file': source.name,
+            'data_as_of': data_as_of,
+            'rows': int(len(df)),
+            'columns': int(len(df.columns)),
+            'source_bytes': int(source.stat().st_size),
+            'snapshot_bytes': int(tmp_target.stat().st_size),
+            'memory_bytes_plain': mem_before,
+            'memory_bytes_snapshot': mem_after,
+            'price_cache_bytes': price_bytes,
+            'reference_tables': reference_tables,
+        }
+        tmp_manifest.write_text(
+            json.dumps(info, indent=2, sort_keys=True), encoding='utf-8'
+        )
+
+        tmp_target.replace(target)
+        if reference_tables is not None:
+            shutil.rmtree(reference_target, ignore_errors=True)
+            tmp_reference.rename(reference_target)
+        tmp_manifest.replace(manifest)
+    finally:
+        tmp_target.unlink(missing_ok=True)
+        shutil.rmtree(tmp_reference, ignore_errors=True)
+        tmp_manifest.unlink(missing_ok=True)
     return info
 
 
@@ -166,6 +195,11 @@ def main() -> None:
         help=f'Kurs-Cache (Default: {settings.POST_TRADE_PRICE_CACHE})',
     )
     parser.add_argument(
+        '--reference', type=Path,
+        default=BASE_DIR / settings.REFERENCE_DATA_PATH,
+        help=f'Referenztabellen (Default: {settings.REFERENCE_DATA_PATH})',
+    )
+    parser.add_argument(
         '--skip-price-cache', action='store_true',
         help='Kurs-Cache nicht mitkopieren (Kursverlaeufe bleiben dann leer)',
     )
@@ -175,6 +209,7 @@ def main() -> None:
         info = build_snapshot(
             args.source, args.target, args.manifest,
             price_cache=None if args.skip_price_cache else args.price_cache,
+            reference_dir=args.reference,
         )
     except FileNotFoundError as exc:
         raise SystemExit(str(exc)) from exc
@@ -191,6 +226,7 @@ def main() -> None:
     else:
         print('  Kurs-Cache   : NICHT mitkopiert — Kursverlauf-Charts bleiben '
               'im Deployment leer')
+    print(f"  Referenz     : {info['reference_tables']} Tabellen mitkopiert")
 
 
 if __name__ == '__main__':
