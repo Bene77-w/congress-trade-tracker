@@ -2,6 +2,10 @@
 
 Python + Streamlit zur Analyse von Aktiengeschäften von US-Kongressmitgliedern.
 
+## Status: eingefroren
+
+Seit 2026-11-25 entsteht der Neubau in `Congresstracker_v2` (`/home/bene/Nextcloud/Projekte/bmb_trdprg/Congresstracker_v2`, GitHub `Bene77-w/Congresstracker_v2`). Dieses Repo ist nur noch Nachschlagewerk: keine neuen Features, keine Umbauten. Analysen für die Übernahme stehen im Neubau unter `docs/uebernahme/`.
+
 ## Verbindliche Regeln
 
 - Filterparameter; vollständig in `config/settings.py` konfigurierbar
