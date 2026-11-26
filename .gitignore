@@ -95,3 +95,6 @@ data/deploy/
 
 # Referenzdaten: nicht eingecheckte Quellstände (scripts/build_reference_data.py)
 data/cache/reference/
+
+# Lokale Agent-Einstellungen (persoenlich, nicht ins Repo)
+.claude/settings.local.json
