@@ -1,15 +1,10 @@
-# Committee Matcher V2 – Kurzbedienung
+# Committee Matcher V2 Quick Start
 
-Dieses Paket ist der **api_mapper**: er mappt über OpenRouter und rechnet je
-Aufruf ab. Den zweiten Weg über die CLI-Abos stellt der **submapper**
-(`submapper.py`, eigene Anleitung). Benennung und Abgrenzung:
-`organisation/CLI_Bedienungsanleitung.md`, Abschnitt 15.
+This package is the **api_mapper**. It maps committee jurisdictions to industries through OpenRouter, which charges per request. The **submapper** (`submapper.py`) provides a separate workflow using CLI subscriptions. See section 15 of `organisation/CLI_Bedienungsanleitung.md` for the distinction.
 
-Der Workflow wird über die CLI gesteuert. Der Mappingweg ist vollständig:
-Inputprüfung, Roster-Coverage, Taxonomie-Snapshots, Providerpreflight,
-Mappinglauf und manueller XLSX-Roundtrip.
+The CLI covers input validation, roster coverage, taxonomy snapshots, provider checks, mapping runs, and manual review in XLSX.
 
-## Schnellstart
+## Validate inputs
 
 ```bash
 venv/bin/python -m committee_matcher --help
@@ -17,95 +12,73 @@ venv/bin/python -m committee_matcher input validate
 venv/bin/python -m committee_matcher roster validate
 ```
 
-Exit-Code `2` bedeutet erfolgreicher Lauf mit Warnungen; Details stehen im
-Terminalbericht und unter
-`data/committee_matcher_v2/reports/<kommando>/errors.json`.
+Exit code `2` means the command completed with warnings. See the terminal report and `data/committee_matcher_v2/reports/<command>/errors.json` for details.
 
-## Provider prüfen
+## Check the provider
 
 ```bash
 venv/bin/python -m committee_matcher provider check
 venv/bin/python -m committee_matcher provider smoke
 ```
 
-`provider check` fragt den Endpointkatalog des konfigurierten Modells ab und
-prüft ihn gegen die Providervorgaben: Structured Output, Datenschutzpolitik,
-Quantisierung, Preisgrenze, Contextfenster. **ZDR weist der Katalog nicht aus
-und wird deshalb nicht geprüft** — ein grüner Preflight ist kein ZDR-Nachweis.
-Bleibt kein Endpoint übrig, endet der Lauf mit Exit-Code `4` und nennt die
-zulässigen Stellschrauben: Modellwechsel oder `COMMITTEE_MATCHER_ZDR = False`.
+`provider check` checks the configured model's endpoint catalog for structured output support, privacy policy, quantization, price ceiling, and context window. The catalog omits zero data retention (ZDR) status, so this check cannot verify it. If no endpoint qualifies, the command exits with code `4` and lists the available options. You can change the model or set `COMMITTEE_MATCHER_ZDR = False`.
 
-`provider smoke` ist der einzige kostenpflichtige Prüfbefehl (< 0,001 USD). Er
-führt einen echten Call gegen das erzwungene Ausgabeschema aus und schlägt
-fehl, wenn das Modell Structured Output nur nominell unterstützt.
+`provider smoke` is the only check that makes a paid request (under USD 0.001). It enforces the output schema and fails if the model advertises structured output support but fails to deliver it.
 
-## Taxonomie abrufen und freigeben
+## Build and approve a taxonomy snapshot
 
 ```bash
 RUN_ID=run-2026-08-20
 venv/bin/python -m committee_matcher snapshot build --run-id "$RUN_ID"
 ```
 
-Der erste vollständige Snapshot endet erwartungsgemäß mit Exit-Code `5`
-(`awaiting_taxonomy_approval`). Vor der Freigabe prüfen:
+The first complete snapshot exits with code `5` (`awaiting_taxonomy_approval`). Review both files before approving it.
 
 ```text
 data/committee_matcher_v2/runs/<run_id>/taxonomy_snapshot.json
 data/committee_matcher_v2/runs/<run_id>/taxonomy_catalog.md
 ```
 
-Danach freigeben:
-
 ```bash
 venv/bin/python -m committee_matcher snapshot approve --run-id "$RUN_ID"
 ```
 
-Abgebrochenen Abruf aus dem Checkpoint fortsetzen:
+To resume an interrupted fetch from its checkpoint, run:
 
 ```bash
 venv/bin/python -m committee_matcher snapshot resume --run-id "$RUN_ID"
 ```
 
-## Mappen
+## Run the mapping
 
 ```bash
 venv/bin/python -m committee_matcher run plan    --run-id "$RUN_ID" --all-units
 venv/bin/python -m committee_matcher run execute --run-id "$RUN_ID"
 ```
 
-`run plan` ist providerfrei und nennt den Worst Case in USD; erst `run execute`
-sendet kostenpflichtige Calls. Statt `--all-units` schneiden `--chamber`,
-`--committee` und `--unit-id` die Zielmenge zu; beides zugleich ist ein
-Bedienfehler. Ohne Zielangabe läuft nichts.
+`run plan` estimates the maximum cost in USD without contacting the provider. `run execute` makes paid requests. Choose either `--all-units` or a subset using `--chamber`, `--committee`, and `--unit-id`. The CLI requires a target selection and rejects combining filters with `--all-units`.
 
-Bleibt ein Call mit offenem Ausgang, klärt ihn
-`run reconcile --run-id "$RUN_ID"` über die Generation-ID nach.
+If a request has an unresolved outcome, `run reconcile --run-id "$RUN_ID"` looks it up by generation ID.
 
-## Review-Roundtrip
+## Review assignments in Excel
 
 ```bash
 venv/bin/python -m committee_matcher review export --run-id "$RUN_ID"
 venv/bin/python -m committee_matcher review import --run-id "$RUN_ID"
 ```
 
-Der Import schreibt `reviewed_assignments.csv` — die Datei, die
-`scripts/import_trades.py` liest. Der produktive Mapping-Master wird durch
-diesen Workflow nicht verändert.
+Import writes `reviewed_assignments.csv` for `scripts/import_trades.py`. The production mapping master remains separate from this review workflow.
 
-## Nicht gebaut
+## Production mapping and evaluation
 
-Evaluationslauf (`evaluate run`), Holdout-Qualifikation (`qualify holdout`),
-eine eigene `full-run`-Familie und der Auswertungsbericht (`report`) entfallen.
-Begründung und Ersatzwege: `AUFGEGEBENER_PLANTEIL.md`.
+The production mapping of all 225 Units uses CLI subscriptions. See `SUBMAPPER_ANLEITUNG.md` and `organisation/committee_matcher_fullrun_plan.md`.
 
-Das produktive Mapping aller 225 Units läuft über die CLI-Abos; siehe
-`SUBMAPPER_ANLEITUNG.md` und `organisation/committee_matcher_fullrun_plan.md`.
+See `AUFGEGEBENER_PLANTEIL.md` for the decision and alternatives for evaluation (`evaluate run`), holdout qualification (`qualify holdout`), a dedicated `full-run` command family, and reporting (`report`).
 
-## Konfiguration und Referenzen
+## Configuration and references
 
-- Einstellungen: `config/settings.py`, Präfix `COMMITTEE_MATCHER_*`
-- Vollständige CLI: `organisation/CLI_Bedienungsanleitung.md`, Abschnitt 15
-- submapper (Gold-Set und Fullrun): `SUBMAPPER_ANLEITUNG.md`
-- Entscheidungen: `organisation/committee_matcher_planung_entscheidungen_codex.md`
-- Phasen und Gates: `organisation/committee_matcher_v2_implementierungsplan.md`
-- Aufgegebener Planteil: `AUFGEGEBENER_PLANTEIL.md`
+- Settings with the `COMMITTEE_MATCHER_*` prefix are in `config/settings.py`.
+- Section 15 of `organisation/CLI_Bedienungsanleitung.md` documents the full CLI.
+- `SUBMAPPER_ANLEITUNG.md` covers the submapper gold set and full run.
+- `organisation/committee_matcher_planung_entscheidungen_codex.md` records decisions.
+- `organisation/committee_matcher_v2_implementierungsplan.md` records phases and approval gates.
